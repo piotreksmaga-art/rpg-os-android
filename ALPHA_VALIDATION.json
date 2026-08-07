@@ -1,0 +1,11 @@
+{
+  "alpha_branding": true,
+  "alpha_version": true,
+  "anticrash": true,
+  "autorepair": true,
+  "devpanel": true,
+  "updater_local": true,
+  "updater_online": true,
+  "fileprovider": true,
+  "single_alpha_workflow": true
+}

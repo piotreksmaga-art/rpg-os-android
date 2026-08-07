@@ -1,10 +1,5 @@
 [
   {
-    "path": ".github/workflows/build-apk.yml",
-    "size": 939,
-    "sha256": "ced671005d5e80cb6215e85d683963c6b5b37834d1c07eb4ab3493a175df8744"
-  },
-  {
     "path": "AUTOSAVE_SPEC.md",
     "size": 295,
     "sha256": "488e8e54f775ac2b1b4ab92cc9ec66a42d18ec82acb9f21462174e647dd20d40"
@@ -20,19 +15,9 @@
     "sha256": "17592cec96c608cb717b86248bea0c60319bef92a218f7bd413f24010cda71c0"
   },
   {
-    "path": "BUILD_APK.md",
-    "size": 1221,
-    "sha256": "0229942986eeed70f14ac515cdb2160239f15b99cb5eacdd0343693c474ae28c"
-  },
-  {
     "path": "CONTEXT_BUILDER_SPEC.md",
     "size": 448,
     "sha256": "c3215ea061bb02a5d8d59eca5b314661e337e99f58950a43f35e839e9f75a384"
-  },
-  {
-    "path": "FINAL_MANIFEST_SHA256.json",
-    "size": 12995,
-    "sha256": "b453fa73d3396bcdf29c12a6ae8c320e78a658b176aeb2b4c9741ae79da7e6aa"
   },
   {
     "path": "GM_DIAGNOSTICS_V1.md",
@@ -66,8 +51,8 @@
   },
   {
     "path": "README.md",
-    "size": 910,
-    "sha256": "8dad7cac2d258ca03679ce6fe60747de3ec256ad9943bf47d6f5c981f0a6fe4e"
+    "size": 730,
+    "sha256": "cadd09bda0213c35c3c3428f553e0761a0e65bbfe894e0c4401133f88c5376fa"
   },
   {
     "path": "RELEASE_NOTES_1_0.md",
@@ -93,11 +78,6 @@
     "path": "STATIC_AUDIT.json",
     "size": 40,
     "sha256": "886f30bb802acc50cf40a4a7530b7b88808913367562a432cf76c5583646b9bd"
-  },
-  {
-    "path": "TEST_BUILD_READINESS.json",
-    "size": 716,
-    "sha256": "36483c74511238127dd375a228d74b229849e51f410a482b4eb9ea63409e7959"
   },
   {
     "path": "UI_V0_4.md",
@@ -156,8 +136,8 @@
   },
   {
     "path": "app/src/main/java/com/rpgos/app/BackendClient.kt",
-    "size": 1870,
-    "sha256": "606ccb87069f225caa494acd2b7efe5cc2a08e9189461e7336ecfc12749f6acc"
+    "size": 1980,
+    "sha256": "10b4b627a6c378d668a8a9d8ce3935dd2f4ee8894303a317fdb41da440ebc410"
   },
   {
     "path": "app/src/main/java/com/rpgos/app/BackupManager.kt",
@@ -200,11 +180,6 @@
     "sha256": "6c7ccf2dc3a562997726a84b5383941cc8821675b56b47b61c66e69d8ffd82c1"
   },
   {
-    "path": "app/src/main/java/com/rpgos/app/DemoGameMaster.kt",
-    "size": 1279,
-    "sha256": "86e0390de19b5fb1b261d71ca35089c361d0ef90498e64bd69d81c17ae4c8894"
-  },
-  {
     "path": "app/src/main/java/com/rpgos/app/Diagnostics.kt",
     "size": 304,
     "sha256": "d5a0a0d4c55a7d4cb891cce9a2ed2dc863fa71bec75753a5b5f767448a4caaa8"
@@ -226,8 +201,8 @@
   },
   {
     "path": "app/src/main/java/com/rpgos/app/GraphMapUi.kt",
-    "size": 2169,
-    "sha256": "3f389dc80af2d1d7cec4f1e375c74c0fc8fb23df122b29cfc394ee8bbac32575"
+    "size": 2127,
+    "sha256": "3a026a711c54be02a9bfed02f86e970a7ed8cdc4f0bd5594d914db33457bf233"
   },
   {
     "path": "app/src/main/java/com/rpgos/app/ImageBackendClient.kt",

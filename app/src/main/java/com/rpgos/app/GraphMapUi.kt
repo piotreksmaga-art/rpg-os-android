@@ -21,7 +21,7 @@ fun RelationGraph(edges:List<RelationEdge>, modifier:Modifier=Modifier){
             val radius=minOf(size.width,size.height)*0.38f
             val pos=nodes.mapIndexed{i,n->
                 val a=(Math.PI*2*i/nodes.size).toFloat()
-                n to Offset(center.x+radius*cos(a.toDouble()).toFloat(),center.y+radius*sin(a.toDouble()).toFloat())
+                n to Offset(center.x+radius*cos(a),center.y+radius*sin(a))
             }.toMap()
             edges.filter{it.source in pos && it.target in pos}.forEach{e->
                 drawLine(

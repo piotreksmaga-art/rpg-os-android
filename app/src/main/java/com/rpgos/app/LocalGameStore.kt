@@ -24,6 +24,12 @@ class LocalGameStore(private val context: Context) {
         if (!File(coreDir, "rpg_core.db").exists()) {
             copyAsset("rpg_core.db", File(coreDir, "rpg_core.db"))
         }
+
+        runCatching {
+            openSaveDb().use { AutoRepairEngine().repair(it) }
+        }.onFailure {
+            DiagnosticLogger.log(context, "AUTO_REPAIR_BOOT_FAILED", it)
+        }
     }
 
     private fun extractAssetZip(assetName: String, target: File) {
@@ -64,6 +70,9 @@ class LocalGameStore(private val context: Context) {
 
     fun buildContext(playerInput: String, chapter: Int): ContextBundle {
         openSaveDb().use { save ->
+            runCatching { AutoRepairEngine().repair(save) }
+                .onFailure { DiagnosticLogger.log(context, "AUTO_REPAIR_SEND_FAILED", it) }
+
             openWorldDb().use { world ->
                 return ContextBuilder(save, world).build(playerInput, chapter)
             }

@@ -14,24 +14,14 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     private val _settings = MutableStateFlow(appSettings.load())
     val settings: StateFlow<RpgOsSettings> = _settings
 
-    private val _backendTest = MutableStateFlow("Nie testowano backendu.")
-    val backendTest: StateFlow<String> = _backendTest
+    private val _developerStatus = MutableStateFlow("Nie uruchomiono testów.")
+    val developerStatus: StateFlow<String> = _developerStatus
 
-    fun testBackend() {
-        viewModelScope.launch {
-            runCatching {
-                val client = BackendHealthClient(_settings.value.backendUrl)
-                val health = client.check()
-                val openai = client.checkOpenAI()
-                _backendTest.value = "$health\n$openai"
-            }.onFailure {
-                _backendTest.value = "Błąd połączenia: ${it.message}"
-            }
-        }
-    }
+    private val _developerDiagnostic = MutableStateFlow("")
+    val developerDiagnostic: StateFlow<String> = _developerDiagnostic
 
     private val _messages = MutableStateFlow(
-        listOf(ChatMessage("system", "RPG OS Android v0.4 uruchomiony."))
+        listOf(ChatMessage("system", "RPG OS ALPHA 1.2.0-alpha1 • Anti-Crash + AutoRepair + DevPanel + Updater."))
     )
     val messages: StateFlow<List<ChatMessage>> = _messages
 
@@ -125,6 +115,89 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _activeWorldPack = MutableStateFlow("")
     val activeWorldPack: StateFlow<String> = _activeWorldPack
+
+    private val _updateStatus = MutableStateFlow("Nie sprawdzano aktualizacji.")
+    val updateStatus: StateFlow<String> = _updateStatus
+
+    private val _availableUpdate = MutableStateFlow<OnlineUpdateInfo?>(null)
+    val availableUpdate: StateFlow<OnlineUpdateInfo?> = _availableUpdate
+
+    private var downloadedUpdateApk: java.io.File? = null
+
+    fun checkForUpdates(context: android.content.Context) {
+        viewModelScope.launch {
+            try {
+                _updateStatus.value = "Sprawdzanie aktualizacji..."
+                val info = UpdateManager(context, _settings.value.backendUrl).checkOnline()
+                _availableUpdate.value = info
+                val installed = context.packageManager.getPackageInfo(context.packageName, 0)
+                val currentCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P)
+                    installed.longVersionCode
+                else
+                    @Suppress("DEPRECATION") installed.versionCode.toLong()
+
+                _updateStatus.value =
+                    if (info.versionCode > currentCode)
+                        "Dostępna wersja ${info.versionName} (${info.versionCode})."
+                    else "Masz najnowszą wersję."
+            } catch (t: Throwable) {
+                DiagnosticLogger.log(context, "UPDATE_CHECK_FAILED", t)
+                _updateStatus.value = "Błąd sprawdzania aktualizacji: ${t.message}"
+            }
+        }
+    }
+
+    fun downloadOnlineUpdate(context: android.content.Context) {
+        val info = _availableUpdate.value ?: run {
+            _updateStatus.value = "Najpierw sprawdź aktualizacje."
+            return
+        }
+        viewModelScope.launch {
+            try {
+                _updateStatus.value = "Pobieranie i weryfikacja APK..."
+                downloadedUpdateApk = UpdateManager(context, _settings.value.backendUrl)
+                    .downloadOnline(info)
+                _updateStatus.value = "Aktualizacja pobrana i zweryfikowana."
+            } catch (t: Throwable) {
+                DiagnosticLogger.log(context, "UPDATE_DOWNLOAD_FAILED", t)
+                _updateStatus.value = "Błąd pobierania: ${t.message}"
+            }
+        }
+    }
+
+    fun selectLocalUpdate(context: android.content.Context, uri: android.net.Uri) {
+        viewModelScope.launch {
+            try {
+                _updateStatus.value = "Sprawdzanie lokalnego APK..."
+                val (file, result) = UpdateManager(context, _settings.value.backendUrl).importLocal(uri)
+                if (result.ok) {
+                    downloadedUpdateApk = file
+                    _updateStatus.value =
+                        "Lokalny APK gotowy: ${result.versionName} (${result.versionCode})."
+                } else {
+                    downloadedUpdateApk = null
+                    _updateStatus.value = "APK odrzucony: ${result.message}"
+                }
+            } catch (t: Throwable) {
+                DiagnosticLogger.log(context, "LOCAL_UPDATE_FAILED", t)
+                _updateStatus.value = "Błąd lokalnego APK: ${t.message}"
+            }
+        }
+    }
+
+    fun installPreparedUpdate(context: android.content.Context) {
+        val apk = downloadedUpdateApk ?: run {
+            _updateStatus.value = "Nie ma przygotowanego APK."
+            return
+        }
+        try {
+            _updateStatus.value = "Backup i uruchamianie instalatora..."
+            UpdateManager(context, _settings.value.backendUrl).install(apk)
+        } catch (t: Throwable) {
+            DiagnosticLogger.log(context, "UPDATE_INSTALL_FAILED", t)
+            _updateStatus.value = "Instalacja: ${t.message}"
+        }
+    }
 
     private val _lastContextSummary = MutableStateFlow("Brak zbudowanego ContextBundle.")
     val lastContextSummary: StateFlow<String> = _lastContextSummary
@@ -358,24 +431,137 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         _messages.value = _messages.value + ChatMessage("system", "Utworzono kampanię: ${dir.name}")
     }
 
+
+    fun loadDeveloperDiagnostics() {
+        _developerDiagnostic.value = diagnosticReport()
+        _developerStatus.value = "Raport diagnostyczny odświeżony."
+    }
+
+    fun clearDeveloperDiagnostics() {
+        clearDiagnosticReport()
+        _developerDiagnostic.value = ""
+        _developerStatus.value = "Raport diagnostyczny wyczyszczony."
+    }
+
+    fun runDeveloperSelfTest() {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val results = mutableListOf<String>()
+
+            fun check(name:String, block:()->Unit) {
+                try {
+                    block()
+                    results += "✅ $name"
+                } catch (t:Throwable) {
+                    results += "❌ $name: ${t::class.simpleName}: ${t.message}"
+                    DiagnosticLogger.log(app,"DEV_SELFTEST/$name",t)
+                }
+            }
+
+            check("Bootstrap / AutoRepair") { store.bootstrap() }
+            check("Refresh danych") { refresh() }
+            check("ContextBundle") {
+                val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1
+                store.buildContext("DEV_SELF_TEST",chapter)
+            }
+            check("Ustawienia") { appSettings.load() }
+            check("Pliki aplikacji") {
+                require(app.filesDir.exists()) { "filesDir nie istnieje" }
+            }
+
+            _developerStatus.value = results.joinToString("\n")
+            _developerDiagnostic.value = diagnosticReport()
+        }
+    }
+
+    fun testContextBuilder() {
+        viewModelScope.launch {
+            val app=getApplication<Application>()
+            try {
+                val chapter=(_chronicle.value.maxOfOrNull{it.chapter}?:0)+1
+                val context=store.buildContext("CONTEXT_TEST",chapter)
+                _developerStatus.value=
+                    "✅ ContextBundle OK | wątki=${context.activeThreads.size}, NPC=${context.relevantNpcs.size}, " +
+                    "misje=${context.missions.size}, pamięć=${context.retrievedLongTermMemory.size}"
+            } catch(t:Throwable) {
+                DiagnosticLogger.log(app,"DEV_CONTEXT_TEST",t)
+                _developerStatus.value="❌ ContextBundle: ${t::class.simpleName}: ${t.message}"
+            }
+        }
+    }
+
+    fun testBackendConnection() {
+        viewModelScope.launch {
+            val app=getApplication<Application>()
+            try {
+                val chapter=(_chronicle.value.maxOfOrNull{it.chapter}?:0)+1
+                val context=store.buildContext("BACKEND_TEST",chapter)
+                val result=BackendClient(_settings.value.backendUrl)
+                    .sendTurn("Odpowiedz wyłącznie: RPG_OS_BACKEND_OK",chapter,context)
+                _developerStatus.value="✅ Backend odpowiedział: ${result.narration.take(120)}"
+            } catch(t:Throwable) {
+                DiagnosticLogger.log(app,"DEV_BACKEND_TEST",t)
+                _developerStatus.value="❌ Backend: ${t::class.simpleName}: ${t.message}"
+            }
+        }
+    }
+
+    fun createDeveloperBackup() {
+        viewModelScope.launch {
+            val app=getApplication<Application>()
+            try {
+                val chapter=(_chronicle.value.maxOfOrNull{it.chapter}?:0)
+                val result=store.finalizeChapter(chapter,"Developer diagnostic backup")
+                _developerStatus.value="✅ Backup utworzony. Manifest=${result.first.take(12)}…"
+                refresh()
+            } catch(t:Throwable) {
+                DiagnosticLogger.log(app,"DEV_BACKUP",t)
+                _developerStatus.value="❌ Backup: ${t::class.simpleName}: ${t.message}"
+            }
+        }
+    }
+
     fun send(text: String) {
         if (text.isBlank()) return
-
         _messages.value = _messages.value + ChatMessage("player", text)
 
         viewModelScope.launch {
+            val app = getApplication<Application>()
+            val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1
+
             try {
-                val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1
+                DiagnosticLogger.log(app, "SEND_START", message = "chapter=$chapter")
+                _messages.value = _messages.value + ChatMessage("system", "Budowanie ContextBundle...")
 
-                _messages.value = _messages.value + ChatMessage(
-                    "system",
-                    "Budowanie ContextBundle..."
-                )
+                val context = try {
+                    store.buildContext(text, chapter)
+                } catch (t: Throwable) {
+                    DiagnosticLogger.log(app, "CONTEXT_GUARDED", t)
+                    _messages.value = _messages.value + ChatMessage(
+                        "system",
+                        "ContextBuilder zgłosił błąd. Używam bezpiecznego kontekstu awaryjnego."
+                    )
+                    ContextBundle(
+                        playerStatus = mapOf("chapter" to chapter, "player_input" to text, "fallback" to true),
+                        scene = mapOf("query" to text),
+                        time = emptyMap(),
+                        activeThreads = emptyList(),
+                        relevantNpcs = emptyList(),
+                        npcKnowledge = emptyList(),
+                        missions = emptyList(),
+                        worldPressures = emptyList(),
+                        canonConstraints = emptyList(),
+                        recentChronicle = emptyList(),
+                        retrievedLongTermMemory = emptyList()
+                    )
+                }
 
-                val context = store.buildContext(text, chapter)
-
-                _visualSuggestions.value =
+                _visualSuggestions.value = runCatching {
                     VisualSuggestionEngine().suggest(text, context)
+                }.getOrElse {
+                    DiagnosticLogger.log(app, "VISUAL_SUGGESTIONS_GUARDED", it)
+                    emptyList()
+                }
 
                 _lastContextSummary.value =
                     "Context: wątki=${context.activeThreads.size}, NPC=${context.relevantNpcs.size}, " +
@@ -384,52 +570,76 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
                 _messages.value = _messages.value + ChatMessage(
                     "system",
-                    "ContextBundle OK. Łączenie z backendem..."
+                    "ContextBundle gotowy. Łączenie z backendem..."
                 )
 
-                val backend = BackendClient(_settings.value.backendUrl)
-                val result = backend.sendTurn(text, chapter, context)
-
-                _messages.value =
-                    _messages.value + ChatMessage("gm", result.narration)
-
-                result.patch?.let { patch ->
-                    val applied = store.applyPatch(patch)
-
+                val result = try {
+                    BackendClient(_settings.value.backendUrl).sendTurn(text, chapter, context)
+                } catch (t: Throwable) {
+                    DiagnosticLogger.log(app, "BACKEND_GUARDED", t)
                     _messages.value = _messages.value + ChatMessage(
                         "system",
-                        if (applied.success)
-                            "Zapisano ${applied.appliedOperations} zmian."
-                        else
-                            "StatePatch odrzucony: ${applied.message}"
+                        "Backend AI nie odpowiedział. Automatycznie uruchamiam tryb awaryjny."
                     )
+                    SafeDemoGameMaster().respond(text, context, chapter)
+                }
 
-                    if (applied.success) {
-                        if (_settings.value.autoBackup) {
-                            val saveInfo =
-                                store.finalizeChapter(chapter, "Rozdział $chapter")
+                _messages.value = _messages.value + ChatMessage("gm", result.narration)
 
-                            _messages.value = _messages.value + ChatMessage(
-                                "system",
-                                "Rozdział zapisany. Manifest=${saveInfo.first.take(12)}… Backup utworzony."
-                            )
+                result.patch?.let { patch ->
+                    try {
+                        val applied = store.applyPatch(patch)
+                        _messages.value = _messages.value + ChatMessage(
+                            "system",
+                            if (applied.success) "Zapisano ${applied.appliedOperations} zmian."
+                            else "StatePatch odrzucony: ${applied.message}"
+                        )
+
+                        if (applied.success) {
+                            if (_settings.value.autoBackup) {
+                                try {
+                                    val saveInfo = store.finalizeChapter(chapter, "Rozdział $chapter")
+                                    _messages.value = _messages.value + ChatMessage(
+                                        "system",
+                                        "Rozdział zapisany. Manifest=${saveInfo.first.take(12)}… Backup utworzony."
+                                    )
+                                } catch (t: Throwable) {
+                                    DiagnosticLogger.log(app, "AUTOSAVE_GUARDED", t)
+                                    _messages.value = _messages.value + ChatMessage(
+                                        "system",
+                                        "Autosave nie powiódł się, ale gra działa dalej."
+                                    )
+                                }
+                            }
+                            runCatching { refresh() }
+                                .onFailure { DiagnosticLogger.log(app, "REFRESH_GUARDED", it) }
                         }
-
-                        refresh()
+                    } catch (t: Throwable) {
+                        DiagnosticLogger.log(app, "STATEPATCH_GUARDED", t)
+                        _messages.value = _messages.value + ChatMessage(
+                            "system",
+                            "StatePatch został bezpiecznie zablokowany: ${t.message ?: t::class.simpleName}"
+                        )
                     }
                 }
 
-            } catch (e: Exception) {
-                e.printStackTrace()
-
+                DiagnosticLogger.log(app, "SEND_COMPLETE")
+            } catch (t: Throwable) {
+                DiagnosticLogger.log(app, "SEND_OUTER_GUARD", t)
                 _messages.value = _messages.value + ChatMessage(
                     "system",
-                    "BŁĄD RPG OS: ${e::class.simpleName}: ${e.message ?: "brak szczegółów"}"
+                    "Anti-Crash przechwycił błąd: ${t::class.simpleName}: ${t.message ?: "brak szczegółów"}"
                 )
-
                 _lastContextSummary.value =
-                    "Błąd: ${e::class.simpleName}: ${e.message ?: "brak szczegółów"}"
+                    "Anti-Crash: ${t::class.simpleName}: ${t.message ?: "brak szczegółów"}"
             }
         }
+    }
+
+    fun diagnosticReport(): String =
+        DiagnosticLogger.read(getApplication<Application>())
+
+    fun clearDiagnosticReport() {
+        DiagnosticLogger.clear(getApplication<Application>())
     }
 }

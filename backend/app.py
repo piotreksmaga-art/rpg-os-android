@@ -5,14 +5,7 @@ from pydantic import BaseModel, Field
 from openai import OpenAI
 
 app = FastAPI(title="RPG OS Backend", version="0.3.0")
-def get_client():
-    key = os.environ.get("OPENAI_API_KEY")
-    if not key:
-        return None
-    return OpenAI(api_key=key)
-
-def is_mock():
-    return os.environ.get("RPGOS_OFFLINE_MOCK", "0") == "1"
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 class TurnRequest(BaseModel):
     campaign_id: str
@@ -90,32 +83,14 @@ Do not include hidden GM-only information in narration unless the player has dis
 
 @app.get("/health")
 def health():
-    client = get_client()
-    return {
-        "ok": True,
-        "service": "rpg-os-backend",
-        "version": "1.0.1",
-        "openai_key_configured": client is not None,
-        "mock_mode": is_mock(),
-        "text_model": os.environ.get("RPGOS_MODEL", "gpt-5.2"),
-        "image_model": os.environ.get("RPGOS_IMAGE_MODEL", "gpt-image-1")
-    }
+    return {"ok": True, "service": "rpg-os-backend", "version": "0.3.0"}
 
 @app.post("/v1/gm/turn", response_model=TurnResponse)
 def gm_turn(req: TurnRequest):
-    if is_mock():
-        return {
-            "narration": "[TRYB TESTOWY BACKENDU] Otrzymałem ruch gracza: " + req.player_input,
-            "choices": ["Kontynuuj", "Sprawdź status", "Rozejrzyj się"],
-            "state_patch": None,
-            "chapter_events": []
-        }
-
-    client = get_client()
-    if client is None:
+    if not os.environ.get("OPENAI_API_KEY"):
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
 
-    model = os.environ.get("RPGOS_MODEL", "gpt-5.2")
+    model = os.environ.get("RPGOS_MODEL", "gpt-5.6")
     payload = {
         "chapter": req.chapter,
         "player_input": req.player_input,
@@ -168,13 +143,10 @@ class ImageGenerateResponse(BaseModel):
 
 @app.post("/v1/images/generate", response_model=ImageGenerateResponse)
 def generate_image(req: ImageGenerateRequest):
-    if is_mock():
-        raise HTTPException(status_code=503, detail="Image generation disabled in mock mode")
-
-    client = get_client()
-    if client is None:
+    if not os.environ.get("OPENAI_API_KEY"):
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
 
+    # Use the Images API so the mobile app receives only image bytes from our backend.
     image_model = os.environ.get("RPGOS_IMAGE_MODEL", "gpt-image-1")
     result = client.images.generate(
         model=image_model,
@@ -202,11 +174,7 @@ async def edit_image(
     instruction: str = Form(...),
     image: UploadFile = File(...)
 ):
-    if is_mock():
-        raise HTTPException(status_code=503, detail="Image editing disabled in mock mode")
-
-    client = get_client()
-    if client is None:
+    if not os.environ.get("OPENAI_API_KEY"):
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
 
     image_model = os.environ.get("RPGOS_IMAGE_MODEL", "gpt-image-1")
@@ -236,26 +204,72 @@ async def edit_image(
     )
 
 
-@app.get("/v1/openai/check")
-def openai_check():
-    if is_mock():
-        return {"ok": True, "mode": "mock", "message": "Backend działa w trybie testowym."}
 
-    client = get_client()
-    if client is None:
-        return {"ok": False, "mode": "live", "message": "Brak OPENAI_API_KEY."}
+# ---- RPG OS Update System v1 ----
+import urllib.request
+from fastapi.responses import StreamingResponse
 
-    model = os.environ.get("RPGOS_MODEL", "gpt-5.2")
+def _update_github_headers(accept="application/vnd.github+json"):
+    token = os.environ.get("RPGOS_GITHUB_TOKEN", "").strip()
+    headers = {"Accept": accept, "User-Agent": "RPG-OS-Updater"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+def _latest_release():
+    repo = os.environ.get("RPGOS_GITHUB_REPO", "").strip()
+    if not repo:
+        raise HTTPException(status_code=503, detail="RPGOS_GITHUB_REPO is not configured")
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/releases/latest",
+        headers=_update_github_headers()
+    )
     try:
-        response = client.responses.create(
-            model=model,
-            input="Reply with exactly: RPG_OS_BACKEND_OK"
-        )
-        return {
-            "ok": "RPG_OS_BACKEND_OK" in response.output_text,
-            "mode": "live",
-            "model": model,
-            "output": response.output_text
-        }
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read().decode("utf-8"))
     except Exception as e:
-        return {"ok": False, "mode": "live", "model": model, "message": str(e)}
+        raise HTTPException(status_code=502, detail=f"GitHub release lookup failed: {e}")
+
+def _asset(release, name):
+    for asset in release.get("assets", []):
+        if asset.get("name") == name:
+            return asset
+    raise HTTPException(status_code=404, detail=f"Release asset not found: {name}")
+
+def _asset_bytes(asset):
+    req = urllib.request.Request(
+        asset["url"],
+        headers=_update_github_headers("application/octet-stream")
+    )
+    with urllib.request.urlopen(req, timeout=120) as r:
+        return r.read()
+
+@app.get("/v1/updates/latest")
+def latest_update():
+    release = _latest_release()
+    raw = _asset_bytes(_asset(release, "update_manifest.json"))
+    return json.loads(raw.decode("utf-8"))
+
+@app.get("/v1/updates/apk")
+def latest_update_apk():
+    release = _latest_release()
+    apk = _asset(release, "RPG-OS.apk")
+
+    def stream():
+        req = urllib.request.Request(
+            apk["url"],
+            headers=_update_github_headers("application/octet-stream")
+        )
+        with urllib.request.urlopen(req, timeout=180) as r:
+            while True:
+                chunk = r.read(262144)
+                if not chunk:
+                    break
+                yield chunk
+
+    return StreamingResponse(
+        stream(),
+        media_type="application/vnd.android.package-archive",
+        headers={"Content-Disposition": 'attachment; filename="RPG-OS.apk"'}
+    )
+

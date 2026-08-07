@@ -33,14 +33,14 @@ class MainActivity : ComponentActivity() {
 enum class Tab(val label: String) {
     GAME("Gra"), STATUS("Status"), TIME("Czas"), WORLD("Świat"), NPCS("NPC"), SOCIAL("Relacje"), DASHBOARD("Dashboard"),
     TECHNIQUES("Techniki"), MISSIONS("Misje"), VISUALS("Grafika"),
-    CHRONICLE("Kronika"), PACKAGES("Paczki"), DB("Baza"), GM("MG"), SETTINGS("Ustawienia")
+    CHRONICLE("Kronika"), PACKAGES("Paczki"), DB("Baza"), GM("MG"), DEV("Dev"), SETTINGS("Ustawienia")
 }
 
 @Composable
 fun RpgOsApp(vm: RpgOsViewModel) {
     var tab by remember { mutableStateOf(Tab.GAME) }
     Scaffold(
-        topBar = { TopAppBar(title={Text("RPG OS • Naruto")},actions={TextButton(onClick=vm::refresh){Text("Odśwież")}}) },
+        topBar = { TopAppBar(title={Text("RPG OS ALPHA • Naruto")},actions={TextButton(onClick=vm::refresh){Text("Odśwież")}}) },
         bottomBar = {
             NavigationBar {
                 Tab.entries.forEach {
@@ -68,6 +68,7 @@ fun RpgOsApp(vm: RpgOsViewModel) {
                 Tab.PACKAGES->PackagesScreen(vm)
                 Tab.DB->DatabaseScreen(vm)
                 Tab.GM->GmDiagnosticsScreen(vm)
+                Tab.DEV->DeveloperPanelScreen(vm)
                 Tab.SETTINGS->SettingsScreen(vm)
             }
         }
@@ -431,21 +432,157 @@ private fun PackagesScreen(vm:RpgOsViewModel){
     }
 }
 
+
+@Composable
+private fun DeveloperPanelScreen(vm:RpgOsViewModel){
+    val devStatus by vm.developerStatus.collectAsState()
+    val diagnostic by vm.developerDiagnostic.collectAsState()
+    val context=LocalContext.current
+
+    LazyColumn(
+        Modifier.fillMaxSize().padding(12.dp),
+        verticalArrangement=Arrangement.spacedBy(10.dp)
+    ){
+        item{
+            Text("Panel deweloperski",style=MaterialTheme.typography.headlineMedium)
+            Text(
+                "Narzędzia diagnostyczne RPG OS bez Termuxa.",
+                style=MaterialTheme.typography.bodySmall
+            )
+        }
+
+        item{SectionTitle("Stan systemu")}
+        item{
+            Card(Modifier.fillMaxWidth()){
+                Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)){
+                    Text("Wersja: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                    Text(devStatus)
+                }
+            }
+        }
+
+        item{SectionTitle("Testy")}
+        item{
+            Button(onClick={vm::runDeveloperSelfTest},modifier=Modifier.fillMaxWidth()){
+                Text("Uruchom pełny Self-Test")
+            }
+            Button(onClick={vm::testContextBuilder},modifier=Modifier.fillMaxWidth()){
+                Text("Test ContextBundle")
+            }
+            Button(onClick={vm::testBackendConnection},modifier=Modifier.fillMaxWidth()){
+                Text("Test backendu")
+            }
+            Button(onClick={vm::createDeveloperBackup},modifier=Modifier.fillMaxWidth()){
+                Text("Utwórz backup diagnostyczny")
+            }
+        }
+
+        item{SectionTitle("Anti-Crash / diagnostyka")}
+        item{
+            Button(onClick={vm::loadDeveloperDiagnostics},modifier=Modifier.fillMaxWidth()){
+                Text("Odśwież raport błędów")
+            }
+            Button(onClick={vm::clearDeveloperDiagnostics},modifier=Modifier.fillMaxWidth()){
+                Text("Wyczyść raport błędów")
+            }
+        }
+        item{
+            Card(Modifier.fillMaxWidth()){
+                Text(
+                    if(diagnostic.isBlank()) "Brak raportu." else diagnostic,
+                    Modifier.padding(12.dp),
+                    style=MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
+        item{SectionTitle("Szybkie akcje")}
+        item{
+            Button(onClick=vm::refresh,modifier=Modifier.fillMaxWidth()){
+                Text("Przeładuj stan gry")
+            }
+            Text(
+                "Panel nie modyfikuje fabuły. Self-Test używa tylko bezpiecznych odczytów i diagnostyki.",
+                style=MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
 @Composable private fun SettingsScreen(vm:RpgOsViewModel){
+    val context=LocalContext.current
     val current by vm.settings.collectAsState()
-    val backendTest by vm.backendTest.collectAsState()
+    val updateStatus by vm.updateStatus.collectAsState()
+    val availableUpdate by vm.availableUpdate.collectAsState()
+
     var backend by remember(current.backendUrl){mutableStateOf(current.backendUrl)}
     var diagnostics by remember(current.showGmDiagnostics){mutableStateOf(current.showGmDiagnostics)}
     var backups by remember(current.autoBackup){mutableStateOf(current.autoBackup)}
-    Column(Modifier.fillMaxSize().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-        Text("Ustawienia",style=MaterialTheme.typography.headlineMedium)
-        OutlinedTextField(backend,{backend=it},Modifier.fillMaxWidth(),label={Text("Adres backendu")})
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("Diagnostyka MG");Switch(diagnostics,{diagnostics=it})}
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text("Automatyczny backup");Switch(backups,{backups=it})}
-        Button(onClick={vm.saveSettings(current.copy(backendUrl=backend.trim(),showGmDiagnostics=diagnostics,autoBackup=backups))},
-            modifier=Modifier.fillMaxWidth()){Text("Zapisz ustawienia")}
-        Button(onClick={vm.testBackend()},modifier=Modifier.fillMaxWidth()){Text("Testuj backend")}
-        Text(backendTest,style=MaterialTheme.typography.bodySmall)
+
+    val localApkPicker=rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ){uri->
+        if(uri!=null) vm.selectLocalUpdate(context,uri)
+    }
+
+    LazyColumn(
+        Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement=Arrangement.spacedBy(12.dp)
+    ){
+        item{Text("Ustawienia",style=MaterialTheme.typography.headlineMedium)}
+        item{
+            OutlinedTextField(backend,{backend=it},Modifier.fillMaxWidth(),label={Text("Adres backendu")})
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+                Text("Diagnostyka MG");Switch(diagnostics,{diagnostics=it})
+            }
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
+                Text("Automatyczny backup");Switch(backups,{backups=it})
+            }
+            Button(
+                onClick={vm.saveSettings(current.copy(
+                    backendUrl=backend.trim(),
+                    showGmDiagnostics=diagnostics,
+                    autoBackup=backups
+                ))},
+                modifier=Modifier.fillMaxWidth()
+            ){Text("Zapisz ustawienia")}
+        }
+
+        item{SectionTitle("Aktualizacje RPG OS")}
+        item{
+            Text("Zainstalowana: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+            if(availableUpdate!=null){
+                Text("Online: ${availableUpdate!!.versionName} (${availableUpdate!!.versionCode})")
+                if(availableUpdate!!.notes.isNotBlank())Text(availableUpdate!!.notes)
+            }
+            Text(updateStatus,style=MaterialTheme.typography.bodySmall)
+        }
+        item{
+            Button(onClick={vm.checkForUpdates(context)},modifier=Modifier.fillMaxWidth()){
+                Text("Sprawdź aktualizacje online")
+            }
+            Button(onClick={vm.downloadOnlineUpdate(context)},modifier=Modifier.fillMaxWidth()){
+                Text("Pobierz aktualizację online")
+            }
+            Button(
+                onClick={localApkPicker.launch(arrayOf(
+                    "application/vnd.android.package-archive",
+                    "application/octet-stream"
+                ))},
+                modifier=Modifier.fillMaxWidth()
+            ){Text("Wybierz lokalny plik APK")}
+
+            Button(onClick={vm.installPreparedUpdate(context)},modifier=Modifier.fillMaxWidth()){
+                Text("Zainstaluj przygotowaną aktualizację")
+            }
+
+            Text(
+                "Przed instalacją tworzony jest backup aktywnej kampanii. " +
+                "APK jest sprawdzany pod kątem pakietu, wersji i podpisu; " +
+                "aktualizacja online dodatkowo sprawdza SHA-256.",
+                style=MaterialTheme.typography.bodySmall
+            )
+        }
     }
 }
 

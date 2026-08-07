@@ -23,7 +23,10 @@ class BackendClient(
         context: ContextBundle
     ): BackendTurnResult = withContext(Dispatchers.IO) {
         if (baseUrl.isBlank() || baseUrl.contains("YOUR-BACKEND")) {
-            return@withContext DemoGameMaster().respond(playerInput, context, chapter)
+            return@withContext BackendTurnResult(
+                narration = "Backend nie jest skonfigurowany. Ustaw RPGOS_BACKEND_URL w build.gradle.",
+                patch = null
+            )
         }
 
         val payload = JSONObject().apply {

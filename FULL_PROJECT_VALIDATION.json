@@ -1,0 +1,11 @@
+{
+  "dev_tab": true,
+  "dev_screen": true,
+  "self_test": true,
+  "context_test": true,
+  "backend_test": true,
+  "backup_test": true,
+  "anticrash_log": true,
+  "sdk36": true,
+  "buildconfig": true
+}
