@@ -11,9 +11,34 @@ android {
         applicationId = "com.rpgos.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 121
-        versionName = "1.2.0-alpha2"
+        versionCode = 122
+        versionName = "1.2.0-alpha3"
         buildConfigField("String", "RPGOS_BACKEND_URL", "\"https://YOUR-BACKEND.example\"")
+        buildConfigField(
+            "String",
+            "RPGOS_UPDATE_FEED_URL",
+            "\"https://api.github.com/repos/piotreksmaga-art/rpg-os-android/releases/latest\""
+        )
+    }
+
+
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("RPGOS_KEYSTORE_PATH")
+            if (!keystorePath.isNullOrBlank()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("RPGOS_KEYSTORE_PASSWORD")
+                keyAlias = "rpgos"
+                keyPassword = System.getenv("RPGOS_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
+        }
     }
 
     buildFeatures {

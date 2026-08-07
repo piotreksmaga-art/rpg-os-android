@@ -516,6 +516,7 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
     val availableUpdate by vm.availableUpdate.collectAsState()
 
     var backend by remember(current.backendUrl){mutableStateOf(current.backendUrl)}
+    var updateFeed by remember(current.updateFeedUrl){mutableStateOf(current.updateFeedUrl)}
     var diagnostics by remember(current.showGmDiagnostics){mutableStateOf(current.showGmDiagnostics)}
     var backups by remember(current.autoBackup){mutableStateOf(current.autoBackup)}
 
@@ -531,7 +532,18 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
     ){
         item{Text("Ustawienia",style=MaterialTheme.typography.headlineMedium)}
         item{
-            OutlinedTextField(backend,{backend=it},Modifier.fillMaxWidth(),label={Text("Adres backendu")})
+            OutlinedTextField(
+                backend,
+                {backend=it},
+                Modifier.fillMaxWidth(),
+                label={Text("Adres AI / backendu gry")}
+            )
+            OutlinedTextField(
+                updateFeed,
+                {updateFeed=it},
+                Modifier.fillMaxWidth(),
+                label={Text("Kanał aktualizacji GitHub")}
+            )
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
                 Text("Diagnostyka MG");Switch(diagnostics,{diagnostics=it})
             }
@@ -541,6 +553,7 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
             Button(
                 onClick={vm.saveSettings(current.copy(
                     backendUrl=backend.trim(),
+                    updateFeedUrl=updateFeed.trim(),
                     showGmDiagnostics=diagnostics,
                     autoBackup=backups
                 ))},
@@ -579,7 +592,8 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
             Text(
                 "Przed instalacją tworzony jest backup aktywnej kampanii. " +
                 "APK jest sprawdzany pod kątem pakietu, wersji i podpisu; " +
-                "aktualizacja online dodatkowo sprawdza SHA-256.",
+                "aktualizacja online czyta GitHub Releases i dodatkowo sprawdza SHA-256. " +
+                "Kanał aktualizacji jest niezależny od backendu AI.",
                 style=MaterialTheme.typography.bodySmall
             )
         }

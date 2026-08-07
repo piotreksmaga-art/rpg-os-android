@@ -21,7 +21,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     val developerDiagnostic: StateFlow<String> = _developerDiagnostic
 
     private val _messages = MutableStateFlow(
-        listOf(ChatMessage("system", "RPG OS ALPHA 1.2.0-alpha2 • ContextBundle Engine v1 • Anti-Crash + AutoRepair + DevPanel + Updater."))
+        listOf(ChatMessage("system", "RPG OS ALPHA 1.2.0-alpha3 • GitHub Releases Updater • ContextBundle Engine v1 • Anti-Crash + AutoRepair + DevPanel."))
     )
     val messages: StateFlow<List<ChatMessage>> = _messages
 
@@ -128,7 +128,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 _updateStatus.value = "Sprawdzanie aktualizacji..."
-                val info = UpdateManager(context, _settings.value.backendUrl).checkOnline()
+                val info = UpdateManager(context, _settings.value.updateFeedUrl).checkOnline()
                 _availableUpdate.value = info
                 val installed = context.packageManager.getPackageInfo(context.packageName, 0)
                 val currentCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P)
@@ -155,7 +155,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 _updateStatus.value = "Pobieranie i weryfikacja APK..."
-                downloadedUpdateApk = UpdateManager(context, _settings.value.backendUrl)
+                downloadedUpdateApk = UpdateManager(context, _settings.value.updateFeedUrl)
                     .downloadOnline(info)
                 _updateStatus.value = "Aktualizacja pobrana i zweryfikowana."
             } catch (t: Throwable) {
@@ -169,7 +169,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 _updateStatus.value = "Sprawdzanie lokalnego APK..."
-                val (file, result) = UpdateManager(context, _settings.value.backendUrl).importLocal(uri)
+                val (file, result) = UpdateManager(context, _settings.value.updateFeedUrl).importLocal(uri)
                 if (result.ok) {
                     downloadedUpdateApk = file
                     _updateStatus.value =
@@ -192,7 +192,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         }
         try {
             _updateStatus.value = "Backup i uruchamianie instalatora..."
-            UpdateManager(context, _settings.value.backendUrl).install(apk)
+            UpdateManager(context, _settings.value.updateFeedUrl).install(apk)
         } catch (t: Throwable) {
             DiagnosticLogger.log(context, "UPDATE_INSTALL_FAILED", t)
             _updateStatus.value = "Instalacja: ${t.message}"

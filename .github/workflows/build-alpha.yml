@@ -45,7 +45,7 @@ jobs:
           VERSION_CODE=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts)
 
           if [ -z "$VERSION_NAME" ] || [ -z "$VERSION_CODE" ]; then
-            echo "Unable to read versionName/versionCode from app/build.gradle.kts"
+            echo "Unable to read app version."
             exit 1
           fi
 
@@ -54,19 +54,50 @@ jobs:
           echo "tag=v$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "apk=RPG-OS-ALPHA-$VERSION_NAME.apk" >> "$GITHUB_OUTPUT"
 
-          echo "Building RPG OS ALPHA $VERSION_NAME ($VERSION_CODE)"
+      - name: Restore permanent signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.RPGOS_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.RPGOS_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.RPGOS_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "::error::Missing RPG OS signing secrets."
+            echo "::error::Run tools/setup_github_signing_termux.sh once before building alpha3."
+            exit 1
+          fi
+
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/rpgos-release.jks"
+          chmod 600 "$RUNNER_TEMP/rpgos-release.jks"
+
+          echo "RPGOS_KEYSTORE_PATH=$RUNNER_TEMP/rpgos-release.jks" >> "$GITHUB_ENV"
+          echo "RPGOS_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "RPGOS_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
 
       - name: Validate project
         run: gradle --no-daemon :app:tasks --stacktrace
 
-      - name: Build ALPHA APK
-        run: gradle --no-daemon :app:assembleDebug --stacktrace
+      - name: Build signed ALPHA APK
+        run: gradle --no-daemon :app:assembleRelease --stacktrace
 
-      - name: Prepare release APK
+      - name: Prepare release files
         shell: bash
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk "${{ steps.version.outputs.apk }}"
-          sha256sum "${{ steps.version.outputs.apk }}" | tee "${{ steps.version.outputs.apk }}.sha256"
+          cp app/build/outputs/apk/release/app-release.apk "${{ steps.version.outputs.apk }}"
+          SHA=$(sha256sum "${{ steps.version.outputs.apk }}" | awk '{print $1}')
+          printf '%s  %s\n' "$SHA" "${{ steps.version.outputs.apk }}" \
+            > "${{ steps.version.outputs.apk }}.sha256"
+
+          cat > update.json <<EOF
+          {
+            "schema": 1,
+            "version_name": "${{ steps.version.outputs.name }}",
+            "version_code": ${{ steps.version.outputs.code }},
+            "sha256": "$SHA",
+            "mandatory": false,
+            "notes": "RPG OS ALPHA ${{ steps.version.outputs.name }}"
+          }
+          EOF
 
       - name: Upload Actions artifact
         uses: actions/upload-artifact@v4
@@ -75,6 +106,7 @@ jobs:
           path: |
             ${{ steps.version.outputs.apk }}
             ${{ steps.version.outputs.apk }}.sha256
+            update.json
           if-no-files-found: error
           retention-days: 14
 
@@ -99,19 +131,17 @@ jobs:
           gh release create "${{ steps.version.outputs.tag }}" \
             "${{ steps.version.outputs.apk }}" \
             "${{ steps.version.outputs.apk }}.sha256" \
+            update.json \
             --title "RPG OS ALPHA ${{ steps.version.outputs.name }}" \
             --notes "Automatyczne wydanie RPG OS ALPHA.
 
           Wersja: ${{ steps.version.outputs.name }}
           VersionCode: ${{ steps.version.outputs.code }}
 
-          Plik APK:
-          ${{ steps.version.outputs.apk }}
+          Kanał aktualizacji:
+          https://api.github.com/repos/piotreksmaga-art/rpg-os-android/releases/latest"
 
-          Instalacja:
-          RPG OS → Aktualizacje RPG OS → Wybierz lokalny plik APK → Zainstaluj przygotowaną aktualizację."
-
-      - name: Update existing GitHub Release asset
+      - name: Update existing GitHub Release assets
         if: steps.release_check.outputs.exists == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -120,12 +150,10 @@ jobs:
           gh release upload "${{ steps.version.outputs.tag }}" \
             "${{ steps.version.outputs.apk }}" \
             "${{ steps.version.outputs.apk }}.sha256" \
+            update.json \
             --clobber
 
       - name: Show release information
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          echo "Release:"
-          gh release view "${{ steps.version.outputs.tag }}"
+        run: gh release view "${{ steps.version.outputs.tag }}"
