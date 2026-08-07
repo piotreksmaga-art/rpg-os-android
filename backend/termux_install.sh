@@ -2,7 +2,6 @@
 set -e
 pkg update -y
 pkg install -y python
-python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 echo
 echo "Gotowe."

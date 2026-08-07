@@ -5,28 +5,82 @@ on:
   push:
     branches: [ "main", "master" ]
 
+permissions:
+  contents: read
+
 jobs:
   build:
+    name: Build debug APK
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout source
+        uses: actions/checkout@v5
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
+
+      # GitHub-hosted Ubuntu runners already include Android SDK command-line tools.
+      # We deliberately avoid android-actions/setup-android here to remove the
+      # deprecated Node.js action warning and keep the workflow simpler.
+      - name: Show Android environment
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          which sdkmanager || true
+          sdkmanager --version
+
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses >/dev/null || true
-      - name: Install SDK
-        run: sdkmanager "platforms;android-37" "build-tools;37.0.0" "platform-tools"
-      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK 37
+        run: |
+          sdkmanager "platform-tools" "platforms;android-37" "build-tools;37.0.0"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
+
+      - name: Show Gradle environment
+        run: |
+          java -version
+          gradle --version
+
+      - name: Validate Gradle project
+        run: |
+          gradle --no-daemon :app:tasks --stacktrace
+
       - name: Build debug APK
-        run: gradle --no-daemon :app:assembleDebug
+        run: |
+          gradle --no-daemon :app:assembleDebug --stacktrace --info 2>&1 | tee build.log
+
+      - name: Show APK files
+        if: success()
+        run: |
+          find app/build/outputs -type f -maxdepth 8 -print || true
+          ls -lh app/build/outputs/apk/debug/ || true
+
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: RPG-OS-Android-1.0-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPG-OS-build-log
+          path: |
+            build.log
+            **/build/reports/**
+          if-no-files-found: ignore
+          retention-days: 7
