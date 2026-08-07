@@ -24,14 +24,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # GitHub-hosted Ubuntu runners already include Android SDK command-line tools.
-      # We deliberately avoid android-actions/setup-android here to remove the
-      # deprecated Node.js action warning and keep the workflow simpler.
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Show Android environment
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          which sdkmanager || true
+          which sdkmanager
           sdkmanager --version
 
       - name: Accept Android SDK licenses
@@ -62,7 +62,7 @@ jobs:
       - name: Show APK files
         if: success()
         run: |
-          find app/build/outputs -type f -maxdepth 8 -print || true
+          find app/build/outputs -type f -print || true
           ls -lh app/build/outputs/apk/debug/ || true
 
       - name: Upload APK
