@@ -21,7 +21,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     val developerDiagnostic: StateFlow<String> = _developerDiagnostic
 
     private val _messages = MutableStateFlow(
-        listOf(ChatMessage("system", "RPG OS ALPHA 1.2.0-alpha3 • GitHub Releases Updater • ContextBundle Engine v1 • Anti-Crash + AutoRepair + DevPanel."))
+        listOf(ChatMessage("system", "RPG OS ALPHA 1.2.0-alpha4 • UI Refresh • GitHub Updater • ContextBundle Engine v1."))
     )
     val messages: StateFlow<List<ChatMessage>> = _messages
 
@@ -449,6 +449,17 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         val dir = store.createCampaign(name)
         refresh()
         _messages.value = _messages.value + ChatMessage("system", "Utworzono kampanię: ${dir.name}")
+    }
+
+    fun createAndActivateCampaign(name: String) {
+        val clean = name.trim().ifBlank { "Nowa kampania" }
+        val dir = store.createCampaign(clean)
+        store.setActiveCampaign(dir.name)
+        refresh()
+        _messages.value = _messages.value + ChatMessage(
+            "system",
+            "Utworzono i aktywowano kampanię: ${dir.name}"
+        )
     }
 
 

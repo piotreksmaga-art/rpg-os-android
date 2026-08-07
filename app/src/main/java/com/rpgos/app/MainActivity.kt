@@ -7,22 +7,28 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.platform.LocalContext
 import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            RpgOsTheme {
                 val vm: RpgOsViewModel = viewModel()
                 RpgOsApp(vm)
             }
@@ -30,47 +36,840 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-enum class Tab(val label: String) {
-    GAME("Gra"), STATUS("Status"), TIME("Czas"), WORLD("Świat"), NPCS("NPC"), SOCIAL("Relacje"), DASHBOARD("Dashboard"),
-    TECHNIQUES("Techniki"), MISSIONS("Misje"), VISUALS("Grafika"),
-    CHRONICLE("Kronika"), PACKAGES("Paczki"), DB("Baza"), GM("MG"), DEV("Dev"), SETTINGS("Ustawienia")
+private val RpgOsColors = darkColorScheme(
+    primary = Color(0xFFB8A7FF),
+    onPrimary = Color(0xFF24164E),
+    primaryContainer = Color(0xFF39276D),
+    onPrimaryContainer = Color(0xFFE7DEFF),
+    secondary = Color(0xFF9FC9FF),
+    onSecondary = Color(0xFF062E52),
+    secondaryContainer = Color(0xFF173F68),
+    onSecondaryContainer = Color(0xFFD4E7FF),
+    tertiary = Color(0xFFFFB4C8),
+    background = Color(0xFF0E1017),
+    onBackground = Color(0xFFE5E1EC),
+    surface = Color(0xFF151821),
+    onSurface = Color(0xFFE5E1EC),
+    surfaceVariant = Color(0xFF222631),
+    onSurfaceVariant = Color(0xFFC9C5D0),
+    outline = Color(0xFF8F8A98),
+    error = Color(0xFFFFB4AB)
+)
+
+@Composable
+private fun RpgOsTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = RpgOsColors,
+        content = content
+    )
+}
+
+private enum class AppRoute {
+    HOME, NEW_GAME, NARUTO_SETUP, CONTINUE, SAVES, GALLERY, SETTINGS, ABOUT, CAMPAIGN
+}
+
+private enum class CampaignTab(val label: String, val glyph: String) {
+    GAME("Gra", "◆"),
+    CHARACTER("Postać", "◇"),
+    CHRONICLE("Kronika", "▤"),
+    WORLD("Świat", "◎"),
+    MENU("Menu", "≡")
+}
+
+private enum class CampaignTool(val title: String) {
+    NPCS("NPC"),
+    SOCIAL("Relacje"),
+    TECHNIQUES("Techniki"),
+    MISSIONS("Misje"),
+    GALLERY("Galeria"),
+    TIME("Czas"),
+    DASHBOARD("Symulacja świata"),
+    PACKAGES("Kampanie i pakiety"),
+    GM("Diagnostyka MG"),
+    DEV("Panel deweloperski"),
+    DB("Baza danych"),
+    SETTINGS("Ustawienia")
 }
 
 @Composable
 fun RpgOsApp(vm: RpgOsViewModel) {
-    var tab by remember { mutableStateOf(Tab.GAME) }
+    var route by remember { mutableStateOf(AppRoute.HOME) }
+
+    when (route) {
+        AppRoute.HOME -> HomeScreen(
+            onNewGame = { route = AppRoute.NEW_GAME },
+            onContinue = { route = AppRoute.CONTINUE },
+            onSaves = { route = AppRoute.SAVES },
+            onGallery = { route = AppRoute.GALLERY },
+            onSettings = { route = AppRoute.SETTINGS },
+            onAbout = { route = AppRoute.ABOUT }
+        )
+
+        AppRoute.NEW_GAME -> WorldSelectionScreen(
+            onBack = { route = AppRoute.HOME },
+            onNaruto = { route = AppRoute.NARUTO_SETUP }
+        )
+
+        AppRoute.NARUTO_SETUP -> NarutoSetupScreen(
+            vm = vm,
+            onBack = { route = AppRoute.NEW_GAME },
+            onEnterCampaign = { route = AppRoute.CAMPAIGN }
+        )
+
+        AppRoute.CONTINUE -> ContinueScreen(
+            vm = vm,
+            onBack = { route = AppRoute.HOME },
+            onContinue = { dirName ->
+                vm.activateCampaign(dirName)
+                route = AppRoute.CAMPAIGN
+            }
+        )
+
+        AppRoute.SAVES -> StandardPage(
+            title = "Zapisy i kampanie",
+            onBack = { route = AppRoute.HOME }
+        ) { PackagesScreen(vm) }
+
+        AppRoute.GALLERY -> StandardPage(
+            title = "Galeria",
+            onBack = { route = AppRoute.HOME }
+        ) { VisualGeneratorScreen(vm) }
+
+        AppRoute.SETTINGS -> StandardPage(
+            title = "Ustawienia",
+            onBack = { route = AppRoute.HOME }
+        ) { SettingsScreen(vm) }
+
+        AppRoute.ABOUT -> AboutScreen(onBack = { route = AppRoute.HOME })
+
+        AppRoute.CAMPAIGN -> CampaignShell(
+            vm = vm,
+            onExit = { route = AppRoute.HOME }
+        )
+    }
+}
+
+@Composable
+private fun HomeScreen(
+    onNewGame: () -> Unit,
+    onContinue: () -> Unit,
+    onSaves: () -> Unit,
+    onGallery: () -> Unit,
+    onSettings: () -> Unit,
+    onAbout: () -> Unit
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = 20.dp)
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 42.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                Text(
+                    "RPG OS",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    "Twoje kampanie. Jeden system.",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Text(
+                        "ALPHA • ${BuildConfig.VERSION_NAME}",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+                Spacer(Modifier.height(18.dp))
+            }
+
+            item {
+                PrimaryHomeCard(
+                    title = "Nowa gra",
+                    subtitle = "Wybierz świat i rozpocznij nową kampanię.",
+                    glyph = "＋",
+                    onClick = onNewGame
+                )
+            }
+
+            item {
+                HomeCard(
+                    title = "Kontynuuj",
+                    subtitle = "Wróć do ostatniej lub wybranej kampanii.",
+                    glyph = "▶",
+                    onClick = onContinue
+                )
+            }
+
+            item {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CompactHomeCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Zapisy",
+                        glyph = "▣",
+                        onClick = onSaves
+                    )
+                    CompactHomeCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Galeria",
+                        glyph = "▧",
+                        onClick = onGallery
+                    )
+                }
+            }
+
+            item {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CompactHomeCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Ustawienia",
+                        glyph = "⚙",
+                        onClick = onSettings
+                    )
+                    CompactHomeCard(
+                        modifier = Modifier.weight(1f),
+                        title = "O programie",
+                        glyph = "i",
+                        onClick = onAbout
+                    )
+                }
+            }
+
+            item {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "RPG OS jest silnikiem kampanii. Świat wybierasz dopiero podczas tworzenia gry.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PrimaryHomeCard(
+    title: String,
+    subtitle: String,
+    glyph: String,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(26.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        )
+    ) {
+        Row(
+            Modifier.padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.primary
+            ) {
+                Text(
+                    glyph,
+                    modifier = Modifier.padding(horizontal = 17.dp, vertical = 12.dp),
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    subtitle,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            Text("›", style = MaterialTheme.typography.headlineMedium)
+        }
+    }
+}
+
+@Composable
+private fun HomeCard(
+    title: String,
+    subtitle: String,
+    glyph: String,
+    onClick: () -> Unit
+) {
+    ElevatedCard(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp)
+    ) {
+        Row(
+            Modifier.padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(glyph, style = MaterialTheme.typography.headlineMedium)
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text("›", style = MaterialTheme.typography.headlineMedium)
+        }
+    }
+}
+
+@Composable
+private fun CompactHomeCard(
+    modifier: Modifier = Modifier,
+    title: String,
+    glyph: String,
+    onClick: () -> Unit
+) {
+    ElevatedCard(
+        onClick = onClick,
+        modifier = modifier.height(112.dp),
+        shape = RoundedCornerShape(22.dp)
+    ) {
+        Column(
+            Modifier.fillMaxSize().padding(16.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(glyph, style = MaterialTheme.typography.headlineSmall)
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun WorldSelectionScreen(
+    onBack: () -> Unit,
+    onNaruto: () -> Unit
+) {
+    StandardPage(title = "Nowa gra", onBack = onBack) {
+        LazyColumn(
+            Modifier.fillMaxSize().padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item {
+                Text(
+                    "Wybierz świat",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Każdy świat jest osobnym modułem zasad, wiedzy i kampanii.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            item {
+                Card(
+                    onClick = onNaruto,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(26.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Column(Modifier.padding(22.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Naruto", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer
+                            ) {
+                                Text(
+                                    "DOSTĘPNY",
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Świat shinobi • kampanie długoterminowe • pełna baza świata",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(18.dp))
+                        Button(onClick = onNaruto, modifier = Modifier.fillMaxWidth()) {
+                            Text("Wybierz świat")
+                        }
+                    }
+                }
+            }
+
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(22.dp),
+                    color = MaterialTheme.colorScheme.surface
+                ) {
+                    Column(
+                        Modifier.padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("Więcej światów w przyszłości", fontWeight = FontWeight.Bold)
+                        Text(
+                            "Architektura RPG OS jest już przygotowana na kolejne moduły.",
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NarutoSetupScreen(
+    vm: RpgOsViewModel,
+    onBack: () -> Unit,
+    onEnterCampaign: () -> Unit
+) {
+    var campaignName by remember { mutableStateOf("") }
+
+    StandardPage(title = "Naruto • Nowa kampania", onBack = onBack) {
+        LazyColumn(
+            Modifier.fillMaxSize().padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item {
+                Text(
+                    "Utwórz kampanię",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Na tym etapie RPG OS używa domyślnego pakietu świata Naruto. Rozbudowany kreator kampanii pojawi się w kolejnych wersjach.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            item {
+                ElevatedCard(
+                    Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(22.dp)
+                ) {
+                    Column(Modifier.padding(18.dp)) {
+                        OutlinedTextField(
+                            value = campaignName,
+                            onValueChange = { campaignName = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Nazwa kampanii") },
+                            placeholder = { Text("np. Era Hashiramy") },
+                            singleLine = true
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                vm.createAndActivateCampaign(campaignName)
+                                onEnterCampaign()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Rozpocznij kampanię")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContinueScreen(
+    vm: RpgOsViewModel,
+    onBack: () -> Unit,
+    onContinue: (String) -> Unit
+) {
+    val campaigns by vm.campaigns.collectAsState()
+    val activeCampaign by vm.activeCampaign.collectAsState()
+
+    StandardPage(title = "Kontynuuj", onBack = onBack) {
+        LazyColumn(
+            Modifier.fillMaxSize().padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                Text(
+                    "Twoje kampanie",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            if (campaigns.isEmpty()) {
+                item {
+                    EmptyState(
+                        title = "Brak kampanii",
+                        text = "Utwórz pierwszą grę z ekranu „Nowa gra”."
+                    )
+                }
+            }
+
+            items(campaigns) { campaign ->
+                val dirName = File(campaign.path).name
+                ElevatedCard(
+                    onClick = { onContinue(dirName) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(22.dp)
+                ) {
+                    Column(Modifier.padding(18.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                campaign.name,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (campaign.path.endsWith(activeCampaign)) {
+                                Text(
+                                    "AKTYWNA",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Backupy: ${campaign.backupCount}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        FilledTonalButton(
+                            onClick = { onContinue(dirName) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Kontynuuj")
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CampaignShell(
+    vm: RpgOsViewModel,
+    onExit: () -> Unit
+) {
+    var tab by remember { mutableStateOf(CampaignTab.GAME) }
+    var tool by remember { mutableStateOf<CampaignTool?>(null) }
+    val activeCampaign by vm.activeCampaign.collectAsState()
+
+    if (tool != null) {
+        StandardPage(
+            title = tool!!.title,
+            onBack = { tool = null }
+        ) {
+            when (tool!!) {
+                CampaignTool.NPCS -> NpcScreen(vm)
+                CampaignTool.SOCIAL -> SocialScreen(vm)
+                CampaignTool.TECHNIQUES -> TechniquesScreen(vm)
+                CampaignTool.MISSIONS -> MissionsScreen(vm)
+                CampaignTool.GALLERY -> VisualGeneratorScreen(vm)
+                CampaignTool.TIME -> TimeScreen(vm)
+                CampaignTool.DASHBOARD -> WorldDashboardScreen(vm)
+                CampaignTool.PACKAGES -> PackagesScreen(vm)
+                CampaignTool.GM -> GmDiagnosticsScreen(vm)
+                CampaignTool.DEV -> DeveloperPanelScreen(vm)
+                CampaignTool.DB -> DatabaseScreen(vm)
+                CampaignTool.SETTINGS -> SettingsScreen(vm)
+            }
+        }
+        return
+    }
+
     Scaffold(
-        topBar = { TopAppBar(title={Text("RPG OS ALPHA • Naruto")},actions={TextButton(onClick=vm::refresh){Text("Odśwież")}}) },
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text("RPG OS", fontWeight = FontWeight.Bold)
+                        Text(
+                            activeCampaign.ifBlank { "Aktywna kampania" },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                actions = {
+                    TextButton(onClick = onExit) { Text("Wyjdź") }
+                }
+            )
+        },
         bottomBar = {
             NavigationBar {
-                Tab.entries.forEach {
+                CampaignTab.entries.forEach { item ->
                     NavigationBarItem(
-                        selected=tab==it,onClick={tab=it},
-                        icon={Text(it.label.take(1))},label={Text(it.label)}
+                        selected = tab == item,
+                        onClick = { tab = item },
+                        icon = { Text(item.glyph, fontWeight = FontWeight.Bold) },
+                        label = { Text(item.label) }
                     )
                 }
             }
         }
-    ){padding->
-        Box(Modifier.padding(padding).fillMaxSize()){
-            when(tab){
-                Tab.GAME->GameScreen(vm)
-                Tab.STATUS->FullStatusScreen(vm)
-                Tab.TIME->TimeScreen(vm)
-                Tab.WORLD->WorldScreen(vm)
-                Tab.NPCS->NpcScreen(vm)
-                Tab.SOCIAL->SocialScreen(vm)
-                Tab.DASHBOARD->WorldDashboardScreen(vm)
-                Tab.TECHNIQUES->TechniquesScreen(vm)
-                Tab.MISSIONS->MissionsScreen(vm)
-                Tab.VISUALS->VisualGeneratorScreen(vm)
-                Tab.CHRONICLE->ChronicleScreen(vm)
-                Tab.PACKAGES->PackagesScreen(vm)
-                Tab.DB->DatabaseScreen(vm)
-                Tab.GM->GmDiagnosticsScreen(vm)
-                Tab.DEV->DeveloperPanelScreen(vm)
-                Tab.SETTINGS->SettingsScreen(vm)
+    ) { padding ->
+        Box(Modifier.padding(padding).fillMaxSize()) {
+            when (tab) {
+                CampaignTab.GAME -> GameScreen(vm)
+                CampaignTab.CHARACTER -> FullStatusScreen(vm)
+                CampaignTab.CHRONICLE -> ChronicleScreen(vm)
+                CampaignTab.WORLD -> WorldScreen(vm)
+                CampaignTab.MENU -> CampaignMenuScreen(
+                    onTool = { tool = it },
+                    onExit = onExit
+                )
             }
+        }
+    }
+}
+
+@Composable
+private fun CampaignMenuScreen(
+    onTool: (CampaignTool) -> Unit,
+    onExit: () -> Unit
+) {
+    LazyColumn(
+        Modifier.fillMaxSize().padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Text(
+                "Narzędzia kampanii",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                "Funkcje dodatkowe są schowane tutaj, żeby główny interfejs gry pozostał prosty.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        item { MenuSection("Rozgrywka") }
+        item {
+            MenuGridRow(
+                left = "NPC" to CampaignTool.NPCS,
+                right = "Relacje" to CampaignTool.SOCIAL,
+                onTool = onTool
+            )
+        }
+        item {
+            MenuGridRow(
+                left = "Techniki" to CampaignTool.TECHNIQUES,
+                right = "Misje" to CampaignTool.MISSIONS,
+                onTool = onTool
+            )
+        }
+        item {
+            MenuGridRow(
+                left = "Galeria" to CampaignTool.GALLERY,
+                right = "Czas" to CampaignTool.TIME,
+                onTool = onTool
+            )
+        }
+
+        item { MenuSection("System") }
+        item {
+            MenuGridRow(
+                left = "Symulacja świata" to CampaignTool.DASHBOARD,
+                right = "Kampanie" to CampaignTool.PACKAGES,
+                onTool = onTool
+            )
+        }
+        item {
+            MenuGridRow(
+                left = "Ustawienia" to CampaignTool.SETTINGS,
+                right = "Diagnostyka" to CampaignTool.GM,
+                onTool = onTool
+            )
+        }
+        item {
+            MenuGridRow(
+                left = "Dev" to CampaignTool.DEV,
+                right = "Baza danych" to CampaignTool.DB,
+                onTool = onTool
+            )
+        }
+
+        item {
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onExit, modifier = Modifier.fillMaxWidth()) {
+                Text("Powrót do ekranu głównego")
+            }
+        }
+    }
+}
+
+@Composable
+private fun MenuGridRow(
+    left: Pair<String, CampaignTool>,
+    right: Pair<String, CampaignTool>,
+    onTool: (CampaignTool) -> Unit
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        SmallMenuCard(
+            modifier = Modifier.weight(1f),
+            text = left.first,
+            onClick = { onTool(left.second) }
+        )
+        SmallMenuCard(
+            modifier = Modifier.weight(1f),
+            text = right.first,
+            onClick = { onTool(right.second) }
+        )
+    }
+}
+
+@Composable
+private fun SmallMenuCard(
+    modifier: Modifier = Modifier,
+    text: String,
+    onClick: () -> Unit
+) {
+    ElevatedCard(
+        onClick = onClick,
+        modifier = modifier.height(82.dp),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Box(
+            Modifier.fillMaxSize().padding(14.dp),
+            contentAlignment = Alignment.BottomStart
+        ) {
+            Text(text, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun MenuSection(text: String) {
+    Text(
+        text.uppercase(),
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.primary
+    )
+}
+
+@Composable
+private fun StandardPage(
+    title: String,
+    onBack: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(title, fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    TextButton(onClick = onBack) { Text("‹ Wróć") }
+                }
+            )
+        }
+    ) { padding ->
+        Box(Modifier.padding(padding).fillMaxSize()) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun AboutScreen(onBack: () -> Unit) {
+    StandardPage(title = "O RPG OS", onBack = onBack) {
+        LazyColumn(
+            Modifier.fillMaxSize().padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item {
+                Text(
+                    "RPG OS",
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    "Silnik długoterminowych kampanii RPG wspieranych przez AI.",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            item {
+                ElevatedCard(
+                    Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(22.dp)
+                ) {
+                    Column(Modifier.padding(18.dp)) {
+                        DataRow("Wersja", BuildConfig.VERSION_NAME)
+                        DataRow("VersionCode", BuildConfig.VERSION_CODE.toString())
+                        DataRow("Kanał", "ALPHA")
+                    }
+                }
+            }
+            item {
+                Text(
+                    "RPG OS oddziela silnik aplikacji od światów gry. " +
+                        "Na ekranie głównym nie ma żadnego konkretnego uniwersum; " +
+                        "świat wybierasz dopiero podczas tworzenia kampanii."
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyState(title: String, text: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Column(
+            Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -300,16 +1099,102 @@ private fun GameScreen(vm:RpgOsViewModel){
     val settings by vm.settings.collectAsState()
     val contextSummary by vm.lastContextSummary.collectAsState()
     var text by remember{mutableStateOf("")}
-    Column(Modifier.fillMaxSize().padding(12.dp)){
-        if(settings.showGmDiagnostics){Text(contextSummary,style=MaterialTheme.typography.labelSmall);Spacer(Modifier.height(6.dp))}
-        LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){
-            items(messages){msg->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){
-                Text(if(msg.role=="player")"Gracz" else if(msg.role=="gm")"Mistrz Gry" else "System",style=MaterialTheme.typography.labelMedium)
-                Text(msg.text)
-            }}}
+
+    Column(
+        Modifier.fillMaxSize().padding(horizontal=14.dp,vertical=10.dp)
+    ){
+        if(settings.showGmDiagnostics){
+            Surface(
+                shape=RoundedCornerShape(14.dp),
+                color=MaterialTheme.colorScheme.surfaceVariant
+            ){
+                Text(
+                    contextSummary,
+                    modifier=Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=8.dp),
+                    style=MaterialTheme.typography.labelSmall,
+                    color=MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.height(8.dp))
         }
-        OutlinedTextField(text,{text=it},Modifier.fillMaxWidth(),placeholder={Text("Co robisz?")})
-        Button(onClick={vm.send(text);text=""},modifier=Modifier.fillMaxWidth().padding(top=8.dp)){Text("Wyślij")}
+
+        LazyColumn(
+            Modifier.weight(1f),
+            verticalArrangement=Arrangement.spacedBy(10.dp),
+            contentPadding=PaddingValues(bottom=12.dp)
+        ){
+            items(messages){msg->
+                val isPlayer=msg.role=="player"
+                val isGm=msg.role=="gm"
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement=if(isPlayer) Arrangement.End else Arrangement.Start
+                ){
+                    Card(
+                        modifier=Modifier.fillMaxWidth(if(isPlayer)0.88f else 0.96f),
+                        shape=RoundedCornerShape(
+                            topStart=20.dp,
+                            topEnd=20.dp,
+                            bottomStart=if(isPlayer)20.dp else 6.dp,
+                            bottomEnd=if(isPlayer)6.dp else 20.dp
+                        ),
+                        colors=CardDefaults.cardColors(
+                            containerColor=when{
+                                isPlayer->MaterialTheme.colorScheme.primaryContainer
+                                isGm->MaterialTheme.colorScheme.surfaceVariant
+                                else->MaterialTheme.colorScheme.surface
+                            }
+                        )
+                    ){
+                        Column(Modifier.padding(14.dp)){
+                            Text(
+                                when(msg.role){
+                                    "player"->"TY"
+                                    "gm"->"MISTRZ GRY"
+                                    else->"SYSTEM"
+                                },
+                                style=MaterialTheme.typography.labelSmall,
+                                color=if(isPlayer)
+                                    MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.secondary
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(msg.text,style=MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
+            }
+        }
+
+        Surface(
+            shape=RoundedCornerShape(22.dp),
+            tonalElevation=2.dp
+        ){
+            Column(Modifier.padding(10.dp)){
+                OutlinedTextField(
+                    value=text,
+                    onValueChange={text=it},
+                    modifier=Modifier.fillMaxWidth(),
+                    placeholder={Text("Co robisz?")},
+                    maxLines=5,
+                    shape=RoundedCornerShape(18.dp)
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick={
+                        val sendText=text.trim()
+                        if(sendText.isNotBlank()){
+                            vm.send(sendText)
+                            text=""
+                        }
+                    },
+                    modifier=Modifier.fillMaxWidth(),
+                    shape=RoundedCornerShape(16.dp)
+                ){
+                    Text("Wyślij akcję")
+                }
+            }
+        }
     }
 }
 
