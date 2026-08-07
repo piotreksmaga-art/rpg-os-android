@@ -16,6 +16,12 @@ object JsonCodec {
         put("canon_constraints", JSONArray(context.canonConstraints.map(::JSONObject)))
         put("recent_chronicle", JSONArray(context.recentChronicle.map(::JSONObject)))
         put("retrieved_long_term_memory", JSONArray(context.retrievedLongTermMemory.map(::JSONObject)))
+        put("player_skills", JSONArray(context.playerSkills.map(::JSONObject)))
+        put("player_techniques", JSONArray(context.playerTechniques.map(::JSONObject)))
+        put("player_organizations", JSONArray(context.playerOrganizations.map(::JSONObject)))
+        put("active_world_events", JSONArray(context.activeWorldEvents.map(::JSONObject)))
+        put("npc_memories", JSONArray(context.npcMemories.map(::JSONObject)))
+        put("context_meta", JSONObject(context.contextMeta))
     }
 
     fun parseStatePatch(obj: JSONObject): StatePatch {

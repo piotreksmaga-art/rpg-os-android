@@ -1,0 +1,15 @@
+{
+  "checks": {
+    "schema_tables_present": true,
+    "compose_plugin_present": true,
+    "duplicate_kotlin_android_absent": true,
+    "version_alpha2": true,
+    "startup_context": true,
+    "npc_memory_real_table": true,
+    "skills_real_table": true,
+    "techniques_real_table": true,
+    "world_events_real_table": true,
+    "context_meta_serialized": true
+  },
+  "missing_tables": []
+}

@@ -7,17 +7,70 @@ class ContextBuilder(
     private val worldDb: SQLiteDatabase
 ) {
     fun build(playerInput: String, chapter: Int): ContextBundle {
+        val campaign = safeQueryOne(
+            saveDb,
+            "SELECT campaign_name,schema_version,current_chapter,current_tome FROM campaign_meta WHERE id=1"
+        )
+
         val time = safeQueryOne(
             saveDb,
             "SELECT year_label,era_name,season,hour,minute,absolute_day FROM campaign_calendar WHERE id=1"
         )
 
+        val playerUid = resolvePlayerUid()
+
+        val position = if (playerUid != null) safeQueryOne(
+            saveDb,
+            """SELECT entity_uid,location_uid,x_coord,y_coord,last_updated_day,updated_chapter
+               FROM entity_positions WHERE entity_uid=? LIMIT 1""",
+            arrayOf(playerUid)
+        ) else emptyMap()
+
         val status = linkedMapOf<String, Any?>(
             "chapter" to chapter,
-            "player_input" to playerInput
+            "player_input" to playerInput,
+            "player_uid" to playerUid,
+            "campaign" to campaign
         ).apply {
-            safeQueryOne(saveDb, "SELECT * FROM character_status_snapshot LIMIT 1")
-                .forEach { (k, v) -> put(k, v) }
+            position.forEach { (k, v) -> put(k, v) }
+
+            if (playerUid != null) {
+                safeQueryOne(
+                    saveDb,
+                    """SELECT entity_uid,ryo,monthly_income,monthly_expenses,debt,property_value,
+                              investment_value,updated_chapter
+                       FROM character_finances WHERE entity_uid=? LIMIT 1""",
+                    arrayOf(playerUid)
+                ).forEach { (k, v) -> put("finance_$k", v) }
+
+                put(
+                    "injuries",
+                    safeQueryMany(
+                        saveDb,
+                        """SELECT injury_uid,body_part_uid,severity,pain,bleeding,status,created_chapter
+                           FROM injuries_v2 WHERE entity_uid=? AND status!='healed'
+                           ORDER BY severity DESC LIMIT 12""",
+                        arrayOf(playerUid)
+                    )
+                )
+            }
+        }
+
+        val scene = linkedMapOf<String, Any?>(
+            "query" to playerInput,
+            "player_uid" to playerUid
+        ).apply {
+            position.forEach { (k, v) -> put(k, v) }
+
+            val locationUid = position["location_uid"] as? String
+            if (!locationUid.isNullOrBlank()) {
+                safeQueryOne(
+                    worldDb,
+                    """SELECT location_uid,name,location_type,region_uid,description
+                       FROM map_locations_v2 WHERE location_uid=? LIMIT 1""",
+                    arrayOf(locationUid)
+                ).forEach { (k, v) -> put("location_$k", v) }
+            }
         }
 
         val threads = safeQueryMany(
@@ -29,79 +82,157 @@ class ContextBuilder(
 
         val missions = safeQueryMany(
             saveDb,
-            """SELECT mission_uid,title,mission_rank,status,objective_summary,reward_ryo,deadline_day,location_uid
+            """SELECT mission_uid,title,mission_rank,status,objective_summary,reward_ryo,
+                      deadline_day,location_uid,consequence_on_failure
                FROM missions_v3
                WHERE status IN ('available','active','assigned')
-               ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'assigned' THEN 1 ELSE 2 END, reward_ryo DESC
+               ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'assigned' THEN 1 ELSE 2 END,
+                        reward_ryo DESC
                LIMIT 20"""
         )
 
         val pressures = safeQueryMany(
             saveDb,
-            """SELECT pressure_uid,target_type,target_uid,starts_day,peaks_day,pressure_type,magnitude,hidden,summary
+            """SELECT pressure_uid,target_type,target_uid,starts_day,peaks_day,pressure_type,
+                      magnitude,hidden,summary
                FROM future_world_pressure
                ORDER BY magnitude DESC LIMIT 20"""
         )
 
+        val activeWorldEvents = safeQueryMany(
+            saveDb,
+            """SELECT active_event_uid,event_type,subject_uid,location_uid,started_day,
+                      expected_end_day,status,visibility,public_summary,gm_summary
+               FROM active_world_events
+               WHERE status='active'
+               ORDER BY started_day DESC LIMIT 20"""
+        )
+
         val chronicle = safeQueryMany(
             saveDb,
-            """SELECT chapter,title,active_threads_json,decisions_json,consequences_json,quests_json,continuity_warnings_json
+            """SELECT chapter,title,active_threads_json,decisions_json,consequences_json,
+                      quests_json,continuity_warnings_json
                FROM chapter_manifests_v2
-               ORDER BY chapter DESC LIMIT 8"""
+               ORDER BY chapter DESC LIMIT 10"""
         )
 
-        val memories = safeQueryMany(
+        val longTermMemory = safeQueryMany(
             saveDb,
-            """SELECT memory_uid,entity_uid,memory_type,source_chapter,importance,keywords,summary
-               FROM narrative_memory_index
+            """SELECT memory_uid,entity_uid,memory_type,subject_uid,chapter,day,importance,
+                      emotional_valence,accuracy,summary
+               FROM npc_memories_v2
                WHERE active=1
-               ORDER BY importance DESC,source_chapter DESC LIMIT 25"""
+               ORDER BY importance DESC,chapter DESC LIMIT 30"""
         )
-
-        val scene = linkedMapOf<String, Any?>("query" to playerInput).apply {
-            safeQueryOne(
-                saveDb,
-                "SELECT location_uid,last_updated_day,updated_chapter FROM entity_positions LIMIT 1"
-            ).forEach { (k, v) -> put(k, v) }
-        }
 
         val relevantNpcIds = LinkedHashSet<String>()
+
         safeQueryMany(
             saveDb,
-            """SELECT entity_uid FROM npc_schedules
-               WHERE visibility='gm' ORDER BY priority DESC LIMIT 12"""
+            """SELECT entity_uid,location_uid,priority,summary
+               FROM npc_schedules
+               WHERE visibility IN ('gm','public')
+               ORDER BY priority DESC LIMIT 20"""
         ).forEach { row ->
             (row["entity_uid"] as? String)?.let { relevantNpcIds += it }
         }
 
+        safeQueryMany(
+            saveDb,
+            """SELECT holder_uid FROM information_knowledge
+               ORDER BY confidence DESC,learned_chapter DESC LIMIT 20"""
+        ).forEach { row ->
+            (row["holder_uid"] as? String)?.let { relevantNpcIds += it }
+        }
+
         val npcRows = mutableListOf<Map<String, Any?>>()
         val knowledgeRows = mutableListOf<Map<String, Any?>>()
+        val npcMemoryRows = mutableListOf<Map<String, Any?>>()
 
-        for (id in relevantNpcIds.take(12)) {
-            safeQueryOne(
+        for (id in relevantNpcIds.take(16)) {
+            val npc = safeQueryOne(
                 worldDb,
-                "SELECT * FROM canon_characters_v2 WHERE character_uid=?",
+                """SELECT character_uid,name,sex,birth_era,clan_uid,village_uid,rank_title,
+                          affiliation_summary,personality_summary,combat_summary
+                   FROM canon_characters_v2 WHERE character_uid=? LIMIT 1""",
                 arrayOf(id)
-            ).takeIf { it.isNotEmpty() }?.let { npcRows += it }
+            )
+            if (npc.isNotEmpty()) npcRows += npc
 
             knowledgeRows += safeQueryMany(
                 saveDb,
-                """SELECT k.holder_uid,k.info_uid,k.confidence,k.accuracy,k.acquisition_method,k.learned_chapter,
-                          f.title,f.content_summary,f.secrecy_level
+                """SELECT k.holder_uid,k.info_uid,k.confidence,k.accuracy,k.acquisition_method,
+                          k.learned_chapter,f.title,f.content_summary,f.secrecy_level
                    FROM information_knowledge k
                    LEFT JOIN information_facts f ON f.info_uid=k.info_uid
                    WHERE k.holder_uid=?
-                   ORDER BY k.confidence DESC,k.learned_chapter DESC LIMIT 20""",
+                   ORDER BY k.confidence DESC,k.learned_chapter DESC LIMIT 16""",
+                arrayOf(id)
+            )
+
+            npcMemoryRows += safeQueryMany(
+                saveDb,
+                """SELECT memory_uid,entity_uid,memory_type,subject_uid,chapter,day,importance,
+                          emotional_valence,accuracy,summary
+                   FROM npc_memories_v2
+                   WHERE entity_uid=? AND active=1
+                   ORDER BY importance DESC,chapter DESC LIMIT 12""",
                 arrayOf(id)
             )
         }
 
         val constraints = safeQueryMany(
             worldDb,
-            """SELECT constraint_uid,subject_type,subject_uid,constraint_key,constraint_value,canon_scope,notes
+            """SELECT constraint_uid,subject_type,subject_uid,constraint_key,constraint_value,
+                      canon_scope,notes
                FROM canon_constraints_v2
                WHERE status='active' OR status IS NULL
-               LIMIT 30"""
+               LIMIT 40"""
+        )
+
+        val skills = if (playerUid != null) safeQueryMany(
+            saveDb,
+            """SELECT entity_uid,skill_uid,mastery,xp,updated_chapter
+               FROM character_skills WHERE entity_uid=?
+               ORDER BY mastery DESC,xp DESC LIMIT 50""",
+            arrayOf(playerUid)
+        ) else emptyList()
+
+        val techniques = if (playerUid != null) safeQueryMany(
+            saveDb,
+            """SELECT entity_uid,technique_uid,mastery,xp,learned_chapter,last_used_chapter,
+                      usage_count,success_count,failure_count,is_equipped,notes
+               FROM character_techniques WHERE entity_uid=?
+               ORDER BY is_equipped DESC,mastery DESC,xp DESC LIMIT 60""",
+            arrayOf(playerUid)
+        ) else emptyList()
+
+        val organizations = if (playerUid != null) safeQueryMany(
+            saveDb,
+            """SELECT organization_uid,character_uid,unit_uid,position_uid,role_title,loyalty,
+                      secrecy_clearance,joined_era,status
+               FROM organization_memberships_v3
+               WHERE character_uid=? AND status='active'
+               ORDER BY loyalty DESC""",
+            arrayOf(playerUid)
+        ) else emptyList()
+
+        val meta = linkedMapOf<String, Any?>(
+            "engine" to "ContextBundle Engine v1",
+            "schema" to 1,
+            "chapter" to chapter,
+            "player_uid_resolved" to (playerUid != null),
+            "threads" to threads.size,
+            "missions" to missions.size,
+            "pressures" to pressures.size,
+            "world_events" to activeWorldEvents.size,
+            "npcs" to npcRows.size,
+            "npc_knowledge" to knowledgeRows.size,
+            "npc_memories" to npcMemoryRows.size,
+            "long_term_memory" to longTermMemory.size,
+            "skills" to skills.size,
+            "techniques" to techniques.size,
+            "organizations" to organizations.size
         )
 
         return ContextBundle(
@@ -115,8 +246,28 @@ class ContextBuilder(
             worldPressures = pressures,
             canonConstraints = constraints,
             recentChronicle = chronicle,
-            retrievedLongTermMemory = memories
+            retrievedLongTermMemory = longTermMemory,
+            playerSkills = skills,
+            playerTechniques = techniques,
+            playerOrganizations = organizations,
+            activeWorldEvents = activeWorldEvents,
+            npcMemories = npcMemoryRows,
+            contextMeta = meta
         )
+    }
+
+    private fun resolvePlayerUid(): String? {
+        val candidates = listOf(
+            "SELECT entity_uid FROM character_skills GROUP BY entity_uid ORDER BY COUNT(*) DESC LIMIT 1",
+            "SELECT entity_uid FROM character_techniques GROUP BY entity_uid ORDER BY COUNT(*) DESC LIMIT 1",
+            "SELECT entity_uid FROM character_finances LIMIT 1",
+            "SELECT entity_uid FROM entity_positions ORDER BY updated_chapter DESC LIMIT 1"
+        )
+        for (sql in candidates) {
+            val value = safeQueryOne(saveDb, sql)["entity_uid"] as? String
+            if (!value.isNullOrBlank()) return value
+        }
+        return null
     }
 
     private fun safeQueryOne(
@@ -152,7 +303,8 @@ class ContextBuilder(
                         android.database.Cursor.FIELD_TYPE_NULL -> null
                         android.database.Cursor.FIELD_TYPE_INTEGER -> c.getLong(i)
                         android.database.Cursor.FIELD_TYPE_FLOAT -> c.getDouble(i)
-                        android.database.Cursor.FIELD_TYPE_BLOB -> c.getBlob(i)
+                        android.database.Cursor.FIELD_TYPE_BLOB ->
+                            "[BLOB ${c.getBlob(i).size} bytes]"
                         else -> c.getString(i)
                     }
                 }

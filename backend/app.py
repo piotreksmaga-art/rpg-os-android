@@ -73,7 +73,10 @@ TURN_SCHEMA = {
 
 SYSTEM_PROMPT = """You are the Game Master for RPG OS.
 Return only data matching the requested JSON schema.
-Never invent NPC knowledge that is absent from npc_knowledge.
+Never invent NPC knowledge that is absent from npc_knowledge or npc_memories.
+Use player_skills and player_techniques as authoritative learned abilities.
+Use active_world_events, world_pressures and recent_chronicle to preserve causality.
+Use player_organizations and scene/location state when deciding who can plausibly appear.
 Respect canon_constraints unless campaign state has already diverged.
 Narration must be in Polish.
 The state_patch must contain only concrete state changes caused by this turn.

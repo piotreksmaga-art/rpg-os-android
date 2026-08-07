@@ -21,7 +21,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     val developerDiagnostic: StateFlow<String> = _developerDiagnostic
 
     private val _messages = MutableStateFlow(
-        listOf(ChatMessage("system", "RPG OS ALPHA 1.2.0-alpha1 • Anti-Crash + AutoRepair + DevPanel + Updater."))
+        listOf(ChatMessage("system", "RPG OS ALPHA 1.2.0-alpha2 • ContextBundle Engine v1 • Anti-Crash + AutoRepair + DevPanel + Updater."))
     )
     val messages: StateFlow<List<ChatMessage>> = _messages
 
@@ -199,12 +199,32 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private val _lastContextSummary = MutableStateFlow("Brak zbudowanego ContextBundle.")
+    private val _lastContextSummary = MutableStateFlow("ContextBundle: inicjalizacja...")
     val lastContextSummary: StateFlow<String> = _lastContextSummary
 
     init {
         store.bootstrap()
         refresh()
+        buildStartupContext()
+    }
+
+    private fun buildStartupContext() {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            runCatching {
+                val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1
+                val context = store.buildContext("STARTUP_CONTEXT", chapter)
+                _lastContextSummary.value =
+                    "ContextBundle v1: wątki=${context.activeThreads.size}, NPC=${context.relevantNpcs.size}, " +
+                    "wiedza=${context.npcKnowledge.size}, wydarzenia=${context.activeWorldEvents.size}, " +
+                    "techniki=${context.playerTechniques.size}, pamięć=${context.retrievedLongTermMemory.size}"
+                _diagnostics.value = store.diagnostics(_lastContextSummary.value)
+            }.onFailure {
+                DiagnosticLogger.log(app, "STARTUP_CONTEXT_FAILED", it)
+                _lastContextSummary.value =
+                    "ContextBundle v1 tryb ograniczony: ${it::class.simpleName}: ${it.message}"
+            }
+        }
     }
 
     fun refresh() {
@@ -564,9 +584,10 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 _lastContextSummary.value =
-                    "Context: wątki=${context.activeThreads.size}, NPC=${context.relevantNpcs.size}, " +
+                    "ContextBundle v1: wątki=${context.activeThreads.size}, NPC=${context.relevantNpcs.size}, " +
                     "wiedza=${context.npcKnowledge.size}, misje=${context.missions.size}, " +
-                    "presje=${context.worldPressures.size}, pamięć=${context.retrievedLongTermMemory.size}"
+                    "wydarzenia=${context.activeWorldEvents.size}, techniki=${context.playerTechniques.size}, " +
+                    "pamięć=${context.retrievedLongTermMemory.size}"
 
                 _messages.value = _messages.value + ChatMessage(
                     "system",

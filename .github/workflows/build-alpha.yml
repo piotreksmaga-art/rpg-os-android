@@ -1,9 +1,12 @@
-name: Build RPG OS ALPHA
+name: Build & Release RPG OS ALPHA
 
 on:
   workflow_dispatch:
   push:
     branches: [ "main", "master" ]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -34,20 +37,95 @@ jobs:
         with:
           gradle-version: '9.5.0'
 
+      - name: Read app version
+        id: version
+        shell: bash
+        run: |
+          VERSION_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+          VERSION_CODE=$(grep -oP 'versionCode\s*=\s*\K[0-9]+' app/build.gradle.kts)
+
+          if [ -z "$VERSION_NAME" ] || [ -z "$VERSION_CODE" ]; then
+            echo "Unable to read versionName/versionCode from app/build.gradle.kts"
+            exit 1
+          fi
+
+          echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "apk=RPG-OS-ALPHA-$VERSION_NAME.apk" >> "$GITHUB_OUTPUT"
+
+          echo "Building RPG OS ALPHA $VERSION_NAME ($VERSION_CODE)"
+
       - name: Validate project
         run: gradle --no-daemon :app:tasks --stacktrace
 
       - name: Build ALPHA APK
         run: gradle --no-daemon :app:assembleDebug --stacktrace
 
-      - name: Rename ALPHA APK
+      - name: Prepare release APK
+        shell: bash
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk RPG-OS-ALPHA-1.2.0-alpha1.apk
-          sha256sum RPG-OS-ALPHA-1.2.0-alpha1.apk
+          cp app/build/outputs/apk/debug/app-debug.apk "${{ steps.version.outputs.apk }}"
+          sha256sum "${{ steps.version.outputs.apk }}" | tee "${{ steps.version.outputs.apk }}.sha256"
 
-      - name: Upload ALPHA APK
+      - name: Upload Actions artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RPG-OS-ALPHA-1.2.0-alpha1
-          path: RPG-OS-ALPHA-1.2.0-alpha1.apk
+          name: RPG-OS-ALPHA-${{ steps.version.outputs.name }}
+          path: |
+            ${{ steps.version.outputs.apk }}
+            ${{ steps.version.outputs.apk }}.sha256
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Check if release already exists
+        id: release_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        if: steps.release_check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            "${{ steps.version.outputs.apk }}" \
+            "${{ steps.version.outputs.apk }}.sha256" \
+            --title "RPG OS ALPHA ${{ steps.version.outputs.name }}" \
+            --notes "Automatyczne wydanie RPG OS ALPHA.
+
+          Wersja: ${{ steps.version.outputs.name }}
+          VersionCode: ${{ steps.version.outputs.code }}
+
+          Plik APK:
+          ${{ steps.version.outputs.apk }}
+
+          Instalacja:
+          RPG OS → Aktualizacje RPG OS → Wybierz lokalny plik APK → Zainstaluj przygotowaną aktualizację."
+
+      - name: Update existing GitHub Release asset
+        if: steps.release_check.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release upload "${{ steps.version.outputs.tag }}" \
+            "${{ steps.version.outputs.apk }}" \
+            "${{ steps.version.outputs.apk }}.sha256" \
+            --clobber
+
+      - name: Show release information
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          echo "Release:"
+          gh release view "${{ steps.version.outputs.tag }}"
