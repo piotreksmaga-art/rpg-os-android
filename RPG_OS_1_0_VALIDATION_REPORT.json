@@ -1,0 +1,26 @@
+{
+  "product": "RPG OS Android 1.0",
+  "generated_at": "2026-08-07T16:00:41.853836+00:00",
+  "stress_test": {
+    "chapters_requested": 10000,
+    "chapter_rows": 10000,
+    "integrity": "ok",
+    "db_size_bytes": 3203072,
+    "duration_seconds": 0.133,
+    "issues": []
+  },
+  "static_audit": {
+    "kotlin_files": 40,
+    "issues": []
+  },
+  "required_files_missing": [],
+  "assets": [
+    "Naruto.worldpack.zip",
+    "Naruto_Default.campaign.zip",
+    "api_contract.json",
+    "rpg_core.db"
+  ],
+  "source_file_count": 79,
+  "android_build_executed": false,
+  "android_build_note": "Source package was structurally audited and stress-tested, but no Android SDK/Gradle device build was executed in this environment."
+}

@@ -1,0 +1,9 @@
+{
+  "backend_python_syntax": "ok",
+  "default_text_model": "gpt-5.2",
+  "default_image_model": "gpt-image-1",
+  "phone_backend_url": "http://127.0.0.1:8000",
+  "mock_mode_available": true,
+  "live_api_test_performed": false,
+  "live_api_test_reason": "No user OPENAI_API_KEY is available in this environment."
+}

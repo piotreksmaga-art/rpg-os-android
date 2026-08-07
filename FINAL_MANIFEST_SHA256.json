@@ -1,0 +1,432 @@
+[
+  {
+    "path": ".github/workflows/build-apk.yml",
+    "size": 939,
+    "sha256": "ced671005d5e80cb6215e85d683963c6b5b37834d1c07eb4ab3493a175df8744"
+  },
+  {
+    "path": "AUTOSAVE_SPEC.md",
+    "size": 295,
+    "sha256": "488e8e54f775ac2b1b4ab92cc9ec66a42d18ec82acb9f21462174e647dd20d40"
+  },
+  {
+    "path": "AUTO_VISUAL_SUGGESTIONS.md",
+    "size": 392,
+    "sha256": "2b7d9fab2a1d9658744a70028f69cfa2dddf668d9f5c3d028d4e6216db195ea5"
+  },
+  {
+    "path": "BACKEND_TODO.md",
+    "size": 445,
+    "sha256": "17592cec96c608cb717b86248bea0c60319bef92a218f7bd413f24010cda71c0"
+  },
+  {
+    "path": "BUILD_APK.md",
+    "size": 1221,
+    "sha256": "0229942986eeed70f14ac515cdb2160239f15b99cb5eacdd0343693c474ae28c"
+  },
+  {
+    "path": "CONTEXT_BUILDER_SPEC.md",
+    "size": 448,
+    "sha256": "c3215ea061bb02a5d8d59eca5b314661e337e99f58950a43f35e839e9f75a384"
+  },
+  {
+    "path": "FINAL_MANIFEST_SHA256.json",
+    "size": 12995,
+    "sha256": "b453fa73d3396bcdf29c12a6ae8c320e78a658b176aeb2b4c9741ae79da7e6aa"
+  },
+  {
+    "path": "GM_DIAGNOSTICS_V1.md",
+    "size": 301,
+    "sha256": "dc6eb7892e5be5d1f51b1e1afc0a01463d450efec87106bfa1c53b9254038efa"
+  },
+  {
+    "path": "IMAGE_EDITING_SPEC.md",
+    "size": 395,
+    "sha256": "4ef273bbf453bc3c4c9e882424d9b206c3abab796a64a3e7cf9cb43e3c5aeca9"
+  },
+  {
+    "path": "LONG_CAMPAIGN_STRESS_REPORT.json",
+    "size": 152,
+    "sha256": "8a0e09b507a31d951718c4379264d4a87dc253811cf80793c95255fb60ff6e54"
+  },
+  {
+    "path": "PACKAGE_COMPATIBILITY_V1.md",
+    "size": 403,
+    "sha256": "5f3170d4f302fd690f1751402b44090ae8f65657633cda274eccd9233ed3a011"
+  },
+  {
+    "path": "PACKAGE_MANAGER_SPEC.md",
+    "size": 492,
+    "sha256": "35b0219f872312eada9d713f9671b11378b1fba36e0483cf9250f461ec04191e"
+  },
+  {
+    "path": "PROJECT_MANIFEST.json",
+    "size": 5334,
+    "sha256": "965b43a37abef38f13630ebc6ebf366221bfc96893e710ad0ac6fc1f9c8dfcf2"
+  },
+  {
+    "path": "README.md",
+    "size": 910,
+    "sha256": "8dad7cac2d258ca03679ce6fe60747de3ec256ad9943bf47d6f5c981f0a6fe4e"
+  },
+  {
+    "path": "RELEASE_NOTES_1_0.md",
+    "size": 1187,
+    "sha256": "94d45625071a1fa4972a9e5ec9ae8fca1f683c007ce394c04dd5c59dccb0afec"
+  },
+  {
+    "path": "RESTORE_SPEC.md",
+    "size": 275,
+    "sha256": "1c45400a9dddd07d4fbca66526efe58714d8c26da907ccfe4d19d3ba21b9c5c0"
+  },
+  {
+    "path": "RPG_OS_1_0_VALIDATION_REPORT.json",
+    "size": 720,
+    "sha256": "d4438f22faefd0899487a3ea7d3c1e451d3ea4f4c8f27d003399147bf3fd483d"
+  },
+  {
+    "path": "STATEPATCH_SPEC.md",
+    "size": 398,
+    "sha256": "c9fc9c40a82f16958935e0ff8d3af5952893e6ae217a782c1b5f20545fd53628"
+  },
+  {
+    "path": "STATIC_AUDIT.json",
+    "size": 40,
+    "sha256": "886f30bb802acc50cf40a4a7530b7b88808913367562a432cf76c5583646b9bd"
+  },
+  {
+    "path": "TEST_BUILD_READINESS.json",
+    "size": 716,
+    "sha256": "36483c74511238127dd375a228d74b229849e51f410a482b4eb9ea63409e7959"
+  },
+  {
+    "path": "UI_V0_4.md",
+    "size": 277,
+    "sha256": "41c754958f60221e03ebe75247a29dcf0152c728752788d348f9dc417e360fe2"
+  },
+  {
+    "path": "V0_5_FEATURES.md",
+    "size": 536,
+    "sha256": "14deb8202d98a3115a7ff36daee2e5a5c45295f8d50ac93cb8be935c904980be"
+  },
+  {
+    "path": "VISUAL_GENERATOR_SPEC.md",
+    "size": 482,
+    "sha256": "1a7148a6c658d1d9f05d39bdbf41eeedbdd44098eab601a406d223986b9d3a23"
+  },
+  {
+    "path": "VISUAL_LIBRARY_SPEC.md",
+    "size": 372,
+    "sha256": "4cf67629d0e62be18401781c89fc0da8b7da96d102427db1ea1ffeee1651a830"
+  },
+  {
+    "path": "app/build.gradle.kts",
+    "size": 1261,
+    "sha256": "091dbe37eeb1cfd3ce72682d215e9be148932127dd5ef6cb8b12713747867b95"
+  },
+  {
+    "path": "app/src/main/AndroidManifest.xml",
+    "size": 659,
+    "sha256": "5ae05e0ca233205a3279b03bcda23512ed4d3e9f05adc0b18f48b8c1693d83b3"
+  },
+  {
+    "path": "app/src/main/assets/Naruto.worldpack.zip",
+    "size": 67492,
+    "sha256": "d61c2c69d8cd826e18176874671e02fcef08627de66d9650290e3a48aad70382"
+  },
+  {
+    "path": "app/src/main/assets/Naruto_Default.campaign.zip",
+    "size": 32118,
+    "sha256": "46d53b9ef6ef06e5e93b528cd6aa5c37f280f882b002c05443c7501df8831ca4"
+  },
+  {
+    "path": "app/src/main/assets/api_contract.json",
+    "size": 1715,
+    "sha256": "4374be656d417ceee8e5db0674be04fa92cbeec8a045e914f19f4068e332c6e1"
+  },
+  {
+    "path": "app/src/main/assets/rpg_core.db",
+    "size": 1781760,
+    "sha256": "bf9da1a86982ff2bd10cd61213696bfdd83501feb9d8234b9e3e0d6694768f7c"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/AppSettings.kt",
+    "size": 1254,
+    "sha256": "05c13ef54c0efc03b5761fac69aacc0415fdea8f6d9b1bdf9fa18b47818f7718"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/BackendClient.kt",
+    "size": 1870,
+    "sha256": "606ccb87069f225caa494acd2b7efe5cc2a08e9189461e7336ecfc12749f6acc"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/BackupManager.kt",
+    "size": 1002,
+    "sha256": "bf403c92729de6b09bf5cd0e379a232e392c02e1e19cc381d5bf77248784b2df"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/BrowserModels.kt",
+    "size": 381,
+    "sha256": "ed5f7012ca6223afa290bd96a74e176e9f0c1e694e020da299d7d9dadda51613"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/CampaignSelectionManager.kt",
+    "size": 1788,
+    "sha256": "9b9572a480dbf4e471d2d8590e98919e43b1c0e6d500e5e0fe5e29a6441d2a53"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/ChapterSaveManager.kt",
+    "size": 2933,
+    "sha256": "25ef1fd540aab1e1f162de6907be81880fbfc0fd65aba5621d204354b9b9a31e"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/CharacterPanel.kt",
+    "size": 4480,
+    "sha256": "e8b12f69a862570e2d6e1e033b4210e685c1b8c926dffaada8813f83e7c7c339"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/ContextBuilder.kt",
+    "size": 6048,
+    "sha256": "d8c2eab21d519019280f9b5cf54edb7886bf1239ab3b19f6bc162c50b2d47135"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/ContextModels.kt",
+    "size": 998,
+    "sha256": "61e2964c96c8645d96066af077a87c523393a660eb333f5a86b71b50cd272c89"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/DatabaseExplorer.kt",
+    "size": 1124,
+    "sha256": "6c7ccf2dc3a562997726a84b5383941cc8821675b56b47b61c66e69d8ffd82c1"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/DemoGameMaster.kt",
+    "size": 1279,
+    "sha256": "86e0390de19b5fb1b261d71ca35089c361d0ef90498e64bd69d81c17ae4c8894"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/Diagnostics.kt",
+    "size": 304,
+    "sha256": "d5a0a0d4c55a7d4cb891cce9a2ed2dc863fa71bec75753a5b5f767448a4caaa8"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/FilePickerBridge.kt",
+    "size": 879,
+    "sha256": "f765eff56c8674095981fe4db2e6984d705ba53b5d7bf5cdcf0a094066943099"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/GalleryService.kt",
+    "size": 1759,
+    "sha256": "9c4cd83f18552f9945ab1acd8224f4a90a6549dfc0652525b8f08631a05eabf6"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/GameModels.kt",
+    "size": 593,
+    "sha256": "fff62a2e8473e0a11a83e5cac715ac3ab5cd13b63a7fb7f5dfec435cbf94638c"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/GraphMapUi.kt",
+    "size": 2169,
+    "sha256": "3f389dc80af2d1d7cec4f1e375c74c0fc8fb23df122b29cfc394ee8bbac32575"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/ImageBackendClient.kt",
+    "size": 1939,
+    "sha256": "885545c8f3c5995a8b4c2292f96f5a572f54e01104149e42fcd833c5e9a09589"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/ImageEditBackendClient.kt",
+    "size": 2365,
+    "sha256": "88b0f3af3528d55cba57e016e500be9590349fa865b06fb0a9d73c72449a4875"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/ImageEditModels.kt",
+    "size": 165,
+    "sha256": "50bed33ab580daca1b58a8cc56193c7cf0bcb89213c024ab03cd30f7e89b02cc"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/ImageModels.kt",
+    "size": 508,
+    "sha256": "7466122ec60e62d71f05d9770fc9d5c547f4ea3c7c81a255e082b93e2fde5175"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/JsonCodec.kt",
+    "size": 2425,
+    "sha256": "2edb2d73dd01efbd6009f9a9f2ca9cf41fa3bbd14ca8ed4a9c5f1c12cf7490d7"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/LocalGameStore.kt",
+    "size": 11204,
+    "sha256": "8ebd392a9cd25dcdb13c4a5300c7457aca2bf88ffbc0d0b2dcdaca283bd06a31"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/MainActivity.kt",
+    "size": 23623,
+    "sha256": "920e26432f9284a4a8291e98a184cb972580cddb562497a91ef58ea502068cfb"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/MigrationManager.kt",
+    "size": 694,
+    "sha256": "96dc574b789d8695877a9972352f5c8cdc9c82df73dbb4e5af24d147680af4e0"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/NpcModels.kt",
+    "size": 737,
+    "sha256": "7b1a2f252da38d8e4c2feaf81ee67dc1d0a725304f24c295d56a80b95ede07c9"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/NpcWorldDashboardReader.kt",
+    "size": 4202,
+    "sha256": "86c11e822e02de1cc420c45c92d07073e0661bbc1d4e37110fbff2b4d5f73346"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/PackageManager.kt",
+    "size": 4096,
+    "sha256": "5a66c2d2486391d26a12d46a6746b192a56bc46295264f0aec6ab819e0db35e4"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/PackageValidation.kt",
+    "size": 2148,
+    "sha256": "524df725816d5168aa954acae043cf681352e74194ff7b0f6dcbc0864f1c9d56"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/RestoreManager.kt",
+    "size": 803,
+    "sha256": "7af50677dd89deb4300780b33c71d5c77d1097c058db34ba7aefb67e0bd05873"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/RpgOsViewModel.kt",
+    "size": 16811,
+    "sha256": "b1ddce8d869bd73b9405a2b749bf0a4aa6b66611ca2fc37c42ea02e8d62ee985"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/SocialModels.kt",
+    "size": 398,
+    "sha256": "f13fc98f3cd7f6045e20455e8bbd3b1415974d320e63dacd134143b60a42b307"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/SocialReader.kt",
+    "size": 1824,
+    "sha256": "c80e88b179490b0069145ca85297f589159a9f58ed30bf98dc804966cdbebf51"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/SourceOfTruthRegistry.kt",
+    "size": 1926,
+    "sha256": "4ec316cb2cd07edbd85094c0bd9db4c85d57acaafc17b2b3bd720a8f2e997e2e"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/StatePatchEngine.kt",
+    "size": 2951,
+    "sha256": "4a711375994817110930a3b3bea54f235275aa893d438d84c7b24dc42be37398"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/SyncManager.kt",
+    "size": 1085,
+    "sha256": "dc42473538c64d0462168c02126e8bffec365dae53095b1c23b33d9765889476"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/TechniqueMissionReader.kt",
+    "size": 2101,
+    "sha256": "c65f2608ec0c2ff56cdf0985f0e064e65c3f34f4e7514cc4cd637176d22e7168"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/VisualLibrary.kt",
+    "size": 4009,
+    "sha256": "7685ae184c7d985c258a2057a6f43b3aa45fa7cda0f75dc2498d18a1a4b06ed8"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/VisualPromptBuilder.kt",
+    "size": 2370,
+    "sha256": "8a20dbdca0bc2eec0f16220ae026468a0bff89f4ea048e124c08dbb1de3fb153"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/VisualSuggestionEngine.kt",
+    "size": 2115,
+    "sha256": "674c75db5393aeb13721040e1007127611962c89f14053b6483ae1fe2035025e"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/WorldModels.kt",
+    "size": 396,
+    "sha256": "6ef93e91cf0e1084597259fd76f2742f4f891acfaf9a680fb95226303c437c36"
+  },
+  {
+    "path": "app/src/main/java/com/rpgos/app/WorldReader.kt",
+    "size": 2367,
+    "sha256": "af846b2b9936f082b364f8af68407964e805734f247953ac88eb3f85127db5b2"
+  },
+  {
+    "path": "app/src/main/res/values/strings.xml",
+    "size": 69,
+    "sha256": "288c451155d7c4c8819fa30f838a0135b12a6cd83bec21939cec9b08b9d255ac"
+  },
+  {
+    "path": "app/src/main/res/values/styles.xml",
+    "size": 242,
+    "sha256": "7bede2dfa27aa3e844075dc036fe6dacd217b75c40a7ca14276c2c582481150e"
+  },
+  {
+    "path": "app/src/main/res/xml/network_security_config.xml",
+    "size": 107,
+    "sha256": "46521342845336d7028690d5bc5ad146fe7ffc4571b46ad745b518b72918a068"
+  },
+  {
+    "path": "backend/.env.example",
+    "size": 77,
+    "sha256": "d74627ea41b16c20ec6ff1d2093f8aa50d00124a70b9b6e2530470120df1a7a2"
+  },
+  {
+    "path": "backend/Dockerfile",
+    "size": 197,
+    "sha256": "7af1b0aac28d765524d3834f29601634e926880e205e291a17fff962d0de76e6"
+  },
+  {
+    "path": "backend/README.md",
+    "size": 493,
+    "sha256": "274911f8cae35fc355714ec5b0a77d77ab6fdb7847437975f0e72ee70fe97492"
+  },
+  {
+    "path": "backend/app.py",
+    "size": 7087,
+    "sha256": "1e25e515aff2a7aab9fc62dd4e68566eb345377480a4c05b6bbb8cfe2686e4ca"
+  },
+  {
+    "path": "backend/requirements.txt",
+    "size": 101,
+    "sha256": "124860acd5a1ae92b696581b959213c0cc8bb894e07c51108aea9d073fee07f4"
+  },
+  {
+    "path": "build.gradle.kts",
+    "size": 74,
+    "sha256": "08ebf0c379db7cd09ef90385dd9397e249498ce070c1b594a9735ab88ba7707f"
+  },
+  {
+    "path": "docs/RPG_OS_1_0_ACCEPTANCE.md",
+    "size": 722,
+    "sha256": "3b7b5458464efe068067f4f1b4270ba6e2bea60993b412f1671ab5c0ad7fb7ab"
+  },
+  {
+    "path": "gradle/wrapper/gradle-wrapper.properties",
+    "size": 252,
+    "sha256": "4d362f1a59d148ce6fde5d62d4bd975e1829a78b28d7a3a72a8cf2d92c90ecda"
+  },
+  {
+    "path": "gradle.properties",
+    "size": 154,
+    "sha256": "40ea232c8bd9580990fd1f4d7a43139615401e79a8c6bbe143ea8f74d8cde9e6"
+  },
+  {
+    "path": "settings.gradle.kts",
+    "size": 323,
+    "sha256": "b3a6915de771d9cacfb222fa314f94b96e90b02b4cfcb5a15496906cae0a36a3"
+  },
+  {
+    "path": "tools/long_campaign_stress_test.py",
+    "size": 2526,
+    "sha256": "4d418ca4e8328cf9c12e465025f4e379594ea801fe2c34763491af9e2594318e"
+  },
+  {
+    "path": "tools/static_audit.py",
+    "size": 786,
+    "sha256": "044c80aea9a95a6e5173373a36cb85ed5bb486c4834394e4f5843b36652eb0d9"
+  }
+]

@@ -1,0 +1,70 @@
+{
+  "api_version": "1",
+  "transport": "JSON over HTTPS",
+  "security": {
+    "android_holds_openai_key": false,
+    "backend_required": true,
+    "local_db": "SQLite on device",
+    "recommended_auth": "app session token -> backend"
+  },
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/v1/gm/turn",
+      "request": {
+        "campaign_id": "string",
+        "chapter": "integer",
+        "player_input": "string",
+        "context_bundle": "ContextBundle"
+      },
+      "response": {
+        "narration": "string",
+        "choices": "array[0..3]",
+        "state_patch": "StatePatch",
+        "chapter_events": "array",
+        "gm_debug": "optional"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/v1/context/build",
+      "purpose": "Build minimal context bundle"
+    },
+    {
+      "method": "POST",
+      "path": "/v1/save/validate",
+      "purpose": "Validate patch before SQLite transaction"
+    },
+    {
+      "method": "GET",
+      "path": "/v1/worldpack/{id}/manifest",
+      "purpose": "Worldpack metadata"
+    }
+  ],
+  "ContextBundle": {
+    "player_status": "object",
+    "scene": "object",
+    "time": "object",
+    "active_threads": "array",
+    "relevant_npcs": "array",
+    "npc_knowledge": "array",
+    "missions": "array",
+    "world_pressures": "array",
+    "canon_constraints": "array",
+    "recent_chronicle": "array",
+    "retrieved_long_term_memory": "array"
+  },
+  "StatePatch": {
+    "transaction_id": "string",
+    "operations": [
+      {
+        "op": "insert|update|delete",
+        "table": "source_of_truth_table",
+        "key": "object",
+        "values": "object"
+      }
+    ],
+    "chapter_manifest": "object",
+    "requires_validation": true
+  }
+}
