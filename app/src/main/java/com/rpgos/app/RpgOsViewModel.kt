@@ -360,38 +360,75 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun send(text: String) {
         if (text.isBlank()) return
+
         _messages.value = _messages.value + ChatMessage("player", text)
 
         viewModelScope.launch {
-            val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1
-            val context = store.buildContext(text, chapter)
-            _visualSuggestions.value = VisualSuggestionEngine().suggest(text, context)
-            _lastContextSummary.value =
-                "Context: wątki=${context.activeThreads.size}, NPC=${context.relevantNpcs.size}, " +
-                "wiedza=${context.npcKnowledge.size}, misje=${context.missions.size}, " +
-                "presje=${context.worldPressures.size}, pamięć=${context.retrievedLongTermMemory.size}"
+            try {
+                val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1
 
-            val backend = BackendClient(_settings.value.backendUrl)
-            val result = backend.sendTurn(text, chapter, context)
-            _messages.value = _messages.value + ChatMessage("gm", result.narration)
-
-            result.patch?.let { patch ->
-                val applied = store.applyPatch(patch)
                 _messages.value = _messages.value + ChatMessage(
                     "system",
-                    if (applied.success) "Zapisano ${applied.appliedOperations} zmian."
-                    else "StatePatch odrzucony: ${applied.message}"
+                    "Budowanie ContextBundle..."
                 )
-                if (applied.success) {
-                    if (_settings.value.autoBackup) {
-                        val saveInfo = store.finalizeChapter(chapter, "Rozdział $chapter")
-                        _messages.value = _messages.value + ChatMessage(
-                            "system",
-                            "Rozdział zapisany. Manifest=${saveInfo.first.take(12)}… Backup utworzony."
-                        )
+
+                val context = store.buildContext(text, chapter)
+
+                _visualSuggestions.value =
+                    VisualSuggestionEngine().suggest(text, context)
+
+                _lastContextSummary.value =
+                    "Context: wątki=${context.activeThreads.size}, NPC=${context.relevantNpcs.size}, " +
+                    "wiedza=${context.npcKnowledge.size}, misje=${context.missions.size}, " +
+                    "presje=${context.worldPressures.size}, pamięć=${context.retrievedLongTermMemory.size}"
+
+                _messages.value = _messages.value + ChatMessage(
+                    "system",
+                    "ContextBundle OK. Łączenie z backendem..."
+                )
+
+                val backend = BackendClient(_settings.value.backendUrl)
+                val result = backend.sendTurn(text, chapter, context)
+
+                _messages.value =
+                    _messages.value + ChatMessage("gm", result.narration)
+
+                result.patch?.let { patch ->
+                    val applied = store.applyPatch(patch)
+
+                    _messages.value = _messages.value + ChatMessage(
+                        "system",
+                        if (applied.success)
+                            "Zapisano ${applied.appliedOperations} zmian."
+                        else
+                            "StatePatch odrzucony: ${applied.message}"
+                    )
+
+                    if (applied.success) {
+                        if (_settings.value.autoBackup) {
+                            val saveInfo =
+                                store.finalizeChapter(chapter, "Rozdział $chapter")
+
+                            _messages.value = _messages.value + ChatMessage(
+                                "system",
+                                "Rozdział zapisany. Manifest=${saveInfo.first.take(12)}… Backup utworzony."
+                            )
+                        }
+
+                        refresh()
                     }
-                    refresh()
                 }
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+
+                _messages.value = _messages.value + ChatMessage(
+                    "system",
+                    "BŁĄD RPG OS: ${e::class.simpleName}: ${e.message ?: "brak szczegółów"}"
+                )
+
+                _lastContextSummary.value =
+                    "Błąd: ${e::class.simpleName}: ${e.message ?: "brak szczegółów"}"
             }
         }
     }
