@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "com.rpgos.app"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.rpgos.app"
         minSdk = 28
-        targetSdk = 37
+        targetSdk = 36
         versionCode = 100
         versionName = "1.0.0"
         buildConfigField("String", "RPGOS_BACKEND_URL", "\"http://127.0.0.1:8000\"")
