@@ -14,9 +14,23 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.delay
+import kotlin.math.cos
+import kotlin.math.sin
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -37,22 +51,22 @@ class MainActivity : ComponentActivity() {
 }
 
 private val RpgOsColors = darkColorScheme(
-    primary = Color(0xFFB8A7FF),
-    onPrimary = Color(0xFF24164E),
-    primaryContainer = Color(0xFF39276D),
-    onPrimaryContainer = Color(0xFFE7DEFF),
-    secondary = Color(0xFF9FC9FF),
-    onSecondary = Color(0xFF062E52),
-    secondaryContainer = Color(0xFF173F68),
-    onSecondaryContainer = Color(0xFFD4E7FF),
-    tertiary = Color(0xFFFFB4C8),
-    background = Color(0xFF0E1017),
-    onBackground = Color(0xFFE5E1EC),
-    surface = Color(0xFF151821),
-    onSurface = Color(0xFFE5E1EC),
-    surfaceVariant = Color(0xFF222631),
-    onSurfaceVariant = Color(0xFFC9C5D0),
-    outline = Color(0xFF8F8A98),
+    primary = Color(0xFF4EA8FF),
+    onPrimary = Color(0xFF001E35),
+    primaryContainer = Color(0xFF073B6B),
+    onPrimaryContainer = Color(0xFFD8ECFF),
+    secondary = Color(0xFF2ED6C7),
+    onSecondary = Color(0xFF00201D),
+    secondaryContainer = Color(0xFF07554F),
+    onSecondaryContainer = Color(0xFFC9FFF8),
+    tertiary = Color(0xFF8EC5FF),
+    background = Color(0xFF030812),
+    onBackground = Color(0xFFE6F0FF),
+    surface = Color(0xFF07111F),
+    onSurface = Color(0xFFE6F0FF),
+    surfaceVariant = Color(0xFF0B1B2B),
+    onSurfaceVariant = Color(0xFFB8C8DA),
+    outline = Color(0xFF31516D),
     error = Color(0xFFFFB4AB)
 )
 
@@ -62,6 +76,90 @@ private fun RpgOsTheme(content: @Composable () -> Unit) {
         colorScheme = RpgOsColors,
         content = content
     )
+}
+
+private val ScreenGradient = Brush.verticalGradient(
+    colorStops = arrayOf(
+        0.00f to Color(0xFF020711),
+        0.18f to Color(0xFF041326),
+        0.42f to Color(0xFF06213C),
+        0.66f to Color(0xFF053A46),
+        0.82f to Color(0xFF082B33),
+        1.00f to Color(0xFF02060C)
+    )
+)
+
+private val BlueGradient = Brush.horizontalGradient(
+    listOf(Color(0xFF0C4ECF), Color(0xFF1473E6), Color(0xFF0CA4CF))
+)
+
+private val TealGradient = Brush.horizontalGradient(
+    listOf(Color(0xFF007D78), Color(0xFF0A9D90), Color(0xFF0E7B86))
+)
+
+@Composable
+private fun GradientScreen(content: @Composable BoxScope.() -> Unit) {
+    Box(
+        Modifier.fillMaxSize().background(ScreenGradient),
+        content = content
+    )
+}
+
+@Composable
+private fun GradientActionButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    brush: Brush = BlueGradient
+) {
+    val shape = RoundedCornerShape(
+        topStart = 22.dp,
+        topEnd = 12.dp,
+        bottomStart = 12.dp,
+        bottomEnd = 24.dp
+    )
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(58.dp).background(brush, shape),
+        shape = shape,
+        color = Color.Transparent,
+        contentColor = Color.White
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(text, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun GlowPanel(
+    modifier: Modifier = Modifier,
+    borderColor: Color = Color(0x6658B8FF),
+    shape: RoundedCornerShape,
+    onClick: (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val base = modifier
+        .background(
+            Brush.verticalGradient(listOf(Color(0xEA0A1624), Color(0xEA050B13))),
+            shape
+        )
+        .border(1.dp, borderColor, shape)
+
+    if (onClick != null) {
+        Card(
+            onClick = onClick,
+            modifier = base,
+            shape = shape,
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+        ) { Column(Modifier.padding(18.dp), content = content) }
+    } else {
+        Card(
+            modifier = base,
+            shape = shape,
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+        ) { Column(Modifier.padding(18.dp), content = content) }
+    }
 }
 
 private enum class AppRoute {
@@ -94,9 +192,12 @@ private enum class CampaignTool(val title: String) {
 @Composable
 fun RpgOsApp(vm: RpgOsViewModel) {
     var route by remember { mutableStateOf(AppRoute.HOME) }
+    val appSettings by vm.settings.collectAsState()
 
     when (route) {
         AppRoute.HOME -> HomeScreen(
+            visualEffectsLevel = appSettings.visualEffectsLevel,
+            introAnimation = appSettings.introAnimation,
             onNewGame = { route = AppRoute.NEW_GAME },
             onContinue = { route = AppRoute.CONTINUE },
             onSaves = { route = AppRoute.SAVES },
@@ -151,6 +252,8 @@ fun RpgOsApp(vm: RpgOsViewModel) {
 
 @Composable
 private fun HomeScreen(
+    visualEffectsLevel: String,
+    introAnimation: Boolean,
     onNewGame: () -> Unit,
     onContinue: () -> Unit,
     onSaves: () -> Unit,
@@ -158,110 +261,392 @@ private fun HomeScreen(
     onSettings: () -> Unit,
     onAbout: () -> Unit
 ) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 20.dp)
-    ) {
+    GradientScreen {
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = 42.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+            contentPadding = PaddingValues(top = 38.dp, bottom = 30.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
-                Text(
-                    "RPG OS",
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Black
+                DragonSystemHeader(
+                    visualEffectsLevel = visualEffectsLevel,
+                    introAnimation = introAnimation
                 )
-                Text(
-                    "Twoje kampanie. Jeden system.",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(12.dp))
                 Surface(
-                    shape = RoundedCornerShape(999.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer
+                    shape = RoundedCornerShape(12.dp, 18.dp, 18.dp, 10.dp),
+                    color = Color(0xCC0A4B9A)
                 ) {
                     Text(
-                        "ALPHA • ${BuildConfig.VERSION_NAME}",
+                        "ALPHA 5 • ${BuildConfig.VERSION_NAME}",
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                        color = Color.White
                     )
                 }
                 Spacer(Modifier.height(18.dp))
             }
 
             item {
-                PrimaryHomeCard(
-                    title = "Nowa gra",
-                    subtitle = "Wybierz świat i rozpocznij nową kampanię.",
-                    glyph = "＋",
+                GlowPanel(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(28.dp, 16.dp, 30.dp, 18.dp),
                     onClick = onNewGame
-                )
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(66.dp).background(
+                                BlueGradient,
+                                RoundedCornerShape(22.dp, 12.dp, 22.dp, 12.dp)
+                            ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("+", style = MaterialTheme.typography.displaySmall, color = Color.White)
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Nowa gra", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Text(
+                                "Wybierz świat i rozpocznij nową kampanię.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text("›", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF8FD6FF))
+                    }
+                }
             }
 
             item {
-                HomeCard(
-                    title = "Kontynuuj",
-                    subtitle = "Wróć do ostatniej lub wybranej kampanii.",
-                    glyph = "▶",
+                GlowPanel(
+                    modifier = Modifier.fillMaxWidth(),
+                    borderColor = Color(0x6649E1D1),
+                    shape = RoundedCornerShape(18.dp, 28.dp, 16.dp, 30.dp),
                     onClick = onContinue
-                )
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(58.dp).background(
+                                TealGradient,
+                                RoundedCornerShape(18.dp, 26.dp, 14.dp, 24.dp)
+                            ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("▶", style = MaterialTheme.typography.headlineSmall, color = Color.White)
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Kontynuuj", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(
+                                "Wróć do ostatniej lub wybranej kampanii.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text("›", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF78F0E2))
+                    }
+                }
             }
 
             item {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    CompactHomeCard(
-                        modifier = Modifier.weight(1f),
-                        title = "Zapisy",
-                        glyph = "▣",
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    GlowPanel(
+                        modifier = Modifier.weight(1f).height(106.dp),
+                        shape = RoundedCornerShape(22.dp, 14.dp, 18.dp, 28.dp),
                         onClick = onSaves
-                    )
-                    CompactHomeCard(
-                        modifier = Modifier.weight(1f),
-                        title = "Galeria",
-                        glyph = "▧",
+                    ) {
+                        Text("▣", color = Color(0xFF7BBEFF), style = MaterialTheme.typography.headlineSmall)
+                        Spacer(Modifier.weight(1f))
+                        Text("Zapisy", fontWeight = FontWeight.Bold)
+                    }
+                    GlowPanel(
+                        modifier = Modifier.weight(1f).height(106.dp),
+                        borderColor = Color(0x6656E1D2),
+                        shape = RoundedCornerShape(14.dp, 26.dp, 28.dp, 18.dp),
                         onClick = onGallery
-                    )
+                    ) {
+                        Text("▧", color = Color(0xFF56E1D2), style = MaterialTheme.typography.headlineSmall)
+                        Spacer(Modifier.weight(1f))
+                        Text("Galeria", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 
             item {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    CompactHomeCard(
-                        modifier = Modifier.weight(1f),
-                        title = "Ustawienia",
-                        glyph = "⚙",
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    GlowPanel(
+                        modifier = Modifier.weight(1f).height(106.dp),
+                        borderColor = Color(0x6656E1D2),
+                        shape = RoundedCornerShape(28.dp, 18.dp, 16.dp, 24.dp),
                         onClick = onSettings
-                    )
-                    CompactHomeCard(
-                        modifier = Modifier.weight(1f),
-                        title = "O programie",
-                        glyph = "i",
+                    ) {
+                        Text("⚙", color = Color(0xFF52D8FF), style = MaterialTheme.typography.headlineSmall)
+                        Spacer(Modifier.weight(1f))
+                        Text("Ustawienia", fontWeight = FontWeight.Bold)
+                    }
+                    GlowPanel(
+                        modifier = Modifier.weight(1f).height(106.dp),
+                        shape = RoundedCornerShape(16.dp, 30.dp, 24.dp, 14.dp),
                         onClick = onAbout
-                    )
+                    ) {
+                        Text("i", color = Color(0xFF8FC9FF), style = MaterialTheme.typography.headlineSmall)
+                        Spacer(Modifier.weight(1f))
+                        Text("O programie", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 
             item {
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "RPG OS jest silnikiem kampanii. Świat wybierasz dopiero podczas tworzenia gry.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp, 26.dp, 18.dp, 22.dp),
+                    color = Color(0xB5071420),
+                    border = BorderStroke(1.dp, Color(0x443F95C7))
+                ) {
+                    Row(
+                        Modifier.padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        StatMini("1", "Światów")
+                        StatMini("2", "Kampanie")
+                        StatMini("3", "Backupy")
+                        StatMini("ALPHA 5", "Wersja")
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun DragonSystemHeader(
+    visualEffectsLevel: String,
+    introAnimation: Boolean
+) {
+    val mode = visualEffectsLevel.lowercase()
+    var introRunning by remember(introAnimation) { mutableStateOf(introAnimation) }
+
+    LaunchedEffect(introAnimation) {
+        if (introAnimation) {
+            delay(4600)
+            introRunning = false
+        } else {
+            introRunning = false
+        }
+    }
+
+    val transition = rememberInfiniteTransition(label = "dragonOrbit")
+    val orbit by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = when (mode) {
+                    "full" -> 5200
+                    "minimal" -> 12000
+                    else -> 7600
+                },
+                easing = LinearEasing
+            ),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "orbit"
+    )
+    val wingPulse by transition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(700, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "wingPulse"
+    )
+    val glow by transition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1100),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glow"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(156.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (mode == "full") {
+            DragonParticles(orbit)
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                "SYSTEM",
+                style = MaterialTheme.typography.labelLarge,
+                color = Color(0xFF55D6FF).copy(alpha = 0.85f)
+            )
+            Text(
+                "RPG OS",
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.Black,
+                color = Color(0xFFB8E5FF),
+                modifier = Modifier.graphicsLayer {
+                    shadowElevation = 6f + 12f * glow
+                }
+            )
+            Text(
+                "Twoje kampanie. Jeden system.",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        val activeOrbit = if (mode == "minimal" && !introRunning) 315f else orbit
+        DragonSprite(
+            angle = activeOrbit,
+            wingPulse = if (mode == "minimal") 0.95f else wingPulse,
+            trail = mode != "minimal",
+            fullEffects = mode == "full"
+        )
+    }
+}
+
+@Composable
+private fun DragonSprite(
+    angle: Float,
+    wingPulse: Float,
+    trail: Boolean,
+    fullEffects: Boolean
+) {
+    BoxWithConstraints(
+        Modifier.fillMaxSize()
+    ) {
+        val radians = Math.toRadians(angle.toDouble())
+        val radiusX = maxWidth.value * 0.36f
+        val radiusY = maxHeight.value * 0.29f
+        val x = cos(radians).toFloat() * radiusX
+        val y = sin(radians).toFloat() * radiusY
+
+        if (trail) {
+            Canvas(
+                Modifier
+                    .size(88.dp)
+                    .align(Alignment.Center)
+                    .graphicsLayer {
+                        translationX = x - 18f
+                        translationY = y + 10f
+                        alpha = if (fullEffects) 0.55f else 0.32f
+                    }
+            ) {
+                drawLine(
+                    brush = Brush.linearGradient(
+                        listOf(
+                            Color.Transparent,
+                            Color(0xFF1ED8CF),
+                            Color(0xFF339DFF)
+                        )
+                    ),
+                    start = center.copy(x = center.x - size.width * 0.32f),
+                    end = center.copy(x = center.x + size.width * 0.25f),
+                    strokeWidth = if (fullEffects) 9f else 6f,
+                    cap = StrokeCap.Round
                 )
             }
         }
+
+        Canvas(
+            Modifier
+                .size(64.dp)
+                .align(Alignment.Center)
+                .graphicsLayer {
+                    translationX = x
+                    translationY = y
+                    rotationZ = angle + 90f
+                }
+        ) {
+            val c = center
+            val body = Color(0xFF31B7E8)
+            val bright = Color(0xFF74F0E1)
+
+            drawCircle(
+                color = Color(0x5538BFFF),
+                radius = size.minDimension * 0.38f,
+                center = c
+            )
+
+            val bodyPath = Path().apply {
+                moveTo(c.x - 16f, c.y + 2f)
+                quadraticBezierTo(c.x - 2f, c.y - 10f, c.x + 18f, c.y)
+                quadraticBezierTo(c.x - 3f, c.y + 10f, c.x - 16f, c.y + 2f)
+                close()
+            }
+            drawPath(bodyPath, body)
+
+            val wingTop = Path().apply {
+                moveTo(c.x - 2f, c.y - 4f)
+                lineTo(c.x - 22f * wingPulse, c.y - 20f * wingPulse)
+                lineTo(c.x + 2f, c.y - 10f)
+                close()
+            }
+            val wingBottom = Path().apply {
+                moveTo(c.x - 2f, c.y + 4f)
+                lineTo(c.x - 22f * wingPulse, c.y + 20f * wingPulse)
+                lineTo(c.x + 2f, c.y + 10f)
+                close()
+            }
+            drawPath(wingTop, Color(0xFF1B7FC7))
+            drawPath(wingBottom, Color(0xFF159B9D))
+
+            drawCircle(bright, radius = 3.2f, center = c.copy(x = c.x + 15f, y = c.y - 2f))
+
+            drawLine(
+                color = Color(0xFF2ED6C7),
+                start = c.copy(x = c.x - 14f, y = c.y + 2f),
+                end = c.copy(x = c.x - 28f, y = c.y + 9f),
+                strokeWidth = 4f,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = Color(0xFF1A8AD5),
+                start = c.copy(x = c.x - 28f, y = c.y + 9f),
+                end = c.copy(x = c.x - 38f, y = c.y + 2f),
+                strokeWidth = 3f,
+                cap = StrokeCap.Round
+            )
+        }
+    }
+}
+
+@Composable
+private fun DragonParticles(angle: Float) {
+    Canvas(Modifier.fillMaxSize()) {
+        val base = Math.toRadians(angle.toDouble())
+        repeat(9) { i ->
+            val phase = base + i * 0.72
+            val r = size.minDimension * (0.18f + (i % 3) * 0.045f)
+            val px = center.x + cos(phase).toFloat() * r
+            val py = center.y + sin(phase * 1.25).toFloat() * r * 0.52f
+            drawCircle(
+                color = if (i % 2 == 0) Color(0x554EA8FF) else Color(0x5531D9C5),
+                radius = 2.5f + (i % 3),
+                center = Offset(px, py)
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatMini(value: String, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, color = Color(0xFF57C6FF), fontWeight = FontWeight.Bold)
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -951,97 +1336,274 @@ private fun SocialScreen(vm:RpgOsViewModel){
 
 @Composable
 private fun VisualGeneratorScreen(vm:RpgOsViewModel){
-    val context=LocalContext.current
-    val status by vm.imageStatus.collectAsState()
-    val library by vm.visualLibrary.collectAsState()
     val suggestions by vm.visualSuggestions.collectAsState()
+    val library by vm.visualLibrary.collectAsState()
 
-    var kind by remember{mutableStateOf("scene")}
     var title by remember{mutableStateOf("")}
-    var prompt by remember{mutableStateOf("")}
-    var traits by remember{mutableStateOf("")}
-    var equipment by remember{mutableStateOf("")}
-    var notes by remember{mutableStateOf("")}
-    var selected by remember{mutableStateOf<VisualRecord?>(null)}
-    var editInstruction by remember{mutableStateOf("")}
+    var description by remember{mutableStateOf("")}
+    var category by remember{mutableStateOf("Scena")}
+    var showCreator by remember{mutableStateOf(false)}
+    var filter by remember{mutableStateOf("Wszystkie")}
 
-    LazyColumn(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-        item{Text("Generator obrazów RPG",style=MaterialTheme.typography.headlineMedium)}
-
-        item{SectionTitle("Sugestie dla bieżącej sceny")}
-        items(suggestions){s->
-            Card(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){
-                Text(s.title,style=MaterialTheme.typography.titleMedium)
-                Text(s.reason)
-                Button(
-                    onClick={vm.generateSuggestedVisual(context,s)},
-                    modifier=Modifier.fillMaxWidth().padding(top=6.dp)
-                ){Text("Wygeneruj")}
-            }}
-        }
-
-        item{SectionTitle("Nowy obraz")}
-        item{
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                FilterChip(selected=kind=="scene",onClick={kind="scene"},label={Text("Scena")})
-                FilterChip(selected=kind=="location",onClick={kind="location"},label={Text("Sceneria")})
-                FilterChip(selected=kind=="character",onClick={kind="character"},label={Text("Postać")})
-            }
-        }
-        item{
-            OutlinedTextField(title,{title=it},Modifier.fillMaxWidth(),label={Text("Nazwa / tytuł")})
-            OutlinedTextField(prompt,{prompt=it},Modifier.fillMaxWidth(),label={Text(if(kind=="scene")"Opis sceny" else "Opis")})
-            if(kind=="character"){
-                OutlinedTextField(traits,{traits=it},Modifier.fillMaxWidth(),label={Text("Cechy postaci")})
-                OutlinedTextField(equipment,{equipment=it},Modifier.fillMaxWidth(),label={Text("Ekwipunek")})
-                OutlinedTextField(notes,{notes=it},Modifier.fillMaxWidth(),label={Text("Uwagi o ciągłości")})
-            }
-            Button(
-                onClick={
-                    when(kind){
-                        "scene"->vm.generateSceneImage(context,title,prompt)
-                        "location"->vm.generateLocationImage(context,title,prompt)
-                        else->vm.generateCharacterImage(context,title,traits,equipment,notes.ifBlank{prompt})
-                    }
-                },
-                modifier=Modifier.fillMaxWidth().padding(top=8.dp)
-            ){Text("Generuj i zapisz w galerii")}
-            if(status.isNotBlank())Text(status,style=MaterialTheme.typography.bodySmall)
-        }
-
-        item{SectionTitle("Biblioteka kampanii")}
-        items(library){g->
-            Card(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){
-                Text(g.title,style=MaterialTheme.typography.titleMedium)
-                Text("${g.kind} • rozdział ${g.chapter ?: "—"}")
-                if(g.relatedEntityUid!=null) Text("Postać: ${g.relatedEntityUid}")
-                if(g.relatedLocationUid!=null) Text("Lokacja: ${g.relatedLocationUid}")
-                Text(g.uri,style=MaterialTheme.typography.bodySmall)
-                Button(onClick={selected=g},modifier=Modifier.fillMaxWidth().padding(top=6.dp)){Text("Edytuj")}
-            }}
-        }
-
-        if(selected!=null){
-            item{SectionTitle("Edycja obrazu")}
-            item{
-                Text("Źródło: ${selected!!.title}")
-                OutlinedTextField(
-                    editInstruction,
-                    {editInstruction=it},
-                    Modifier.fillMaxWidth(),
-                    label={Text("Co zmienić?")}
+    GradientScreen {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item {
+                Text(
+                    "Generator obrazów RPG",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Black
                 )
-                Button(
-                    onClick={
-                        val src=selected
-                        if(src!=null && editInstruction.isNotBlank()){
-                            vm.editVisual(context,src,editInstruction)
-                            editInstruction=""
-                            selected=null
+                Text(
+                    "Twórz i przechowuj ilustracje dla swojej kampanii.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            item {
+                GlowPanel(
+                    modifier = Modifier.fillMaxWidth(),
+                    borderColor = Color(0x664EA8FF),
+                    shape = RoundedCornerShape(28.dp, 16.dp, 22.dp, 30.dp)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Nowy obraz",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Utwórz scenę, postać, lokację lub przedmiot.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                    },
-                    modifier=Modifier.fillMaxWidth().padding(top=8.dp)
-                ){Text("Wygeneruj edytowaną wersję")}
+                        Text(
+                            "✦",
+                            style = MaterialTheme.typography.displaySmall,
+                            color = Color(0xFF53C8FF)
+                        )
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    GradientActionButton(
+                        text = if(showCreator) "Ukryj kreator" else "Nowy obraz",
+                        onClick = { showCreator = !showCreator },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            if(showCreator){
+                item {
+                    GlowPanel(
+                        modifier = Modifier.fillMaxWidth(),
+                        borderColor = Color(0x6656E1D2),
+                        shape = RoundedCornerShape(18.dp, 28.dp, 30.dp, 16.dp)
+                    ) {
+                        Text(
+                            "Kreator",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(12.dp))
+
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf("Scena","Sceneria","Postać","Przedmiot").forEach { item ->
+                                val selected = category == item
+                                Surface(
+                                    onClick = { category = item },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(
+                                        topStart = if(selected) 18.dp else 12.dp,
+                                        topEnd = if(selected) 10.dp else 16.dp,
+                                        bottomStart = if(selected) 10.dp else 16.dp,
+                                        bottomEnd = if(selected) 20.dp else 12.dp
+                                    ),
+                                    color = if(selected) Color(0xFF0C6F91) else Color(0xFF0A1521),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if(selected) Color(0xFF52D8FF) else Color(0x44365C75)
+                                    )
+                                ) {
+                                    Box(
+                                        Modifier.height(44.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(item, style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(12.dp))
+
+                        OutlinedTextField(
+                            value = title,
+                            onValueChange = { title = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Nazwa / tytuł") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(18.dp, 12.dp, 18.dp, 24.dp)
+                        )
+
+                        Spacer(Modifier.height(10.dp))
+
+                        OutlinedTextField(
+                            value = description,
+                            onValueChange = { description = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Opis sceny") },
+                            minLines = 3,
+                            shape = RoundedCornerShape(12.dp, 22.dp, 18.dp, 14.dp)
+                        )
+
+                        Spacer(Modifier.height(12.dp))
+
+                        GradientActionButton(
+                            text = "Generuj i zapisz w galerii",
+                            onClick = {
+                                vm.generateVisual(
+                                    category = category,
+                                    title = title,
+                                    prompt = description
+                                )
+                                title = ""
+                                description = ""
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            brush = TealGradient
+                        )
+                    }
+                }
+            }
+
+            item {
+                Text(
+                    "Biblioteka obrazów",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Wszystkie zapisane obrazy.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            item {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("Wszystkie","Sceny","Postacie","Przedmioty").forEach { item ->
+                        val selected = filter == item
+                        Surface(
+                            onClick = { filter = item },
+                            shape = RoundedCornerShape(16.dp, 10.dp, 18.dp, 12.dp),
+                            color = if(selected) Color(0xFF087C7C) else Color(0xFF08131E),
+                            border = BorderStroke(
+                                1.dp,
+                                if(selected) Color(0xFF42D9CF) else Color(0x44334B5D)
+                            )
+                        ) {
+                            Text(
+                                item,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
+                }
+            }
+
+            if(library.isEmpty()){
+                item {
+                    GlowPanel(
+                        modifier = Modifier.fillMaxWidth(),
+                        borderColor = Color(0x443F95C7),
+                        shape = RoundedCornerShape(22.dp, 16.dp, 28.dp, 18.dp)
+                    ) {
+                        Text(
+                            "Biblioteka jest pusta",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "Pierwsze wygenerowane obrazy pojawią się tutaj jako karty galerii.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                items(library.chunked(2)) { row ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        row.forEachIndexed { index, item ->
+                            val cardShape = if(index == 0)
+                                RoundedCornerShape(24.dp, 14.dp, 18.dp, 26.dp)
+                            else
+                                RoundedCornerShape(14.dp, 26.dp, 24.dp, 16.dp)
+
+                            GlowPanel(
+                                modifier = Modifier.weight(1f).height(150.dp),
+                                borderColor = if(index == 0) Color(0x6658B8FF) else Color(0x6656E1D2),
+                                shape = cardShape
+                            ) {
+                                Text(
+                                    item.title.ifBlank { "Obraz" },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(Modifier.weight(1f))
+                                Text(
+                                    item.category,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if(index == 0) Color(0xFF67B8FF) else Color(0xFF56E1D2)
+                                )
+                            }
+                        }
+                        if(row.size == 1){
+                            Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+
+            if(suggestions.isNotEmpty()){
+                item {
+                    Text(
+                        "Sugestie dla bieżącej sceny",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                items(suggestions.take(4)) { suggestion ->
+                    GlowPanel(
+                        modifier = Modifier.fillMaxWidth(),
+                        borderColor = Color(0x443E7897),
+                        shape = RoundedCornerShape(18.dp, 24.dp, 16.dp, 22.dp)
+                    ) {
+                        Text(
+                            suggestion.title,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            suggestion.prompt,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
     }
@@ -1180,19 +1742,17 @@ private fun GameScreen(vm:RpgOsViewModel){
                     shape=RoundedCornerShape(18.dp)
                 )
                 Spacer(Modifier.height(8.dp))
-                Button(
-                    onClick={
+                GradientActionButton(
+                    text = "Wyślij akcję",
+                    onClick = {
                         val sendText=text.trim()
                         if(sendText.isNotBlank()){
                             vm.send(sendText)
                             text=""
                         }
                     },
-                    modifier=Modifier.fillMaxWidth(),
-                    shape=RoundedCornerShape(16.dp)
-                ){
-                    Text("Wyślij akcję")
-                }
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -1255,68 +1815,274 @@ private fun FullStatusScreen(vm:RpgOsViewModel){
 
 @Composable
 private fun PackagesScreen(vm:RpgOsViewModel){
-    val context=LocalContext.current
-    val packs by vm.worldPacks.collectAsState()
     val campaigns by vm.campaigns.collectAsState()
-    val backups by vm.backups.collectAsState()
     val activeCampaign by vm.activeCampaign.collectAsState()
-    val activePack by vm.activeWorldPack.collectAsState()
-    var newCampaign by remember{mutableStateOf("")}
-    var importMessage by remember{mutableStateOf("")}
+    val worlds by vm.worldPackages.collectAsState()
 
-    val importCampaign=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->
-        if(uri!=null){runCatching{
-            val temp=FilePickerBridge(context).copyUriToTemp(uri,"campaign_import.zip")
-            val target="Imported_${System.currentTimeMillis()}.campaign"
-            importMessage=RpgPackageManager(context).validatedImportCampaign(temp,target).message;vm.refresh()
-        }.onFailure{importMessage=it.message?:"Import failed"}}
-    }
-    val importWorld=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->
-        if(uri!=null){runCatching{
-            val temp=FilePickerBridge(context).copyUriToTemp(uri,"world_import.zip")
-            val target="Imported_${System.currentTimeMillis()}.worldpack"
-            importMessage=RpgPackageManager(context).validatedImportWorldPack(temp,target).message;vm.refresh()
-        }.onFailure{importMessage=it.message?:"Import failed"}}
-    }
-    val exportCampaign=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")){uri->
-        if(uri!=null){runCatching{
-            val temp=File(context.cacheDir,"${activeCampaign}.zip")
-            RpgPackageManager(context).exportCampaign(activeCampaign,temp)
-            FilePickerBridge(context).copyFileToUri(temp,uri);importMessage="Eksport zakończony."
-        }.onFailure{importMessage=it.message?:"Export failed"}}
-    }
+    var tab by remember { mutableStateOf("Kampanie") }
+    var newCampaignName by remember { mutableStateOf("") }
 
-    LazyColumn(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-        item{Text("World Packi",style=MaterialTheme.typography.headlineSmall)}
-        items(packs){p->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){
-            Text(p.name,style=MaterialTheme.typography.titleMedium);Text(if(p.path.endsWith(activePack))"AKTYWNY" else "")
-            Button(onClick={vm.activateWorldPack(File(p.path).name)}){Text("Aktywuj")}
-        }}}
-        item{SectionTitle("Kampanie")}
-        items(campaigns){c->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){
-            Text(c.name,style=MaterialTheme.typography.titleMedium);Text("Backupy: ${c.backupCount}");Text(if(c.path.endsWith(activeCampaign))"AKTYWNA" else "")
-            Button(onClick={vm.activateCampaign(File(c.path).name)}){Text("Aktywuj")}
-        }}}
-        item{
-            OutlinedTextField(newCampaign,{newCampaign=it},Modifier.fillMaxWidth(),label={Text("Nowa kampania")})
-            Button(onClick={vm.createCampaign(newCampaign)},modifier=Modifier.fillMaxWidth()){Text("Utwórz kampanię")}
-        }
-        item{SectionTitle("Import / eksport")}
-        item{
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                Button(onClick={importCampaign.launch(arrayOf("application/zip","application/octet-stream"))}){Text("Import Save")}
-                Button(onClick={importWorld.launch(arrayOf("application/zip","application/octet-stream"))}){Text("Import World")}
+    GradientScreen {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            item {
+                Text(
+                    "Zapisy i kampanie",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    "Zarządzaj kampaniami, światami i kopiami zapasowymi.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-            Button(onClick={exportCampaign.launch("${activeCampaign}.zip")},modifier=Modifier.fillMaxWidth().padding(top=8.dp)){Text("Eksportuj aktywny Save")}
-            if(importMessage.isNotBlank())Text(importMessage)
+
+            item {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("Kampanie", "Pakiety światów").forEach { item ->
+                        val selected = tab == item
+                        Surface(
+                            onClick = { tab = item },
+                            modifier = Modifier.weight(1f),
+                            shape = if(item == "Kampanie")
+                                RoundedCornerShape(20.dp, 12.dp, 14.dp, 24.dp)
+                            else
+                                RoundedCornerShape(12.dp, 22.dp, 24.dp, 14.dp),
+                            color = if(selected) Color(0xFF0B5FA9) else Color(0xFF08131E),
+                            border = BorderStroke(
+                                1.dp,
+                                if(selected) Color(0xFF55C7FF) else Color(0x44334D63)
+                            )
+                        ) {
+                            Box(
+                                Modifier.height(48.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(item, fontWeight = if(selected) FontWeight.Bold else FontWeight.Medium)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if(tab == "Kampanie") {
+                item {
+                    Text(
+                        "Aktywne kampanie",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                if(campaigns.isEmpty()){
+                    item {
+                        GlowPanel(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(24.dp, 14.dp, 28.dp, 18.dp)
+                        ) {
+                            Text("Brak kampanii", fontWeight = FontWeight.Bold)
+                            Text(
+                                "Utwórz nową kampanię, aby rozpocząć grę.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    items(campaigns) { campaign ->
+                        val dirName = File(campaign.path).name
+                        val active = campaign.path.endsWith(activeCampaign)
+
+                        GlowPanel(
+                            modifier = Modifier.fillMaxWidth(),
+                            borderColor = if(active) Color(0x6648D8C8) else Color(0x6658B8FF),
+                            shape = if(active)
+                                RoundedCornerShape(28.dp, 14.dp, 18.dp, 30.dp)
+                            else
+                                RoundedCornerShape(18.dp, 28.dp, 30.dp, 16.dp)
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        campaign.name,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        "Backupy: ${campaign.backupCount}",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+
+                                if(active){
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp, 18.dp, 18.dp, 10.dp),
+                                        color = Color(0xFF075A4E)
+                                    ) {
+                                        Text(
+                                            "● AKTYWNA",
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color(0xFF78F0D8)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(Modifier.height(14.dp))
+
+                            GradientActionButton(
+                                text = if(active) "Kontynuuj" else "Aktywuj kampanię",
+                                onClick = { vm.activateCampaign(dirName) },
+                                modifier = Modifier.fillMaxWidth(),
+                                brush = if(active) TealGradient else BlueGradient
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    GlowPanel(
+                        modifier = Modifier.fillMaxWidth(),
+                        borderColor = Color(0x6656E1D2),
+                        shape = RoundedCornerShape(16.dp, 30.dp, 24.dp, 14.dp)
+                    ) {
+                        Text(
+                            "Nowa kampania",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = newCampaignName,
+                            onValueChange = { newCampaignName = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Nazwa kampanii") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(18.dp, 12.dp, 18.dp, 24.dp)
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        GradientActionButton(
+                            text = "Utwórz nową kampanię",
+                            onClick = {
+                                vm.createCampaign(newCampaignName)
+                                newCampaignName = ""
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            brush = TealGradient
+                        )
+                    }
+                }
+
+                item {
+                    Text(
+                        "Import / eksport",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                item {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        GradientActionButton(
+                            text = "Import Save",
+                            onClick = { vm.importSave() },
+                            modifier = Modifier.weight(1f),
+                            brush = TealGradient
+                        )
+                        GradientActionButton(
+                            text = "Import World",
+                            onClick = { vm.importWorld() },
+                            modifier = Modifier.weight(1f),
+                            brush = BlueGradient
+                        )
+                    }
+                }
+
+                item {
+                    GradientActionButton(
+                        text = "Eksportuj aktywny Save",
+                        onClick = { vm.exportActiveSave() },
+                        modifier = Modifier.fillMaxWidth(),
+                        brush = BlueGradient
+                    )
+                }
+            } else {
+                item {
+                    Text(
+                        "Pakiety światów",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                if(worlds.isEmpty()){
+                    item {
+                        GlowPanel(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(22.dp, 16.dp, 28.dp, 18.dp)
+                        ) {
+                            Text("Brak pakietów światów", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else {
+                    items(worlds) { world ->
+                        GlowPanel(
+                            modifier = Modifier.fillMaxWidth(),
+                            borderColor = if(world.active) Color(0x6656E1D2) else Color(0x6658B8FF),
+                            shape = RoundedCornerShape(24.dp, 16.dp, 18.dp, 28.dp)
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        world.name,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        if(world.active) "Aktywny pakiet świata" else "Pakiet gotowy do aktywacji",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                if(world.active){
+                                    Text(
+                                        "●",
+                                        color = Color(0xFF50E6B1),
+                                        style = MaterialTheme.typography.headlineSmall
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(14.dp))
+                            GradientActionButton(
+                                text = if(world.active) "Aktywny" else "Aktywuj świat",
+                                onClick = { vm.activateWorld(world.id) },
+                                modifier = Modifier.fillMaxWidth(),
+                                brush = if(world.active) TealGradient else BlueGradient
+                            )
+                        }
+                    }
+                }
+            }
         }
-        item{SectionTitle("Backupy")}
-        items(backups){b->Card(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){
-            Text(b,style=MaterialTheme.typography.bodySmall);Button(onClick={vm.restoreBackup(b)}){Text("Przywróć")}
-        }}}
     }
 }
-
 
 @Composable
 private fun DeveloperPanelScreen(vm:RpgOsViewModel){
@@ -1404,6 +2170,9 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
     var updateFeed by remember(current.updateFeedUrl){mutableStateOf(current.updateFeedUrl)}
     var diagnostics by remember(current.showGmDiagnostics){mutableStateOf(current.showGmDiagnostics)}
     var backups by remember(current.autoBackup){mutableStateOf(current.autoBackup)}
+    var effects by remember(current.visualEffectsLevel){mutableStateOf(current.visualEffectsLevel)}
+    var introAnimation by remember(current.introAnimation){mutableStateOf(current.introAnimation)}
+    var developerExpanded by remember { mutableStateOf(false) }
 
     val localApkPicker=rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -1411,76 +2180,259 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
         if(uri!=null) vm.selectLocalUpdate(context,uri)
     }
 
-    LazyColumn(
-        Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement=Arrangement.spacedBy(12.dp)
-    ){
-        item{Text("Ustawienia",style=MaterialTheme.typography.headlineMedium)}
-        item{
-            OutlinedTextField(
-                backend,
-                {backend=it},
-                Modifier.fillMaxWidth(),
-                label={Text("Adres AI / backendu gry")}
-            )
-            OutlinedTextField(
-                updateFeed,
-                {updateFeed=it},
-                Modifier.fillMaxWidth(),
-                label={Text("Kanał aktualizacji GitHub")}
-            )
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
-                Text("Diagnostyka MG");Switch(diagnostics,{diagnostics=it})
-            }
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
-                Text("Automatyczny backup");Switch(backups,{backups=it})
-            }
-            Button(
-                onClick={vm.saveSettings(current.copy(
-                    backendUrl=backend.trim(),
-                    updateFeedUrl=updateFeed.trim(),
-                    showGmDiagnostics=diagnostics,
-                    autoBackup=backups
-                ))},
-                modifier=Modifier.fillMaxWidth()
-            ){Text("Zapisz ustawienia")}
-        }
-
-        item{SectionTitle("Aktualizacje RPG OS")}
-        item{
-            Text("Zainstalowana: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
-            if(availableUpdate!=null){
-                Text("Online: ${availableUpdate!!.versionName} (${availableUpdate!!.versionCode})")
-                if(availableUpdate!!.notes.isNotBlank())Text(availableUpdate!!.notes)
-            }
-            Text(updateStatus,style=MaterialTheme.typography.bodySmall)
-        }
-        item{
-            Button(onClick={vm.checkForUpdates(context)},modifier=Modifier.fillMaxWidth()){
-                Text("Sprawdź aktualizacje online")
-            }
-            Button(onClick={vm.downloadOnlineUpdate(context)},modifier=Modifier.fillMaxWidth()){
-                Text("Pobierz aktualizację online")
-            }
-            Button(
-                onClick={localApkPicker.launch(arrayOf(
-                    "application/vnd.android.package-archive",
-                    "application/octet-stream"
-                ))},
-                modifier=Modifier.fillMaxWidth()
-            ){Text("Wybierz lokalny plik APK")}
-
-            Button(onClick={vm.installPreparedUpdate(context)},modifier=Modifier.fillMaxWidth()){
-                Text("Zainstaluj przygotowaną aktualizację")
+    GradientScreen {
+        LazyColumn(
+            Modifier.fillMaxSize().padding(horizontal=16.dp),
+            contentPadding=PaddingValues(top=18.dp,bottom=30.dp),
+            verticalArrangement=Arrangement.spacedBy(14.dp)
+        ){
+            item{
+                DragonSystemHeader(
+                    visualEffectsLevel=effects,
+                    introAnimation=false
+                )
             }
 
-            Text(
-                "Przed instalacją tworzony jest backup aktywnej kampanii. " +
-                "APK jest sprawdzany pod kątem pakietu, wersji i podpisu; " +
-                "aktualizacja online czyta GitHub Releases i dodatkowo sprawdza SHA-256. " +
-                "Kanał aktualizacji jest niezależny od backendu AI.",
-                style=MaterialTheme.typography.bodySmall
-            )
+            item{
+                GlowPanel(
+                    modifier=Modifier.fillMaxWidth(),
+                    borderColor=Color(0x6656E1D2),
+                    shape=RoundedCornerShape(28.dp,16.dp,22.dp,30.dp)
+                ){
+                    Text("Wygląd i animacje",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                    Text(
+                        "Dostosuj poziom efektów do wydajności telefonu.",
+                        color=MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(14.dp))
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement=Arrangement.spacedBy(8.dp)
+                    ){
+                        listOf(
+                            "minimal" to "Minimalna",
+                            "standard" to "Standardowa",
+                            "full" to "Pełna"
+                        ).forEach { (key,label) ->
+                            val selected = effects == key
+                            Surface(
+                                onClick={effects=key},
+                                modifier=Modifier.weight(1f),
+                                shape=when(key){
+                                    "minimal"->RoundedCornerShape(18.dp,10.dp,16.dp,24.dp)
+                                    "full"->RoundedCornerShape(10.dp,22.dp,24.dp,14.dp)
+                                    else->RoundedCornerShape(16.dp,14.dp,20.dp,12.dp)
+                                },
+                                color=if(selected) Color(0xFF0B6A8A) else Color(0xFF08131E),
+                                border=BorderStroke(
+                                    1.dp,
+                                    if(selected) Color(0xFF58D8FF) else Color(0x44334D63)
+                                )
+                            ){
+                                Column(
+                                    Modifier.padding(vertical=12.dp,horizontal=8.dp),
+                                    horizontalAlignment=Alignment.CenterHorizontally
+                                ){
+                                    Text(
+                                        when(key){
+                                            "minimal"->"◦"
+                                            "full"->"✦"
+                                            else->"◆"
+                                        },
+                                        color=if(selected) Color(0xFF6FE9DB) else Color(0xFF6F8FA9)
+                                    )
+                                    Text(label,style=MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement=Arrangement.SpaceBetween,
+                        verticalAlignment=Alignment.CenterVertically
+                    ){
+                        Column(Modifier.weight(1f)){
+                            Text("Animacja startowa",fontWeight=FontWeight.Bold)
+                            Text(
+                                "Smok okrąża logo podczas uruchamiania.",
+                                style=MaterialTheme.typography.bodySmall,
+                                color=MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(introAnimation,{introAnimation=it})
+                    }
+                }
+            }
+
+            item{
+                GlowPanel(
+                    modifier=Modifier.fillMaxWidth(),
+                    shape=RoundedCornerShape(18.dp,28.dp,30.dp,16.dp)
+                ){
+                    Text("Automatyzacja",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement=Arrangement.SpaceBetween,
+                        verticalAlignment=Alignment.CenterVertically
+                    ){
+                        Column(Modifier.weight(1f)){
+                            Text("Automatyczny backup",fontWeight=FontWeight.Bold)
+                            Text(
+                                "Tworzy kopię po ważnych zmianach.",
+                                style=MaterialTheme.typography.bodySmall,
+                                color=MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(backups,{backups=it})
+                    }
+
+                    HorizontalDivider(Modifier.padding(vertical=8.dp))
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement=Arrangement.SpaceBetween,
+                        verticalAlignment=Alignment.CenterVertically
+                    ){
+                        Column(Modifier.weight(1f)){
+                            Text("Diagnostyka MG",fontWeight=FontWeight.Bold)
+                            Text(
+                                "Pokazuje stan ContextBundle podczas gry.",
+                                style=MaterialTheme.typography.bodySmall,
+                                color=MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(diagnostics,{diagnostics=it})
+                    }
+                }
+            }
+
+            item{
+                GlowPanel(
+                    modifier=Modifier.fillMaxWidth(),
+                    borderColor=Color(0x6658B8FF),
+                    shape=RoundedCornerShape(24.dp,14.dp,18.dp,28.dp)
+                ){
+                    Text("Aktualizacje RPG OS",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                    Text(
+                        "Zainstalowana: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                        color=Color(0xFF67B8FF)
+                    )
+                    if(availableUpdate!=null){
+                        Text(
+                            "Online: ${availableUpdate!!.versionName} (${availableUpdate!!.versionCode})",
+                            color=Color(0xFF56E1D2)
+                        )
+                        if(availableUpdate!!.notes.isNotBlank()){
+                            Text(
+                                availableUpdate!!.notes,
+                                style=MaterialTheme.typography.bodySmall,
+                                color=MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(updateStatus,style=MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(12.dp))
+
+                    GradientActionButton(
+                        text="Sprawdź aktualizacje online",
+                        onClick={vm.checkForUpdates(context)},
+                        modifier=Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    GradientActionButton(
+                        text="Pobierz aktualizację online",
+                        onClick={vm.downloadOnlineUpdate(context)},
+                        modifier=Modifier.fillMaxWidth(),
+                        brush=TealGradient
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick={localApkPicker.launch(arrayOf(
+                            "application/vnd.android.package-archive",
+                            "application/octet-stream"
+                        ))},
+                        modifier=Modifier.fillMaxWidth()
+                    ){Text("Wybierz lokalny plik APK")}
+
+                    OutlinedButton(
+                        onClick={vm.installPreparedUpdate(context)},
+                        modifier=Modifier.fillMaxWidth()
+                    ){Text("Zainstaluj przygotowaną aktualizację")}
+                }
+            }
+
+            item{
+                Surface(
+                    onClick={developerExpanded=!developerExpanded},
+                    modifier=Modifier.fillMaxWidth(),
+                    shape=RoundedCornerShape(16.dp,26.dp,22.dp,14.dp),
+                    color=Color(0xD908131E),
+                    border=BorderStroke(1.dp,Color(0x443D607B))
+                ){
+                    Row(
+                        Modifier.padding(16.dp),
+                        horizontalArrangement=Arrangement.SpaceBetween,
+                        verticalAlignment=Alignment.CenterVertically
+                    ){
+                        Column{
+                            Text("Dla dewelopera",fontWeight=FontWeight.Bold)
+                            Text(
+                                "Backend AI i kanał aktualizacji",
+                                style=MaterialTheme.typography.bodySmall,
+                                color=MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(if(developerExpanded)"⌃" else "⌄")
+                    }
+                }
+            }
+
+            if(developerExpanded){
+                item{
+                    GlowPanel(
+                        modifier=Modifier.fillMaxWidth(),
+                        borderColor=Color(0x443E7897),
+                        shape=RoundedCornerShape(20.dp,14.dp,26.dp,18.dp)
+                    ){
+                        OutlinedTextField(
+                            backend,
+                            {backend=it},
+                            Modifier.fillMaxWidth(),
+                            label={Text("Adres AI / backendu gry")},
+                            shape=RoundedCornerShape(18.dp,12.dp,18.dp,24.dp)
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedTextField(
+                            updateFeed,
+                            {updateFeed=it},
+                            Modifier.fillMaxWidth(),
+                            label={Text("Kanał aktualizacji GitHub")},
+                            shape=RoundedCornerShape(12.dp,22.dp,18.dp,14.dp)
+                        )
+                    }
+                }
+            }
+
+            item{
+                GradientActionButton(
+                    text="Zapisz ustawienia",
+                    onClick={vm.saveSettings(current.copy(
+                        backendUrl=backend.trim(),
+                        updateFeedUrl=updateFeed.trim(),
+                        showGmDiagnostics=diagnostics,
+                        autoBackup=backups,
+                        visualEffectsLevel=effects,
+                        introAnimation=introAnimation
+                    ))},
+                    modifier=Modifier.fillMaxWidth(),
+                    brush=TealGradient
+                )
+            }
         }
     }
 }
