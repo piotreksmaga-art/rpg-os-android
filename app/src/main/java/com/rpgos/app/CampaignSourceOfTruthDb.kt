@@ -265,6 +265,46 @@ object CampaignSourceOfTruthSchema {
             """.trimIndent()
         )
 
+        // Lowest-level history guard. Even if a future caller bypasses the
+        // coordinator/validator, SQLite itself refuses replay, overwrite and
+        // skipped turn numbers. Existing committed turns are immutable.
+        db.execSQL(
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_gm_turns_monotonic_insert
+            BEFORE INSERT ON gm_turns
+            BEGIN
+                SELECT CASE
+                    WHEN NOT EXISTS(
+                        SELECT 1 FROM gm_campaign_meta WHERE campaign_id=NEW.campaign_id
+                    ) THEN RAISE(ABORT, 'GM141 campaign metadata missing')
+                    WHEN NEW.turn_number != (
+                        SELECT current_turn + 1
+                        FROM gm_campaign_meta
+                        WHERE campaign_id=NEW.campaign_id
+                    ) THEN RAISE(ABORT, 'GM141 turn number must be current_turn + 1')
+                END;
+            END
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_gm_turns_immutable_update
+            BEFORE UPDATE ON gm_turns
+            BEGIN
+                SELECT RAISE(ABORT, 'GM141 committed turns are immutable');
+            END
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_gm_turns_immutable_delete
+            BEFORE DELETE ON gm_turns
+            BEGIN
+                SELECT RAISE(ABORT, 'GM141 committed turns are immutable');
+            END
+            """.trimIndent()
+        )
+
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_gm_turns_campaign_turn ON gm_turns(campaign_id, turn_number)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_gm_state_entity ON gm_entity_state(campaign_id, entity_id)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_gm_mutations_entity ON gm_state_mutations(campaign_id, entity_id, turn_number)")
