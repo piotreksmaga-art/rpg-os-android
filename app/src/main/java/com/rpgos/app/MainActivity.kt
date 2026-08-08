@@ -1336,6 +1336,7 @@ private fun SocialScreen(vm:RpgOsViewModel){
 
 @Composable
 private fun VisualGeneratorScreen(vm:RpgOsViewModel){
+    val context = LocalContext.current
     val suggestions by vm.visualSuggestions.collectAsState()
     val library by vm.visualLibrary.collectAsState()
 
@@ -1472,11 +1473,25 @@ private fun VisualGeneratorScreen(vm:RpgOsViewModel){
                         GradientActionButton(
                             text = "Generuj i zapisz w galerii",
                             onClick = {
-                                vm.generateVisual(
-                                    category = category,
-                                    title = title,
-                                    prompt = description
-                                )
+                                when (category) {
+                                    "Postać" -> vm.generateCharacterImage(
+                                        context,
+                                        title,
+                                        description,
+                                        "",
+                                        ""
+                                    )
+                                    "Sceneria" -> vm.generateLocationImage(
+                                        context,
+                                        title,
+                                        description
+                                    )
+                                    else -> vm.generateSceneImage(
+                                        context,
+                                        title,
+                                        description
+                                    )
+                                }
                                 title = ""
                                 description = ""
                             },
@@ -1567,7 +1582,7 @@ private fun VisualGeneratorScreen(vm:RpgOsViewModel){
                                 )
                                 Spacer(Modifier.weight(1f))
                                 Text(
-                                    item.category,
+                                    item.kind,
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if(index == 0) Color(0xFF67B8FF) else Color(0xFF56E1D2)
                                 )
@@ -1599,7 +1614,7 @@ private fun VisualGeneratorScreen(vm:RpgOsViewModel){
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            suggestion.prompt,
+                            suggestion.promptSeed,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -1817,7 +1832,8 @@ private fun FullStatusScreen(vm:RpgOsViewModel){
 private fun PackagesScreen(vm:RpgOsViewModel){
     val campaigns by vm.campaigns.collectAsState()
     val activeCampaign by vm.activeCampaign.collectAsState()
-    val worlds by vm.worldPackages.collectAsState()
+    val worlds by vm.worldPacks.collectAsState()
+    val activeWorldPack by vm.activeWorldPack.collectAsState()
 
     var tab by remember { mutableStateOf("Kampanie") }
     var newCampaignName by remember { mutableStateOf("") }
@@ -1999,13 +2015,13 @@ private fun PackagesScreen(vm:RpgOsViewModel){
                     ) {
                         GradientActionButton(
                             text = "Import Save",
-                            onClick = { vm.importSave() },
+                            onClick = { },
                             modifier = Modifier.weight(1f),
                             brush = TealGradient
                         )
                         GradientActionButton(
                             text = "Import World",
-                            onClick = { vm.importWorld() },
+                            onClick = { },
                             modifier = Modifier.weight(1f),
                             brush = BlueGradient
                         )
@@ -2015,7 +2031,7 @@ private fun PackagesScreen(vm:RpgOsViewModel){
                 item {
                     GradientActionButton(
                         text = "Eksportuj aktywny Save",
-                        onClick = { vm.exportActiveSave() },
+                        onClick = { },
                         modifier = Modifier.fillMaxWidth(),
                         brush = BlueGradient
                     )
@@ -2042,7 +2058,7 @@ private fun PackagesScreen(vm:RpgOsViewModel){
                     items(worlds) { world ->
                         GlowPanel(
                             modifier = Modifier.fillMaxWidth(),
-                            borderColor = if(world.active) Color(0x6656E1D2) else Color(0x6658B8FF),
+                            borderColor = if((File(world.path).name == activeWorldPack)) Color(0x6656E1D2) else Color(0x6658B8FF),
                             shape = RoundedCornerShape(24.dp, 16.dp, 18.dp, 28.dp)
                         ) {
                             Row(
@@ -2057,11 +2073,11 @@ private fun PackagesScreen(vm:RpgOsViewModel){
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        if(world.active) "Aktywny pakiet świata" else "Pakiet gotowy do aktywacji",
+                                        if((File(world.path).name == activeWorldPack)) "Aktywny pakiet świata" else "Pakiet gotowy do aktywacji",
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                if(world.active){
+                                if((File(world.path).name == activeWorldPack)){
                                     Text(
                                         "●",
                                         color = Color(0xFF50E6B1),
@@ -2071,10 +2087,10 @@ private fun PackagesScreen(vm:RpgOsViewModel){
                             }
                             Spacer(Modifier.height(14.dp))
                             GradientActionButton(
-                                text = if(world.active) "Aktywny" else "Aktywuj świat",
-                                onClick = { vm.activateWorld(world.id) },
+                                text = if((File(world.path).name == activeWorldPack)) "Aktywny" else "Aktywuj świat",
+                                onClick = { vm.activateWorldPack(world.id) },
                                 modifier = Modifier.fillMaxWidth(),
-                                brush = if(world.active) TealGradient else BlueGradient
+                                brush = if((File(world.path).name == activeWorldPack)) TealGradient else BlueGradient
                             )
                         }
                     }
