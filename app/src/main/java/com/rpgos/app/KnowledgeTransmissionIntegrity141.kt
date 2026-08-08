@@ -80,6 +80,16 @@ class KnowledgeTransmissionIntegrity141(private val db: SQLiteDatabase) {
         )
         countIssue(
             issues,
+            "KNOWLEDGE_ORGANIZATION_HAS_NPC_SENDER",
+            "Transmisja ORGANIZATION nie może mieć source_npc_id.",
+            """
+            SELECT COUNT(*) FROM gm_knowledge_transmissions
+            WHERE campaign_id=? AND channel='ORGANIZATION' AND source_npc_id IS NOT NULL AND trim(source_npc_id)!=''
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        )
+        countIssue(
+            issues,
             "KNOWLEDGE_REPORT_SENDER_NOT_HOLDER",
             "REPORT przekazuje BELIEF, którego source NPC nie jest holderem.",
             """
@@ -101,7 +111,8 @@ class KnowledgeTransmissionIntegrity141(private val db: SQLiteDatabase) {
                 (k.channel='OBSERVATION' AND r.source_type='NPC_OBSERVATION') OR
                 (k.channel='REPORT' AND r.source_type='NPC_REPORT') OR
                 (k.channel='RESEARCH' AND r.source_type='NPC_RESEARCH') OR
-                (k.channel='INFERENCE' AND r.source_type='NPC_INFERENCE')
+                (k.channel='INFERENCE' AND r.source_type='NPC_INFERENCE') OR
+                (k.channel='ORGANIZATION' AND r.source_type='ORGANIZATION_REPORT')
             )
             """.trimIndent(),
             arrayOf(campaignUid)
@@ -109,11 +120,11 @@ class KnowledgeTransmissionIntegrity141(private val db: SQLiteDatabase) {
         countIssue(
             issues,
             "KNOWLEDGE_CHANNEL_REQUIRES_FACT",
-            "OBSERVATION lub RESEARCH używa źródła, które nie jest FACT.",
+            "OBSERVATION, RESEARCH lub ORGANIZATION używa źródła, które nie jest FACT.",
             """
             SELECT COUNT(*) FROM gm_knowledge_transmissions k
             JOIN gm_facts s ON s.fact_id=k.source_truth_id AND s.campaign_id=k.campaign_id
-            WHERE k.campaign_id=? AND k.channel IN ('OBSERVATION','RESEARCH') AND s.truth_kind!='FACT'
+            WHERE k.campaign_id=? AND k.channel IN ('OBSERVATION','RESEARCH','ORGANIZATION') AND s.truth_kind!='FACT'
             """.trimIndent(),
             arrayOf(campaignUid)
         )
