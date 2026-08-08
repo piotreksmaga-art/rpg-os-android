@@ -105,26 +105,6 @@ object CampaignSourceOfTruthSchema {
 
         db.execSQL(
             """
-            CREATE TABLE IF NOT EXISTS gm_state_mutations (
-                mutation_id TEXT PRIMARY KEY,
-                campaign_id TEXT NOT NULL,
-                turn_number INTEGER NOT NULL,
-                entity_type TEXT NOT NULL,
-                entity_id TEXT NOT NULL,
-                field_key TEXT NOT NULL,
-                operation TEXT NOT NULL,
-                old_value_json TEXT,
-                new_value_json TEXT,
-                reason TEXT NOT NULL,
-                caused_by_event_id TEXT,
-                created_at INTEGER NOT NULL,
-                FOREIGN KEY(caused_by_event_id) REFERENCES gm_events(event_id)
-            )
-            """.trimIndent()
-        )
-
-        db.execSQL(
-            """
             CREATE TABLE IF NOT EXISTS gm_facts (
                 fact_id TEXT PRIMARY KEY,
                 campaign_id TEXT NOT NULL,
@@ -138,6 +118,7 @@ object CampaignSourceOfTruthSchema {
                 valid_until_turn INTEGER,
                 source_type TEXT NOT NULL,
                 source_id TEXT,
+                source_turn INTEGER,
                 canon_status TEXT,
                 verified INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL,
@@ -146,6 +127,7 @@ object CampaignSourceOfTruthSchema {
             """.trimIndent()
         )
 
+        // Events are created before tables that reference them through foreign keys.
         db.execSQL(
             """
             CREATE TABLE IF NOT EXISTS gm_events (
@@ -168,6 +150,26 @@ object CampaignSourceOfTruthSchema {
                 UNIQUE(campaign_id, turn_number, sequence),
                 FOREIGN KEY(turn_id) REFERENCES gm_turns(turn_id) ON DELETE CASCADE,
                 FOREIGN KEY(cause_event_id) REFERENCES gm_events(event_id)
+            )
+            """.trimIndent()
+        )
+
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS gm_state_mutations (
+                mutation_id TEXT PRIMARY KEY,
+                campaign_id TEXT NOT NULL,
+                turn_number INTEGER NOT NULL,
+                entity_type TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                field_key TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                old_value_json TEXT,
+                new_value_json TEXT,
+                reason TEXT NOT NULL,
+                caused_by_event_id TEXT,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY(caused_by_event_id) REFERENCES gm_events(event_id)
             )
             """.trimIndent()
         )
