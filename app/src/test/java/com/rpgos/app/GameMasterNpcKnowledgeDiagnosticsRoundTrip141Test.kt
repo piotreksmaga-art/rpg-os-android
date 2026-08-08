@@ -15,7 +15,7 @@ import org.robolectric.annotation.Config
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [35])
 class GameMasterNpcKnowledgeDiagnosticsRoundTrip141Test {
     private lateinit var context: Context
     private lateinit var campaignDir: File
@@ -152,7 +152,6 @@ class GameMasterNpcKnowledgeDiagnosticsRoundTrip141Test {
             )
         }
 
-        // A new factory/session must reconstruct the same holder-scoped view from campaign.db.
         val report = GameMasterDiagnosticsService141(context, LocalGameStore(context))
             .npcKnowledgeReport(holderUid = holder, atTurnId = 100)
 
