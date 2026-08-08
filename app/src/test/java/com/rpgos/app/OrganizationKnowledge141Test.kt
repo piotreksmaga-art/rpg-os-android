@@ -29,8 +29,8 @@ class OrganizationKnowledge141Test {
         val grant = result.grants.single()
         assertEquals(NpcKnowledgeAccessPolicy141.GrantKind.ORGANIZATION_FACT, grant.kind)
         assertEquals(org, grant.grantedByUid)
-        assertEquals(20, grant.validFromTurn)
-        assertEquals(20, grant.validUntilTurn)
+        assertEquals(20L, grant.validFromTurn)
+        assertEquals(20L, grant.validUntilTurn)
     }
 
     @Test
