@@ -27,8 +27,6 @@ class GameMasterContextRepository141(
         factory.openActiveSession().use { session ->
             val repo = session.repository
             val turn = repo.currentTurnId(session.campaignUid)
-            val events = repo.recentEvents(session.campaignUid, beforeOrAtTurn = turn, limit = 60)
-            val memories = repo.memories(session.campaignUid, limit = 60)
             val divergences = repo.getActiveDivergences(session.campaignUid)
 
             val playerUid = resolvePlayerUid(legacy)
@@ -48,15 +46,17 @@ class GameMasterContextRepository141(
                 (row["holder_uid"] as? String)?.takeIf { it.isNotBlank() }?.let { relevantNpcUids += EntityUid(it) }
             }
 
-            val beliefs = mutableListOf<CampaignTruth>()
-            relevantNpcUids.take(16).forEach { npcUid ->
-                beliefs += repo.getBeliefs(
-                    campaignUid = session.campaignUid,
-                    holderUid = npcUid,
-                    atTurnId = turn,
-                    limit = 24
-                )
-            }
+            val retrieved = GameMasterRetriever141(repo, session.campaignUid).retrieve(
+                playerAction = request.playerAction,
+                atTurnId = turn,
+                relevantNpcUids = relevantNpcUids,
+                eventLimit = 36,
+                memoryLimit = 36,
+                beliefLimitPerNpc = 16
+            )
+            val events = retrieved.events
+            val memories = retrieved.memories
+            val beliefs = retrieved.beliefsByHolder.values.flatten()
 
             val budget = request.contextBudget
             val scene = section(
@@ -91,6 +91,7 @@ class GameMasterContextRepository141(
                     put("npcs", JSONArray(legacy.relevantNpcs.map(::JSONObject)))
                     put("npc_knowledge_legacy", JSONArray(legacy.npcKnowledge.map(::JSONObject)))
                     put("npc_beliefs_gm141", truthsJson(beliefs))
+                    put("npc_belief_holders_gm141", JSONArray(retrieved.beliefsByHolder.keys.map { it.value }))
                     put("missions", JSONArray(legacy.missions.map(::JSONObject)))
                     put("pressures", JSONArray(legacy.worldPressures.map(::JSONObject)))
                     put("active_world_events", JSONArray(legacy.activeWorldEvents.map(::JSONObject)))
@@ -174,7 +175,8 @@ class GameMasterContextRepository141(
                     ContextSource("WORLD_DB", session.worldPackUid.value, "canon and worldpack data"),
                     ContextSource("GM141_STATE", session.campaignUid.value, "canonical mutable working state"),
                     ContextSource("GM141_EVENT_STORE", session.campaignUid.value, "recent accepted events"),
-                    ContextSource("GM141_MEMORY", session.campaignUid.value, "episodic and semantic campaign memory")
+                    ContextSource("GM141_MEMORY", session.campaignUid.value, "bounded temporal episodic and semantic memory"),
+                    ContextSource("GM141_RETRIEVER", session.campaignUid.value, "query-ranked temporal retrieval with holder-scoped beliefs")
                 )
             )
         }
