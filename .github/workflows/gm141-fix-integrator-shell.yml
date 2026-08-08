@@ -1,0 +1,33 @@
+name: GM141 Fix Integrator Shell
+on:
+  push:
+    branches: [ "gm-engine-141-foundation" ]
+    paths: [ ".github/workflows/gm141-fix-integrator-shell.yml" ]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gm-engine-141-foundation
+      - name: Fix Python shell template
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/gm141-integrate-viewmodel.yml')
+          text = p.read_text()
+          old = '        shell: python\n'
+          new = '        shell: python {0}\n'
+          if old not in text:
+              raise SystemExit('expected shell declaration not found')
+          p.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit shell repair
+        run: |
+          git config user.name "rpg-os-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/workflows/gm141-integrate-viewmodel.yml
+          git commit -m "GM141: fix temporary integrator Python shell"
+          git push origin HEAD:gm-engine-141-foundation
