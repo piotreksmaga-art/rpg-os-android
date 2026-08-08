@@ -60,9 +60,9 @@ class GameMasterRuleResolver141(
 
                 "STATE_INCREMENT", "STATE_DECREMENT" -> {
                     val descriptor = stateDescriptor(action, params)
-                    val currentRaw = currentValue(descriptor) ?: "0"
-                    val current = currentRaw.toBigDecimalOrNull()
-                        ?: error("${descriptor.entityId}.${descriptor.field} nie jest liczbą: '$currentRaw'.")
+                    val storedCurrent = currentValue(descriptor)
+                    val current = (storedCurrent ?: "0").toBigDecimalOrNull()
+                        ?: error("${descriptor.entityId}.${descriptor.field} nie jest liczbą: '$storedCurrent'.")
                     val magnitude = requiredDecimal(params, "amount", action, index).abs()
                     val delta = if (normalizeAction(action.actionType) == "STATE_DECREMENT") magnitude.negate() else magnitude
                     val next = current.add(delta)
@@ -73,7 +73,7 @@ class GameMasterRuleResolver141(
                         entityId = descriptor.entityId,
                         field = descriptor.field,
                         operation = if (delta.signum() < 0) MutationOperation.DECREMENT else MutationOperation.INCREMENT,
-                        oldValue = currentRaw,
+                        oldValue = storedCurrent,
                         newValue = normalizeNumber(next),
                         reason = reason(action, params),
                         causedByEventKey = event?.eventKey
@@ -98,15 +98,15 @@ class GameMasterRuleResolver141(
                 }
 
                 "ASSERT_FACT" -> {
-                    truths += truthFrom(action, params, TruthKind.FACT, request.currentChapter)
+                    truths += truthFrom(action, params, TruthKind.FACT)
                 }
 
                 "ASSERT_BELIEF" -> {
-                    truths += truthFrom(action, params, TruthKind.BELIEF, request.currentChapter)
+                    truths += truthFrom(action, params, TruthKind.BELIEF)
                 }
 
                 "ASSERT_NARRATIVE" -> {
-                    truths += truthFrom(action, params, TruthKind.NARRATIVE, request.currentChapter)
+                    truths += truthFrom(action, params, TruthKind.NARRATIVE)
                 }
 
                 "CANON_DIVERGENCE" -> {
@@ -223,8 +223,7 @@ class GameMasterRuleResolver141(
     private fun truthFrom(
         action: ProposedWorldAction,
         params: JSONObject,
-        kind: TruthKind,
-        currentChapter: Long
+        kind: TruthKind
     ): TruthWrite {
         val sourceType = params.optNonBlank("source_type")
             ?.let { raw -> runCatching { ProvenanceType.valueOf(raw.uppercase(Locale.ROOT)) }.getOrNull() }
