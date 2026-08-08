@@ -24,24 +24,33 @@ class GameMasterRepositoryFactory(
 
     fun openActiveSession(): ActiveGameMasterRepository {
         val db = store.openSaveDb()
+        var repository: SQLiteUnifiedCampaignRepository? = null
         return try {
             MigrationManager().ensureV1(db)
+
+            // Identity may be newly generated when this campaign has never been
+            // opened by GM141. Constructing the repository first persists
+            // gm_campaign_meta through ensureMeta(). Only after that durable
+            // identity exists may legacy bootstrap attach imported state to it.
             val campaignUid = CampaignIdentityResolver.ensure(db)
-            GameMasterLegacyBootstrap141.ensure(db, campaignUid)
             val worldPackUid = resolveWorldPackUid()
+            repository = SQLiteUnifiedCampaignRepository(
+                context = context,
+                db = db,
+                campaignUid = campaignUid,
+                worldPackUid = worldPackUid,
+                ownsDatabase = true
+            )
+
+            GameMasterLegacyBootstrap141.ensure(db, campaignUid)
+
             ActiveGameMasterRepository(
                 campaignUid = campaignUid,
                 worldPackUid = worldPackUid,
-                repository = SQLiteUnifiedCampaignRepository(
-                    context = context,
-                    db = db,
-                    campaignUid = campaignUid,
-                    worldPackUid = worldPackUid,
-                    ownsDatabase = true
-                )
+                repository = repository
             )
         } catch (t: Throwable) {
-            db.close()
+            if (repository != null) repository.close() else db.close()
             throw t
         }
     }
