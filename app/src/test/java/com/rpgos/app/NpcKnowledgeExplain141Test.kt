@@ -3,7 +3,6 @@ package com.rpgos.app
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NpcKnowledgeExplain141Test {
@@ -61,6 +60,7 @@ class NpcKnowledgeExplain141Test {
         )
         NpcKnowledgeExplain141(Repo(mutableListOf(belief), 5), campaign, Retractions(emptyList()))
             .explain(npc, belief.uid, 5)
+        Unit
     }
 
     private class Inference(private val record: NpcInferenceLedgerEntry141) : NpcInferenceQueryStore141 {
