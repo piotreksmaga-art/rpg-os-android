@@ -209,14 +209,14 @@ class GameMasterNpcKnowledgeTurnCommit141Test {
         )
     )
 
-    private fun request(session: GameMasterRepositorySession) = GameMasterTurnRequest(
+    private fun request(session: ActiveGameMasterRepository) = GameMasterTurnRequest(
         campaignId = session.campaignUid.value,
         worldPackId = session.worldPackUid.value,
         playerAction = "test",
         currentChapter = 1L
     )
 
-    private fun context(session: GameMasterRepositorySession) = GameMasterContext(
+    private fun context(session: ActiveGameMasterRepository) = GameMasterContext(
         campaignId = session.campaignUid.value,
         chapter = 1L,
         scene = section("scene"),
