@@ -2305,6 +2305,8 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
                 }
             }
 
+            item { ContentUpdatesPanel(context) }
+
             item{
                 Surface(
                     onClick={developerExpanded=!developerExpanded},
