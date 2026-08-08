@@ -7,7 +7,8 @@ enum class KnowledgeChannel141 {
     OBSERVATION,
     REPORT,
     RESEARCH,
-    INFERENCE
+    INFERENCE,
+    ORGANIZATION
 }
 
 data class KnowledgePropagationRequest141(
@@ -78,6 +79,17 @@ class NpcKnowledgePropagation141(
             KnowledgeChannel141.INFERENCE -> {
                 provenanceType = ProvenanceType.NPC_INFERENCE
                 channelConfidence = 0.70
+            }
+
+            KnowledgeChannel141.ORGANIZATION -> {
+                require(source.kind == TruthKind.FACT) {
+                    "ORGANIZATION wymaga opublikowanego FACT jako źródła."
+                }
+                require(request.sourceNpcUid == null) {
+                    "ORGANIZATION nie może udawać organizacji jako sourceNpcUid."
+                }
+                provenanceType = ProvenanceType.ORGANIZATION_REPORT
+                channelConfidence = 0.90
             }
         }
 
