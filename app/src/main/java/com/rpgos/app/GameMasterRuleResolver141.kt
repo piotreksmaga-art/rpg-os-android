@@ -101,8 +101,8 @@ class GameMasterRuleResolver141(
                     truths += truthFrom(action, params, TruthKind.FACT)
                 }
 
-                "ASSERT_BELIEF" -> {
-                    truths += truthFrom(action, params, TruthKind.BELIEF)
+                "ASSERT_BELIEF", "KNOWLEDGE_PROPAGATE" -> {
+                    truths += GameMasterKnowledgeResolver141(repository, campaignUid).resolve(action, params)
                 }
 
                 "ASSERT_NARRATIVE" -> {
