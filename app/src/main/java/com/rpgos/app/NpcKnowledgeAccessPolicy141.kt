@@ -5,6 +5,7 @@ package com.rpgos.app
  *
  * The policy is intentionally fail-closed:
  * - a holder always receives only its own active BELIEF records,
+ * - contradictory BELIEF records are resolved by NpcKnowledgeLifecycle141 before exposure,
  * - objective FACT records require an explicit, time-valid access grant,
  * - NARRATIVE is never knowledge,
  * - a grant never makes another NPC's BELIEF visible.
@@ -14,7 +15,8 @@ package com.rpgos.app
  */
 class NpcKnowledgeAccessPolicy141(
     private val repository: UnifiedCampaignRepository,
-    private val campaignUid: EntityUid
+    private val campaignUid: EntityUid,
+    private val lifecycle: NpcKnowledgeLifecycle141 = NpcKnowledgeLifecycle141()
 ) {
     enum class GrantKind {
         OBSERVABLE_FACT,
@@ -58,7 +60,9 @@ class NpcKnowledgeAccessPolicy141(
         val beliefs: List<CampaignTruth>,
         val observableFacts: List<CampaignTruth>,
         val organizationFacts: List<CampaignTruth>,
-        val deniedGrants: List<DeniedGrant>
+        val deniedGrants: List<DeniedGrant>,
+        val beliefResolutions: List<NpcKnowledgeLifecycle141.Resolution> = emptyList(),
+        val unresolvedBeliefConflicts: List<NpcKnowledgeLifecycle141.Conflict> = emptyList()
     ) {
         val accessibleTruths: List<CampaignTruth> =
             (beliefs + observableFacts + organizationFacts).distinctBy { it.uid }
@@ -83,7 +87,7 @@ class NpcKnowledgeAccessPolicy141(
         require(beliefLimit in 1..1_000) { "beliefLimit musi należeć do 1..1000." }
         val turn = atTurnId ?: repository.currentTurnId(campaignUid)
 
-        val beliefs = repository.getBeliefs(
+        val rawBeliefs = repository.getBeliefs(
             campaignUid = campaignUid,
             holderUid = holderUid,
             atTurnId = turn,
@@ -94,6 +98,9 @@ class NpcKnowledgeAccessPolicy141(
             .filter { isTruthActive(it, turn) }
             .distinctBy { it.uid }
             .toList()
+
+        val lifecycleResult = lifecycle.resolve(holderUid, turn, rawBeliefs)
+        val beliefs = lifecycleResult.effectiveBeliefs
 
         val observable = mutableListOf<CampaignTruth>()
         val organization = mutableListOf<CampaignTruth>()
@@ -134,7 +141,9 @@ class NpcKnowledgeAccessPolicy141(
             beliefs = beliefs,
             observableFacts = observable.distinctBy { it.uid },
             organizationFacts = organization.distinctBy { it.uid },
-            deniedGrants = denied
+            deniedGrants = denied,
+            beliefResolutions = lifecycleResult.resolutions,
+            unresolvedBeliefConflicts = lifecycleResult.unresolvedConflicts
         )
     }
 
