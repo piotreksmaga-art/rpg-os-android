@@ -32,12 +32,15 @@ class NpcKnowledgeIntegrity141Test {
                 fact_id TEXT PRIMARY KEY,
                 campaign_id TEXT NOT NULL,
                 truth_kind TEXT NOT NULL,
-                holder_id TEXT
+                holder_id TEXT,
+                subject_id TEXT,
+                predicate TEXT NOT NULL
             )
             """.trimIndent()
         )
         db.execSQL("INSERT INTO gm_campaign_meta(campaign_id,current_turn) VALUES('CAMPAIGN-test',3)")
         NpcKnowledgePersistenceSchema141.ensure(db)
+        OrganizationKnowledgeAuthorizationSchema141.ensure(db)
     }
 
     @After
@@ -103,10 +106,58 @@ class NpcKnowledgeIntegrity141Test {
         assertTrue(report.issues.any { it.code == "NPC_RESOLUTION_REF_NOT_BELIEF" })
     }
 
-    private fun fact(uid: String, kind: String, holder: String?) {
+    @Test
+    fun detectsTamperedOrganizationAuthorization() {
+        fact("FACT-secret", "FACT", null, "TARGET", "classified.location")
+        fact("BELIEF-secret", "BELIEF", "NPC-a", "TARGET", "classified.location")
         db.execSQL(
-            "INSERT INTO gm_facts(fact_id,campaign_id,truth_kind,holder_id) VALUES(?,?,?,?)",
-            arrayOf(uid, "CAMPAIGN-test", kind, holder)
+            """
+            INSERT INTO gm_organization_memberships(
+                membership_id,campaign_id,npc_id,organization_id,clearance,
+                valid_from_turn,valid_until_turn,created_at
+            ) VALUES('MEM-1','CAMPAIGN-test','NPC-a','ORG-a',1,1,NULL,1)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            INSERT INTO gm_organization_fact_publications(
+                publication_id,campaign_id,organization_id,truth_id,subject_id,predicate,
+                minimum_clearance,valid_from_turn,valid_until_turn,created_at
+            ) VALUES('PUB-1','CAMPAIGN-test','ORG-a','FACT-secret','TARGET','classified.location',5,1,NULL,1)
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            INSERT INTO gm_organization_knowledge_transmissions(
+                transmission_id,campaign_id,organization_id,membership_id,publication_id,
+                source_truth_id,receiver_id,resulting_belief_id,turn_number,confidence,created_at
+            ) VALUES(
+                'ORGKNOW-1','CAMPAIGN-test','ORG-wrong','MEM-1','PUB-1',
+                'FACT-secret','NPC-a','BELIEF-secret',2,0.9,1
+            )
+            """.trimIndent()
+        )
+
+        val report = NpcKnowledgeIntegrity141(db).check()
+        assertFalse(report.ok)
+        assertTrue(report.issues.any { it.code == "ORG_KNOWLEDGE_MEMBERSHIP_ORG_MISMATCH" })
+        assertTrue(report.issues.any { it.code == "ORG_KNOWLEDGE_PUBLICATION_ORG_MISMATCH" })
+        assertTrue(report.issues.any { it.code == "ORG_KNOWLEDGE_INSUFFICIENT_CLEARANCE" })
+    }
+
+    private fun fact(
+        uid: String,
+        kind: String,
+        holder: String?,
+        subject: String = "SUBJECT-test",
+        predicate: String = "test.predicate"
+    ) {
+        db.execSQL(
+            """
+            INSERT INTO gm_facts(fact_id,campaign_id,truth_kind,holder_id,subject_id,predicate)
+            VALUES(?,?,?,?,?,?)
+            """.trimIndent(),
+            arrayOf(uid, "CAMPAIGN-test", kind, holder, subject, predicate)
         )
     }
 }
