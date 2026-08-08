@@ -192,7 +192,7 @@ class GameMasterIntegrity141(private val db: SQLiteDatabase) {
               ON k.campaign_id=f.campaign_id AND k.resulting_belief_id=f.fact_id
             WHERE f.campaign_id=?
               AND f.truth_kind='BELIEF'
-              AND f.source_type IN ('NPC_OBSERVATION','NPC_REPORT','NPC_INFERENCE')
+              AND f.source_type IN ('NPC_OBSERVATION','NPC_REPORT','NPC_RESEARCH','NPC_INFERENCE','ORGANIZATION_REPORT')
               AND k.transmission_id IS NULL
             """.trimIndent(),
             arrayOf(campaignUid)
@@ -263,6 +263,17 @@ class GameMasterIntegrity141(private val db: SQLiteDatabase) {
 
         addCountIssue(
             issues,
+            "ORGANIZATION_WITH_NPC_SENDER",
+            "Transmisja ORGANIZATION nie może wskazywać source_npc_id.",
+            """
+            SELECT COUNT(*) FROM gm_knowledge_transmissions
+            WHERE campaign_id=? AND channel='ORGANIZATION' AND source_npc_id IS NOT NULL AND trim(source_npc_id)!=''
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        )
+
+        addCountIssue(
+            issues,
             "KNOWLEDGE_FROM_FUTURE",
             "Ledger zawiera transmisję z przyszłej tury.",
             """
@@ -298,7 +309,9 @@ class GameMasterIntegrity141(private val db: SQLiteDatabase) {
             WHERE k.campaign_id=? AND (
                 (k.channel='OBSERVATION' AND result.source_type!='NPC_OBSERVATION') OR
                 (k.channel='REPORT' AND result.source_type!='NPC_REPORT') OR
-                (k.channel='INFERENCE' AND result.source_type!='NPC_INFERENCE')
+                (k.channel='RESEARCH' AND result.source_type!='NPC_RESEARCH') OR
+                (k.channel='INFERENCE' AND result.source_type!='NPC_INFERENCE') OR
+                (k.channel='ORGANIZATION' AND result.source_type!='ORGANIZATION_REPORT')
             )
             """.trimIndent(),
             arrayOf(campaignUid)
