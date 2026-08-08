@@ -168,7 +168,7 @@ class NpcKnowledgeIntegrity141(private val db: SQLiteDatabase) {
     ) {
         db.rawQuery(
             """
-            SELECT publication_id,truth_id,subject_id,predicate,valid_from_turn,valid_until_turn
+            SELECT publication_id,truth_id,subject_id,predicate,valid_from_turn,valid_until_turn,source_value_hash
             FROM gm_organization_fact_publications
             WHERE campaign_id=?
             """.trimIndent(),
@@ -181,6 +181,7 @@ class NpcKnowledgeIntegrity141(private val db: SQLiteDatabase) {
                 val predicate = c.getString(3)
                 val validFrom = c.getLong(4)
                 val validUntil = if (c.isNull(5)) null else c.getLong(5)
+                val expectedValueHash = if (c.isNull(6)) null else c.getString(6)
                 val source = truths[truthUid]
 
                 when {
@@ -214,6 +215,14 @@ class NpcKnowledgeIntegrity141(private val db: SQLiteDatabase) {
                             issues,
                             "ORG_PUBLICATION_OUTLIVES_FACT",
                             "Publication $publicationUid wykracza poza ważność FACT $truthUid kończącą się w turze ${source.validUntilTurn}."
+                        )
+                    }
+                    val currentValueHash = sourceValueHash(campaignUid, truthUid)
+                    if (expectedValueHash.isNullOrBlank() || currentValueHash != expectedValueHash) {
+                        add(
+                            issues,
+                            "ORG_PUBLICATION_SOURCE_VALUE_CHANGED",
+                            "Publication $publicationUid nie odpowiada już wartości FACT $truthUid zapisanej przy publikacji."
                         )
                     }
                 }
@@ -343,6 +352,14 @@ class NpcKnowledgeIntegrity141(private val db: SQLiteDatabase) {
             }
         }
         return out
+    }
+
+    private fun sourceValueHash(campaignUid: String, truthUid: String): String? {
+        val value = db.rawQuery(
+            "SELECT object_json FROM gm_facts WHERE campaign_id=? AND fact_id=? LIMIT 1",
+            arrayOf(campaignUid, truthUid)
+        ).use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: return null
+        return OrganizationPublicationSourceHash141.hash(value)
     }
 
     private fun membership(campaignUid: String, membershipUid: String): MembershipMeta? {
