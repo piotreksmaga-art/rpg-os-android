@@ -14,6 +14,16 @@ class GameMasterRuntime141(
     private val store: LocalGameStore,
     private val modelGateway: GameMasterModelGateway = GameMasterBackendGateway141()
 ) {
+    constructor(
+        context: Context,
+        store: LocalGameStore,
+        backendUrl: String
+    ) : this(
+        context = context,
+        store = store,
+        modelGateway = GameMasterBackendGateway141(backendUrl)
+    )
+
     private val repositoryFactory = GameMasterRepositoryFactory(context, store)
     private val contextRepository = GameMasterContextRepository141(context, store)
 
