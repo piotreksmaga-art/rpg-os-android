@@ -47,7 +47,8 @@ class GameMasterNpcKnowledgeTurnCommit141Test {
     @Test
     fun structuredTurnResultCommitsBeliefAndInferenceTogether() = runBlocking {
         val factory = GameMasterRepositoryFactory(context, store)
-        val campaignUid = factory.openActiveSession().use { session ->
+        val (campaignUid, committedTurn) = factory.openActiveSession().use { session ->
+            val initialTurn = session.repository.currentTurnId(session.campaignUid)
             session.repository.writeTruth(sourceTruth())
             val state = GameMasterStateRepository141(
                 repository = session.repository,
@@ -86,13 +87,13 @@ class GameMasterNpcKnowledgeTurnCommit141Test {
                     )
                 )
             )
-            session.campaignUid
+            session.campaignUid to (initialTurn + 1L)
         }
 
         factory.openActiveSession().use { reopened ->
             assertEquals(campaignUid, reopened.campaignUid)
-            assertEquals(1L, reopened.repository.currentTurnId(campaignUid))
-            val beliefs = reopened.repository.getBeliefs(campaignUid, holder, subject, 1L, 20)
+            assertEquals(committedTurn, reopened.repository.currentTurnId(campaignUid))
+            val beliefs = reopened.repository.getBeliefs(campaignUid, holder, subject, committedTurn, 20)
             assertEquals(1, beliefs.size)
             val belief = beliefs.single()
             assertEquals("high", belief.value)
@@ -113,7 +114,8 @@ class GameMasterNpcKnowledgeTurnCommit141Test {
         val retracted = EntityUid("BELIEF-retracted-atomic")
         val replacement = EntityUid("FACT-replacement-atomic")
 
-        val campaignUid = factory.openActiveSession().use { session ->
+        val (campaignUid, initialTurn) = factory.openActiveSession().use { session ->
+            val initialTurn = session.repository.currentTurnId(session.campaignUid)
             session.repository.inTransaction {
                 writeTruth(sourceTruth())
                 writeTruth(
@@ -183,17 +185,17 @@ class GameMasterNpcKnowledgeTurnCommit141Test {
                 )
             }
             assertTrue(failure.isFailure)
-            session.campaignUid
+            session.campaignUid to initialTurn
         }
 
         factory.openActiveSession().use { reopened ->
-            assertEquals(0L, reopened.repository.currentTurnId(campaignUid))
+            assertEquals(initialTurn, reopened.repository.currentTurnId(campaignUid))
             assertTrue(
-                reopened.repository.getTruth(campaignUid, subject, "rollback.marker", 100L).isEmpty()
+                reopened.repository.getTruth(campaignUid, subject, "rollback.marker", initialTurn + 100L).isEmpty()
             )
             assertTrue(
                 requireNotNull(reopened.npcKnowledgeStores).retractions.retractionsForHolder(
-                    campaignUid, holder, 100L
+                    campaignUid, holder, initialTurn + 100L
                 ).isEmpty()
             )
         }
