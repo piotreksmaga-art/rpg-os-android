@@ -32,7 +32,7 @@ class NpcEvidenceRevision141Test {
         val store = FakeStore()
         val revision = NpcEvidenceRevision141(campaign, store)
 
-        val result = revision.revise(view(listOf(old, weak)), weak.uid, "new inference")
+        val result = revision.revise(view(listOf(old, weak), emptyList()), weak.uid, "new inference")
 
         assertTrue(result.created.isEmpty())
         assertEquals(listOf(old.uid), result.unchangedBeliefUids)
