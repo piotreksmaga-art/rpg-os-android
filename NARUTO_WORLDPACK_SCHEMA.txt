@@ -1,0 +1,633 @@
+artifact_definitions_v2          canon_to_campaign_mapping      
+canon_artifacts                  canon_traits                   
+canon_biju                       canon_villages                 
+canon_characters_v2              council_bodies                 
+canon_checks                     entity_source_links            
+canon_clans_v2                   environment_technique_modifiers
+canon_constraints_v2             fauna_species                  
+canon_countries                  flora_species                  
+canon_entities                   genetic_traits                 
+canon_event_participants         inventory_item_templates       
+canon_events_v2                  lore_import_manifest           
+canon_geography_relations        lore_sources                   
+canon_hiden                      map_locations_v2               
+canon_hiden_clan_links           map_regions_v2                 
+canon_hiden_technique_links      map_routes                     
+canon_kekkei_genkai              mission_ranks                  
+canon_kg_clan_links              mission_templates              
+canon_kg_technique_links         organization_definitions_v3    
+canon_links                      organization_positions         
+canon_location_event_links       organization_units             
+canon_locations                  random_event_templates         
+canon_organizations_v2           seasons                        
+canon_sources                    summon_contracts               
+canon_story_constraints          summon_individuals             
+canon_summon_groups              summon_species                 
+canon_technique_engine_links     terrain_types                  
+canon_technique_index            village_departments            
+canon_technique_users            village_governance_structures  
+canon_timeline_baseline          weapon_definitions_v2          
+
+--- SCHEMA ---
+CREATE TABLE artifact_definitions_v2 (
+    artifact_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    artifact_type TEXT NOT NULL,
+    rank_estimate TEXT,
+    creator_uid TEXT,
+    origin_location_uid TEXT,
+    legendary INTEGER NOT NULL DEFAULT 0,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    wiki_url TEXT,
+    verification_status TEXT NOT NULL DEFAULT 'needs_review',
+    notes TEXT
+);
+CREATE TABLE canon_artifacts (
+    artifact_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    artifact_type TEXT NOT NULL,
+    owner_uid TEXT,
+    origin_uid TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    source_uid TEXT,
+    notes TEXT
+, wiki_url TEXT);
+CREATE TABLE canon_biju (
+    biju_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    tails INTEGER NOT NULL,
+    alternate_name TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    source_uid TEXT,
+    notes TEXT
+, wiki_url TEXT);
+CREATE TABLE canon_characters_v2 (
+    character_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    clan_uid TEXT,
+    village_uid TEXT,
+    country_uid TEXT,
+    rank_title TEXT,
+    era_tags TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    source_uid TEXT,
+    notes TEXT
+, wiki_url TEXT);
+CREATE TABLE canon_checks (
+ check_uid TEXT PRIMARY KEY, chapter INTEGER NOT NULL, subject_uid TEXT, canon_uid TEXT,
+ claim_text TEXT NOT NULL, result TEXT NOT NULL, confidence REAL DEFAULT 1,
+ source_uid TEXT, notes TEXT
+);
+CREATE TABLE canon_clans_v2 (
+    clan_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    primary_village_uid TEXT,
+    bloodline_uid TEXT,
+    hiden_tradition INTEGER NOT NULL DEFAULT 0,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    source_uid TEXT,
+    notes TEXT
+, wiki_url TEXT, country_uid TEXT, status TEXT, era_tags TEXT, verification_status TEXT, hiden_summary TEXT, kekkei_genkai_summary TEXT);
+CREATE TABLE canon_constraints_v2 (
+    constraint_uid TEXT PRIMARY KEY,
+    subject_type TEXT NOT NULL,
+    subject_uid TEXT NOT NULL,
+    constraint_key TEXT NOT NULL,
+    constraint_value TEXT NOT NULL,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    source_uid TEXT,
+    notes TEXT
+);
+CREATE TABLE canon_countries (
+    country_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    japanese_name TEXT,
+    country_class TEXT NOT NULL,
+    dominant_nature TEXT,
+    government_type TEXT,
+    leader_title TEXT,
+    capital_known INTEGER NOT NULL DEFAULT 0,
+    relative_position TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    source_uid TEXT,
+    notes TEXT
+, wiki_url TEXT);
+CREATE TABLE canon_entities (
+    canon_uid TEXT PRIMARY KEY,
+    entity_type TEXT NOT NULL,
+    name TEXT NOT NULL,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    summary TEXT,
+    source_uid TEXT,
+    verification_status TEXT NOT NULL DEFAULT 'verified'
+);
+CREATE TABLE canon_event_participants (
+    event_uid TEXT NOT NULL,
+    participant_uid TEXT NOT NULL,
+    participant_type TEXT NOT NULL,
+    role TEXT,
+    PRIMARY KEY(event_uid,participant_uid,participant_type)
+);
+CREATE TABLE canon_events_v2 (
+    event_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    event_type TEXT NOT NULL,
+    era TEXT,
+    relative_order INTEGER,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    source_uid TEXT,
+    summary_short TEXT
+, wiki_url TEXT);
+CREATE TABLE canon_geography_relations (
+    relation_uid TEXT PRIMARY KEY,
+    location_a_uid TEXT NOT NULL,
+    relation_type TEXT NOT NULL,
+    location_b_uid TEXT NOT NULL,
+    certainty REAL NOT NULL DEFAULT 1.0,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    source_uid TEXT,
+    notes TEXT
+);
+CREATE TABLE canon_hiden (
+    hiden_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    category TEXT NOT NULL,
+    clan_uid TEXT,
+    village_uid TEXT,
+    hereditary INTEGER NOT NULL DEFAULT 0,
+    secret_tradition INTEGER NOT NULL DEFAULT 1,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    wiki_url TEXT,
+    verification_status TEXT NOT NULL DEFAULT 'needs_review',
+    notes TEXT
+);
+CREATE TABLE canon_hiden_clan_links (
+    hiden_uid TEXT NOT NULL,
+    clan_uid TEXT NOT NULL,
+    PRIMARY KEY(hiden_uid,clan_uid)
+);
+CREATE TABLE canon_hiden_technique_links (
+    hiden_uid TEXT NOT NULL,
+    technique_uid TEXT NOT NULL,
+    relation_type TEXT NOT NULL DEFAULT 'tradition',
+    PRIMARY KEY(hiden_uid,technique_uid,relation_type)
+);
+CREATE TABLE canon_kekkei_genkai (
+    kg_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    kg_type TEXT NOT NULL,
+    element_composition TEXT,
+    dojutsu INTEGER NOT NULL DEFAULT 0,
+    body_trait INTEGER NOT NULL DEFAULT 0,
+    clan_uid TEXT,
+    known_users_summary TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    wiki_url TEXT,
+    verification_status TEXT NOT NULL DEFAULT 'needs_review',
+    notes TEXT
+);
+CREATE TABLE canon_kg_clan_links (
+    kg_uid TEXT NOT NULL,
+    clan_uid TEXT NOT NULL,
+    prevalence REAL NOT NULL DEFAULT 1.0,
+    PRIMARY KEY(kg_uid,clan_uid)
+);
+CREATE TABLE canon_kg_technique_links (
+    kg_uid TEXT NOT NULL,
+    technique_uid TEXT NOT NULL,
+    relation_type TEXT NOT NULL DEFAULT 'enables',
+    PRIMARY KEY(kg_uid,technique_uid,relation_type)
+);
+CREATE TABLE canon_links (
+    from_uid TEXT NOT NULL,
+    relation_type TEXT NOT NULL,
+    to_uid TEXT NOT NULL,
+    source_uid TEXT,
+    PRIMARY KEY (from_uid, relation_type, to_uid)
+);
+CREATE TABLE canon_location_event_links (
+    event_uid TEXT NOT NULL,
+    canon_location_uid TEXT NOT NULL,
+    importance REAL NOT NULL DEFAULT 0.5,
+    PRIMARY KEY(event_uid,canon_location_uid)
+);
+CREATE TABLE canon_locations (
+    canon_location_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    location_type TEXT NOT NULL,
+    country_uid TEXT,
+    village_uid TEXT,
+    parent_location_uid TEXT,
+    relative_position TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    source_uid TEXT,
+    notes TEXT
+, wiki_url TEXT);
+CREATE TABLE canon_organizations_v2 (
+    organization_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    organization_type TEXT NOT NULL,
+    home_uid TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    source_uid TEXT,
+    notes TEXT
+, wiki_url TEXT);
+CREATE TABLE canon_sources (
+    source_uid TEXT PRIMARY KEY,
+    source_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    url TEXT,
+    authority_tier INTEGER NOT NULL DEFAULT 3,
+    notes TEXT
+);
+CREATE TABLE canon_story_constraints (
+    constraint_uid TEXT PRIMARY KEY,
+    subject_uid TEXT,
+    constraint_type TEXT NOT NULL,
+    description TEXT NOT NULL,
+    valid_from_chapter INTEGER NOT NULL DEFAULT 0,
+    invalidated_by_divergence_uid TEXT,
+    status TEXT NOT NULL DEFAULT 'active'
+);
+CREATE TABLE canon_summon_groups (
+    summon_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    species TEXT,
+    home_location_uid TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    source_uid TEXT,
+    notes TEXT
+, wiki_url TEXT);
+CREATE TABLE canon_technique_engine_links (
+    canon_technique_uid TEXT PRIMARY KEY,
+    engine_technique_uid TEXT,
+    mapping_status TEXT NOT NULL DEFAULT 'unmapped',
+    last_checked_chapter INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE canon_technique_index (
+    technique_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    category TEXT NOT NULL,
+    rank TEXT,
+    element_key TEXT,
+    kekkei_genkai_uid TEXT,
+    inventor_uid TEXT,
+    earliest_era TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    source_uid TEXT,
+    notes TEXT
+, wiki_url TEXT, verification_status TEXT, village_uid TEXT, clan_uid TEXT, is_hiden INTEGER DEFAULT 0);
+CREATE TABLE canon_technique_users (
+    technique_uid TEXT NOT NULL,
+    character_uid TEXT NOT NULL,
+    evidence_scope TEXT NOT NULL DEFAULT 'manga',
+    PRIMARY KEY(technique_uid,character_uid,evidence_scope)
+);
+CREATE TABLE canon_timeline_baseline (
+    baseline_uid TEXT PRIMARY KEY,
+    canon_event_uid TEXT,
+    name TEXT NOT NULL,
+    relative_order INTEGER,
+    anchor_relation TEXT,
+    approximate_year_label TEXT,
+    uncertainty_level REAL NOT NULL DEFAULT 0.5,
+    source_uid TEXT,
+    wiki_url TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    notes TEXT
+);
+CREATE TABLE canon_to_campaign_mapping (
+    canon_uid TEXT NOT NULL,
+    canon_type TEXT NOT NULL,
+    campaign_uid TEXT NOT NULL,
+    campaign_type TEXT NOT NULL,
+    mapping_status TEXT NOT NULL DEFAULT 'active',
+    divergence_uid TEXT,
+    PRIMARY KEY(canon_uid,canon_type,campaign_uid,campaign_type)
+);
+CREATE TABLE canon_traits (
+    canon_uid TEXT NOT NULL,
+    trait_key TEXT NOT NULL,
+    trait_value TEXT NOT NULL,
+    source_uid TEXT,
+    PRIMARY KEY (canon_uid, trait_key, trait_value)
+);
+CREATE TABLE canon_villages (
+    village_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    country_uid TEXT,
+    village_class TEXT NOT NULL,
+    leader_title TEXT,
+    symbol_name TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    founded_period TEXT,
+    source_uid TEXT,
+    notes TEXT
+, wiki_url TEXT);
+CREATE TABLE council_bodies (
+    council_uid TEXT PRIMARY KEY,
+    village_uid TEXT,
+    country_uid TEXT,
+    name TEXT NOT NULL,
+    council_type TEXT NOT NULL,
+    authority_level REAL NOT NULL DEFAULT 0.5,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    wiki_url TEXT,
+    verification_status TEXT NOT NULL DEFAULT 'needs_review'
+);
+CREATE TABLE entity_source_links (
+    link_uid TEXT PRIMARY KEY,
+    entity_type TEXT NOT NULL,
+    entity_uid TEXT NOT NULL,
+    source_uid TEXT,
+    source_kind TEXT NOT NULL DEFAULT 'wiki_reference',
+    url TEXT NOT NULL,
+    relation_type TEXT NOT NULL DEFAULT 'reference',
+    canon_scope TEXT,
+    verified INTEGER NOT NULL DEFAULT 0,
+    verified_at TEXT,
+    notes TEXT,
+    UNIQUE(entity_type,entity_uid,url)
+);
+CREATE TABLE environment_technique_modifiers (
+    modifier_uid TEXT PRIMARY KEY,
+    condition_type TEXT NOT NULL,
+    condition_key TEXT NOT NULL,
+    technique_category TEXT,
+    element_key TEXT,
+    effect_key TEXT NOT NULL,
+    multiplier REAL NOT NULL DEFAULT 1.0,
+    notes TEXT
+);
+CREATE TABLE fauna_species (
+    species_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    biome TEXT,
+    threat_level REAL NOT NULL DEFAULT 0,
+    intelligence REAL NOT NULL DEFAULT 0,
+    summon_potential REAL NOT NULL DEFAULT 0,
+    rarity REAL NOT NULL DEFAULT 0.5,
+    notes TEXT
+);
+CREATE TABLE flora_species (
+    species_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    biome TEXT,
+    medicinal_value REAL NOT NULL DEFAULT 0,
+    toxic_value REAL NOT NULL DEFAULT 0,
+    rarity REAL NOT NULL DEFAULT 0.5,
+    notes TEXT
+);
+CREATE TABLE genetic_traits (
+    trait_uid TEXT PRIMARY KEY,
+    trait_key TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    trait_type TEXT NOT NULL,
+    dominance_model TEXT NOT NULL DEFAULT 'polygenic',
+    heritability REAL NOT NULL DEFAULT 0.5,
+    mutation_rate REAL NOT NULL DEFAULT 0.001,
+    description TEXT
+);
+CREATE TABLE inventory_item_templates (
+    item_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    item_type TEXT NOT NULL,
+    base_cost_ryo REAL,
+    weight_kg REAL,
+    stackable INTEGER NOT NULL DEFAULT 1,
+    max_stack INTEGER,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    wiki_url TEXT,
+    notes TEXT
+);
+CREATE TABLE lore_import_manifest (
+    import_uid TEXT PRIMARY KEY,
+    version TEXT NOT NULL,
+    imported_at TEXT NOT NULL,
+    source_count INTEGER NOT NULL DEFAULT 0,
+    record_count INTEGER NOT NULL DEFAULT 0,
+    scope_summary TEXT,
+    notes TEXT
+);
+CREATE TABLE lore_sources (
+    source_uid TEXT PRIMARY KEY,
+    source_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    url TEXT,
+    authority_tier INTEGER NOT NULL,
+    canon_scope TEXT NOT NULL,
+    notes TEXT
+);
+CREATE TABLE map_locations_v2 (
+    location_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    region_uid TEXT,
+    location_type TEXT NOT NULL,
+    x_coord REAL,
+    y_coord REAL,
+    elevation REAL NOT NULL DEFAULT 0,
+    strategic_value REAL NOT NULL DEFAULT 0,
+    population REAL NOT NULL DEFAULT 0,
+    hidden INTEGER NOT NULL DEFAULT 0,
+    discovered_chapter INTEGER,
+    description TEXT
+);
+CREATE TABLE map_regions_v2 (
+    region_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    region_type TEXT NOT NULL,
+    parent_region_uid TEXT,
+    climate_zone TEXT,
+    terrain_primary TEXT,
+    terrain_secondary TEXT,
+    area_scale REAL NOT NULL DEFAULT 1.0,
+    danger_level REAL NOT NULL DEFAULT 0.5,
+    controlling_faction_uid TEXT,
+    description TEXT
+);
+CREATE TABLE map_routes (
+    route_uid TEXT PRIMARY KEY,
+    from_location_uid TEXT NOT NULL,
+    to_location_uid TEXT NOT NULL,
+    distance_km REAL NOT NULL,
+    terrain_type TEXT NOT NULL,
+    road_quality REAL NOT NULL DEFAULT 0.5,
+    danger_level REAL NOT NULL DEFAULT 0.5,
+    travel_multiplier REAL NOT NULL DEFAULT 1.0,
+    seasonal_status TEXT NOT NULL DEFAULT 'open',
+    notes TEXT
+);
+CREATE TABLE mission_ranks (
+    rank TEXT PRIMARY KEY,
+    difficulty_min REAL NOT NULL,
+    difficulty_max REAL NOT NULL,
+    base_reward_min REAL NOT NULL,
+    base_reward_max REAL NOT NULL,
+    typical_risk TEXT
+);
+CREATE TABLE mission_templates (
+    template_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    mission_type TEXT NOT NULL,
+    minimum_rank TEXT NOT NULL,
+    client_type TEXT,
+    required_skills TEXT,
+    typical_duration_days REAL NOT NULL DEFAULT 1,
+    legal_status TEXT NOT NULL DEFAULT 'legal',
+    canon_scope TEXT NOT NULL DEFAULT 'campaign',
+    notes TEXT
+);
+CREATE TABLE organization_definitions_v3 (
+    organization_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    organization_type TEXT NOT NULL,
+    parent_organization_uid TEXT,
+    village_uid TEXT,
+    country_uid TEXT,
+    headquarters_location_uid TEXT,
+    secrecy_level REAL NOT NULL DEFAULT 0.5,
+    military INTEGER NOT NULL DEFAULT 0,
+    political INTEGER NOT NULL DEFAULT 0,
+    intelligence INTEGER NOT NULL DEFAULT 0,
+    medical INTEGER NOT NULL DEFAULT 0,
+    active_status TEXT NOT NULL DEFAULT 'active',
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    wiki_url TEXT,
+    verification_status TEXT NOT NULL DEFAULT 'needs_review',
+    notes TEXT
+);
+CREATE TABLE organization_positions (
+    position_uid TEXT PRIMARY KEY,
+    organization_uid TEXT NOT NULL,
+    unit_uid TEXT,
+    title TEXT NOT NULL,
+    authority_level REAL NOT NULL DEFAULT 0.5,
+    command_scope TEXT,
+    appointment_method TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga'
+);
+CREATE TABLE organization_units (
+    unit_uid TEXT PRIMARY KEY,
+    organization_uid TEXT NOT NULL,
+    name TEXT NOT NULL,
+    unit_type TEXT NOT NULL,
+    parent_unit_uid TEXT,
+    command_level INTEGER NOT NULL DEFAULT 0,
+    specialization TEXT,
+    secrecy_level REAL NOT NULL DEFAULT 0.5,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    wiki_url TEXT,
+    verification_status TEXT NOT NULL DEFAULT 'needs_review'
+);
+CREATE TABLE random_event_templates (
+    event_template_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    weight REAL NOT NULL DEFAULT 1.0,
+    min_severity REAL NOT NULL DEFAULT 0.1,
+    max_severity REAL NOT NULL DEFAULT 1.0,
+    condition_rule TEXT,
+    location_scope TEXT,
+    visibility TEXT NOT NULL DEFAULT 'gm',
+    effect_template TEXT,
+    notes TEXT
+);
+CREATE TABLE seasons (
+    season_key TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    temp_modifier REAL NOT NULL DEFAULT 0,
+    rain_modifier REAL NOT NULL DEFAULT 0,
+    travel_modifier REAL NOT NULL DEFAULT 1.0,
+    agriculture_modifier REAL NOT NULL DEFAULT 1.0,
+    notes TEXT
+);
+CREATE TABLE summon_contracts (
+    contract_uid TEXT PRIMARY KEY,
+    species_uid TEXT NOT NULL,
+    contract_name TEXT NOT NULL,
+    contract_type TEXT NOT NULL DEFAULT 'blood_contract',
+    home_location_uid TEXT,
+    requirements_summary TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    wiki_url TEXT,
+    verification_status TEXT NOT NULL DEFAULT 'needs_review',
+    notes TEXT,
+    FOREIGN KEY(species_uid) REFERENCES summon_species(species_uid)
+);
+CREATE TABLE summon_individuals (
+    summon_entity_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    species_uid TEXT NOT NULL,
+    rank_estimate TEXT,
+    size_class TEXT,
+    personality_summary TEXT,
+    known_abilities_summary TEXT,
+    home_location_uid TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    wiki_url TEXT,
+    verification_status TEXT NOT NULL DEFAULT 'needs_review',
+    notes TEXT,
+    FOREIGN KEY(species_uid) REFERENCES summon_species(species_uid)
+);
+CREATE TABLE summon_species (
+    species_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    species_type TEXT NOT NULL,
+    sentient INTEGER NOT NULL DEFAULT 1,
+    sage_tradition INTEGER NOT NULL DEFAULT 0,
+    home_location_uid TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    wiki_url TEXT,
+    verification_status TEXT NOT NULL DEFAULT 'needs_review',
+    notes TEXT
+);
+CREATE TABLE terrain_types (
+    terrain_key TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    travel_multiplier REAL NOT NULL DEFAULT 1.0,
+    stealth_modifier REAL NOT NULL DEFAULT 1.0,
+    visibility_modifier REAL NOT NULL DEFAULT 1.0,
+    combat_mobility_modifier REAL NOT NULL DEFAULT 1.0,
+    notes TEXT
+);
+CREATE TABLE village_departments (
+    department_uid TEXT PRIMARY KEY,
+    village_uid TEXT NOT NULL,
+    name TEXT NOT NULL,
+    department_type TEXT NOT NULL,
+    parent_department_uid TEXT,
+    organization_uid TEXT,
+    head_position_title TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    verification_status TEXT NOT NULL DEFAULT 'needs_review'
+);
+CREATE TABLE village_governance_structures (
+    structure_uid TEXT PRIMARY KEY,
+    village_uid TEXT NOT NULL,
+    structure_name TEXT NOT NULL,
+    leader_title TEXT,
+    civilian_authority_title TEXT,
+    military_authority_title TEXT,
+    advisory_body TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    wiki_url TEXT,
+    verification_status TEXT NOT NULL DEFAULT 'needs_review',
+    notes TEXT
+);
+CREATE TABLE weapon_definitions_v2 (
+    weapon_uid TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    weapon_type TEXT NOT NULL,
+    subtype TEXT,
+    rank_estimate TEXT,
+    material TEXT,
+    chakra_conductive INTEGER NOT NULL DEFAULT 0,
+    sentient INTEGER NOT NULL DEFAULT 0,
+    legendary INTEGER NOT NULL DEFAULT 0,
+    village_uid TEXT,
+    organization_uid TEXT,
+    canon_scope TEXT NOT NULL DEFAULT 'manga',
+    wiki_url TEXT,
+    verification_status TEXT NOT NULL DEFAULT 'needs_review',
+    notes TEXT
+);
