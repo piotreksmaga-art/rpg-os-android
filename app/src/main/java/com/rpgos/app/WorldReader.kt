@@ -54,6 +54,34 @@ class WorldReader(
                 while(c.moveToNext()) out += WorldEventItem(c.getString(0),c.getString(1),c.getString(2))
             }
         } catch (_: Exception) {}
+
+        // GM141 event history is append-only. Only event classes that describe
+        // broad world/timeline changes are projected into this dashboard; combat
+        // and low-level state events stay in the event store and chronicle.
+        try {
+            saveDb.rawQuery(
+                """
+                SELECT event_type,description,turn_number
+                FROM gm_events
+                WHERE event_type IN ('WORLD_EVENT','POLITICAL_CHANGE','TIME_SKIP','LOCATION_DISCOVERED')
+                ORDER BY turn_number DESC,sequence DESC
+                LIMIT 100
+                """.trimIndent(),
+                null
+            ).use { c ->
+                while (c.moveToNext()) {
+                    val type = c.getString(0) ?: "WORLD_EVENT"
+                    val description = c.getString(1) ?: ""
+                    val turn = c.getLong(2)
+                    out += WorldEventItem(
+                        type.replace('_', ' '),
+                        "GM141 • tura $turn",
+                        description
+                    )
+                }
+            }
+        } catch (_: Exception) {}
+
         return out
     }
 }
