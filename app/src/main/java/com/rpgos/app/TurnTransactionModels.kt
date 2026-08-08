@@ -105,6 +105,7 @@ data class TurnCommitPlan(
     val events: List<DurableCampaignEvent> = emptyList(),
     val mutations: List<DurableStateMutation> = emptyList(),
     val truths: List<CampaignTruth> = emptyList(),
+    val divergences: List<CanonDivergence> = emptyList(),
     val memories: List<DurableMemoryRecord> = emptyList(),
     val chronicleEntries: List<DurableChronicleRecord> = emptyList(),
     val status: TurnTransactionStatus = TurnTransactionStatus.PLANNED
@@ -115,7 +116,8 @@ data class TurnCommitPlan(
 
 /**
  * Commits every accepted consequence of one GM turn in a single repository
- * transaction. No narrative is canonical until this succeeds.
+ * transaction. No narrative or canon divergence is canonical until this
+ * transaction succeeds as a whole.
  */
 class TurnTransactionCoordinator(
     private val repository: UnifiedCampaignRepository
@@ -130,6 +132,9 @@ class TurnTransactionCoordinator(
         require(plan.mutations.all { it.campaignUid == plan.campaignUid && it.turnId == plan.turnId }) {
             "Wszystkie mutacje muszą należeć do tej samej tury."
         }
+        require(plan.divergences.all { it.createdTurn <= plan.turnId }) {
+            "Odchylenie od kanonu nie może pochodzić z przyszłej tury."
+        }
 
         val committedAt = System.currentTimeMillis()
         val committedTurn = plan.turn.copy(
@@ -143,6 +148,7 @@ class TurnTransactionCoordinator(
             plan.events.sortedBy { it.sequence }.forEach { appendEvent(it) }
             plan.mutations.forEach { applyMutation(it) }
             plan.truths.forEach { writeTruth(it) }
+            plan.divergences.forEach { writeDivergence(it) }
             plan.memories.forEach { writeMemory(it) }
             plan.chronicleEntries.forEach { writeChronicle(it) }
         }
