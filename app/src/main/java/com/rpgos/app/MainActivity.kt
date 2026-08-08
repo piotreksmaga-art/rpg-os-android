@@ -2190,6 +2190,7 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
     var updateFeed by remember(current.updateFeedUrl){mutableStateOf(current.updateFeedUrl)}
     var diagnostics by remember(current.showGmDiagnostics){mutableStateOf(current.showGmDiagnostics)}
     var backups by remember(current.autoBackup){mutableStateOf(current.autoBackup)}
+    var gm141 by remember(current.gm141Enabled){mutableStateOf(current.gm141Enabled)}
     var developerExpanded by remember { mutableStateOf(false) }
 
     val localApkPicker=rememberLauncherForActivityResult(
@@ -2245,6 +2246,24 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
                             )
                         }
                         Switch(diagnostics,{diagnostics=it})
+                    }
+
+                    HorizontalDivider(Modifier.padding(vertical=8.dp))
+
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement=Arrangement.SpaceBetween,
+                        verticalAlignment=Alignment.CenterVertically
+                    ){
+                        Column(Modifier.weight(1f)){
+                            Text("GM Engine 141",fontWeight=FontWeight.Bold)
+                            Text(
+                                "Eksperymentalny transakcyjny silnik MG. Przy błędzie nie uruchamia starego StatePatch.",
+                                style=MaterialTheme.typography.bodySmall,
+                                color=MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(gm141,{gm141=it})
                     }
                 }
             }
@@ -2366,7 +2385,8 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
                         backendUrl=backend.trim(),
                         updateFeedUrl=updateFeed.trim(),
                         showGmDiagnostics=diagnostics,
-                        autoBackup=backups
+                        autoBackup=backups,
+                        gm141Enabled=gm141
                     ))},
                     modifier=Modifier.fillMaxWidth(),
                     brush=TealGradient
