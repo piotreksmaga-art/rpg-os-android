@@ -16,7 +16,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -38,7 +37,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -201,12 +199,8 @@ private enum class CampaignTool(val title: String) {
 @Composable
 fun RpgOsApp(vm: RpgOsViewModel) {
     var route by remember { mutableStateOf(AppRoute.HOME) }
-    val appSettings by vm.settings.collectAsState()
-
     when (route) {
         AppRoute.HOME -> HomeScreen(
-            visualEffectsLevel = appSettings.visualEffectsLevel,
-            introAnimation = appSettings.introAnimation,
             onNewGame = { route = AppRoute.NEW_GAME },
             onContinue = { route = AppRoute.CONTINUE },
             onSaves = { route = AppRoute.SAVES },
@@ -261,8 +255,6 @@ fun RpgOsApp(vm: RpgOsViewModel) {
 
 @Composable
 private fun HomeScreen(
-    visualEffectsLevel: String,
-    introAnimation: Boolean,
     onNewGame: () -> Unit,
     onContinue: () -> Unit,
     onSaves: () -> Unit,
@@ -277,10 +269,7 @@ private fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
-                ElementalSystemHeader(
-                    visualEffectsLevel = visualEffectsLevel,
-                    introAnimation = introAnimation
-                )
+                SystemHeader()
                 Spacer(Modifier.height(12.dp))
                 Surface(
                     shape = RoundedCornerShape(12.dp, 18.dp, 18.dp, 10.dp),
@@ -427,159 +416,15 @@ private fun HomeScreen(
 
 
 @Composable
-private fun ElementalSystemHeader(
-    visualEffectsLevel: String,
-    introAnimation: Boolean
-) {
-    val mode = visualEffectsLevel.lowercase()
-    var introRunning by remember(introAnimation) { mutableStateOf(introAnimation) }
-
-    LaunchedEffect(introAnimation) {
-        if (introAnimation) {
-            delay(3600)
-            introRunning = false
-        } else {
-            introRunning = false
-        }
-    }
-
-    val transition = rememberInfiniteTransition(label = "elementalOrbit")
-    val orbit by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = when (mode) {
-                    "full" -> 7600
-                    "minimal" -> 16000
-                    else -> 9800
-                },
-                easing = LinearEasing
-            ),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "elementalOrbitAngle"
-    )
-
-    val pulse by transition.animateFloat(
-        initialValue = 0.82f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1050, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "elementalPulse"
-    )
-
-    val glow by transition.animateFloat(
-        initialValue = 0.45f,
-        targetValue = 0.90f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "elementalLogoGlow"
-    )
-
+private fun SystemHeader() {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(258.dp),
+        modifier = Modifier.fillMaxWidth().height(168.dp),
         contentAlignment = Alignment.Center
     ) {
-        val activeOrbit = if (mode == "minimal" && !introRunning) 0f else orbit
-
-        ElementalOrbit(
-            angle = activeOrbit,
-            fullEffects = mode == "full",
-            minimal = mode == "minimal",
-            pulse = if (mode == "minimal") 0.9f else pulse
-        )
-
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                "SYSTEM",
-                style = MaterialTheme.typography.labelLarge,
-                color = Color(0xFF55D6FF).copy(alpha = 0.90f)
-            )
-            Text(
-                "RPG OS",
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.Black,
-                color = Color(0xFFD5F1FF),
-                modifier = Modifier.graphicsLayer {
-                    shadowElevation = 5f + 10f * glow
-                }
-            )
-            Text(
-                "Twoje kampanie. Jeden system.",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-private fun ElementalOrbit(
-    angle: Float,
-    fullEffects: Boolean,
-    minimal: Boolean,
-    pulse: Float
-) {
-    // Elemental 132: raster VFX sprites move along the original fixed ellipse.
-    // The orbit angle, geometry and timing are intentionally unchanged.
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val widthPx = constraints.maxWidth.toFloat()
-        val heightPx = constraints.maxHeight.toFloat()
-        val radiusX = widthPx * 0.405f
-        val radiusY = heightPx * 0.365f
-        val zone = 72f
-        val spriteWidth = when {
-            fullEffects -> 164.dp
-            minimal -> 132.dp
-            else -> 152.dp
-        }
-        val spriteHeight = when {
-            fullEffects -> 92.dp
-            minimal -> 70.dp
-            else -> 84.dp
-        }
-        val assetAlpha = if (minimal) 0.78f else 1.0f
-        val assets = listOf(
-            R.drawable.elemental_wind_132,
-            R.drawable.elemental_fire_132,
-            R.drawable.elemental_water_132,
-            R.drawable.elemental_earth_132,
-            R.drawable.elemental_lightning_132
-        )
-
-        assets.forEachIndexed { index, drawable ->
-            val a = angle + zone * (index + 0.5f)
-            val r = Math.toRadians(a.toDouble())
-            val cx = kotlin.math.cos(r).toFloat()
-            val sy = kotlin.math.sin(r).toFloat()
-            val tx = cx * radiusX
-            val ty = sy * radiusY
-            val dx = -radiusX * sy
-            val dy = radiusY * cx
-            val tangent = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble())).toFloat()
-
-            Image(
-                painter = painterResource(drawable),
-                contentDescription = null,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(spriteWidth, spriteHeight)
-                    .graphicsLayer {
-                        translationX = tx
-                        translationY = ty
-                        rotationZ = tangent
-                        scaleX = if (minimal) 0.92f else (0.94f + pulse * 0.08f)
-                        scaleY = if (minimal) 0.92f else (0.94f + pulse * 0.08f)
-                        alpha = assetAlpha
-                    }
-            )
+            Text("SYSTEM", style = MaterialTheme.typography.labelLarge, color = Color(0xFF55D6FF).copy(alpha = 0.90f))
+            Text("RPG OS", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black, color = Color(0xFFD5F1FF))
+            Text("Twoje kampanie. Jeden system.", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -2132,8 +1977,6 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
     var updateFeed by remember(current.updateFeedUrl){mutableStateOf(current.updateFeedUrl)}
     var diagnostics by remember(current.showGmDiagnostics){mutableStateOf(current.showGmDiagnostics)}
     var backups by remember(current.autoBackup){mutableStateOf(current.autoBackup)}
-    var effects by remember(current.visualEffectsLevel){mutableStateOf(current.visualEffectsLevel)}
-    var introAnimation by remember(current.introAnimation){mutableStateOf(current.introAnimation)}
     var developerExpanded by remember { mutableStateOf(false) }
 
     val localApkPicker=rememberLauncherForActivityResult(
@@ -2148,79 +1991,7 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
             contentPadding=PaddingValues(top=18.dp,bottom=30.dp),
             verticalArrangement=Arrangement.spacedBy(14.dp)
         ){
-            item{
-                GlowPanel(
-                    modifier=Modifier.fillMaxWidth(),
-                    borderColor=Color(0x6656E1D2),
-                    shape=RoundedCornerShape(28.dp,16.dp,22.dp,30.dp)
-                ){
-                    Text("Wygląd i animacje",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
-                    Text(
-                        "Dostosuj poziom efektów do wydajności telefonu.",
-                        color=MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.height(14.dp))
-
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement=Arrangement.spacedBy(8.dp)
-                    ){
-                        listOf(
-                            "minimal" to "Minimalna",
-                            "standard" to "Standardowa",
-                            "full" to "Pełna"
-                        ).forEach { (key,label) ->
-                            val selected = effects == key
-                            Surface(
-                                onClick={effects=key},
-                                modifier=Modifier.weight(1f),
-                                shape=when(key){
-                                    "minimal"->RoundedCornerShape(18.dp,10.dp,16.dp,24.dp)
-                                    "full"->RoundedCornerShape(10.dp,22.dp,24.dp,14.dp)
-                                    else->RoundedCornerShape(16.dp,14.dp,20.dp,12.dp)
-                                },
-                                color=if(selected) Color(0xFF0B6A8A) else Color(0xFF08131E),
-                                border=BorderStroke(
-                                    1.dp,
-                                    if(selected) Color(0xFF58D8FF) else Color(0x44334D63)
-                                )
-                            ){
-                                Column(
-                                    Modifier.padding(vertical=12.dp,horizontal=8.dp),
-                                    horizontalAlignment=Alignment.CenterHorizontally
-                                ){
-                                    Text(
-                                        when(key){
-                                            "minimal"->"◦"
-                                            "full"->"✦"
-                                            else->"◆"
-                                        },
-                                        color=if(selected) Color(0xFF6FE9DB) else Color(0xFF6F8FA9)
-                                    )
-                                    Text(label,style=MaterialTheme.typography.labelMedium)
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.height(12.dp))
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement=Arrangement.SpaceBetween,
-                        verticalAlignment=Alignment.CenterVertically
-                    ){
-                        Column(Modifier.weight(1f)){
-                            Text("Animacja startowa",fontWeight=FontWeight.Bold)
-                            Text(
-                                "Smok okrąża logo podczas uruchamiania.",
-                                style=MaterialTheme.typography.bodySmall,
-                                color=MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(introAnimation,{introAnimation=it})
-                    }
-                }
-            }
+            
 
             item{
                 GlowPanel(
@@ -2380,9 +2151,7 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
                         backendUrl=backend.trim(),
                         updateFeedUrl=updateFeed.trim(),
                         showGmDiagnostics=diagnostics,
-                        autoBackup=backups,
-                        visualEffectsLevel=effects,
-                        introAnimation=introAnimation
+                        autoBackup=backups
                     ))},
                     modifier=Modifier.fillMaxWidth(),
                     brush=TealGradient
