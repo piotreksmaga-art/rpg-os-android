@@ -4,6 +4,14 @@ import android.content.Context
 import org.json.JSONObject
 import java.io.File
 
+data class ActiveGameMasterRepository(
+    val campaignUid: EntityUid,
+    val worldPackUid: EntityUid,
+    val repository: SQLiteUnifiedCampaignRepository
+) : AutoCloseable {
+    override fun close() = repository.close()
+}
+
 /**
  * Bridges the legacy LocalGameStore to the GM Engine 141 repository boundary.
  * The same campaign.db used by the rest of RPG OS becomes the durable GM store.
@@ -12,18 +20,24 @@ class GameMasterRepositoryFactory(
     private val context: Context,
     private val store: LocalGameStore
 ) {
-    fun openActive(): SQLiteUnifiedCampaignRepository {
+    fun openActive(): SQLiteUnifiedCampaignRepository = openActiveSession().repository
+
+    fun openActiveSession(): ActiveGameMasterRepository {
         val db = store.openSaveDb()
         return try {
             MigrationManager().ensureV1(db)
             val campaignUid = CampaignIdentityResolver.ensure(db)
             val worldPackUid = resolveWorldPackUid()
-            SQLiteUnifiedCampaignRepository(
-                context = context,
-                db = db,
+            ActiveGameMasterRepository(
                 campaignUid = campaignUid,
                 worldPackUid = worldPackUid,
-                ownsDatabase = true
+                repository = SQLiteUnifiedCampaignRepository(
+                    context = context,
+                    db = db,
+                    campaignUid = campaignUid,
+                    worldPackUid = worldPackUid,
+                    ownsDatabase = true
+                )
             )
         } catch (t: Throwable) {
             db.close()
