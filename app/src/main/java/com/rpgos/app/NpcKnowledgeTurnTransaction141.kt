@@ -25,7 +25,7 @@ class NpcKnowledgeTurnTransaction141(
                 repository = this,
                 retractions = stores.retractions,
                 inferences = stores.inferences,
-                organization = stores.organization,
+                organization = stores.organizations,
                 resolutions = stores.resolutions
             ).block()
         }
