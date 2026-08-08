@@ -55,7 +55,8 @@ class GameMasterRuntime141(
                 stateRepository = GameMasterStateRepository141(
                     repository = session.repository,
                     campaignUid = session.campaignUid,
-                    knowledgeStore = session.knowledgeStore
+                    knowledgeStore = session.knowledgeStore,
+                    npcKnowledgeStores = session.npcKnowledgeStores
                 )
             )
 
