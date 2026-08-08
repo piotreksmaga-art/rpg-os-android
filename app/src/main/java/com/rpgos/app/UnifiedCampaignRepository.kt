@@ -70,11 +70,13 @@ data class CampaignTruth(
 data class CanonDivergence(
     val uid: EntityUid,
     val canonSubjectUid: EntityUid,
+    val canonEventUid: EntityUid? = null,
     val divergenceType: String,
     val description: String,
     val causedByEventUid: EntityUid?,
     val createdTurn: Long,
-    val active: Boolean = true
+    val active: Boolean = true,
+    val resolvedTurn: Long? = null
 )
 
 data class CampaignSnapshotRef(
@@ -105,6 +107,8 @@ interface UnifiedCampaignRepository {
     ): List<CampaignTruth>
 
     suspend fun getActiveDivergences(campaignUid: EntityUid): List<CanonDivergence>
+
+    suspend fun writeDivergence(divergence: CanonDivergence)
 
     suspend fun appendEvent(event: DurableCampaignEvent)
 
