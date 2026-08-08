@@ -176,6 +176,27 @@ class OrganizationKnowledgeAuthorizationPersistence141Test {
         }
     }
 
+    @Test
+    fun sourceValueRebindingInvalidatesExistingPublication() = runBlocking {
+        val publication = publication("rebound", "FACT-rebound", validFrom = 2L, validUntil = 10L)
+
+        GameMasterRepositoryFactory(context, store).openActiveSession().use { active ->
+            writeSourceFact(active, publication, value = "ORIGINAL")
+            val auth = requireNotNull(active.organizationAuthorizationStore)
+            auth.appendPublication(active.campaignUid, publication)
+            assertNotNull(auth.publicationByUid(active.campaignUid, publication.publicationUid, 5L))
+
+            // Legacy Source of Truth still allows CONFLICT_REPLACE on the same fact_id.
+            // The publication fingerprint must make that replaced value unusable.
+            writeSourceFact(active, publication, value = "TAMPERED")
+
+            assertNull(auth.publicationByUid(active.campaignUid, publication.publicationUid, 5L))
+            assertTrue(
+                auth.publicationsForOrganization(active.campaignUid, publication.organizationUid, 5L).isEmpty()
+            )
+        }
+    }
+
     private fun publication(
         suffix: String,
         truthUid: String,
@@ -198,6 +219,7 @@ class OrganizationKnowledgeAuthorizationPersistence141Test {
         kind: TruthKind = TruthKind.FACT,
         subjectUid: EntityUid = publication.subjectUid,
         predicate: String = publication.predicate,
+        value: String = "source-value",
         validFrom: Long = 0L,
         validUntil: Long? = null
     ) {
@@ -207,7 +229,7 @@ class OrganizationKnowledgeAuthorizationPersistence141Test {
                 kind = kind,
                 subjectUid = subjectUid,
                 predicate = predicate,
-                value = "source-value",
+                value = value,
                 holderUid = if (kind == TruthKind.BELIEF) EntityUid("NPC-source-holder") else null,
                 validFromTurn = validFrom,
                 validUntilTurn = validUntil,
