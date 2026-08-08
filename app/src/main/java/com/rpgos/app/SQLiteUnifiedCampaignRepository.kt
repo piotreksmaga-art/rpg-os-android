@@ -23,7 +23,7 @@ class SQLiteUnifiedCampaignRepository(
     private val campaignUid: EntityUid,
     private val worldPackUid: EntityUid,
     private val ownsDatabase: Boolean = false
-) : UnifiedCampaignRepository, Closeable {
+) : UnifiedCampaignRepository, SnapshotRetention141, Closeable {
     private var transactionDepth = 0
 
     init {
@@ -56,7 +56,7 @@ class SQLiteUnifiedCampaignRepository(
             turn.committedAtEpochMs?.let { put("committed_at", it) }
             turn.failureReason?.let { put("failure_reason", it) }
         }
-        require(db.insertWithOnConflict("gm_turns", null, values, SQLiteDatabase.CONFLICT_REPLACE) != -1L) {
+        require(db.insertOrThrow("gm_turns", null, values) != -1L) {
             "Nie można zapisać tury ${turn.turnId}."
         }
         db.execSQL(
@@ -545,6 +545,49 @@ class SQLiteUnifiedCampaignRepository(
             arrayOf(snapshotUid.value, now, campaignUid.value)
         )
         return CampaignSnapshotRef(snapshotUid, campaignUid, throughTurnId, eventSequence, now)
+    }
+
+    override suspend fun pruneSnapshots(campaignUid: EntityUid, keepNewest: Int) {
+        requireCampaign(campaignUid)
+        require(keepNewest >= 1) { "keepNewest musi być >= 1." }
+        require(transactionDepth == 0 && !db.inTransaction()) {
+            "Retencji snapshotów nie wolno wykonywać wewnątrz aktywnej transakcji."
+        }
+
+        val currentSnapshotId = db.rawQuery(
+            "SELECT current_snapshot_id FROM gm_campaign_meta WHERE campaign_id=? LIMIT 1",
+            arrayOf(campaignUid.value)
+        ).use { c -> if (c.moveToFirst() && !c.isNull(0)) c.getString(0) else null }
+
+        data class SnapshotFile(val id: String, val path: String?)
+        val stale = mutableListOf<SnapshotFile>()
+        db.rawQuery(
+            """
+            SELECT snapshot_id,storage_path FROM gm_snapshots
+            WHERE campaign_id=?
+            ORDER BY turn_number DESC, created_at DESC
+            """.trimIndent(),
+            arrayOf(campaignUid.value)
+        ).use { c ->
+            var index = 0
+            while (c.moveToNext()) {
+                val id = c.getString(0)
+                val path = if (c.isNull(1)) null else c.getString(1)
+                if (index >= keepNewest && id != currentSnapshotId) stale += SnapshotFile(id, path)
+                index++
+            }
+        }
+
+        stale.forEach { snapshot ->
+            snapshot.path?.takeIf { it.isNotBlank() }?.let { path ->
+                runCatching { File(path).takeIf(File::exists)?.delete() }
+            }
+            db.delete(
+                "gm_snapshots",
+                "campaign_id=? AND snapshot_id=?",
+                arrayOf(campaignUid.value, snapshot.id)
+            )
+        }
     }
 
     override suspend fun <T> inTransaction(block: suspend UnifiedCampaignRepository.() -> T): T {
