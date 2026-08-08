@@ -12,7 +12,36 @@ import org.json.JSONArray
  */
 class NpcKnowledgeIntegrity141(private val db: SQLiteDatabase) {
 
-    private data class TruthMeta(val kind: String, val holderId: String?)
+    private data class TruthMeta(
+        val kind: String,
+        val holderId: String?,
+        val subjectId: String?,
+        val predicate: String
+    )
+
+    private data class MembershipMeta(
+        val npcId: String,
+        val organizationId: String,
+        val clearance: Int,
+        val validFromTurn: Long,
+        val validUntilTurn: Long?
+    ) {
+        fun activeAt(turn: Long): Boolean =
+            turn >= validFromTurn && (validUntilTurn == null || turn <= validUntilTurn)
+    }
+
+    private data class PublicationMeta(
+        val organizationId: String,
+        val truthId: String,
+        val subjectId: String,
+        val predicate: String,
+        val minimumClearance: Int,
+        val validFromTurn: Long,
+        val validUntilTurn: Long?
+    ) {
+        fun activeAt(turn: Long): Boolean =
+            turn >= validFromTurn && (validUntilTurn == null || turn <= validUntilTurn)
+    }
 
     fun check(): GameMasterIntegrityReport141 {
         if (!tableExists("gm_campaign_meta")) {
@@ -32,7 +61,9 @@ class NpcKnowledgeIntegrity141(private val db: SQLiteDatabase) {
             "gm_npc_belief_retractions",
             "gm_npc_inferences",
             "gm_organization_knowledge_transmissions",
-            "gm_npc_knowledge_resolutions"
+            "gm_npc_knowledge_resolutions",
+            "gm_organization_memberships",
+            "gm_organization_fact_publications"
         )
         val missing = requiredTables.filterNot(::tableExists)
         if (missing.isNotEmpty()) {
@@ -135,25 +166,59 @@ class NpcKnowledgeIntegrity141(private val db: SQLiteDatabase) {
     ) {
         db.rawQuery(
             """
-            SELECT source_truth_id,receiver_id,resulting_belief_id,turn_number
+            SELECT organization_id,membership_id,publication_id,source_truth_id,
+                   receiver_id,resulting_belief_id,turn_number
             FROM gm_organization_knowledge_transmissions WHERE campaign_id=?
             """.trimIndent(),
             arrayOf(campaignUid)
         ).use { c ->
             while (c.moveToNext()) {
-                val sourceUid = c.getString(0)
-                val receiver = c.getString(1)
-                val resultUid = c.getString(2)
-                if (truths[sourceUid] == null) {
-                    add(issues, "ORG_KNOWLEDGE_UNKNOWN_SOURCE", "Organization knowledge wskazuje nieistniejące źródło $sourceUid.")
+                val organization = c.getString(0)
+                val membershipUid = c.getString(1)
+                val publicationUid = c.getString(2)
+                val sourceUid = c.getString(3)
+                val receiver = c.getString(4)
+                val resultUid = c.getString(5)
+                val turn = c.getLong(6)
+
+                val source = truths[sourceUid]
+                when {
+                    source == null -> add(issues, "ORG_KNOWLEDGE_UNKNOWN_SOURCE", "Organization knowledge wskazuje nieistniejące źródło $sourceUid.")
+                    source.kind != TruthKind.FACT.name -> add(issues, "ORG_KNOWLEDGE_SOURCE_NOT_FACT", "Organization knowledge źródło $sourceUid ma typ ${source.kind}, a nie FACT.")
                 }
+
                 val result = truths[resultUid]
                 when {
                     result == null -> add(issues, "ORG_KNOWLEDGE_UNKNOWN_RESULT", "Organization knowledge wskazuje nieistniejący wynik $resultUid.")
                     result.kind != TruthKind.BELIEF.name -> add(issues, "ORG_KNOWLEDGE_RESULT_NOT_BELIEF", "Organization knowledge wynik $resultUid ma typ ${result.kind}, a nie BELIEF.")
                     result.holderId != receiver -> add(issues, "ORG_KNOWLEDGE_RECEIVER_MISMATCH", "Receiver=$receiver nie jest holderem BELIEF $resultUid (${result.holderId}).")
                 }
-                val turn = c.getLong(3)
+
+                val membership = membership(campaignUid, membershipUid)
+                when {
+                    membership == null -> add(issues, "ORG_KNOWLEDGE_UNKNOWN_MEMBERSHIP", "Organization knowledge wskazuje nieistniejące membership $membershipUid.")
+                    membership.npcId != receiver -> add(issues, "ORG_KNOWLEDGE_MEMBERSHIP_RECEIVER_MISMATCH", "Membership $membershipUid należy do ${membership.npcId}, a transmission receiver=$receiver.")
+                    membership.organizationId != organization -> add(issues, "ORG_KNOWLEDGE_MEMBERSHIP_ORG_MISMATCH", "Membership $membershipUid należy do ${membership.organizationId}, a transmission organization=$organization.")
+                    !membership.activeAt(turn) -> add(issues, "ORG_KNOWLEDGE_MEMBERSHIP_NOT_ACTIVE", "Membership $membershipUid nie było aktywne w turze $turn.")
+                }
+
+                val publication = publication(campaignUid, publicationUid)
+                when {
+                    publication == null -> add(issues, "ORG_KNOWLEDGE_UNKNOWN_PUBLICATION", "Organization knowledge wskazuje nieistniejącą publication $publicationUid.")
+                    publication.organizationId != organization -> add(issues, "ORG_KNOWLEDGE_PUBLICATION_ORG_MISMATCH", "Publication $publicationUid należy do ${publication.organizationId}, a transmission organization=$organization.")
+                    publication.truthId != sourceUid -> add(issues, "ORG_KNOWLEDGE_PUBLICATION_SOURCE_MISMATCH", "Publication $publicationUid wskazuje ${publication.truthId}, a transmission source=$sourceUid.")
+                    !publication.activeAt(turn) -> add(issues, "ORG_KNOWLEDGE_PUBLICATION_NOT_ACTIVE", "Publication $publicationUid nie była aktywna w turze $turn.")
+                    source != null && (publication.subjectId != source.subjectId || publication.predicate != source.predicate) ->
+                        add(issues, "ORG_KNOWLEDGE_PUBLICATION_FACT_MISMATCH", "Publication $publicationUid nie odpowiada subject/predicate źródła $sourceUid.")
+                }
+
+                if (membership != null && publication != null && membership.clearance < publication.minimumClearance) {
+                    add(
+                        issues,
+                        "ORG_KNOWLEDGE_INSUFFICIENT_CLEARANCE",
+                        "Membership $membershipUid clearance=${membership.clearance}, ale publication $publicationUid wymaga ${publication.minimumClearance}."
+                    )
+                }
                 if (turn > currentTurn) add(issues, "ORG_KNOWLEDGE_FROM_FUTURE", "Organization knowledge z tury $turn wyprzedza current_turn=$currentTurn.")
             }
         }
@@ -197,14 +262,61 @@ class NpcKnowledgeIntegrity141(private val db: SQLiteDatabase) {
     private fun truthIndex(campaignUid: String): Map<String, TruthMeta> {
         val out = LinkedHashMap<String, TruthMeta>()
         db.rawQuery(
-            "SELECT fact_id,truth_kind,holder_id FROM gm_facts WHERE campaign_id=?",
+            "SELECT fact_id,truth_kind,holder_id,subject_id,predicate FROM gm_facts WHERE campaign_id=?",
             arrayOf(campaignUid)
         ).use { c ->
             while (c.moveToNext()) {
-                out[c.getString(0)] = TruthMeta(c.getString(1), if (c.isNull(2)) null else c.getString(2))
+                out[c.getString(0)] = TruthMeta(
+                    kind = c.getString(1),
+                    holderId = if (c.isNull(2)) null else c.getString(2),
+                    subjectId = if (c.isNull(3)) null else c.getString(3),
+                    predicate = c.getString(4)
+                )
             }
         }
         return out
+    }
+
+    private fun membership(campaignUid: String, membershipUid: String): MembershipMeta? {
+        db.rawQuery(
+            """
+            SELECT npc_id,organization_id,clearance,valid_from_turn,valid_until_turn
+            FROM gm_organization_memberships
+            WHERE campaign_id=? AND membership_id=? LIMIT 1
+            """.trimIndent(),
+            arrayOf(campaignUid, membershipUid)
+        ).use { c ->
+            if (!c.moveToFirst()) return null
+            return MembershipMeta(
+                npcId = c.getString(0),
+                organizationId = c.getString(1),
+                clearance = c.getInt(2),
+                validFromTurn = c.getLong(3),
+                validUntilTurn = if (c.isNull(4)) null else c.getLong(4)
+            )
+        }
+    }
+
+    private fun publication(campaignUid: String, publicationUid: String): PublicationMeta? {
+        db.rawQuery(
+            """
+            SELECT organization_id,truth_id,subject_id,predicate,minimum_clearance,valid_from_turn,valid_until_turn
+            FROM gm_organization_fact_publications
+            WHERE campaign_id=? AND publication_id=? LIMIT 1
+            """.trimIndent(),
+            arrayOf(campaignUid, publicationUid)
+        ).use { c ->
+            if (!c.moveToFirst()) return null
+            return PublicationMeta(
+                organizationId = c.getString(0),
+                truthId = c.getString(1),
+                subjectId = c.getString(2),
+                predicate = c.getString(3),
+                minimumClearance = c.getInt(4),
+                validFromTurn = c.getLong(5),
+                validUntilTurn = if (c.isNull(6)) null else c.getLong(6)
+            )
+        }
     }
 
     private fun jsonIds(raw: String): List<String> = runCatching {
