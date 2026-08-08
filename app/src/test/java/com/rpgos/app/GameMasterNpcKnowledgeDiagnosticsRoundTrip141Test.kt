@@ -1,7 +1,6 @@
 package com.rpgos.app
 
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -19,7 +18,6 @@ import java.io.File
 class GameMasterNpcKnowledgeDiagnosticsRoundTrip141Test {
     private lateinit var context: Context
     private lateinit var campaignDir: File
-    private lateinit var campaignDb: File
     private lateinit var store: LocalGameStore
 
     private val holder = EntityUid("NPC-diagnostics-roundtrip")
@@ -37,11 +35,12 @@ class GameMasterNpcKnowledgeDiagnosticsRoundTrip141Test {
         campaignDir = File(context.filesDir, "rpgos/saves/GM141_Diagnostics_RoundTrip.campaign")
         campaignDir.deleteRecursively()
         campaignDir.mkdirs()
-        campaignDb = File(campaignDir, "campaign.db")
-        SQLiteDatabase.openOrCreateDatabase(campaignDb, null).close()
 
         store = LocalGameStore(context)
         store.setActiveCampaign(campaignDir.name)
+        // Exercise GameMasterRepositoryFactory against a real campaign schema, not an empty SQLite file.
+        store.bootstrap()
+        require(File(campaignDir, "campaign.db").isFile) { "Test bootstrap did not create campaign.db" }
     }
 
     @After
