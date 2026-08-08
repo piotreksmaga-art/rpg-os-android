@@ -22,6 +22,7 @@ class SQLiteNpcKnowledgePersistence141Test {
 
     private val campaign = EntityUid("CAMPAIGN-roundtrip")
     private val holder = EntityUid("NPC-roundtrip")
+    private val subject = EntityUid("SUBJECT-roundtrip")
     private val oldBelief = EntityUid("BELIEF-old")
     private val replacementTruth = EntityUid("FACT-replacement")
     private val inferredBelief = EntityUid("BELIEF-inferred")
@@ -40,7 +41,7 @@ class SQLiteNpcKnowledgePersistence141Test {
     }
 
     @Test
-    fun retractionsAndInferencePremisesSurviveDatabaseReopen() = runBlocking {
+    fun allNpcKnowledgeLedgersSurviveDatabaseReopen() = runBlocking {
         openDb().use { db ->
             val stores = SQLiteNpcKnowledgeStores141(db, campaign)
 
@@ -65,6 +66,51 @@ class SQLiteNpcKnowledgePersistence141Test {
                     premiseTruthUids = listOf(EntityUid("FACT-A"), EntityUid("FACT-B")),
                     turnId = 42,
                     confidence = 0.81
+                )
+            )
+
+            stores.organizations.appendOrganizationKnowledge(
+                OrganizationKnowledgeTransmission141(
+                    transmissionUid = EntityUid("ORGKNOW-1"),
+                    campaignUid = campaign,
+                    organizationUid = EntityUid("ORG-1"),
+                    membershipUid = EntityUid("MEMBERSHIP-1"),
+                    publicationUid = EntityUid("PUBLICATION-1"),
+                    sourceTruthUid = EntityUid("FACT-ORG-1"),
+                    receiverUid = holder,
+                    resultingBeliefUid = EntityUid("BELIEF-ORG-1"),
+                    turnId = 43,
+                    confidence = 0.88
+                )
+            )
+
+            val winner = belief(
+                uid = EntityUid("BELIEF-resolution-winner"),
+                value = "north",
+                provenance = ProvenanceType.NPC_OBSERVATION,
+                confidence = 0.95,
+                turnId = 44
+            )
+            val loser = belief(
+                uid = EntityUid("BELIEF-resolution-loser"),
+                value = "south",
+                provenance = ProvenanceType.NPC_INFERENCE,
+                confidence = 0.70,
+                turnId = 40
+            )
+            stores.resolutions.appendResolution(
+                NpcKnowledgeLifecycle141.Resolution(
+                    resolutionUid = EntityUid("RESOLUTION-1"),
+                    conflict = NpcKnowledgeLifecycle141.Conflict(
+                        holderUid = holder,
+                        subjectUid = subject,
+                        predicate = "location",
+                        competingBeliefs = listOf(winner, loser)
+                    ),
+                    winner = winner,
+                    supersededBeliefUids = listOf(loser.uid),
+                    reason = NpcKnowledgeLifecycle141.ResolutionReason.STRONGER_PROVENANCE,
+                    turnId = 44
                 )
             )
         }
@@ -92,13 +138,62 @@ class SQLiteNpcKnowledgePersistence141Test {
             assertEquals(42L, inference.turnId)
             assertEquals(0.81, inference.confidence, 0.0001)
 
-            reopened.rawQuery(
-                "SELECT COUNT(*) FROM rpgos_schema_migrations WHERE migration_id=?",
-                arrayOf(NpcKnowledgePersistenceSchema141.MIGRATION_ID)
-            ).use { cursor ->
-                assertTrue(cursor.moveToFirst())
-                assertEquals(1, cursor.getInt(0))
-            }
+            assertRowCount(
+                reopened,
+                "gm_organization_knowledge_transmissions",
+                "campaign_id=? AND receiver_id=? AND resulting_belief_id=?",
+                arrayOf(campaign.value, holder.value, "BELIEF-ORG-1"),
+                1
+            )
+            assertRowCount(
+                reopened,
+                "gm_npc_knowledge_resolutions",
+                "campaign_id=? AND holder_id=? AND resolution_id=?",
+                arrayOf(campaign.value, holder.value, "RESOLUTION-1"),
+                1
+            )
+            assertRowCount(
+                reopened,
+                "rpgos_schema_migrations",
+                "migration_id=?",
+                arrayOf(NpcKnowledgePersistenceSchema141.MIGRATION_ID),
+                1
+            )
+        }
+    }
+
+    private fun belief(
+        uid: EntityUid,
+        value: String,
+        provenance: ProvenanceType,
+        confidence: Double,
+        turnId: Long
+    ) = CampaignTruth(
+        uid = uid,
+        kind = TruthKind.BELIEF,
+        subjectUid = subject,
+        predicate = "location",
+        value = value,
+        holderUid = holder,
+        validFromTurn = turnId,
+        provenance = ProvenanceRecord(
+            type = provenance,
+            sourceUid = EntityUid("SOURCE-${uid.value}"),
+            turnId = turnId,
+            confidence = confidence
+        )
+    )
+
+    private fun assertRowCount(
+        db: SQLiteDatabase,
+        table: String,
+        where: String,
+        args: Array<String>,
+        expected: Int
+    ) {
+        db.rawQuery("SELECT COUNT(*) FROM $table WHERE $where", args).use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(expected, cursor.getInt(0))
         }
     }
 
