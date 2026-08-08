@@ -2,7 +2,6 @@ package com.rpgos.app
 
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -68,31 +67,34 @@ class NpcKnowledgeLifecycleRuleResolver141Test {
     }
 
     @Test
-    fun exactTieProducesUnresolvedResolutionWithoutRetraction() = runBlocking {
-        val oldBelief = campaignBelief(
-            uid = "BELIEF-old",
+    fun exactTieBetweenSameTurnReportsProducesNoRetraction() = runBlocking {
+        val repository = FakeRepository(currentTurn = 5L)
+        val first = beliefWrite(
             value = "village",
-            provenance = ProvenanceType.NPC_REPORT,
+            sourceType = ProvenanceType.NPC_REPORT,
+            channel = KnowledgeChannel141.REPORT,
+            sourceId = "BELIEF-source-1",
             confidence = 0.8,
-            turn = 6L
+            sourceNpcId = "NPC-B"
         )
-        val repository = FakeRepository(currentTurn = 5L, beliefs = listOf(oldBelief))
-        val resolver = resolver(
-            repository,
-            beliefWrite(
-                value = "forest",
-                sourceType = ProvenanceType.NPC_REPORT,
-                channel = KnowledgeChannel141.REPORT,
-                sourceId = "BELIEF-source",
-                confidence = 0.8,
-                sourceNpcId = "NPC-B",
-                validFromTurn = 6L
-            )
+        val second = beliefWrite(
+            value = "forest",
+            sourceType = ProvenanceType.NPC_REPORT,
+            channel = KnowledgeChannel141.REPORT,
+            sourceId = "BELIEF-source-2",
+            confidence = 0.8,
+            sourceNpcId = "NPC-C"
+        )
+        val resolver = NpcKnowledgeLifecycleRuleResolver141(
+            delegate = fixedDelegate(listOf(first, second)),
+            repository = repository,
+            campaignUid = EntityUid("CAMPAIGN-test")
         )
 
         val result = resolver.resolve(request(), context(), proposal())
         val resolution = result.npcKnowledgeWrites.resolutions.single()
 
+        assertEquals(2, result.truthWrites.mapNotNull { it.truthKey }.distinct().size)
         assertEquals(NpcKnowledgeLifecycle141.ResolutionReason.UNRESOLVED_TIE, resolution.reason)
         assertNull(resolution.winner)
         assertTrue(resolution.supersededBeliefs.isEmpty())
@@ -149,12 +151,14 @@ class NpcKnowledgeLifecycleRuleResolver141Test {
             campaignUid = EntityUid("CAMPAIGN-test")
         )
 
-    private fun fixedDelegate(belief: TruthWrite) = object : GameMasterRuleResolver {
+    private fun fixedDelegate(belief: TruthWrite) = fixedDelegate(listOf(belief))
+
+    private fun fixedDelegate(beliefs: List<TruthWrite>) = object : GameMasterRuleResolver {
         override suspend fun resolve(
             request: GameMasterTurnRequest,
             context: GameMasterContext,
             proposal: GameMasterProposal
-        ) = GameMasterTurnResult(narrative = "test", truthWrites = listOf(belief))
+        ) = GameMasterTurnResult(narrative = "test", truthWrites = beliefs)
     }
 
     private fun beliefWrite(
@@ -250,7 +254,11 @@ class NpcKnowledgeLifecycleRuleResolver141Test {
         override suspend fun getEntityState(campaignUid: EntityUid, entityUid: EntityUid, entityType: String?) = emptyList<CampaignStateField>()
         override suspend fun getTruth(campaignUid: EntityUid, subjectUid: EntityUid, predicate: String, atTurnId: Long?) = emptyList<CampaignTruth>()
         override suspend fun getBeliefs(campaignUid: EntityUid, holderUid: EntityUid, subjectUid: EntityUid?, atTurnId: Long?, limit: Int) =
-            beliefs.filter { it.holderUid == holderUid && (subjectUid == null || it.subjectUid == subjectUid) }.take(limit)
+            beliefs.filter {
+                it.holderUid == holderUid &&
+                    (subjectUid == null || it.subjectUid == subjectUid) &&
+                    (atTurnId == null || (it.validFromTurn ?: Long.MIN_VALUE) <= atTurnId)
+            }.take(limit)
         override suspend fun recentEvents(campaignUid: EntityUid, beforeOrAtTurn: Long?, limit: Int) = emptyList<DurableCampaignEvent>()
         override suspend fun memories(campaignUid: EntityUid, subjectUid: EntityUid?, kinds: Set<DurableMemoryKind>, limit: Int) = emptyList<DurableMemoryRecord>()
         override suspend fun getActiveDivergences(campaignUid: EntityUid) = emptyList<CanonDivergence>()
