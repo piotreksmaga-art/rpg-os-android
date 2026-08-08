@@ -1,7 +1,7 @@
 name: GM141 Validate
 on:
   push:
-    branches: [ "gm-engine-141-foundation" ]
+    branches: [ "gm-engine-141-foundation", "gm141-npc-knowledge-access" ]
 permissions:
   contents: read
 jobs:
