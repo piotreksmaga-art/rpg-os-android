@@ -279,14 +279,16 @@ class SQLiteOrganizationKnowledgeAuthorizationStore141(
         ).use { c ->
             while (c.moveToNext()) {
                 val truthUid = EntityUid(c.getString(1))
+                val subjectUid = EntityUid(c.getString(2))
+                val predicate = c.getString(3)
                 val expectedHash = if (c.isNull(7)) null else c.getString(7)
-                if (!sourceValueHashMatches(campaignUid, truthUid, expectedHash)) continue
+                if (!sourceFactMatches(campaignUid, truthUid, subjectUid, predicate, expectedHash, atTurnId)) continue
                 out += OrganizationFactPublication141(
                     publicationUid = EntityUid(c.getString(0)),
                     organizationUid = organizationUid,
                     truthUid = truthUid,
-                    subjectUid = EntityUid(c.getString(2)),
-                    predicate = c.getString(3),
+                    subjectUid = subjectUid,
+                    predicate = predicate,
                     minimumClearance = c.getInt(4),
                     validFromTurn = c.getLong(5),
                     validUntilTurn = if (c.isNull(6)) null else c.getLong(6)
@@ -345,14 +347,16 @@ class SQLiteOrganizationKnowledgeAuthorizationStore141(
         ).use { c ->
             if (!c.moveToFirst()) return null
             val truthUid = EntityUid(c.getString(1))
+            val subjectUid = EntityUid(c.getString(2))
+            val predicate = c.getString(3)
             val expectedHash = if (c.isNull(7)) null else c.getString(7)
-            if (!sourceValueHashMatches(campaignUid, truthUid, expectedHash)) return null
+            if (!sourceFactMatches(campaignUid, truthUid, subjectUid, predicate, expectedHash, atTurnId)) return null
             return OrganizationFactPublication141(
                 publicationUid = publicationUid,
                 organizationUid = EntityUid(c.getString(0)),
                 truthUid = truthUid,
-                subjectUid = EntityUid(c.getString(2)),
-                predicate = c.getString(3),
+                subjectUid = subjectUid,
+                predicate = predicate,
                 minimumClearance = c.getInt(4),
                 validFromTurn = c.getLong(5),
                 validUntilTurn = if (c.isNull(6)) null else c.getLong(6)
@@ -406,16 +410,40 @@ class SQLiteOrganizationKnowledgeAuthorizationStore141(
         return source
     }
 
-    private fun sourceValueHashMatches(
+    private fun sourceFactMatches(
         campaignUid: EntityUid,
         truthUid: EntityUid,
-        expectedHash: String?
+        expectedSubjectUid: EntityUid,
+        expectedPredicate: String,
+        expectedHash: String?,
+        atTurnId: Long
     ): Boolean {
         if (expectedHash.isNullOrBlank()) return false
-        val value = db.rawQuery(
-            "SELECT object_json FROM gm_facts WHERE campaign_id=? AND fact_id=? LIMIT 1",
+        val source = db.rawQuery(
+            """
+            SELECT truth_kind,subject_id,predicate,object_json,valid_from_turn,valid_until_turn
+            FROM gm_facts
+            WHERE campaign_id=? AND fact_id=?
+            LIMIT 1
+            """.trimIndent(),
             arrayOf(campaignUid.value, truthUid.value)
-        ).use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: return false
-        return OrganizationPublicationSourceHash141.hash(value) == expectedHash
+        ).use { c ->
+            if (!c.moveToFirst()) null
+            else SourceFactMeta(
+                kind = c.getString(0),
+                subjectId = if (c.isNull(1)) null else c.getString(1),
+                predicate = c.getString(2),
+                valueHash = OrganizationPublicationSourceHash141.hash(c.getString(3)),
+                validFromTurn = c.getLong(4),
+                validUntilTurn = if (c.isNull(5)) null else c.getLong(5)
+            )
+        } ?: return false
+
+        return source.kind == TruthKind.FACT.name &&
+            source.subjectId == expectedSubjectUid.value &&
+            source.predicate == expectedPredicate &&
+            source.valueHash == expectedHash &&
+            atTurnId >= source.validFromTurn &&
+            (source.validUntilTurn == null || atTurnId <= source.validUntilTurn)
     }
 }
