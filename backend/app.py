@@ -90,6 +90,7 @@ PROPOSAL_ACTION_TYPES = [
     "STATE_REMOVE",
     "ASSERT_FACT",
     "ASSERT_BELIEF",
+    "KNOWLEDGE_PROPAGATE",
     "ASSERT_NARRATIVE",
     "CANON_DIVERGENCE",
 ]
@@ -218,6 +219,9 @@ Hard rules:
 - Never remove an established skill, achievement, relationship or fact merely because it is absent from a short context excerpt.
 - Do not output SQL, table names, StatePatch, database operations, trusted old_value/new_value pairs, UUIDs for durable records, or final mechanical calculations.
 - proposed_actions are semantic requests only. Android's deterministic resolver decides whether they are legal and calculates durable consequences.
+- For new NPC knowledge use KNOWLEDGE_PROPAGATE, not a free-form ASSERT_BELIEF. It must point to durable source knowledge already present in context.
+- KNOWLEDGE_PROPAGATE parameters must include channel=OBSERVATION|REPORT|INFERENCE, source_subject_id, source_predicate and enough of source_truth_id/source_holder_id/source_value to identify exactly one durable source. REPORT must include source_npc_id. actor_id is the receiving NPC.
+- Never invent a knowledge transmission merely to make narration convenient. If no valid source path is present, the NPC does not gain the knowledge.
 - Use identifiers exactly as present in context. Do not fabricate actor_id/target_id when no reliable identifier is available; use null instead.
 - parameters must be a JSON object serialized into a string. Keep it minimal and use only keys expected by the semantic action.
 - If no durable consequence follows from the player's action, proposed_actions may be empty.
