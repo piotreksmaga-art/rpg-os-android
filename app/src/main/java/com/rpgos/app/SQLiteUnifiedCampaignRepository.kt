@@ -397,8 +397,21 @@ class SQLiteUnifiedCampaignRepository(
     }
 
     override suspend fun writeTruth(truth: CampaignTruth) {
-        val fromTurn = truth.validFromTurn ?: truth.provenance.turnId ?: currentTurnId(campaignUid)
-        db.insertWithOnConflict(
+        val existing = truthByUid(truth.uid)
+        val fromTurn = truth.validFromTurn
+            ?: truth.provenance.turnId
+            ?: existing?.validFromTurn
+            ?: currentTurnId(campaignUid)
+        val resolvedTruth = truth.copy(validFromTurn = fromTurn)
+
+        if (existing != null) {
+            require(existing == resolvedTruth) {
+                "TRUTH_UID_CONFLICT: ${truth.uid.value} już wskazuje inny trwały CampaignTruth."
+            }
+            return
+        }
+
+        db.insertOrThrow(
             "gm_facts",
             null,
             ContentValues().apply {
@@ -418,8 +431,7 @@ class SQLiteUnifiedCampaignRepository(
                 truth.provenance.canonStatus?.let { put("canon_status", it) }
                 put("verified", if (truth.provenance.verified) 1 else 0)
                 put("created_at", System.currentTimeMillis())
-            },
-            SQLiteDatabase.CONFLICT_REPLACE
+            }
         )
     }
 
@@ -628,6 +640,20 @@ class SQLiteUnifiedCampaignRepository(
             verified = c.getInt(13) != 0
         )
     )
+
+    private fun truthByUid(uid: EntityUid): CampaignTruth? {
+        db.rawQuery(
+            """
+            SELECT fact_id, truth_kind, subject_id, predicate, object_json, holder_id,
+                   valid_from_turn, valid_until_turn, source_type, source_id, source_turn,
+                   confidence, canon_status, verified
+            FROM gm_facts
+            WHERE campaign_id=? AND fact_id=?
+            LIMIT 1
+            """.trimIndent(),
+            arrayOf(campaignUid.value, uid.value)
+        ).use { c -> return if (c.moveToFirst()) readTruth(c) else null }
+    }
 
     private fun memoryEventUids(memoryUid: EntityUid): Set<EntityUid> {
         val out = linkedSetOf<EntityUid>()
