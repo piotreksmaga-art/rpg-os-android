@@ -9,8 +9,8 @@ import org.json.JSONObject
  *
  * Legacy ContextBuilder remains a useful reader of the mature Naruto campaign
  * schema. GM 141 enriches that bounded working set with the new durable event,
- * memory, belief and divergence stores. New retrievers can replace legacy
- * sections incrementally without changing GameMasterEngine.
+ * memory, belief, divergence and canonical working-state stores. New retrievers
+ * can replace legacy sections incrementally without changing GameMasterEngine.
  */
 class GameMasterContextRepository141(
     context: Context,
@@ -30,6 +30,11 @@ class GameMasterContextRepository141(
             val events = repo.recentEvents(session.campaignUid, beforeOrAtTurn = turn, limit = 60)
             val memories = repo.memories(session.campaignUid, limit = 60)
             val divergences = repo.getActiveDivergences(session.campaignUid)
+
+            val playerUid = (legacy.playerStatus["player_uid"] as? String)
+                ?.trim()?.takeIf { it.isNotEmpty() }?.let(::EntityUid)
+            val gmPlayerState = if (playerUid == null) emptyList()
+            else repo.getEntityState(session.campaignUid, playerUid, "CHARACTER")
 
             val relevantNpcUids = linkedSetOf<EntityUid>()
             legacy.relevantNpcs.forEach { row ->
@@ -55,6 +60,7 @@ class GameMasterContextRepository141(
                 JSONObject(legacy.scene).apply {
                     put("time", JSONObject(legacy.time))
                     put("player_action", request.playerAction)
+                    put("gm141_turn", turn)
                 }.toString(),
                 priority = 100,
                 limit = allocation(budget, 0.12, 14_000)
@@ -63,10 +69,12 @@ class GameMasterContextRepository141(
             val playerState = section(
                 "PLAYER_STATE",
                 JSONObject().apply {
-                    put("status", JSONObject(legacy.playerStatus))
-                    put("skills", JSONArray(legacy.playerSkills.map(::JSONObject)))
-                    put("techniques", JSONArray(legacy.playerTechniques.map(::JSONObject)))
-                    put("organizations", JSONArray(legacy.playerOrganizations.map(::JSONObject)))
+                    put("player_uid", playerUid?.value)
+                    put("gm141_source_of_truth", JSONArray(gmPlayerState.map { stateJson(it) }))
+                    put("legacy_status", JSONObject(legacy.playerStatus))
+                    put("legacy_skills", JSONArray(legacy.playerSkills.map(::JSONObject)))
+                    put("legacy_techniques", JSONArray(legacy.playerTechniques.map(::JSONObject)))
+                    put("legacy_organizations", JSONArray(legacy.playerOrganizations.map(::JSONObject)))
                 }.toString(),
                 priority = 100,
                 limit = allocation(budget, 0.16, budget.stateCharacters)
@@ -126,7 +134,9 @@ class GameMasterContextRepository141(
                 Campaign Source of Truth and accepted divergences override the untouched canon baseline.
                 Do not retroactively remove established skills, achievements or facts without an explicit world event that causes the loss.
                 Do not invent prior history. If an asserted past event is absent from durable state and retrieved history, treat it as unsupported.
-                Proposed consequences must be returned as structured mutations/events; prose alone does not change canonical state.
+                Use exact GM141 field keys from gm141_source_of_truth when proposing state changes.
+                Return semantic proposed_actions only. Do not return SQL, table mutations or trusted StatePatch objects.
+                Prose alone never changes canonical campaign state.
                 """.trimIndent(),
                 priority = 100,
                 limit = allocation(budget, 0.08, budget.rulesCharacters)
@@ -156,6 +166,7 @@ class GameMasterContextRepository141(
                 provenance = listOf(
                     ContextSource("CAMPAIGN_DB", session.campaignUid.value, "active mutable state and durable GM history"),
                     ContextSource("WORLD_DB", session.worldPackUid.value, "canon and worldpack data"),
+                    ContextSource("GM141_STATE", session.campaignUid.value, "canonical mutable working state"),
                     ContextSource("GM141_EVENT_STORE", session.campaignUid.value, "recent accepted events"),
                     ContextSource("GM141_MEMORY", session.campaignUid.value, "episodic and semantic campaign memory")
                 )
@@ -171,6 +182,16 @@ class GameMasterContextRepository141(
             content.take((limit - 64).coerceAtLeast(0)) + "\n[TRUNCATED_BY_CONTEXT_BUDGET]"
         }
         return ContextSection(title, clipped, priority, clipped.length)
+    }
+
+    private fun stateJson(state: CampaignStateField): JSONObject = JSONObject().apply {
+        put("entity_type", state.entityType)
+        put("entity_id", state.entityUid.value)
+        put("field", state.field)
+        put("value", state.value)
+        put("valid_from_turn", state.validFromTurn)
+        put("provenance_type", state.provenanceType?.name)
+        put("provenance_id", state.provenanceUid?.value)
     }
 
     private fun truthsJson(items: List<CampaignTruth>): JSONArray = JSONArray(items.map { truth ->
