@@ -1,0 +1,26 @@
+name: GM141 Wire Retriever
+on:
+  push:
+    branches:
+      - gm-engine-141-foundation
+    paths:
+      - .github/workflows/gm141-wire-retriever.yml
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gm-engine-141-foundation
+      - run: python tools/gm141_wire_retriever.py
+      - run: |
+          grep -q 'GameMasterRetriever141' app/src/main/java/com/rpgos/app/GameMasterContextRepository141.kt
+          grep -q 'holder-scoped beliefs' app/src/main/java/com/rpgos/app/GameMasterContextRepository141.kt
+          git config user.name rpg-os-ci
+          git config user.email actions@users.noreply.github.com
+          git add app/src/main/java/com/rpgos/app/GameMasterContextRepository141.kt
+          git diff --cached --check
+          git commit -m 'GM Engine 141: use bounded temporal retrieval for context'
+          git push origin HEAD:gm-engine-141-foundation
