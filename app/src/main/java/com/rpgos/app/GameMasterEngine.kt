@@ -5,12 +5,30 @@ interface GameMasterContextRepository {
     suspend fun buildContext(request: GameMasterTurnRequest): GameMasterContext
 }
 
-/** Provider-neutral AI gateway. OpenAI or another backend can implement this. */
+/** Provider-neutral AI gateway. The model proposes; it never commits mechanics. */
 interface GameMasterModelGateway {
-    suspend fun generateTurn(
+    suspend fun generateProposal(
         request: GameMasterTurnRequest,
         context: GameMasterContext
+    ): GameMasterProposal
+}
+
+/** Deterministic/rule-aware resolution between AI proposal and durable state. */
+interface GameMasterRuleResolver {
+    suspend fun resolve(
+        request: GameMasterTurnRequest,
+        context: GameMasterContext,
+        proposal: GameMasterProposal
     ): GameMasterTurnResult
+}
+
+/** Consistency/canon/knowledge validation after mechanics resolution. */
+interface GameMasterTurnValidator {
+    suspend fun validate(
+        request: GameMasterTurnRequest,
+        context: GameMasterContext,
+        result: GameMasterTurnResult
+    ): GameMasterValidationReport
 }
 
 /** Transactional persistence of all consequences of an accepted turn. */
@@ -25,12 +43,17 @@ interface GameMasterStateRepository {
 /**
  * Orchestrates one RPG turn.
  *
- * Important invariant: the model never receives the full campaign transcript.
- * Context is reconstructed from durable state and retrieval for every turn.
+ * Invariants:
+ * - model never receives the full campaign transcript;
+ * - model proposal cannot directly mutate canonical state;
+ * - mechanics/rules resolve consequences before validation;
+ * - no narrative becomes canonical until the atomic commit succeeds.
  */
 class GameMasterEngine(
     private val contextRepository: GameMasterContextRepository,
     private val modelGateway: GameMasterModelGateway,
+    private val ruleResolver: GameMasterRuleResolver,
+    private val validator: GameMasterTurnValidator,
     private val stateRepository: GameMasterStateRepository
 ) {
     suspend fun play(request: GameMasterTurnRequest): GameMasterTurnResult {
@@ -41,13 +64,21 @@ class GameMasterEngine(
         val context = contextRepository.buildContext(request)
         validateContext(context, request.contextBudget)
 
-        val result = modelGateway.generateTurn(request, context)
-        validateResult(result)
+        val proposal = modelGateway.generateProposal(request, context)
+        require(proposal.narrativeDraft.isNotBlank()) { "MG zwrócił pustą propozycję narracji." }
 
-        // The repository is responsible for an atomic transaction. If commit
-        // fails, the narrative must not become canonical campaign state.
-        stateRepository.commitTurn(request, context, result)
-        return result
+        val resolved = ruleResolver.resolve(request, context, proposal)
+        validateResolvedShape(resolved)
+
+        val report = validator.validate(request, context, resolved)
+        require(report.accepted) {
+            report.issues
+                .filter { it.severity == ValidationSeverity.ERROR }
+                .joinToString(prefix = "Tura odrzucona: ", separator = "; ") { "${it.code}: ${it.message}" }
+        }
+
+        stateRepository.commitTurn(request, context, resolved)
+        return resolved
     }
 
     private fun validateContext(context: GameMasterContext, budget: ContextBudget) {
@@ -67,10 +98,13 @@ class GameMasterEngine(
         }
     }
 
-    private fun validateResult(result: GameMasterTurnResult) {
-        require(result.narrative.isNotBlank()) { "MG zwrócił pustą narrację." }
+    private fun validateResolvedShape(result: GameMasterTurnResult) {
+        require(result.narrative.isNotBlank()) { "Rule Resolver zwrócił pustą narrację." }
         result.memoryWrites.forEach {
             require(it.importance in 0.0..1.0) { "Niepoprawna ważność pamięci." }
+        }
+        result.truthWrites.forEach {
+            require(it.confidence in 0.0..1.0) { "Niepoprawna pewność faktu/belief." }
         }
     }
 }
