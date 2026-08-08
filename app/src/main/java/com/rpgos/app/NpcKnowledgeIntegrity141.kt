@@ -16,7 +16,9 @@ class NpcKnowledgeIntegrity141(private val db: SQLiteDatabase) {
         val kind: String,
         val holderId: String?,
         val subjectId: String?,
-        val predicate: String
+        val predicate: String,
+        val validFromTurn: Long,
+        val validUntilTurn: Long?
     )
 
     private data class MembershipMeta(
@@ -84,6 +86,7 @@ class NpcKnowledgeIntegrity141(private val db: SQLiteDatabase) {
         val issues = mutableListOf<GameMasterIntegrityIssue141>()
         auditRetractions(campaignUid, currentTurn, truths, issues)
         auditInferences(campaignUid, currentTurn, truths, issues)
+        auditOrganizationPublications(campaignUid, truths, issues)
         auditOrganizations(campaignUid, currentTurn, truths, issues)
         auditResolutions(campaignUid, currentTurn, truths, issues)
 
@@ -154,6 +157,66 @@ class NpcKnowledgeIntegrity141(private val db: SQLiteDatabase) {
                 }
                 val turn = c.getLong(3)
                 if (turn > currentTurn) add(issues, "NPC_INFERENCE_FROM_FUTURE", "Inference z tury $turn wyprzedza current_turn=$currentTurn.")
+            }
+        }
+    }
+
+    private fun auditOrganizationPublications(
+        campaignUid: String,
+        truths: Map<String, TruthMeta>,
+        issues: MutableList<GameMasterIntegrityIssue141>
+    ) {
+        db.rawQuery(
+            """
+            SELECT publication_id,truth_id,subject_id,predicate,valid_from_turn,valid_until_turn
+            FROM gm_organization_fact_publications
+            WHERE campaign_id=?
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        ).use { c ->
+            while (c.moveToNext()) {
+                val publicationUid = c.getString(0)
+                val truthUid = c.getString(1)
+                val subjectId = c.getString(2)
+                val predicate = c.getString(3)
+                val validFrom = c.getLong(4)
+                val validUntil = if (c.isNull(5)) null else c.getLong(5)
+                val source = truths[truthUid]
+
+                when {
+                    source == null -> add(
+                        issues,
+                        "ORG_PUBLICATION_UNKNOWN_SOURCE",
+                        "Publication $publicationUid wskazuje nieistniejący FACT $truthUid."
+                    )
+                    source.kind != TruthKind.FACT.name -> add(
+                        issues,
+                        "ORG_PUBLICATION_SOURCE_NOT_FACT",
+                        "Publication $publicationUid wskazuje $truthUid typu ${source.kind}, a nie FACT."
+                    )
+                    source.subjectId != subjectId || source.predicate != predicate -> add(
+                        issues,
+                        "ORG_PUBLICATION_FACT_MISMATCH",
+                        "Publication $publicationUid nie odpowiada subject/predicate FACT $truthUid."
+                    )
+                }
+
+                if (source != null) {
+                    if (validFrom < source.validFromTurn) {
+                        add(
+                            issues,
+                            "ORG_PUBLICATION_BEFORE_FACT",
+                            "Publication $publicationUid zaczyna się w turze $validFrom przed FACT $truthUid (${source.validFromTurn})."
+                        )
+                    }
+                    if (source.validUntilTurn != null && (validUntil == null || validUntil > source.validUntilTurn)) {
+                        add(
+                            issues,
+                            "ORG_PUBLICATION_OUTLIVES_FACT",
+                            "Publication $publicationUid wykracza poza ważność FACT $truthUid kończącą się w turze ${source.validUntilTurn}."
+                        )
+                    }
+                }
             }
         }
     }
@@ -262,7 +325,10 @@ class NpcKnowledgeIntegrity141(private val db: SQLiteDatabase) {
     private fun truthIndex(campaignUid: String): Map<String, TruthMeta> {
         val out = LinkedHashMap<String, TruthMeta>()
         db.rawQuery(
-            "SELECT fact_id,truth_kind,holder_id,subject_id,predicate FROM gm_facts WHERE campaign_id=?",
+            """
+            SELECT fact_id,truth_kind,holder_id,subject_id,predicate,valid_from_turn,valid_until_turn
+            FROM gm_facts WHERE campaign_id=?
+            """.trimIndent(),
             arrayOf(campaignUid)
         ).use { c ->
             while (c.moveToNext()) {
@@ -270,7 +336,9 @@ class NpcKnowledgeIntegrity141(private val db: SQLiteDatabase) {
                     kind = c.getString(1),
                     holderId = if (c.isNull(2)) null else c.getString(2),
                     subjectId = if (c.isNull(3)) null else c.getString(3),
-                    predicate = c.getString(4)
+                    predicate = c.getString(4),
+                    validFromTurn = c.getLong(5),
+                    validUntilTurn = if (c.isNull(6)) null else c.getLong(6)
                 )
             }
         }
