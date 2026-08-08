@@ -71,13 +71,17 @@ class GameMasterRetriever141Test {
         eventUid = EntityUid("EVENT-$turn"),
         campaignUid = campaign,
         turnId = turn,
-        sequence = 0,
-        type = DurableEventType.WORLD_EVENT,
-        actorUid = null,
-        targetUid = null,
-        causeEventUid = null,
+        sequence = turn,
+        type = CampaignEventType.WORLD_EVENT,
         description = text,
-        payloadJson = "{}"
+        payloadJson = "{}",
+        provenance = ProvenanceRecord(
+            type = ProvenanceType.CAMPAIGN_EVENT,
+            sourceUid = null,
+            turnId = turn,
+            confidence = 1.0,
+            verified = true
+        )
     )
 
     private fun memory(text: String, turn: Long, importance: Double) = DurableMemoryRecord(
@@ -88,13 +92,12 @@ class GameMasterRetriever141Test {
         text = text,
         importance = importance,
         createdTurn = turn,
-        sourceEventUids = emptyList(),
+        sourceEventUids = emptySet(),
         tags = emptySet()
     )
 
     private fun belief(holder: EntityUid, value: String) = CampaignTruth(
         uid = EntityUid("BELIEF-${holder.value}-${value.hashCode()}"),
-        campaignUid = campaign,
         kind = TruthKind.BELIEF,
         holderUid = holder,
         subjectUid = EntityUid("SUBJECT"),
@@ -102,7 +105,13 @@ class GameMasterRetriever141Test {
         value = value,
         validFromTurn = 1L,
         validUntilTurn = null,
-        provenance = Provenance(ProvenanceType.NPC_REPORT, null, 1L, 0.8)
+        provenance = ProvenanceRecord(
+            type = ProvenanceType.NPC_REPORT,
+            sourceUid = null,
+            turnId = 1L,
+            confidence = 0.8,
+            verified = false
+        )
     )
 
     private class RetrievalFakeRepository(
