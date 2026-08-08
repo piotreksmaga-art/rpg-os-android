@@ -66,6 +66,16 @@ data class CampaignTruth(
     }
 }
 
+data class CampaignStateField(
+    val entityType: String,
+    val entityUid: EntityUid,
+    val field: String,
+    val value: String,
+    val validFromTurn: Long,
+    val provenanceType: ProvenanceType?,
+    val provenanceUid: EntityUid?
+)
+
 /** A canon baseline overridden by a campaign-specific divergence. */
 data class CanonDivergence(
     val uid: EntityUid,
@@ -99,12 +109,39 @@ interface UnifiedCampaignRepository {
 
     suspend fun writeTurn(turn: DurableTurnRecord)
 
+    suspend fun getEntityState(
+        campaignUid: EntityUid,
+        entityUid: EntityUid,
+        entityType: String? = null
+    ): List<CampaignStateField>
+
     suspend fun getTruth(
         campaignUid: EntityUid,
         subjectUid: EntityUid,
         predicate: String,
         atTurnId: Long? = null
     ): List<CampaignTruth>
+
+    suspend fun getBeliefs(
+        campaignUid: EntityUid,
+        holderUid: EntityUid,
+        subjectUid: EntityUid? = null,
+        atTurnId: Long? = null,
+        limit: Int = 100
+    ): List<CampaignTruth>
+
+    suspend fun recentEvents(
+        campaignUid: EntityUid,
+        beforeOrAtTurn: Long? = null,
+        limit: Int = 100
+    ): List<DurableCampaignEvent>
+
+    suspend fun memories(
+        campaignUid: EntityUid,
+        subjectUid: EntityUid? = null,
+        kinds: Set<DurableMemoryKind> = DurableMemoryKind.entries.toSet(),
+        limit: Int = 100
+    ): List<DurableMemoryRecord>
 
     suspend fun getActiveDivergences(campaignUid: EntityUid): List<CanonDivergence>
 
