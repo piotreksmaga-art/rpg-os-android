@@ -177,23 +177,29 @@ class OrganizationKnowledgeAuthorizationPersistence141Test {
     }
 
     @Test
-    fun sourceValueRebindingInvalidatesExistingPublication() = runBlocking {
+    fun rawSourceValueTamperingInvalidatesExistingPublication() = runBlocking {
         val publication = publication("rebound", "FACT-rebound", validFrom = 2L, validUntil = 10L)
-
-        GameMasterRepositoryFactory(context, store).openActiveSession().use { active ->
+        val campaignUid = GameMasterRepositoryFactory(context, store).openActiveSession().use { active ->
             writeSourceFact(active, publication, value = "ORIGINAL")
             val auth = requireNotNull(active.organizationAuthorizationStore)
             auth.appendPublication(active.campaignUid, publication)
             assertNotNull(auth.publicationByUid(active.campaignUid, publication.publicationUid, 5L))
+            active.campaignUid
+        }
 
-            // Legacy Source of Truth still allows CONFLICT_REPLACE on the same fact_id.
-            // The publication fingerprint must make that replaced value unusable.
-            writeSourceFact(active, publication, value = "TAMPERED")
-
-            assertNull(auth.publicationByUid(active.campaignUid, publication.publicationUid, 5L))
-            assertTrue(
-                auth.publicationsForOrganization(active.campaignUid, publication.organizationUid, 5L).isEmpty()
+        // Repository-level identity now prevents rebinding this UID. Simulate corruption below
+        // that boundary so the publication fingerprint remains an independent defense-in-depth check.
+        LocalGameStore(context).openSaveDb().use { db ->
+            db.execSQL(
+                "UPDATE gm_facts SET object_json=? WHERE campaign_id=? AND fact_id=?",
+                arrayOf("TAMPERED", campaignUid.value, publication.truthUid.value)
             )
+        }
+
+        GameMasterRepositoryFactory(context, LocalGameStore(context)).openActiveSession().use { reopened ->
+            val auth = requireNotNull(reopened.organizationAuthorizationStore)
+            assertNull(auth.publicationByUid(campaignUid, publication.publicationUid, 5L))
+            assertTrue(auth.publicationsForOrganization(campaignUid, publication.organizationUid, 5L).isEmpty())
         }
     }
 
