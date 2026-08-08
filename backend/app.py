@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from openai import OpenAI
 
-app = FastAPI(title="RPG OS Backend", version="0.3.0")
+app = FastAPI(title="RPG OS Backend", version="0.4.0")
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 class TurnRequest(BaseModel):
@@ -30,6 +30,16 @@ class TurnResponse(BaseModel):
     choices: List[str] = Field(default_factory=list)
     state_patch: Optional[StatePatch] = None
     chapter_events: List[Dict[str, Any]] = Field(default_factory=list)
+
+class ProposalRequest(BaseModel):
+    protocol: str
+    campaign_id: str
+    worldpack_id: str
+    chapter: int
+    locale: str = "pl-PL"
+    player_action: str
+    context: Dict[str, Any]
+    response_contract: Dict[str, Any] = Field(default_factory=dict)
 
 TURN_SCHEMA = {
     "type": "object",
@@ -71,6 +81,118 @@ TURN_SCHEMA = {
     "required": ["narration","choices","state_patch","chapter_events"]
 }
 
+PROPOSAL_ACTION_TYPES = [
+    "EMIT_EVENT",
+    "WORLD_EVENT",
+    "STATE_SET",
+    "STATE_INCREMENT",
+    "STATE_DECREMENT",
+    "STATE_REMOVE",
+    "ASSERT_FACT",
+    "ASSERT_BELIEF",
+    "ASSERT_NARRATIVE",
+    "CANON_DIVERGENCE",
+]
+
+MEMORY_TYPES = [
+    "FACT",
+    "RELATIONSHIP",
+    "PROMISE",
+    "SECRET",
+    "DISCOVERY",
+    "CHARACTER_DEVELOPMENT",
+    "WORLD_CHANGE",
+    "PLAYER_PREFERENCE",
+    "LONG_TERM_THREAD",
+]
+
+PROPOSAL_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "narrative_draft": {"type": "string"},
+        "proposed_actions": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "action_type": {"type": "string", "enum": PROPOSAL_ACTION_TYPES},
+                    "actor_id": {"type": ["string", "null"]},
+                    "target_id": {"type": ["string", "null"]},
+                    "parameters": {
+                        "type": "string",
+                        "description": "A JSON object serialized as a string. Use only semantic resolver parameters, never SQL or table names."
+                    },
+                    "reason": {"type": "string"}
+                },
+                "required": ["action_type", "actor_id", "target_id", "parameters", "reason"]
+            }
+        },
+        "proposed_memories": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "memory_type": {"type": "string", "enum": MEMORY_TYPES},
+                    "subject_id": {"type": ["string", "null"]},
+                    "text": {"type": "string"},
+                    "importance": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    "chapter": {"type": "integer", "minimum": 0},
+                    "tags": {"type": "array", "items": {"type": "string"}, "maxItems": 16}
+                },
+                "required": ["memory_type", "subject_id", "text", "importance", "chapter", "tags"]
+            }
+        },
+        "proposed_chronicle_entries": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "chapter": {"type": "integer", "minimum": 0},
+                    "title": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "participants": {"type": "array", "items": {"type": "string"}, "maxItems": 32},
+                    "location_ids": {"type": "array", "items": {"type": "string"}, "maxItems": 16}
+                },
+                "required": ["chapter", "title", "summary", "participants", "location_ids"]
+            }
+        },
+        "diagnostics": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "context_characters": {"type": "integer", "minimum": 0},
+                "retrieved_memory_count": {"type": "integer", "minimum": 0},
+                "retrieved_canon_count": {"type": "integer", "minimum": 0},
+                "retrieved_npc_count": {"type": "integer", "minimum": 0},
+                "retrieved_thread_count": {"type": "integer", "minimum": 0},
+                "warnings": {"type": "array", "items": {"type": "string"}, "maxItems": 32}
+            },
+            "required": [
+                "context_characters",
+                "retrieved_memory_count",
+                "retrieved_canon_count",
+                "retrieved_npc_count",
+                "retrieved_thread_count",
+                "warnings"
+            ]
+        }
+    },
+    "required": [
+        "narrative_draft",
+        "proposed_actions",
+        "proposed_memories",
+        "proposed_chronicle_entries",
+        "diagnostics"
+    ]
+}
+
 SYSTEM_PROMPT = """You are the Game Master for RPG OS.
 Return only data matching the requested JSON schema.
 Never invent NPC knowledge that is absent from npc_knowledge or npc_memories.
@@ -84,9 +206,28 @@ Do not write to reference/canon/legacy tables; Android validates all patches any
 Do not include hidden GM-only information in narration unless the player has discovered it.
 """
 
+GM141_SYSTEM_PROMPT = """You are the narrative planning layer of RPG OS GM Engine 141.
+You are NOT the rules engine and you are NOT allowed to write canonical state directly.
+Return only a semantic proposal matching the supplied strict JSON schema.
+
+Hard rules:
+- Narration must be in the requested locale (normally Polish).
+- Treat CURRENT_SCENE, PLAYER_STATE, ACTIVE_WORLD_STATE, ACTIVE_THREADS, RELEVANT_MEMORIES, RELEVANT_CANON, GM_INVARIANTS and RECENT_HISTORY as bounded evidence, not invitations to invent missing history.
+- FACT, BELIEF and NARRATIVE are different. A belief belongs only to its holder. Never leak one NPC's private knowledge to another without an information path present in context.
+- Campaign Source of Truth and accepted divergences override untouched canon.
+- Never remove an established skill, achievement, relationship or fact merely because it is absent from a short context excerpt.
+- Do not output SQL, table names, StatePatch, database operations, trusted old_value/new_value pairs, UUIDs for durable records, or final mechanical calculations.
+- proposed_actions are semantic requests only. Android's deterministic resolver decides whether they are legal and calculates durable consequences.
+- Use identifiers exactly as present in context. Do not fabricate actor_id/target_id when no reliable identifier is available; use null instead.
+- parameters must be a JSON object serialized into a string. Keep it minimal and use only keys expected by the semantic action.
+- If no durable consequence follows from the player's action, proposed_actions may be empty.
+- proposed_memories should contain only information worth retaining beyond the immediate scene.
+- proposed_chronicle_entries should summarize significant campaign progress, not every sentence of narration.
+"""
+
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "rpg-os-backend", "version": "0.3.0"}
+    return {"ok": True, "service": "rpg-os-backend", "version": "0.4.0"}
 
 @app.post("/v1/gm/turn", response_model=TurnResponse)
 def gm_turn(req: TurnRequest):
@@ -128,6 +269,86 @@ def gm_turn(req: TurnRequest):
     data = json.loads(raw)
     if data.get("state_patch") and not data["state_patch"].get("transaction_id"):
         data["state_patch"]["transaction_id"] = str(uuid.uuid4())
+    return data
+
+
+@app.post("/v1/gm/proposal")
+def gm_proposal(req: ProposalRequest):
+    if req.protocol != "rpg-os-gm141-proposal-v1":
+        raise HTTPException(status_code=400, detail="Unsupported GM141 proposal protocol")
+    if not req.player_action.strip():
+        raise HTTPException(status_code=400, detail="player_action must not be blank")
+    if req.chapter < 0:
+        raise HTTPException(status_code=400, detail="chapter must be non-negative")
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
+
+    model = os.environ.get("RPGOS_MODEL", "gpt-5.6")
+    payload = {
+        "protocol": req.protocol,
+        "campaign_id": req.campaign_id,
+        "worldpack_id": req.worldpack_id,
+        "chapter": req.chapter,
+        "locale": req.locale,
+        "player_action": req.player_action,
+        "context": req.context,
+        "client_contract": req.response_contract,
+    }
+
+    response = client.responses.create(
+        model=model,
+        instructions=GM141_SYSTEM_PROMPT,
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": "Prepare the next GM141 semantic proposal from this bounded context:\n"
+                                + json.dumps(payload, ensure_ascii=False)
+                    }
+                ]
+            }
+        ],
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "rpg_os_gm141_proposal",
+                "strict": True,
+                "schema": PROPOSAL_SCHEMA
+            }
+        }
+    )
+
+    try:
+        data = json.loads(response.output_text)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"GM141 model returned invalid JSON: {exc}")
+
+    # The server still treats model output as untrusted. Reject obvious attempts
+    # to smuggle the old patch/SQL protocol through semantic parameter strings.
+    forbidden = ("state_patch", "insert into", "update ", "delete from", "drop table", "alter table")
+    for index, action in enumerate(data.get("proposed_actions", [])):
+        params = action.get("parameters", "")
+        lowered = params.lower()
+        if any(token in lowered for token in forbidden):
+            raise HTTPException(
+                status_code=502,
+                detail=f"GM141 proposal action {index} contains forbidden database instructions"
+            )
+        try:
+            decoded = json.loads(params)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"GM141 proposal action {index} parameters are not valid JSON: {exc}"
+            )
+        if not isinstance(decoded, dict):
+            raise HTTPException(
+                status_code=502,
+                detail=f"GM141 proposal action {index} parameters must encode a JSON object"
+            )
+
     return data
 
 
@@ -275,4 +496,3 @@ def latest_update_apk():
         media_type="application/vnd.android.package-archive",
         headers={"Content-Disposition": 'attachment; filename="RPG-OS.apk"'}
     )
-
