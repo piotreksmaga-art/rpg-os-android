@@ -30,6 +30,13 @@ object CampaignIdentityResolver {
         val ownsTransaction = !db.inTransaction()
         if (ownsTransaction) db.beginTransaction()
         try {
+            // Forking is the one legal operation that rewrites campaign_id on
+            // already committed rows because the whole campaign.db is a copied
+            // template. Temporarily remove only the turn immutability guards
+            // inside this transaction. SQLite DDL participates in the same
+            // transaction, so a failure rolls the trigger removal back too.
+            dropTurnGuards(db)
+
             // Snapshot files contain absolute storage paths belonging to the
             // source campaign. A fork keeps history/state but must create its
             // own future checkpoints.
@@ -51,11 +58,20 @@ object CampaignIdentityResolver {
                     )
                 }
             }
+
+            // Restore all schema guards before the identity rewrite can commit.
+            CampaignSourceOfTruthSchema.ensure(db)
             if (ownsTransaction) db.setTransactionSuccessful()
         } finally {
             if (ownsTransaction) db.endTransaction()
         }
         return EntityUid(newUid)
+    }
+
+    private fun dropTurnGuards(db: SQLiteDatabase) {
+        TURN_GUARD_TRIGGERS.forEach { trigger ->
+            db.execSQL("DROP TRIGGER IF EXISTS $trigger")
+        }
     }
 
     private fun tableExists(db: SQLiteDatabase, table: String): Boolean {
@@ -66,6 +82,12 @@ object CampaignIdentityResolver {
     }
 
     private fun newUid(): String = "CAMPAIGN-${UUID.randomUUID()}"
+
+    private val TURN_GUARD_TRIGGERS = listOf(
+        "trg_gm_turns_monotonic_insert",
+        "trg_gm_turns_immutable_update",
+        "trg_gm_turns_immutable_delete"
+    )
 
     private val CAMPAIGN_SCOPED_TABLES = listOf(
         "gm_campaign_meta",
