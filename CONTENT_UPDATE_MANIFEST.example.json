@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "channel": "alpha",
+  "generatedAt": "2026-08-08T13:55:00Z",
+  "packages": [
+    {
+      "id": "naruto-core",
+      "type": "WORLD",
+      "version": 1,
+      "minEngineVersionCode": 140,
+      "downloadUrl": "https://example.invalid/rpg-os/content/naruto-core-v1.zip",
+      "sha256": "REPLACE_WITH_SHA256",
+      "sizeBytes": 0,
+      "description": "Pakiet danych świata Naruto"
+    }
+  ]
+}
