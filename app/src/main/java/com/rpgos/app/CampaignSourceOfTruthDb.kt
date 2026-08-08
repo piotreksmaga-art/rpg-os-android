@@ -7,9 +7,9 @@ import android.database.sqlite.SQLiteOpenHelper
 /**
  * Durable campaign Source of Truth for GM Engine 141.
  *
- * The schema intentionally separates current mutable state from immutable event
- * history and epistemic records (FACT/BELIEF/NARRATIVE). This database is the
- * canonical campaign-side persistence layer; world canon remains in world.db.
+ * Mutable working state, immutable history, epistemic truth and long-term
+ * memory are separated deliberately. World canon remains read-only in the
+ * active world.db and campaign-specific reality is recorded here.
  */
 class CampaignSourceOfTruthDb(
     context: Context,
@@ -26,10 +26,7 @@ class CampaignSourceOfTruthDb(
         db.enableWriteAheadLogging()
     }
 
-    override fun onCreate(db: SQLiteDatabase) {
-        createSchemaV1(db)
-        db.execSQL("PRAGMA user_version=$SCHEMA_VERSION")
-    }
+    override fun onCreate(db: SQLiteDatabase) = createSchemaV1(db)
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         var version = oldVersion
@@ -98,6 +95,25 @@ class CampaignSourceOfTruthDb(
 
         db.execSQL(
             """
+            CREATE TABLE IF NOT EXISTS state_mutations (
+                mutation_id TEXT PRIMARY KEY,
+                campaign_id TEXT NOT NULL,
+                turn_number INTEGER NOT NULL,
+                entity_id TEXT NOT NULL,
+                field_key TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                old_value_json TEXT,
+                new_value_json TEXT,
+                reason TEXT NOT NULL,
+                caused_by_event_id TEXT,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY(caused_by_event_id) REFERENCES events(event_id)
+            )
+            """.trimIndent()
+        )
+
+        db.execSQL(
+            """
             CREATE TABLE IF NOT EXISTS facts (
                 fact_id TEXT PRIMARY KEY,
                 campaign_id TEXT NOT NULL,
@@ -112,6 +128,7 @@ class CampaignSourceOfTruthDb(
                 source_type TEXT NOT NULL,
                 source_id TEXT,
                 canon_status TEXT,
+                verified INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL
             )
             """.trimIndent()
@@ -124,15 +141,19 @@ class CampaignSourceOfTruthDb(
                 campaign_id TEXT NOT NULL,
                 turn_id TEXT NOT NULL,
                 turn_number INTEGER NOT NULL,
+                sequence INTEGER NOT NULL,
                 chapter INTEGER NOT NULL,
                 event_type TEXT NOT NULL,
                 actor_id TEXT,
                 target_id TEXT,
+                description TEXT NOT NULL,
                 payload_json TEXT NOT NULL,
                 cause_event_id TEXT,
                 source_type TEXT NOT NULL,
                 source_id TEXT,
+                confidence REAL NOT NULL DEFAULT 1.0,
                 created_at INTEGER NOT NULL,
+                UNIQUE(campaign_id, turn_number, sequence),
                 FOREIGN KEY(turn_id) REFERENCES turns(turn_id) ON DELETE CASCADE,
                 FOREIGN KEY(cause_event_id) REFERENCES events(event_id)
             )
@@ -144,18 +165,28 @@ class CampaignSourceOfTruthDb(
             CREATE TABLE IF NOT EXISTS memories (
                 memory_id TEXT PRIMARY KEY,
                 campaign_id TEXT NOT NULL,
-                memory_kind TEXT NOT NULL,
+                memory_kind TEXT NOT NULL CHECK(memory_kind IN ('EPISODIC','SEMANTIC')),
                 subject_id TEXT,
                 text TEXT NOT NULL,
                 importance REAL NOT NULL,
                 confidence REAL NOT NULL DEFAULT 1.0,
                 first_turn INTEGER NOT NULL,
                 last_reinforced_turn INTEGER NOT NULL,
-                source_event_id TEXT,
                 tags_json TEXT NOT NULL DEFAULT '[]',
                 embedding_key TEXT,
-                archived INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY(source_event_id) REFERENCES events(event_id)
+                archived INTEGER NOT NULL DEFAULT 0
+            )
+            """.trimIndent()
+        )
+
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS memory_event_links (
+                memory_id TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                PRIMARY KEY(memory_id, event_id),
+                FOREIGN KEY(memory_id) REFERENCES memories(memory_id) ON DELETE CASCADE,
+                FOREIGN KEY(event_id) REFERENCES events(event_id) ON DELETE CASCADE
             )
             """.trimIndent()
         )
@@ -169,10 +200,20 @@ class CampaignSourceOfTruthDb(
                 chapter INTEGER NOT NULL,
                 title TEXT NOT NULL,
                 summary TEXT NOT NULL,
-                participants_json TEXT NOT NULL DEFAULT '[]',
-                locations_json TEXT NOT NULL DEFAULT '[]',
                 created_at INTEGER NOT NULL,
                 FOREIGN KEY(turn_id) REFERENCES turns(turn_id) ON DELETE CASCADE
+            )
+            """.trimIndent()
+        )
+
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS chronicle_event_links (
+                chronicle_id TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                PRIMARY KEY(chronicle_id, event_id),
+                FOREIGN KEY(chronicle_id) REFERENCES chronicle_entries(chronicle_id) ON DELETE CASCADE,
+                FOREIGN KEY(event_id) REFERENCES events(event_id) ON DELETE CASCADE
             )
             """.trimIndent()
         )
@@ -182,7 +223,7 @@ class CampaignSourceOfTruthDb(
             CREATE TABLE IF NOT EXISTS divergences (
                 divergence_id TEXT PRIMARY KEY,
                 campaign_id TEXT NOT NULL,
-                canon_subject_id TEXT,
+                canon_subject_id TEXT NOT NULL,
                 canon_event_id TEXT,
                 divergence_type TEXT NOT NULL,
                 description TEXT NOT NULL,
@@ -201,23 +242,27 @@ class CampaignSourceOfTruthDb(
                 snapshot_id TEXT PRIMARY KEY,
                 campaign_id TEXT NOT NULL,
                 turn_number INTEGER NOT NULL,
-                chapter INTEGER NOT NULL,
+                event_sequence INTEGER NOT NULL,
                 state_hash TEXT NOT NULL,
                 storage_path TEXT NOT NULL,
-                event_count INTEGER NOT NULL,
                 created_at INTEGER NOT NULL,
                 UNIQUE(campaign_id, turn_number)
             )
             """.trimIndent()
         )
 
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_events_campaign_turn ON events(campaign_id, turn_number)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_turns_campaign_turn ON turns(campaign_id, turn_number)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_state_entity ON entity_state(campaign_id, entity_id)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_mutations_entity ON state_mutations(campaign_id, entity_id, turn_number)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_events_campaign_turn ON events(campaign_id, turn_number, sequence)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_events_actor ON events(campaign_id, actor_id, turn_number)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_events_target ON events(campaign_id, target_id, turn_number)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(campaign_id, subject_id, predicate)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_facts_holder ON facts(campaign_id, holder_id, truth_kind)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_facts_temporal ON facts(campaign_id, valid_from_turn, valid_until_turn)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_memories_subject ON memories(campaign_id, subject_id, archived, importance)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_chronicle_chapter ON chronicle_entries(campaign_id, chapter)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_divergence_subject ON divergences(campaign_id, canon_subject_id, active)")
     }
 
     companion object {
