@@ -78,7 +78,9 @@ class GameMasterKnowledgeResolver141(
             sourceType = propagated.provenance.type,
             sourceId = propagated.provenance.sourceUid?.value,
             validFromTurn = propagated.validFromTurn,
-            validUntilTurn = propagated.validUntilTurn
+            validUntilTurn = propagated.validUntilTurn,
+            knowledgeChannel = channel,
+            sourceNpcId = sourceNpcUid?.value
         )
     }
 }
