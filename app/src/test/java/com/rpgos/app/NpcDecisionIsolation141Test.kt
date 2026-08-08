@@ -58,6 +58,7 @@ class NpcDecisionIsolation141Test {
                 purpose = "choose next action"
             )
         )
+        Unit
     }
 
     @Test
