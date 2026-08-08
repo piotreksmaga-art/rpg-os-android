@@ -23,7 +23,7 @@ class GameMasterNpcKnowledgeEngineE2E141Test {
 
     private val holder = EntityUid("NPC-engine-e2e")
     private val subject = EntityUid("SUBJECT-engine-e2e")
-    private val oldBeliefUid = EntityUid("BELIEF-engine-old")
+    private val oldInferenceFactUid = EntityUid("FACT-engine-old-inference")
     private val observationFactUid = EntityUid("FACT-engine-observation")
 
     @Before
@@ -52,6 +52,7 @@ class GameMasterNpcKnowledgeEngineE2E141Test {
         data class Expected(
             val campaignUid: EntityUid,
             val committedTurn: Long,
+            val oldBeliefUid: EntityUid,
             val newBeliefUid: EntityUid
         )
 
@@ -60,18 +61,18 @@ class GameMasterNpcKnowledgeEngineE2E141Test {
             active.repository.inTransaction {
                 writeTruth(
                     CampaignTruth(
-                        uid = oldBeliefUid,
-                        kind = TruthKind.BELIEF,
+                        uid = oldInferenceFactUid,
+                        kind = TruthKind.FACT,
                         subjectUid = subject,
-                        predicate = "location",
+                        predicate = "old-location-evidence",
                         value = "VILLAGE",
-                        holderUid = holder,
                         validFromTurn = initialTurn,
                         provenance = ProvenanceRecord(
-                            type = ProvenanceType.NPC_INFERENCE,
-                            sourceUid = EntityUid("FACT-old-inference-source"),
+                            type = ProvenanceType.CAMPAIGN_EVENT,
+                            sourceUid = null,
                             turnId = initialTurn,
-                            confidence = 0.45
+                            confidence = 1.0,
+                            verified = true
                         )
                     )
                 )
@@ -94,15 +95,59 @@ class GameMasterNpcKnowledgeEngineE2E141Test {
                 )
             }
 
-            val request = GameMasterTurnRequest(
-                campaignId = active.campaignUid.value,
-                worldPackId = active.worldPackUid.value,
-                playerAction = "NPC obserwuje położenie celu.",
-                currentChapter = 1L
+            val stateRepository = GameMasterStateRepository141(
+                repository = active.repository,
+                campaignUid = active.campaignUid,
+                knowledgeStore = active.knowledgeStore,
+                npcKnowledgeStores = active.npcKnowledgeStores
             )
-            val gmContext = gmContext(active)
+
+            // Establish the old weak belief through the same canonical transaction path as production.
+            stateRepository.commitTurn(
+                request = request(active, "NPC tworzy wstępną hipotezę.", 1L),
+                context = gmContext(active, 1L),
+                result = GameMasterTurnResult(
+                    narrative = "NPC zakłada, że cel pozostaje w wiosce.",
+                    truthWrites = listOf(
+                        TruthWrite(
+                            kind = TruthKind.BELIEF,
+                            subjectId = subject.value,
+                            predicate = "location",
+                            value = "VILLAGE",
+                            holderId = holder.value,
+                            confidence = 0.45,
+                            sourceType = ProvenanceType.NPC_INFERENCE,
+                            sourceId = oldInferenceFactUid.value,
+                            knowledgeChannel = KnowledgeChannel141.INFERENCE,
+                            truthKey = "old-location-belief"
+                        )
+                    ),
+                    npcKnowledgeWrites = NpcKnowledgeWrites141(
+                        inferences = listOf(
+                            NpcInferenceWrite141(
+                                holderId = holder.value,
+                                resultingBelief = TruthRef141(truthKey = "old-location-belief"),
+                                premiseTruths = listOf(TruthRef141(durableUid = oldInferenceFactUid.value)),
+                                confidence = 0.45
+                            )
+                        )
+                    )
+                )
+            )
+
+            val oldBeliefTurn = initialTurn + 1L
+            val oldBelief = active.repository.getBeliefs(
+                active.campaignUid,
+                holder,
+                subject,
+                oldBeliefTurn,
+                20
+            ).single { it.predicate == "location" && it.value == "VILLAGE" }
+
+            val engineRequest = request(active, "NPC obserwuje położenie celu.", 2L)
+            val engineContext = gmContext(active, 2L)
             val contextRepository = object : GameMasterContextRepository {
-                override suspend fun buildContext(request: GameMasterTurnRequest) = gmContext
+                override suspend fun buildContext(request: GameMasterTurnRequest) = engineContext
             }
             val gateway = object : GameMasterModelGateway {
                 override suspend fun generateProposal(
@@ -138,12 +183,6 @@ class GameMasterNpcKnowledgeEngineE2E141Test {
             val validator = NpcKnowledgeSemanticTurnValidator141(
                 GameMasterTurnValidator141(active.repository, active.campaignUid)
             )
-            val stateRepository = GameMasterStateRepository141(
-                repository = active.repository,
-                campaignUid = active.campaignUid,
-                knowledgeStore = active.knowledgeStore,
-                npcKnowledgeStores = active.npcKnowledgeStores
-            )
             val engine = GameMasterEngine(
                 contextRepository = contextRepository,
                 modelGateway = gateway,
@@ -152,7 +191,7 @@ class GameMasterNpcKnowledgeEngineE2E141Test {
                 stateRepository = stateRepository
             )
 
-            val result = engine.play(request)
+            val result = engine.play(engineRequest)
             val newWrite = result.truthWrites.single { it.kind == TruthKind.BELIEF }
             assertNotNull(newWrite.truthKey)
             assertEquals(ProvenanceType.NPC_OBSERVATION, newWrite.sourceType)
@@ -163,7 +202,7 @@ class GameMasterNpcKnowledgeEngineE2E141Test {
                 result.npcKnowledgeWrites.resolutions.single().reason
             )
 
-            val committedTurn = initialTurn + 1L
+            val committedTurn = oldBeliefTurn + 1L
             assertEquals(committedTurn, active.repository.currentTurnId(active.campaignUid))
             val beliefs = active.repository.getBeliefs(
                 active.campaignUid,
@@ -175,10 +214,10 @@ class GameMasterNpcKnowledgeEngineE2E141Test {
             val newBelief = beliefs.single { it.value == "FOREST" }
             val retraction = requireNotNull(active.npcKnowledgeStores).retractions
                 .retractionsForHolder(active.campaignUid, holder, committedTurn)
-                .single { it.retractedBeliefUid == oldBeliefUid }
+                .single { it.retractedBeliefUid == oldBelief.uid }
             assertEquals(newBelief.uid, retraction.replacementTruthUid)
 
-            Expected(active.campaignUid, committedTurn, newBelief.uid)
+            Expected(active.campaignUid, committedTurn, oldBelief.uid, newBelief.uid)
         }
 
         // New repository objects simulate an app/repository restart and must reconstruct the same durable state.
@@ -197,29 +236,41 @@ class GameMasterNpcKnowledgeEngineE2E141Test {
                 .retractionsForHolder(reopened.campaignUid, holder, expected.committedTurn)
             assertTrue(
                 retractions.any {
-                    it.retractedBeliefUid == oldBeliefUid && it.replacementTruthUid == expected.newBeliefUid
+                    it.retractedBeliefUid == expected.oldBeliefUid &&
+                        it.replacementTruthUid == expected.newBeliefUid
                 }
             )
         }
 
         val diagnostics = GameMasterDiagnosticsService141(context, LocalGameStore(context))
         val offline = diagnostics.report()
-        assertTrue(offline.contains("integrity=OK"))
-        assertTrue(offline.contains("knowledgeIntegrity=OK"))
-        assertTrue(offline.contains("npcLifecycleIntegrity=OK"))
-        assertTrue(offline.contains("npcKnowledgePersistence=READY"))
+        assertTrue(offline, offline.contains("integrity=OK"))
+        assertTrue(offline, offline.contains("knowledgeIntegrity=OK"))
+        assertTrue(offline, offline.contains("npcLifecycleIntegrity=OK"))
+        assertTrue(offline, offline.contains("npcKnowledgePersistence=READY"))
 
         val npcReport = diagnostics.npcKnowledgeReport(holder, expected.committedTurn)
-        assertTrue(npcReport.contains("status=OK"))
-        assertTrue(npcReport.contains("activeBeliefs=1"))
-        assertTrue(npcReport.contains("${expected.newBeliefUid.value} location=FOREST"))
-        assertTrue(npcReport.contains("${oldBeliefUid.value} status=RETRACTED"))
-        assertTrue(npcReport.contains("replacement=${expected.newBeliefUid.value}"))
+        assertTrue(npcReport, npcReport.contains("status=OK"))
+        assertTrue(npcReport, npcReport.contains("activeBeliefs=1"))
+        assertTrue(npcReport, npcReport.contains("${expected.newBeliefUid.value} location=FOREST"))
+        assertTrue(npcReport, npcReport.contains("${expected.oldBeliefUid.value} status=RETRACTED"))
+        assertTrue(npcReport, npcReport.contains("replacement=${expected.newBeliefUid.value}"))
     }
 
-    private fun gmContext(active: ActiveGameMasterRepository) = GameMasterContext(
+    private fun request(
+        active: ActiveGameMasterRepository,
+        playerAction: String,
+        currentChapter: Long
+    ) = GameMasterTurnRequest(
         campaignId = active.campaignUid.value,
-        chapter = 1L,
+        worldPackId = active.worldPackUid.value,
+        playerAction = playerAction,
+        currentChapter = currentChapter
+    )
+
+    private fun gmContext(active: ActiveGameMasterRepository, chapter: Long) = GameMasterContext(
+        campaignId = active.campaignUid.value,
+        chapter = chapter,
         scene = section("scene"),
         playerState = section("player"),
         activeWorldState = section("world"),
