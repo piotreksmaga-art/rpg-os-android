@@ -8,7 +8,8 @@ data class RpgOsSettings(
     val worldPackId: String,
     val campaignId: String,
     val showGmDiagnostics: Boolean,
-    val autoBackup: Boolean
+    val autoBackup: Boolean,
+    val gm141Enabled: Boolean = false
 )
 
 class AppSettings(private val context: Context) {
@@ -38,7 +39,8 @@ class AppSettings(private val context: Context) {
             worldPackId = prefs.getString("worldpack_id", "naruto") ?: "naruto",
             campaignId = prefs.getString("campaign_id", "naruto-default") ?: "naruto-default",
             showGmDiagnostics = prefs.getBoolean("show_gm_diagnostics", true),
-            autoBackup = prefs.getBoolean("auto_backup", true)
+            autoBackup = prefs.getBoolean("auto_backup", true),
+            gm141Enabled = prefs.getBoolean("gm141_enabled", false)
         )
     }
 
@@ -50,6 +52,7 @@ class AppSettings(private val context: Context) {
             .putString("campaign_id", settings.campaignId)
             .putBoolean("show_gm_diagnostics", settings.showGmDiagnostics)
             .putBoolean("auto_backup", settings.autoBackup)
+            .putBoolean("gm141_enabled", settings.gm141Enabled)
             .apply()
     }
 }
