@@ -17,21 +17,27 @@ class KnowledgeSafeRuleResolver141(
             require(!belief.holderId.isNullOrBlank()) {
                 "BELIEF #${index + 1} nie ma holderId."
             }
-            require(belief.sourceType in ALLOWED_BELIEF_SOURCES) {
-                "BELIEF #${index + 1} ma niedozwolone źródło ${belief.sourceType}. Wymagany jawny kanał wiedzy NPC."
-            }
             require(!belief.sourceId.isNullOrBlank()) {
                 "BELIEF #${index + 1} nie ma sourceId; wiedza NPC musi wskazywać swoje źródło."
             }
+            val channel = requireNotNull(belief.knowledgeChannel) {
+                "BELIEF #${index + 1} nie ma knowledgeChannel."
+            }
+            val expectedProvenance = when (channel) {
+                KnowledgeChannel141.OBSERVATION -> ProvenanceType.NPC_OBSERVATION
+                KnowledgeChannel141.REPORT -> ProvenanceType.NPC_REPORT
+                KnowledgeChannel141.RESEARCH -> ProvenanceType.NPC_RESEARCH
+                KnowledgeChannel141.INFERENCE -> ProvenanceType.NPC_INFERENCE
+            }
+            require(belief.sourceType == expectedProvenance) {
+                "BELIEF #${index + 1}: kanał $channel wymaga provenance $expectedProvenance, otrzymano ${belief.sourceType}."
+            }
+            if (channel == KnowledgeChannel141.REPORT) {
+                require(!belief.sourceNpcId.isNullOrBlank()) {
+                    "BELIEF #${index + 1} z kanału REPORT nie ma sourceNpcId."
+                }
+            }
         }
         return result
-    }
-
-    companion object {
-        private val ALLOWED_BELIEF_SOURCES = setOf(
-            ProvenanceType.NPC_OBSERVATION,
-            ProvenanceType.NPC_REPORT,
-            ProvenanceType.NPC_INFERENCE
-        )
     }
 }
