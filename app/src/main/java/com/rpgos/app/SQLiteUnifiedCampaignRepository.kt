@@ -120,8 +120,8 @@ class SQLiteUnifiedCampaignRepository(
         val result = mutableListOf<CanonDivergence>()
         helper.readableDatabase.rawQuery(
             """
-            SELECT divergence_id, canon_subject_id, divergence_type, description,
-                   caused_by_event_id, created_turn, active
+            SELECT divergence_id, canon_subject_id, canon_event_id, divergence_type,
+                   description, caused_by_event_id, created_turn, active, resolved_turn
             FROM divergences
             WHERE campaign_id=? AND active=1
             ORDER BY created_turn ASC
@@ -132,15 +132,34 @@ class SQLiteUnifiedCampaignRepository(
                 result += CanonDivergence(
                     uid = EntityUid(c.getString(0)),
                     canonSubjectUid = EntityUid(c.getString(1)),
-                    divergenceType = c.getString(2),
-                    description = c.getString(3),
-                    causedByEventUid = c.getString(4)?.let(::EntityUid),
-                    createdTurn = c.getLong(5),
-                    active = c.getInt(6) != 0
+                    canonEventUid = c.getString(2)?.let(::EntityUid),
+                    divergenceType = c.getString(3),
+                    description = c.getString(4),
+                    causedByEventUid = c.getString(5)?.let(::EntityUid),
+                    createdTurn = c.getLong(6),
+                    active = c.getInt(7) != 0,
+                    resolvedTurn = if (c.isNull(8)) null else c.getLong(8)
                 )
             }
         }
         return result
+    }
+
+    override suspend fun writeDivergence(divergence: CanonDivergence) {
+        val db = helper.writableDatabase
+        val values = ContentValues().apply {
+            put("divergence_id", divergence.uid.value)
+            put("campaign_id", campaignUid.value)
+            put("canon_subject_id", divergence.canonSubjectUid.value)
+            divergence.canonEventUid?.let { put("canon_event_id", it.value) }
+            put("divergence_type", divergence.divergenceType)
+            put("description", divergence.description)
+            divergence.causedByEventUid?.let { put("caused_by_event_id", it.value) }
+            put("active", if (divergence.active) 1 else 0)
+            put("created_turn", divergence.createdTurn)
+            divergence.resolvedTurn?.let { put("resolved_turn", it) }
+        }
+        db.insertWithOnConflict("divergences", null, values, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
     override suspend fun appendEvent(event: DurableCampaignEvent) {
@@ -166,9 +185,7 @@ class SQLiteUnifiedCampaignRepository(
             put("confidence", event.provenance.confidence)
             put("created_at", System.currentTimeMillis())
         }
-        require(db.insertOrThrow("events", null, values) != -1L) {
-            "Nie można zapisać eventu ${event.eventUid}."
-        }
+        db.insertOrThrow("events", null, values)
     }
 
     override suspend fun applyMutation(mutation: DurableStateMutation) {
@@ -338,7 +355,7 @@ class SQLiteUnifiedCampaignRepository(
         val target = File(dir, "${snapshotUid.value}.db")
         File(db.path).copyTo(target, overwrite = true)
         val hash = sha256(target)
-        val eventSequence = maxEventSequence(db, throughTurnId)
+        val eventSequence = eventCountThrough(db, throughTurnId)
         val now = System.currentTimeMillis()
 
         db.insertOrThrow(
@@ -431,9 +448,9 @@ class SQLiteUnifiedCampaignRepository(
         ).use { c -> return if (c.moveToFirst()) c.getString(0) else null }
     }
 
-    private fun maxEventSequence(db: SQLiteDatabase, throughTurnId: Long): Long {
+    private fun eventCountThrough(db: SQLiteDatabase, throughTurnId: Long): Long {
         db.rawQuery(
-            "SELECT COALESCE(MAX(sequence),0) FROM events WHERE campaign_id=? AND turn_number<=?",
+            "SELECT COUNT(*) FROM events WHERE campaign_id=? AND turn_number<=?",
             arrayOf(campaignUid.value, throughTurnId.toString())
         ).use { c ->
             c.moveToFirst()
