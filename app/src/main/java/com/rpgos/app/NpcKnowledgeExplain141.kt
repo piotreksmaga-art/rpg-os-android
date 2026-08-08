@@ -50,7 +50,7 @@ class NpcKnowledgeExplain141(
             subjectUid = belief.subjectUid,
             predicate = belief.predicate,
             atTurnId = turn,
-            limit = 5_000
+            limit = NpcBeliefTimeline141.MAX_BELIEF_QUERY_LIMIT
         )
         val entry = requireNotNull(timeline.entries.firstOrNull { it.belief.uid == beliefUid }) {
             "BELIEF ${beliefUid.value} nie istnieje na osi wiedzy NPC ${holderUid.value} w turze $turn."
@@ -83,7 +83,7 @@ class NpcKnowledgeExplain141(
             holderUid = holderUid,
             subjectUid = null,
             atTurnId = null,
-            limit = 5_000
+            limit = NpcBeliefTimeline141.MAX_BELIEF_QUERY_LIMIT
         )
         return requireNotNull(beliefs.firstOrNull {
             it.uid == beliefUid && it.kind == TruthKind.BELIEF && it.holderUid == holderUid &&
