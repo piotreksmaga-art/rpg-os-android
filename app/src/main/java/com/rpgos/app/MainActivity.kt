@@ -80,10 +80,13 @@ private val RpgOsColors = darkColorScheme(
 
 @Composable
 private fun RpgOsTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = RpgOsColors,
-        content = content
-    )
+    MaterialTheme(colorScheme = RpgOsColors) {
+        CompositionLocalProvider(
+            LocalContentColor provides RpgOsColors.onBackground
+        ) {
+            content()
+        }
+    }
 }
 
 private val ScreenGradient = Brush.verticalGradient(
@@ -123,7 +126,13 @@ private fun GradientScreen(content: @Composable BoxScope.() -> Unit) {
                 )
             )
         )
-        content()
+        CompositionLocalProvider(
+            LocalContentColor provides MaterialTheme.colorScheme.onBackground
+        ) {
+            Box(Modifier.fillMaxSize()) {
+                content()
+            }
+        }
     }
 }
 
