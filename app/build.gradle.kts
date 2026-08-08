@@ -11,13 +11,18 @@ android {
         applicationId = "com.rpgos.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 139
-        versionName = "1.2.0-alpha5-ui139-contrast"
+        versionCode = 140
+        versionName = "1.2.0-alpha5-hybrid140"
         buildConfigField("String", "RPGOS_BACKEND_URL", "\"https://YOUR-BACKEND.example\"")
         buildConfigField(
             "String",
             "RPGOS_UPDATE_FEED_URL",
             "\"https://api.github.com/repos/piotreksmaga-art/rpg-os-android/releases/latest\""
+        )
+        buildConfigField(
+            "String",
+            "RPGOS_CONTENT_UPDATE_URL",
+            "\"https://raw.githubusercontent.com/piotreksmaga-art/rpg-os-android/master/content/channel-alpha.json\""
         )
     }
 
