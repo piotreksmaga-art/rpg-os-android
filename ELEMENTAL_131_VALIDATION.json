@@ -1,0 +1,9 @@
+{
+  "versionCode": 131,
+  "versionName": "1.2.0-alpha5-elemental131",
+  "scope": "five-element-renderer-only",
+  "orbit_geometry_preserved": true,
+  "orbit_motion_preserved": true,
+  "other_ui_preserved": true,
+  "reference_direction": "cinematic volumetric elemental ring"
+}
