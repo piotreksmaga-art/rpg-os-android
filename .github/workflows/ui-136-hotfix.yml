@@ -1,0 +1,35 @@
+name: UI136
+on:
+  push:
+    branches:
+      - ui-136-remove-chevrons
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ui-136-remove-chevrons
+          fetch-depth: 0
+      - name: Apply patch
+        run: python3 tools/ui136_patch.py
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Build
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Commit
+        run: |
+          git config user.name piotreksmaga-art
+          git config user.email piotreksmaga@gmail.com
+          git add app/src/main/java/com/rpgos/app/MainActivity.kt app/build.gradle.kts
+          git commit -m "UI 136 - remove redundant action chevrons"
+          git push origin HEAD:ui-136-remove-chevrons
