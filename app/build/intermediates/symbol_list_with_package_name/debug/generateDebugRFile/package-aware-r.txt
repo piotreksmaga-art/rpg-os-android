@@ -1,0 +1,10 @@
+com.rpgos.app
+drawable elemental_earth_132
+drawable elemental_fire_132
+drawable elemental_lightning_132
+drawable elemental_water_132
+drawable elemental_wind_132
+string app_name
+style Theme_RPGOS
+xml file_paths
+xml network_security_config

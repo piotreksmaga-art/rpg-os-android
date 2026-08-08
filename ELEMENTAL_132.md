@@ -11,3 +11,5 @@ Założenia:
 
 VersionCode: 132
 VersionName: 1.2.0-alpha5-elemental132
+
+Implementacja: pięć plików PNG VFX w drawable-nodpi; każdy sprite jest przesuwany po oryginalnej elipsie i ustawiany stycznie do toru. Proceduralny renderer żywiołów nie jest już używany przez ElementalOrbit.
