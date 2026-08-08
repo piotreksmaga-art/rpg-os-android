@@ -277,26 +277,27 @@ class LocalGameStore(private val context: Context) {
     fun status(): StatusSnapshot {
         if (!File(saveDir, "campaign.db").exists()) return StatusSnapshot()
         return openSave().use { db ->
-            var location = "—"
+            var legacy = StatusSnapshot()
             try {
                 db.rawQuery("SELECT location_uid FROM entity_positions LIMIT 1", null).use {
-                    if (it.moveToFirst()) location = it.getString(0) ?: "—"
+                    if (it.moveToFirst()) legacy = StatusSnapshot(location = it.getString(0) ?: "—")
                 }
             } catch (_: Exception) {}
-            StatusSnapshot(location = location)
+            GameMasterSessionReader141(db).status(legacy)
         }
     }
 
     fun time(): TimeSnapshot {
         if (!File(saveDir, "campaign.db").exists()) return TimeSnapshot()
         return openSave().use { db ->
+            var legacy = TimeSnapshot()
             try {
                 db.rawQuery(
                     "SELECT year_label,era_name,season,hour,minute FROM campaign_calendar WHERE id=1",
                     null
                 ).use {
                     if (it.moveToFirst()) {
-                        return@use TimeSnapshot(
+                        legacy = TimeSnapshot(
                             label = it.getString(0) ?: "—",
                             era = it.getString(1) ?: "—",
                             season = it.getString(2) ?: "—",
@@ -305,7 +306,7 @@ class LocalGameStore(private val context: Context) {
                     }
                 }
             } catch (_: Exception) {}
-            TimeSnapshot()
+            GameMasterSessionReader141(db).time(legacy)
         }
     }
 
