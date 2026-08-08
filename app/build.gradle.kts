@@ -83,3 +83,15 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling:1.11.4")
 }
+
+// Keep CI failure output actionable. Gradle's default unit-test logging only prints the
+// test method and wrapper line for coroutine tests, hiding the real require()/SQLite cause.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+    }
+}
