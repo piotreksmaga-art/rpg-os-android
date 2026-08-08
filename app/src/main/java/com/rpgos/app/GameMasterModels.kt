@@ -108,13 +108,18 @@ data class TruthWrite(
     val sourceType: ProvenanceType,
     val sourceId: String? = null,
     val validFromTurn: Long? = null,
-    val validUntilTurn: Long? = null
+    val validUntilTurn: Long? = null,
+    val knowledgeChannel: KnowledgeChannel141? = null,
+    val sourceNpcId: String? = null
 ) {
     init {
         require(kind != TruthKind.BELIEF || !holderId.isNullOrBlank()) {
             "BELIEF wymaga holderId."
         }
         require(confidence in 0.0..1.0) { "confidence musi mieścić się w zakresie 0..1." }
+        require(knowledgeChannel != KnowledgeChannel141.REPORT || !sourceNpcId.isNullOrBlank()) {
+            "BELIEF z kanału REPORT wymaga sourceNpcId."
+        }
     }
 }
 
