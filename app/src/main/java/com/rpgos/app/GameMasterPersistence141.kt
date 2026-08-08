@@ -13,7 +13,8 @@ import java.util.UUID
 class GameMasterStateRepository141(
     private val repository: UnifiedCampaignRepository,
     private val campaignUid: EntityUid,
-    private val knowledgeStore: KnowledgeTransmissionStore141? = null
+    private val knowledgeStore: KnowledgeTransmissionStore141? = null,
+    private val npcKnowledgeStores: SQLiteNpcKnowledgeStores141? = null
 ) : GameMasterStateRepository {
 
     override suspend fun commitTurn(
@@ -37,6 +38,16 @@ class GameMasterStateRepository141(
             result.worldEvents.forEach { event ->
                 require(event.eventKey !in eventUids) { "Duplikat eventKey: ${event.eventKey}" }
                 eventUids[event.eventKey] = uid("EVT")
+            }
+
+            // Allocate all keyed truth UIDs before any write. Knowledge lifecycle records may
+            // safely refer to any truth created by this accepted turn, regardless of ordering.
+            val truthUidsByKey = LinkedHashMap<String, EntityUid>()
+            result.truthWrites.forEach { truth ->
+                truth.truthKey?.let { key ->
+                    require(key !in truthUidsByKey) { "Duplikat truthKey: $key" }
+                    truthUidsByKey[key] = uid(if (truth.kind == TruthKind.BELIEF) "BELIEF" else "FACT")
+                }
             }
 
             writeTurn(
@@ -99,6 +110,7 @@ class GameMasterStateRepository141(
                 )
             }
 
+            val durableTruthsByUid = LinkedHashMap<EntityUid, CampaignTruth>()
             result.truthWrites.forEach { truth ->
                 val sourceUid = when {
                     truth.sourceId.isNullOrBlank() -> null
@@ -107,7 +119,8 @@ class GameMasterStateRepository141(
                     else -> EntityUid(truth.sourceId)
                 }
                 val durableTruth = CampaignTruth(
-                    uid = uid("FACT"),
+                    uid = truth.truthKey?.let { requireNotNull(truthUidsByKey[it]) }
+                        ?: uid(if (truth.kind == TruthKind.BELIEF) "BELIEF" else "FACT"),
                     kind = truth.kind,
                     subjectUid = truth.subjectId.asUidOrNull(),
                     predicate = truth.predicate,
@@ -124,6 +137,7 @@ class GameMasterStateRepository141(
                     )
                 )
                 writeTruth(durableTruth)
+                durableTruthsByUid[durableTruth.uid] = durableTruth
 
                 if (truth.kind == TruthKind.BELIEF) {
                     val channel = requireNotNull(truth.knowledgeChannel) {
@@ -149,6 +163,99 @@ class GameMasterStateRepository141(
                             channel = channel,
                             turnId = turnId,
                             confidence = durableTruth.provenance.confidence
+                        )
+                    )
+                }
+            }
+
+            val lifecycle = result.npcKnowledgeWrites
+            if (
+                lifecycle.retractions.isNotEmpty() || lifecycle.inferences.isNotEmpty() ||
+                lifecycle.organizationTransmissions.isNotEmpty() || lifecycle.resolutions.isNotEmpty()
+            ) {
+                val stores = requireNotNull(npcKnowledgeStores) {
+                    "Brak SQLiteNpcKnowledgeStores141 dla lifecycle wiedzy NPC."
+                }
+
+                lifecycle.retractions.forEach { write ->
+                    stores.retractions.appendRetraction(
+                        NpcBeliefRetraction141(
+                            retractionUid = uid("RETRACTION"),
+                            campaignUid = campaignUid,
+                            holderUid = EntityUid(write.holderId),
+                            retractedBeliefUid = resolveTruthRef(write.retractedBelief, truthUidsByKey),
+                            replacementTruthUid = resolveTruthRef(write.replacementTruth, truthUidsByKey),
+                            turnId = turnId,
+                            reason = write.reason
+                        )
+                    )
+                }
+
+                lifecycle.inferences.forEach { write ->
+                    stores.inferences.appendInference(
+                        NpcInferenceLedgerEntry141(
+                            inferenceUid = uid("INFERENCE"),
+                            campaignUid = campaignUid,
+                            holderUid = EntityUid(write.holderId),
+                            resultingBeliefUid = resolveTruthRef(write.resultingBelief, truthUidsByKey),
+                            premiseTruthUids = write.premiseTruths.map { resolveTruthRef(it, truthUidsByKey) },
+                            turnId = turnId,
+                            confidence = write.confidence
+                        )
+                    )
+                }
+
+                lifecycle.organizationTransmissions.forEach { write ->
+                    stores.organizations.appendOrganizationKnowledge(
+                        OrganizationKnowledgeTransmission141(
+                            transmissionUid = uid("ORGKNOW"),
+                            campaignUid = campaignUid,
+                            organizationUid = EntityUid(write.organizationId),
+                            membershipUid = EntityUid(write.membershipId),
+                            publicationUid = EntityUid(write.publicationId),
+                            sourceTruthUid = resolveTruthRef(write.sourceTruth, truthUidsByKey),
+                            receiverUid = EntityUid(write.receiverId),
+                            resultingBeliefUid = resolveTruthRef(write.resultingBelief, truthUidsByKey),
+                            turnId = turnId,
+                            confidence = write.confidence
+                        )
+                    )
+                }
+
+                lifecycle.resolutions.forEach { write ->
+                    fun auditTruth(ref: TruthRef141): CampaignTruth {
+                        val resolvedUid = resolveTruthRef(ref, truthUidsByKey)
+                        return durableTruthsByUid[resolvedUid] ?: CampaignTruth(
+                            uid = resolvedUid,
+                            kind = TruthKind.BELIEF,
+                            subjectUid = write.subjectId.asUidOrNull(),
+                            predicate = write.predicate,
+                            value = "<historical>",
+                            holderUid = EntityUid(write.holderId),
+                            validFromTurn = null,
+                            provenance = ProvenanceRecord(
+                                type = ProvenanceType.SYSTEM_SIMULATION,
+                                sourceUid = null,
+                                turnId = turnId,
+                                confidence = 1.0,
+                                verified = true
+                            )
+                        )
+                    }
+                    val competing = write.competingBeliefs.map(::auditTruth)
+                    stores.resolutions.appendResolution(
+                        NpcKnowledgeLifecycle141.Resolution(
+                            resolutionUid = uid("RESOLUTION"),
+                            conflict = NpcKnowledgeLifecycle141.Conflict(
+                                holderUid = EntityUid(write.holderId),
+                                subjectUid = write.subjectId.asUidOrNull(),
+                                predicate = write.predicate,
+                                competingBeliefs = competing
+                            ),
+                            winner = write.winner?.let(::auditTruth),
+                            supersededBeliefUids = write.supersededBeliefs.map { resolveTruthRef(it, truthUidsByKey) },
+                            reason = write.reason,
+                            turnId = turnId
                         )
                     )
                 }
@@ -206,6 +313,10 @@ class GameMasterStateRepository141(
             }
         }
     }
+
+    private fun resolveTruthRef(ref: TruthRef141, truthUidsByKey: Map<String, EntityUid>): EntityUid =
+        ref.truthKey?.let { key -> requireNotNull(truthUidsByKey[key]) { "Nieznany truthKey: $key" } }
+            ?: EntityUid(requireNotNull(ref.durableUid))
 
     private fun durableEventPayload(event: WorldEventWrite): String = JSONObject().apply {
         put("event_key", event.eventKey)
@@ -295,6 +406,10 @@ class GameMasterTurnValidator141(
             }
         }
 
+        val truthKeys = result.truthWrites.mapNotNull { it.truthKey }
+        errorIf(truthKeys.size != truthKeys.toSet().size, issues, "DUPLICATE_TRUTH_KEY", "Jedna tura nie może zawierać zduplikowanego truthKey.")
+        val truthKeySet = truthKeys.toSet()
+
         result.truthWrites.forEach { truth ->
             errorIf(truth.predicate.isBlank(), issues, "EMPTY_PREDICATE", "Fact/belief ma pusty predicate.")
             errorIf(truth.confidence !in 0.0..1.0, issues, "INVALID_TRUTH_CONFIDENCE", "Fact/belief ${truth.predicate} ma confidence poza zakresem 0..1.")
@@ -316,6 +431,35 @@ class GameMasterTurnValidator141(
             if (truth.sourceType == ProvenanceType.CAMPAIGN_EVENT && !truth.sourceId.isNullOrBlank() && truth.sourceId !in eventKeySet) {
                 issues += warning("EXTERNAL_EVENT_PROVENANCE", "${truth.predicate} wskazuje CAMPAIGN_EVENT spoza bieżącej tury; sourceId zostanie potraktowane jako trwały UID.")
             }
+        }
+
+        fun validateRef(ref: TruthRef141, label: String) {
+            if (ref.truthKey != null) {
+                errorIf(ref.truthKey !in truthKeySet, issues, "UNKNOWN_TRUTH_KEY", "$label wskazuje nieznany truthKey=${ref.truthKey}.")
+            }
+        }
+        result.npcKnowledgeWrites.retractions.forEach { write ->
+            errorIf(write.holderId.isBlank(), issues, "EMPTY_RETRACTION_HOLDER", "Retrakcja nie ma holderId.")
+            errorIf(write.reason.isBlank(), issues, "EMPTY_RETRACTION_REASON", "Retrakcja nie ma powodu.")
+            validateRef(write.retractedBelief, "Retrakcja")
+            validateRef(write.replacementTruth, "Retrakcja")
+        }
+        result.npcKnowledgeWrites.inferences.forEach { write ->
+            errorIf(write.holderId.isBlank(), issues, "EMPTY_INFERENCE_HOLDER", "Inference nie ma holderId.")
+            validateRef(write.resultingBelief, "Inference")
+            write.premiseTruths.forEach { validateRef(it, "Inference premise") }
+        }
+        result.npcKnowledgeWrites.organizationTransmissions.forEach { write ->
+            errorIf(write.organizationId.isBlank() || write.membershipId.isBlank() || write.publicationId.isBlank(), issues, "INVALID_ORGANIZATION_KNOWLEDGE", "Organization knowledge wymaga organization/membership/publication ID.")
+            errorIf(write.receiverId.isBlank(), issues, "EMPTY_ORGANIZATION_RECEIVER", "Organization knowledge nie ma receiverId.")
+            validateRef(write.sourceTruth, "Organization source")
+            validateRef(write.resultingBelief, "Organization result")
+        }
+        result.npcKnowledgeWrites.resolutions.forEach { write ->
+            errorIf(write.holderId.isBlank(), issues, "EMPTY_RESOLUTION_HOLDER", "Resolution nie ma holderId.")
+            write.competingBeliefs.forEach { validateRef(it, "Resolution competing belief") }
+            write.winner?.let { validateRef(it, "Resolution winner") }
+            write.supersededBeliefs.forEach { validateRef(it, "Resolution superseded belief") }
         }
 
         result.divergenceWrites.forEach { divergence ->
