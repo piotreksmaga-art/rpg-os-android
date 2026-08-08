@@ -259,6 +259,12 @@ class GameMasterTurnValidator141(
             }
         }
 
+        val mutationKeys = result.stateMutations.map {
+            Triple(it.entityType, it.entityId, it.field)
+        }
+        errorIf(mutationKeys.size != mutationKeys.toSet().size, issues, "DUPLICATE_FIELD_MUTATION",
+            "Jedna tura nie może modyfikować tego samego pola stanu więcej niż raz.")
+
         result.stateMutations.forEach { mutation ->
             errorIf(mutation.entityType.isBlank(), issues, "EMPTY_ENTITY_TYPE", "Mutacja ma pusty entityType.")
             errorIf(mutation.entityId.isBlank(), issues, "EMPTY_ENTITY_ID", "Mutacja ma pusty entityId.")
