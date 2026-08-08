@@ -1,0 +1,45 @@
+name: GM141 Add Settings Toggle
+on:
+  push:
+    branches: [ "gm-engine-141-foundation" ]
+    paths: [ ".github/workflows/gm141-add-settings-toggle.yml" ]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: gm-engine-141-foundation
+      - name: Add GM141 settings toggle
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('app/src/main/java/com/rpgos/app/MainActivity.kt')
+          s=p.read_text()
+          a='''    var diagnostics by remember(current.showGmDiagnostics){mutableStateOf(current.showGmDiagnostics)}\n    var backups by remember(current.autoBackup){mutableStateOf(current.autoBackup)}\n    var developerExpanded by remember { mutableStateOf(false) }\n'''
+          b='''    var diagnostics by remember(current.showGmDiagnostics){mutableStateOf(current.showGmDiagnostics)}\n    var backups by remember(current.autoBackup){mutableStateOf(current.autoBackup)}\n    var gm141 by remember(current.gm141Enabled){mutableStateOf(current.gm141Enabled)}\n    var developerExpanded by remember { mutableStateOf(false) }\n'''
+          if s.count(a)!=1: raise SystemExit('settings state insertion point mismatch')
+          s=s.replace(a,b,1)
+          a='''                        Switch(diagnostics,{diagnostics=it})\n                    }\n                }\n            }\n\n            item{\n                GlowPanel(\n                    modifier=Modifier.fillMaxWidth(),\n                    borderColor=Color(0x6658B8FF),\n'''
+          b='''                        Switch(diagnostics,{diagnostics=it})\n                    }\n\n                    HorizontalDivider(Modifier.padding(vertical=8.dp))\n\n                    Row(\n                        Modifier.fillMaxWidth(),\n                        horizontalArrangement=Arrangement.SpaceBetween,\n                        verticalAlignment=Alignment.CenterVertically\n                    ){\n                        Column(Modifier.weight(1f)){\n                            Text("GM Engine 141",fontWeight=FontWeight.Bold)\n                            Text(\n                                "Eksperymentalny transakcyjny silnik MG. Przy błędzie nie uruchamia starego StatePatch.",\n                                style=MaterialTheme.typography.bodySmall,\n                                color=MaterialTheme.colorScheme.onSurfaceVariant\n                            )\n                        }\n                        Switch(gm141,{gm141=it})\n                    }\n                }\n            }\n\n            item{\n                GlowPanel(\n                    modifier=Modifier.fillMaxWidth(),\n                    borderColor=Color(0x6658B8FF),\n'''
+          if s.count(a)!=1: raise SystemExit('automation panel insertion point mismatch')
+          s=s.replace(a,b,1)
+          a='''                        showGmDiagnostics=diagnostics,\n                        autoBackup=backups\n                    ))},\n'''
+          b='''                        showGmDiagnostics=diagnostics,\n                        autoBackup=backups,\n                        gm141Enabled=gm141\n                    ))},\n'''
+          if s.count(a)!=1: raise SystemExit('settings save insertion point mismatch')
+          s=s.replace(a,b,1)
+          p.write_text(s)
+          PY
+      - name: Verify and commit MainActivity only
+        run: |
+          grep -q 'var gm141 by remember(current.gm141Enabled)' app/src/main/java/com/rpgos/app/MainActivity.kt
+          grep -q 'Text("GM Engine 141"' app/src/main/java/com/rpgos/app/MainActivity.kt
+          grep -q 'gm141Enabled=gm141' app/src/main/java/com/rpgos/app/MainActivity.kt
+          git config user.name "rpg-os-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/src/main/java/com/rpgos/app/MainActivity.kt
+          git diff --cached --check
+          git commit -m "GM Engine 141: expose guarded settings toggle"
+          git push origin HEAD:gm-engine-141-foundation
