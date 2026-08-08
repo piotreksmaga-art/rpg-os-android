@@ -307,109 +307,66 @@ private fun HomeScreen(
             }
 
             item {
-                GlowPanel(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(28.dp, 16.dp, 30.dp, 18.dp),
+                PremiumHomeAction(
+                    title = "Nowa gra",
+                    subtitle = "Wybierz świat i rozpocznij nową kampanię.",
+                    glyph = "+",
+                    accent = Color(0xFF48B7FF),
+                    iconBrush = BlueGradient,
                     onClick = onNewGame
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier.size(66.dp).background(
-                                BlueGradient,
-                                RoundedCornerShape(22.dp, 12.dp, 22.dp, 12.dp)
-                            ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("+", style = MaterialTheme.typography.displaySmall, color = Color.White)
-                        }
-                        Spacer(Modifier.width(16.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("Nowa gra", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Text(
-                                "Wybierz świat i rozpocznij nową kampanię.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Text("›", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF8FD6FF))
-                    }
-                }
+                )
             }
 
             item {
-                GlowPanel(
-                    modifier = Modifier.fillMaxWidth(),
-                    borderColor = Color(0x6649E1D1),
-                    shape = RoundedCornerShape(18.dp, 28.dp, 16.dp, 30.dp),
+                PremiumHomeAction(
+                    title = "Kontynuuj",
+                    subtitle = "Wróć do ostatniej lub wybranej kampanii.",
+                    glyph = "▶",
+                    accent = Color(0xFF56E1D2),
+                    iconBrush = TealGradient,
                     onClick = onContinue
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier.size(58.dp).background(
-                                TealGradient,
-                                RoundedCornerShape(18.dp, 26.dp, 14.dp, 24.dp)
-                            ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("▶", style = MaterialTheme.typography.headlineSmall, color = Color.White)
-                        }
-                        Spacer(Modifier.width(16.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("Kontynuuj", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Text(
-                                "Wróć do ostatniej lub wybranej kampanii.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Text("›", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF78F0E2))
-                    }
-                }
+                )
             }
 
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    GlowPanel(
-                        modifier = Modifier.weight(1f).height(106.dp),
-                        shape = RoundedCornerShape(22.dp, 14.dp, 18.dp, 28.dp),
+                    PremiumMiniHomeCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Zapisy",
+                        subtitle = "Kampanie i kopie",
+                        glyph = "▣",
+                        accent = Color(0xFF7BBEFF),
                         onClick = onSaves
-                    ) {
-                        Text("▣", color = Color(0xFF7BBEFF), style = MaterialTheme.typography.headlineSmall)
-                        Spacer(Modifier.weight(1f))
-                        Text("Zapisy", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                    }
-                    GlowPanel(
-                        modifier = Modifier.weight(1f).height(106.dp),
-                        borderColor = Color(0x6656E1D2),
-                        shape = RoundedCornerShape(14.dp, 26.dp, 28.dp, 18.dp),
+                    )
+                    PremiumMiniHomeCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Galeria",
+                        subtitle = "Obrazy i sceny",
+                        glyph = "▧",
+                        accent = Color(0xFF56E1D2),
                         onClick = onGallery
-                    ) {
-                        Text("▧", color = Color(0xFF56E1D2), style = MaterialTheme.typography.headlineSmall)
-                        Spacer(Modifier.weight(1f))
-                        Text("Galeria", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                    }
+                    )
                 }
             }
 
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    GlowPanel(
-                        modifier = Modifier.weight(1f).height(106.dp),
-                        borderColor = Color(0x6656E1D2),
-                        shape = RoundedCornerShape(28.dp, 18.dp, 16.dp, 24.dp),
+                    PremiumMiniHomeCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Ustawienia",
+                        subtitle = "Dostosuj system",
+                        glyph = "⚙",
+                        accent = Color(0xFF52D8FF),
                         onClick = onSettings
-                    ) {
-                        Text("⚙", color = Color(0xFF52D8FF), style = MaterialTheme.typography.headlineSmall)
-                        Spacer(Modifier.weight(1f))
-                        Text("Ustawienia", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                    }
-                    GlowPanel(
-                        modifier = Modifier.weight(1f).height(106.dp),
-                        shape = RoundedCornerShape(16.dp, 30.dp, 24.dp, 14.dp),
+                    )
+                    PremiumMiniHomeCard(
+                        modifier = Modifier.weight(1f),
+                        title = "O programie",
+                        subtitle = "Wersja i informacje",
+                        glyph = "i",
+                        accent = Color(0xFF8FC9FF),
                         onClick = onAbout
-                    ) {
-                        Text("i", color = Color(0xFF8FC9FF), style = MaterialTheme.typography.headlineSmall)
-                        Spacer(Modifier.weight(1f))
-                        Text("O programie", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                    }
+                    )
                 }
             }
 
@@ -451,6 +408,115 @@ private fun SystemHeader() {
             }
             Spacer(Modifier.height(9.dp))
             Text("Twoje kampanie. Jeden system.", style = MaterialTheme.typography.titleMedium, color = Color(0xFFC1D0E1))
+        }
+    }
+}
+
+@Composable
+private fun PremiumHomeAction(
+    title: String,
+    subtitle: String,
+    glyph: String,
+    accent: Color,
+    iconBrush: Brush,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(26.dp)
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xEF0A1725), Color(0xF2050B13))
+                ),
+                shape
+            )
+            .border(1.dp, accent.copy(alpha = 0.42f), shape),
+        shape = shape,
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        Row(
+            Modifier.padding(horizontal = 18.dp, vertical = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier
+                    .size(66.dp)
+                    .background(iconBrush, RoundedCornerShape(20.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(20.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(glyph, style = MaterialTheme.typography.displaySmall, color = Color.White, fontWeight = FontWeight.Light)
+            }
+            Spacer(Modifier.width(18.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFEAF5FF)
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color(0xFFB9C9DA)
+                )
+            }
+            Box(
+                Modifier
+                    .size(34.dp)
+                    .background(accent.copy(alpha = 0.10f), RoundedCornerShape(50)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("›", style = MaterialTheme.typography.headlineSmall, color = accent)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PremiumMiniHomeCard(
+    modifier: Modifier = Modifier,
+    title: String,
+    subtitle: String,
+    glyph: String,
+    accent: Color,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(22.dp)
+    Card(
+        onClick = onClick,
+        modifier = modifier
+            .height(118.dp)
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xED091521), Color(0xF3050B12))
+                ),
+                shape
+            )
+            .border(1.dp, accent.copy(alpha = 0.38f), shape),
+        shape = shape,
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        Column(
+            Modifier.fillMaxSize().padding(16.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .background(accent.copy(alpha = 0.10f), RoundedCornerShape(11.dp))
+                    .border(1.dp, accent.copy(alpha = 0.28f), RoundedCornerShape(11.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(glyph, style = MaterialTheme.typography.titleLarge, color = accent, fontWeight = FontWeight.SemiBold)
+            }
+            Column {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFFE7F1FB))
+                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = Color(0xFF8FA4B8))
+            }
         }
     }
 }
