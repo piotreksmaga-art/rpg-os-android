@@ -1,7 +1,6 @@
 package com.rpgos.app
 
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -33,9 +32,10 @@ class GameMasterNpcKnowledgeTurnCommit141Test {
         campaignDir = File(context.filesDir, "rpgos/saves/GM141_Turn_Atomic.campaign")
         campaignDir.deleteRecursively()
         campaignDir.mkdirs()
-        SQLiteDatabase.openOrCreateDatabase(File(campaignDir, "campaign.db"), null).close()
         store = LocalGameStore(context)
         store.setActiveCampaign(campaignDir.name)
+        store.bootstrap()
+        require(File(campaignDir, "campaign.db").isFile) { "Test bootstrap did not create campaign.db" }
     }
 
     @After
@@ -136,7 +136,13 @@ class GameMasterNpcKnowledgeTurnCommit141Test {
                         predicate = "location",
                         value = "B",
                         validFromTurn = 0,
-                        provenance = ProvenanceRecord(ProvenanceType.CAMPAIGN_EVENT, null, 0, 1.0, true)
+                        provenance = ProvenanceRecord(
+                            type = ProvenanceType.CAMPAIGN_EVENT,
+                            sourceUid = null,
+                            turnId = 0,
+                            confidence = 1.0,
+                            verified = true
+                        )
                     )
                 )
             }
