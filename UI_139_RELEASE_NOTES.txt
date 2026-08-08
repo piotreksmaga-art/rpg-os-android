@@ -1,0 +1,3 @@
+RPG OS ALPHA 5 — UI 139 Global Contrast
+VersionCode 139
+Globalna poprawa czytelności tekstu na wszystkich ekranach aplikacji.
