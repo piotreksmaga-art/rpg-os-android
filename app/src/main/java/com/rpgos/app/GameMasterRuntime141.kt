@@ -52,7 +52,11 @@ class GameMasterRuntime141(
                 modelGateway = modelGateway,
                 ruleResolver = KnowledgeSafeRuleResolver141(baseResolver),
                 validator = GameMasterTurnValidator141(session.repository, session.campaignUid),
-                stateRepository = GameMasterStateRepository141(session.repository, session.campaignUid)
+                stateRepository = GameMasterStateRepository141(
+                    repository = session.repository,
+                    campaignUid = session.campaignUid,
+                    knowledgeStore = session.knowledgeStore
+                )
             )
 
             val result = engine.play(request)
