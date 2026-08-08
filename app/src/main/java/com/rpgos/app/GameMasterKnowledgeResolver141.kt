@@ -28,6 +28,9 @@ class GameMasterKnowledgeResolver141(
                 }
             }
             ?: error("KNOWLEDGE_PROPAGATE wymaga channel.")
+        require(channel != KnowledgeChannel141.ORGANIZATION) {
+            "Kanał ORGANIZATION wymaga trwałego membership/publication i dedykowanej akcji ORGANIZATION_KNOWLEDGE_PROPAGATE."
+        }
 
         val currentTurn = repository.currentTurnId(campaignUid)
         val requestedTruthId = params.optString("source_truth_id").trim().takeIf { it.isNotEmpty() }
