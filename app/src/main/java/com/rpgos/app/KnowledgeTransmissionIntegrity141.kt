@@ -92,6 +92,33 @@ class KnowledgeTransmissionIntegrity141(private val db: SQLiteDatabase) {
         )
         countIssue(
             issues,
+            "KNOWLEDGE_CHANNEL_PROVENANCE_MISMATCH",
+            "Kanał transmisji nie zgadza się z provenance wynikowego BELIEF.",
+            """
+            SELECT COUNT(*) FROM gm_knowledge_transmissions k
+            JOIN gm_facts r ON r.fact_id=k.resulting_belief_id AND r.campaign_id=k.campaign_id
+            WHERE k.campaign_id=? AND NOT (
+                (k.channel='OBSERVATION' AND r.source_type='NPC_OBSERVATION') OR
+                (k.channel='REPORT' AND r.source_type='NPC_REPORT') OR
+                (k.channel='RESEARCH' AND r.source_type='NPC_RESEARCH') OR
+                (k.channel='INFERENCE' AND r.source_type='NPC_INFERENCE')
+            )
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        )
+        countIssue(
+            issues,
+            "KNOWLEDGE_CHANNEL_REQUIRES_FACT",
+            "OBSERVATION lub RESEARCH używa źródła, które nie jest FACT.",
+            """
+            SELECT COUNT(*) FROM gm_knowledge_transmissions k
+            JOIN gm_facts s ON s.fact_id=k.source_truth_id AND s.campaign_id=k.campaign_id
+            WHERE k.campaign_id=? AND k.channel IN ('OBSERVATION','RESEARCH') AND s.truth_kind!='FACT'
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        )
+        countIssue(
+            issues,
             "KNOWLEDGE_FROM_FUTURE",
             "Ledger zawiera transmisję z tury późniejszej niż current_turn.",
             """
