@@ -43,6 +43,22 @@ class NpcKnowledgePropagation141Test {
     }
 
     @Test
+    fun researchCreatesBeliefWithDedicatedProvenance() {
+        val result = NpcKnowledgePropagation141 { EntityUid("BELIEF-RESEARCH") }.propagate(
+            KnowledgePropagationRequest141(
+                receiverUid = EntityUid("NPC-SCHOLAR"),
+                sourceTruth = fact,
+                channel = KnowledgeChannel141.RESEARCH,
+                turnId = 6L
+            )
+        )
+        assertEquals(TruthKind.BELIEF, result.kind)
+        assertEquals(ProvenanceType.NPC_RESEARCH, result.provenance.type)
+        assertEquals(fact.uid, result.provenance.sourceUid)
+        assertTrue(result.provenance.confidence < fact.provenance.confidence)
+    }
+
+    @Test
     fun reportCannotLeakAnotherNpcBelief() {
         val sourceNpc = EntityUid("NPC-A")
         val foreignBelief = fact.copy(
@@ -71,7 +87,7 @@ class NpcKnowledgePropagation141Test {
     }
 
     @Test
-    fun observationRejectsBeliefAsObjectiveSource() {
+    fun observationAndResearchRejectBeliefAsObjectiveSource() {
         val belief = fact.copy(
             uid = EntityUid("BELIEF-A"),
             kind = TruthKind.BELIEF,
@@ -79,7 +95,7 @@ class NpcKnowledgePropagation141Test {
             provenance = fact.provenance.copy(type = ProvenanceType.NPC_REPORT, confidence = 0.8)
         )
 
-        val attempt = runCatching {
+        assertTrue(runCatching {
             NpcKnowledgePropagation141().propagate(
                 KnowledgePropagationRequest141(
                     receiverUid = EntityUid("NPC-B"),
@@ -88,8 +104,18 @@ class NpcKnowledgePropagation141Test {
                     turnId = 7L
                 )
             )
-        }
-        assertTrue(attempt.isFailure)
+        }.isFailure)
+
+        assertTrue(runCatching {
+            NpcKnowledgePropagation141().propagate(
+                KnowledgePropagationRequest141(
+                    receiverUid = EntityUid("NPC-B"),
+                    sourceTruth = belief,
+                    channel = KnowledgeChannel141.RESEARCH,
+                    turnId = 7L
+                )
+            )
+        }.isFailure)
     }
 
     @Test
@@ -126,9 +152,11 @@ class NpcKnowledgePropagation141Test {
     }
 
     @Test
-    fun propagationRejectsFutureKnowledge() {
+    fun propagationRejectsFutureAndExpiredKnowledge() {
         val future = fact.copy(validFromTurn = 20L)
-        val attempt = runCatching {
+        val expired = fact.copy(validFromTurn = 1L, validUntilTurn = 4L)
+
+        assertTrue(runCatching {
             NpcKnowledgePropagation141().propagate(
                 KnowledgePropagationRequest141(
                     receiverUid = EntityUid("NPC-B"),
@@ -137,7 +165,17 @@ class NpcKnowledgePropagation141Test {
                     turnId = 10L
                 )
             )
-        }
-        assertTrue(attempt.isFailure)
+        }.isFailure)
+
+        assertTrue(runCatching {
+            NpcKnowledgePropagation141().propagate(
+                KnowledgePropagationRequest141(
+                    receiverUid = EntityUid("NPC-B"),
+                    sourceTruth = expired,
+                    channel = KnowledgeChannel141.OBSERVATION,
+                    turnId = 10L
+                )
+            )
+        }.isFailure)
     }
 }
