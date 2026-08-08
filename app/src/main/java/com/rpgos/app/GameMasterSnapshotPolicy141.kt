@@ -8,6 +8,7 @@ package com.rpgos.app
  */
 object GameMasterSnapshotPolicy141 {
     const val TURN_INTERVAL: Long = 500L
+    const val KEEP_NEWEST_AUTOMATIC: Int = 6
 
     suspend fun maintain(
         repository: UnifiedCampaignRepository,
@@ -26,11 +27,19 @@ object GameMasterSnapshotPolicy141 {
         val due = latest == null || currentTurn - latest.throughTurnId >= TURN_INTERVAL
         if (!due) return null
 
-        return runCatching {
+        val created = runCatching {
             repository.createSnapshot(campaignUid, currentTurn)
         }.getOrElse {
             onFailure(it)
-            null
+            return null
         }
+
+        if (repository is SnapshotRetention141) {
+            runCatching {
+                repository.pruneSnapshots(campaignUid, KEEP_NEWEST_AUTOMATIC)
+            }.onFailure(onFailure)
+        }
+
+        return created
     }
 }
