@@ -1,0 +1,38 @@
+name: UI138 Global Style
+on:
+  push:
+    branches:
+      - ui-138-global-style
+    paths:
+      - 'tools/ui138_global_style.py'
+      - '.github/workflows/ui-138-global-style.yml'
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ui-138-global-style
+          fetch-depth: 0
+      - name: Apply global UI style
+        run: python3 tools/ui138_global_style.py
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Build
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Commit UI 138
+        run: |
+          git config user.name piotreksmaga-art
+          git config user.email piotreksmaga@gmail.com
+          git add app/src/main/java/com/rpgos/app/MainActivity.kt app/build.gradle.kts
+          git commit -m "UI 138 - apply global RPG OS style"
+          git push origin HEAD:ui-138-global-style
