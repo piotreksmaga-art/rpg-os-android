@@ -1,0 +1,42 @@
+name: UI137 Finalize
+
+on:
+  push:
+    branches:
+      - ui-137-phase2-icons
+    paths:
+      - 'tools/ui137_finalize.py'
+      - '.github/workflows/ui-137-finalize.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ui-137-phase2-icons
+          fetch-depth: 0
+      - name: Apply final layout patch
+        run: python3 tools/ui137_finalize.py
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+          cache-read-only: true
+      - name: Build
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Commit final UI 137
+        run: |
+          git config user.name piotreksmaga-art
+          git config user.email piotreksmaga@gmail.com
+          git add app/src/main/java/com/rpgos/app/MainActivity.kt
+          git commit -m "UI 137 - finalize primary card layout"
+          git push origin HEAD:ui-137-phase2-icons
