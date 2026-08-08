@@ -1,0 +1,8 @@
+{
+  "versionName": "1.2.0-alpha5-ui139-contrast",
+  "versionCode": 139,
+  "scope": "global contrast and typography",
+  "build": ":app:assembleDebug",
+  "result": "success",
+  "workflowRun": 31259613042
+}
