@@ -24,7 +24,6 @@ table = '''        db.execSQL(
             )
             """.trimIndent()
         )
-
         db.execSQL(
             "CREATE INDEX IF NOT EXISTS idx_gm_knowledge_receiver_turn ON gm_knowledge_transmissions(campaign_id,receiver_id,turn_number DESC)"
         )
@@ -169,15 +168,17 @@ new = '''            result.truthWrites.forEach { truth ->
                 )
                 writeTruth(durableTruth)
 
-                val channel = knowledgeChannelFor(truth.sourceType)
-                if (truth.kind == TruthKind.BELIEF && channel != null && sourceUid != null && this is KnowledgeTransmissionStore141) {
+                val channel = truth.knowledgeChannel
+                if (truth.kind == TruthKind.BELIEF && channel != null) {
+                    require(sourceUid != null) { "BELIEF z kanału wiedzy wymaga sourceId." }
+                    require(this is KnowledgeTransmissionStore141) { "Repozytorium nie obsługuje ledgeru wiedzy." }
                     val receiver = requireNotNull(durableTruth.holderUid) { "BELIEF transmisji nie ma holderUid." }
                     appendKnowledgeTransmission(
                         KnowledgeTransmission141(
                             transmissionUid = uid("KNOW"),
                             campaignUid = campaignUid,
                             sourceTruthUid = sourceUid,
-                            sourceNpcUid = if (channel == KnowledgeChannel141.REPORT) truthSourceNpc(truth) else null,
+                            sourceNpcUid = truth.sourceNpcId.asUidOrNull(),
                             receiverUid = receiver,
                             resultingBeliefUid = truthUid,
                             channel = channel,
@@ -191,21 +192,4 @@ new = '''            result.truthWrites.forEach { truth ->
 if s.count(old) != 1:
     raise SystemExit(f'truth persistence block mismatch: {s.count(old)}')
 s = s.replace(old, new, 1)
-marker = '''    private fun durableEventPayload(event: WorldEventWrite): String = JSONObject().apply {
-'''
-helpers = '''    private fun knowledgeChannelFor(type: ProvenanceType): KnowledgeChannel141? = when (type) {
-        ProvenanceType.NPC_OBSERVATION -> KnowledgeChannel141.OBSERVATION
-        ProvenanceType.NPC_REPORT -> KnowledgeChannel141.REPORT
-        ProvenanceType.NPC_RESEARCH -> KnowledgeChannel141.RESEARCH
-        ProvenanceType.NPC_INFERENCE -> KnowledgeChannel141.INFERENCE
-        else -> null
-    }
-
-    private fun truthSourceNpc(truth: TruthWrite): EntityUid? =
-        truth.sourceId?.takeIf { it.startsWith("NPC-") }?.let(::EntityUid)
-
-'''
-if s.count(marker) != 1:
-    raise SystemExit(f'persistence helper marker mismatch: {s.count(marker)}')
-s = s.replace(marker, helpers + marker, 1)
 persist.write_text(s)
