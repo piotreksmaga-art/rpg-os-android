@@ -1,5 +1,0 @@
-character_uid       name               village_uid  country_uid        rank_title     era_tags                                                                      source_uid                   
-------------------  -----------------  -----------  -----------------  -------------  ----------------------------------------------------------------------------  -----------------------------
-CHAR-THIRD-RAIKAGE  A (Third Raikage)  VIL-KUMO     COUNTRY-LIGHTNING  Third Raikage  Third Shinobi World War; pre-series; Fourth Shinobi World War (reincarnated)  SRC-NARUTOPEDIA-THIRD-RAIKAGE
-20
-5
