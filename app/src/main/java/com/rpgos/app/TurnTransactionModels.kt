@@ -144,6 +144,10 @@ class TurnTransactionCoordinator(
         )
 
         repository.inTransaction {
+            val expectedTurn = currentTurnId(plan.campaignUid) + 1L
+            require(plan.turnId == expectedTurn) {
+                "Niemonotoniczny zapis tury: otrzymano ${plan.turnId}, oczekiwano $expectedTurn."
+            }
             writeTurn(committedTurn)
             plan.events.sortedBy { it.sequence }.forEach { appendEvent(it) }
             plan.mutations.forEach { applyMutation(it) }
