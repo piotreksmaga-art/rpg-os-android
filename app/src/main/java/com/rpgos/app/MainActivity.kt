@@ -526,8 +526,7 @@ private fun ElementalOrbit(
     pulse: Float
 ) {
     Canvas(Modifier.fillMaxSize()) {
-        // Elemental 130 deliberately keeps the 129 orbit geometry and motion untouched.
-        // Only the visual language of the five 72-degree zones changes here.
+        // Elemental 131: cinematic material pass. Orbit geometry and motion remain unchanged.
         val radiusX = size.width * 0.405f
         val radiusY = size.height * 0.365f
 
@@ -550,7 +549,7 @@ private fun ElementalOrbit(
             )
         }
 
-        fun drawSmoothSegment(
+        fun drawRibbon(
             startDeg: Float,
             endDeg: Float,
             colorA: Color,
@@ -559,13 +558,13 @@ private fun ElementalOrbit(
             alpha: Float,
             normal: (Float) -> Float = { 0f }
         ) {
-            val steps = if (fullEffects) 48 else 34
-            var prev: Offset? = null
+            val steps = if (fullEffects) 60 else 42
+            var previous: Offset? = null
             repeat(steps + 1) { i ->
                 val t = i.toFloat() / steps
                 val a = startDeg + (endDeg - startDeg) * t
-                val p = point(a, normal(t))
-                prev?.let { old ->
+                val current = point(a, normal(t))
+                previous?.let { old ->
                     drawLine(
                         brush = Brush.linearGradient(
                             colors = listOf(
@@ -573,247 +572,168 @@ private fun ElementalOrbit(
                                 colorB.copy(alpha = alpha)
                             ),
                             start = old,
-                            end = p
+                            end = current
                         ),
                         start = old,
-                        end = p,
+                        end = current,
                         strokeWidth = width,
                         cap = StrokeCap.Round
                     )
                 }
-                prev = p
+                previous = current
             }
+        }
+
+        fun glowAt(centerPoint: Offset, color: Color, radius: Float, alpha: Float) {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        color.copy(alpha = alpha),
+                        color.copy(alpha = alpha * 0.32f),
+                        Color.Transparent
+                    ),
+                    center = centerPoint,
+                    radius = radius
+                ),
+                center = centerPoint,
+                radius = radius
+            )
         }
 
         val base = angle
         val zone = 72f
         val phase = Math.toRadians(angle.toDouble()).toFloat()
 
-        // WIND — several weightless, separated ribbons instead of one generic colored tube.
+        // WIND — luminous vortex plus layered translucent air ribbons.
         run {
             val start = base
             val end = base + zone
-
-            drawSmoothSegment(
-                start, end,
-                Color(0xFF7EFFF1),
-                Color(0xFF52E7B1),
-                width = 2.5f * pulse,
-                alpha = 0.74f,
-                normal = { t -> sin(t * 12.566f + phase) * 3.2f }
+            drawRibbon(start, end, Color(0xFF65FFF2), Color(0xFF4BE7B7), 11f * pulse, 0.10f)
+            drawRibbon(
+                start, end, Color(0xFF9CFFF8), Color(0xFF52F0BE), 3.0f * pulse, 0.78f,
+                normal = { t -> sin(t * 12.566f + phase) * 4.6f }
             )
 
             if (!minimal) {
-                drawSmoothSegment(
-                    start + 1.5f, end - 1.5f,
-                    Color(0xFFD4FFF9),
-                    Color(0xFF7FFFC8),
-                    width = 1.25f,
-                    alpha = 0.62f,
-                    normal = { t -> 6.2f + sin(t * 15.708f + phase * 0.7f) * 2.4f }
-                )
-                drawSmoothSegment(
-                    start + 3f, end - 2f,
-                    Color(0xFF42D8D5),
-                    Color(0xFF82F8D2),
-                    width = 1.05f,
-                    alpha = 0.42f,
-                    normal = { t -> -6.4f + sin(t * 18.85f - phase * 0.5f) * 2.0f }
-                )
-
-                repeat(if (fullEffects) 14 else 8) { i ->
-                    val t = (i + 0.35f) / (if (fullEffects) 14f else 8f)
-                    val a = start + zone * t
-                    val sweep = 5f + (i % 3) * 2.2f
-                    val p1 = point(a - 1.8f, sweep)
-                    val p2 = point(a + 2.8f, sweep + 1.5f)
-                    drawLine(
-                        color = Color(0xFFB8FFF4).copy(alpha = 0.22f + 0.20f * pulse),
-                        start = p1,
-                        end = p2,
-                        strokeWidth = 0.8f + (i % 2) * 0.45f,
-                        cap = StrokeCap.Round
+                listOf(-10f, -5f, 5f, 10f).forEachIndexed { index, lane ->
+                    drawRibbon(
+                        start + 1.5f + index * 0.7f,
+                        end - 1.2f,
+                        if (index % 2 == 0) Color(0xFFD8FFFB) else Color(0xFF5FE5E1),
+                        Color(0xFF65F5B8),
+                        width = if (fullEffects) 1.45f else 1.1f,
+                        alpha = if (fullEffects) 0.58f else 0.42f,
+                        normal = { t -> lane + sin(t * (15.0f + index) + phase * (0.6f + index * 0.08f)) * 3.0f }
                     )
+                }
+
+                val vortex = point(start + zone * 0.48f)
+                glowAt(vortex, Color(0xFF62FFF0), if (fullEffects) 22f else 16f, 0.13f)
+                val spiralCount = if (fullEffects) 6 else 4
+                repeat(spiralCount) { arm ->
+                    var previous: Offset? = null
+                    val samples = if (fullEffects) 20 else 14
+                    repeat(samples) { j ->
+                        val t = j.toFloat() / (samples - 1).coerceAtLeast(1)
+                        val theta = t * 9.2f + arm * (6.283f / spiralCount) + phase * 0.55f
+                        val rr = (16f - 12f * t) * pulse
+                        val p = Offset(
+                            vortex.x + cos(theta) * rr,
+                            vortex.y + sin(theta) * rr * 0.72f
+                        )
+                        previous?.let { old ->
+                            drawLine(
+                                color = Color(0xFFCFFFF8).copy(alpha = 0.25f + 0.42f * (1f - t)),
+                                start = old,
+                                end = p,
+                                strokeWidth = 0.8f + (1f - t) * 0.8f,
+                                cap = StrokeCap.Round
+                            )
+                        }
+                        previous = p
+                    }
                 }
             }
         }
 
-        // FIRE — incandescent core, hotter inner line, tongues and embers.
+        // FIRE — broad orange body, white-hot vein, long flame tongues and embers.
         run {
             val start = base + zone
             val end = base + zone * 2f
-
-            drawSmoothSegment(
-                start, end,
-                Color(0xFFFFD65A),
-                Color(0xFFFF3A0A),
-                width = 8.2f * pulse,
-                alpha = 0.26f
-            )
-            drawSmoothSegment(
-                start, end,
-                Color(0xFFFFC13A),
-                Color(0xFFFF3B0B),
-                width = 4.8f * pulse,
-                alpha = 0.95f
-            )
-            drawSmoothSegment(
-                start + 2f, end - 2f,
-                Color(0xFFFFFFA8),
-                Color(0xFFFF8A1E),
-                width = 1.35f * pulse,
-                alpha = 0.86f
-            )
+            drawRibbon(start, end, Color(0xFFFF7B12), Color(0xFFFF2C05), 15f * pulse, 0.12f)
+            drawRibbon(start, end, Color(0xFFFFB11F), Color(0xFFFF4208), 7.4f * pulse, 0.88f)
+            drawRibbon(start + 1f, end - 1f, Color(0xFFFFFFC2), Color(0xFFFFA31A), 2.0f * pulse, 0.90f)
 
             if (!minimal) {
-                repeat(if (fullEffects) 24 else 13) { i ->
-                    val count = if (fullEffects) 24f else 13f
-                    val t = (i + 0.35f) / count
+                val flames = if (fullEffects) 30 else 18
+                repeat(flames) { i ->
+                    val t = (i + 0.35f) / flames
                     val a = start + zone * t
-                    val flameHeight = (5.5f + (i % 5) * 2.1f) * pulse
                     val side = if (i % 2 == 0) 1f else -1f
-                    val root = point(a, side * 0.8f)
-                    val mid = point(a + side * 1.5f, side * flameHeight * 0.62f)
-                    val tip = point(a - side * 0.7f, side * flameHeight)
+                    val height = (7f + (i % 6) * 2.4f) * pulse
+                    val root = point(a, side * 1.0f)
+                    val bend = point(a + side * (1.2f + i % 3), side * height * 0.58f)
+                    val tip = point(a - side * (0.8f + i % 2), side * height)
                     drawLine(
-                        color = Color(0xFFFF7A18).copy(alpha = 0.58f),
+                        color = Color(0xFFFF6A0A).copy(alpha = 0.62f),
                         start = root,
-                        end = mid,
-                        strokeWidth = 2.0f + (i % 3) * 0.45f,
+                        end = bend,
+                        strokeWidth = 2.5f + (i % 3) * 0.55f,
                         cap = StrokeCap.Round
                     )
                     drawLine(
-                        color = if (i % 3 == 0) Color(0xFFFFFF9D) else Color(0xFFFFC13D),
-                        start = mid,
+                        color = if (i % 4 == 0) Color(0xFFFFFFAD) else Color(0xFFFFC02D),
+                        start = bend,
                         end = tip,
-                        strokeWidth = 1.05f + (i % 2) * 0.35f,
+                        strokeWidth = 1.0f + (i % 2) * 0.45f,
                         cap = StrokeCap.Round
                     )
-
-                    if (fullEffects && i % 3 == 0) {
-                        drawCircle(
-                            color = Color(0xFFFFB33B).copy(alpha = 0.62f),
-                            radius = 1.0f + (i % 2) * 0.5f,
-                            center = point(a + 2.8f, side * (flameHeight + 4f))
-                        )
+                    if (fullEffects && i % 2 == 0) {
+                        val ember = point(a + 2.0f + (i % 3), side * (height + 5f + (i % 4)))
+                        glowAt(ember, Color(0xFFFF7B12), 3.0f, 0.28f)
+                        drawCircle(Color(0xFFFFD35C).copy(alpha = 0.76f), 0.9f + (i % 3) * 0.35f, ember)
                     }
                 }
             }
         }
 
-        // WATER — deep body, bright crest and displaced droplets.
+        // WATER — thick flowing body, white foam crest, splashes and suspended droplets.
         run {
             val start = base + zone * 2f
             val end = base + zone * 3f
-
-            drawSmoothSegment(
-                start, end,
-                Color(0xFF1769E8),
-                Color(0xFF21C9FF),
-                width = 8.0f * pulse,
-                alpha = 0.34f,
-                normal = { t -> sin(t * 6.283f + phase) * 1.4f }
-            )
-            drawSmoothSegment(
-                start, end,
-                Color(0xFF278BFF),
-                Color(0xFF1FD6FF),
-                width = 5.2f * pulse,
-                alpha = 0.88f,
-                normal = { t -> sin(t * 6.283f + phase) * 1.4f }
-            )
-            drawSmoothSegment(
-                start + 2f, end - 2f,
-                Color(0xFFE3FCFF),
-                Color(0xFF74DEFF),
-                width = 1.4f,
-                alpha = 0.80f,
-                normal = { t -> -2.0f + sin(t * 12.566f + phase) * 1.1f }
+            val waterWave: (Float) -> Float = { t -> sin(t * 6.283f + phase) * 2.4f }
+            drawRibbon(start, end, Color(0xFF0A62E8), Color(0xFF25CFFF), 16f * pulse, 0.13f, waterWave)
+            drawRibbon(start, end, Color(0xFF147DFF), Color(0xFF16BFFF), 8.5f * pulse, 0.84f, waterWave)
+            drawRibbon(
+                start + 1.2f, end - 1.0f,
+                Color(0xFFF3FFFF), Color(0xFF8CEBFF),
+                2.2f * pulse, 0.90f,
+                normal = { t -> waterWave(t) - 3.2f + sin(t * 12.566f + phase) * 1.5f }
             )
 
             if (!minimal) {
-                repeat(if (fullEffects) 18 else 10) { i ->
-                    val count = if (fullEffects) 18f else 10f
-                    val t = (i + 0.3f) / count
+                val sprays = if (fullEffects) 28 else 16
+                repeat(sprays) { i ->
+                    val t = (i + 0.2f) / sprays
                     val a = start + zone * t
-                    val side = if (i % 3 == 0) -1f else 1f
-                    val distance = side * (6f + (i % 4) * 2.5f)
-                    val p = point(a + (i % 2) * 1.2f, distance)
-                    drawCircle(
-                        color = if (i % 4 == 0)
-                            Color(0xFFD8FAFF).copy(alpha = 0.72f)
-                        else
-                            Color(0xFF5CCEFF).copy(alpha = 0.48f),
-                        radius = 0.9f + (i % 3) * 0.65f,
-                        center = p
-                    )
-                    if (fullEffects && i % 4 == 0) {
-                        drawCircle(
-                            color = Color(0xFF8BE7FF).copy(alpha = 0.16f),
-                            radius = 4.2f,
-                            center = p
-                        )
-                    }
+                    val side = if (i % 4 == 0) -1f else 1f
+                    val distance = side * (8f + (i % 6) * 2.7f) * pulse
+                    val p = point(a + (i % 3) * 0.9f, distance)
+                    val c = if (i % 5 == 0) Color(0xFFE8FDFF) else Color(0xFF53CEFF)
+                    glowAt(p, c, 3.6f + (i % 2), 0.15f)
+                    drawCircle(c.copy(alpha = 0.68f), 0.8f + (i % 4) * 0.45f, p)
                 }
-            }
-        }
-
-        // EARTH — heavy earthen band with angular rock shards, not round particles.
-        run {
-            val start = base + zone * 3f
-            val end = base + zone * 4f
-
-            drawSmoothSegment(
-                start, end,
-                Color(0xFF6D4A2D),
-                Color(0xFFB77B3E),
-                width = 9.0f * pulse,
-                alpha = 0.32f
-            )
-            drawSmoothSegment(
-                start, end,
-                Color(0xFF8B5E35),
-                Color(0xFFD1A05C),
-                width = 5.8f * pulse,
-                alpha = 0.90f
-            )
-            drawSmoothSegment(
-                start + 3f, end - 3f,
-                Color(0xFFE7C98E),
-                Color(0xFFB98148),
-                width = 1.1f,
-                alpha = 0.48f,
-                normal = { t -> if (t < 0.5f) -1.4f else 1.2f }
-            )
-
-            if (!minimal) {
-                repeat(if (fullEffects) 16 else 9) { i ->
-                    val count = if (fullEffects) 16f else 9f
-                    val t = (i + 0.28f) / count
-                    val a = start + zone * t
-                    val side = if (i % 2 == 0) 1f else -1f
-                    val c = point(a, side * (4f + (i % 3) * 1.7f))
-                    val r = 2.4f + (i % 4) * 0.65f
-                    val rock = Path().apply {
-                        moveTo(c.x - r * 1.15f, c.y - r * 0.25f)
-                        lineTo(c.x - r * 0.35f, c.y - r * 1.0f)
-                        lineTo(c.x + r * 0.85f, c.y - r * 0.55f)
-                        lineTo(c.x + r * 1.05f, c.y + r * 0.45f)
-                        lineTo(c.x + r * 0.10f, c.y + r * 1.0f)
-                        lineTo(c.x - r * 0.95f, c.y + r * 0.55f)
-                        close()
-                    }
-                    drawPath(
-                        path = rock,
-                        color = if (i % 3 == 0) Color(0xFFD2A667) else Color(0xFF765038),
-                        alpha = 0.82f
-                    )
-                    if (fullEffects && i % 3 == 0) {
+                if (fullEffects) {
+                    repeat(12) { i ->
+                        val t = (i + 0.5f) / 12f
+                        val a = start + zone * t
+                        val p1 = point(a - 1.5f, 4f + (i % 2) * 2f)
+                        val p2 = point(a + 2.2f, 7f + (i % 3) * 2f)
                         drawLine(
-                            color = Color(0xFFF0D5A0).copy(alpha = 0.42f),
-                            start = Offset(c.x - r * 0.35f, c.y - r * 0.65f),
-                            end = Offset(c.x + r * 0.55f, c.y - r * 0.20f),
-                            strokeWidth = 0.75f,
+                            color = Color(0xFFC9F8FF).copy(alpha = 0.34f),
+                            start = p1,
+                            end = p2,
+                            strokeWidth = 1.0f,
                             cap = StrokeCap.Round
                         )
                     }
@@ -821,101 +741,115 @@ private fun ElementalOrbit(
             }
         }
 
-        // LIGHTNING — sharp zig-zag current with a white-hot core and true branches.
+        // EARTH — broken rocky bed with lifted slabs, dust glows and metallic mineral highlights.
+        run {
+            val start = base + zone * 3f
+            val end = base + zone * 4f
+            drawRibbon(start, end, Color(0xFF4E3528), Color(0xFFA66C38), 17f * pulse, 0.11f)
+            drawRibbon(start, end, Color(0xFF76503A), Color(0xFFC28A4B), 8.6f * pulse, 0.84f)
+            drawRibbon(start + 2f, end - 2f, Color(0xFFF0D7A4), Color(0xFFB67E42), 1.5f, 0.48f)
+
+            if (!minimal) {
+                val rocks = if (fullEffects) 21 else 12
+                repeat(rocks) { i ->
+                    val t = (i + 0.3f) / rocks
+                    val a = start + zone * t
+                    val side = if (i % 2 == 0) 1f else -1f
+                    val lift = side * (4f + (i % 5) * 2.1f)
+                    val c = point(a, lift)
+                    val r = (2.5f + (i % 5) * 0.75f) * pulse
+                    val rock = Path().apply {
+                        moveTo(c.x - r * 1.25f, c.y - r * 0.18f)
+                        lineTo(c.x - r * 0.45f, c.y - r * 1.10f)
+                        lineTo(c.x + r * 0.58f, c.y - r * 0.90f)
+                        lineTo(c.x + r * 1.20f, c.y - r * 0.05f)
+                        lineTo(c.x + r * 0.72f, c.y + r * 0.92f)
+                        lineTo(c.x - r * 0.35f, c.y + r * 1.12f)
+                        lineTo(c.x - r * 1.12f, c.y + r * 0.55f)
+                        close()
+                    }
+                    drawPath(
+                        rock,
+                        color = when (i % 4) {
+                            0 -> Color(0xFFD2A068)
+                            1 -> Color(0xFF6C4835)
+                            2 -> Color(0xFF9B6840)
+                            else -> Color(0xFFB7834E)
+                        },
+                        alpha = 0.92f
+                    )
+                    drawLine(
+                        color = Color(0xFFF4D8A4).copy(alpha = 0.38f),
+                        start = Offset(c.x - r * 0.45f, c.y - r * 0.65f),
+                        end = Offset(c.x + r * 0.48f, c.y - r * 0.28f),
+                        strokeWidth = 0.8f,
+                        cap = StrokeCap.Round
+                    )
+                    if (fullEffects && i % 3 == 0) {
+                        glowAt(c, Color(0xFFC88C4A), r * 2.8f, 0.08f)
+                    }
+                }
+            }
+        }
+
+        // LIGHTNING — branching plasma arc with strong halo and a white-hot electrical core.
         run {
             val start = base + zone * 4f
             val end = base + 360f
-
             if (minimal) {
-                drawSmoothSegment(
-                    start, end,
-                    Color(0xFFFFFF9A),
-                    Color(0xFFFFC400),
-                    width = 3.5f * pulse,
-                    alpha = 0.92f
-                )
+                drawRibbon(start, end, Color(0xFFFFFFB4), Color(0xFFFFC31A), 4.0f * pulse, 0.94f)
             } else {
-                val bolts = if (fullEffects) 30 else 20
+                val bolts = if (fullEffects) 38 else 26
                 var previous = point(start)
                 repeat(bolts) { i ->
                     val t = (i + 1f) / bolts
                     val a = start + zone * t
-                    val jitter = when (i % 4) {
-                        0 -> 4.7f
-                        1 -> -2.8f
-                        2 -> 3.2f
-                        else -> -4.4f
+                    val jitter = when (i % 6) {
+                        0 -> 6.2f
+                        1 -> -3.4f
+                        2 -> 4.1f
+                        3 -> -6.0f
+                        4 -> 2.7f
+                        else -> -2.2f
                     } * pulse
                     val next = if (i == bolts - 1) point(end) else point(a, jitter)
+                    drawLine(Color(0xFFFFC400).copy(alpha = 0.12f), previous, next, 11f * pulse, StrokeCap.Round)
+                    drawLine(Color(0xFFFFD51F).copy(alpha = 0.34f), previous, next, 6.0f * pulse, StrokeCap.Round)
+                    drawLine(Color(0xFFFFEA61).copy(alpha = 0.96f), previous, next, 2.5f * pulse, StrokeCap.Round)
+                    drawLine(Color.White.copy(alpha = 0.94f), previous, next, 0.85f * pulse, StrokeCap.Round)
 
-                    drawLine(
-                        color = Color(0xFFFFC400).copy(alpha = 0.28f),
-                        start = previous,
-                        end = next,
-                        strokeWidth = 6.4f * pulse,
-                        cap = StrokeCap.Round
-                    )
-                    drawLine(
-                        color = Color(0xFFFFE23D).copy(alpha = 0.94f),
-                        start = previous,
-                        end = next,
-                        strokeWidth = 2.5f * pulse,
-                        cap = StrokeCap.Round
-                    )
-                    drawLine(
-                        color = Color(0xFFFFFFD6).copy(alpha = 0.92f),
-                        start = previous,
-                        end = next,
-                        strokeWidth = 0.9f * pulse,
-                        cap = StrokeCap.Round
-                    )
-
-                    if (i % (if (fullEffects) 3 else 4) == 1) {
+                    if (i % (if (fullEffects) 3 else 5) == 1) {
                         val side = if (i % 2 == 0) 1f else -1f
-                        val branchMid = point(a + side * 2.2f, jitter + side * 7.5f * pulse)
-                        val branchTip = point(a - side * 1.2f, jitter + side * 13f * pulse)
-                        drawLine(
-                            color = Color(0xFFFFD51F).copy(alpha = 0.68f),
-                            start = next,
-                            end = branchMid,
-                            strokeWidth = 1.35f,
-                            cap = StrokeCap.Round
-                        )
-                        drawLine(
-                            color = Color(0xFFFFFFB8).copy(alpha = 0.56f),
-                            start = branchMid,
-                            end = branchTip,
-                            strokeWidth = 0.75f,
-                            cap = StrokeCap.Round
-                        )
+                        val mid = point(a + side * 2.0f, jitter + side * (9f + i % 4) * pulse)
+                        val tip = point(a - side * 1.4f, jitter + side * (16f + i % 5) * pulse)
+                        drawLine(Color(0xFFFFD51F).copy(alpha = 0.48f), next, mid, 2.2f, StrokeCap.Round)
+                        drawLine(Color(0xFFFFFFCE).copy(alpha = 0.78f), next, mid, 0.75f, StrokeCap.Round)
+                        drawLine(Color(0xFFFFE34A).copy(alpha = 0.55f), mid, tip, 1.35f, StrokeCap.Round)
+                        if (fullEffects && i % 6 == 1) {
+                            val fork = point(a + side * 4.1f, jitter + side * 11f * pulse)
+                            drawLine(Color(0xFFFFFFB5).copy(alpha = 0.52f), mid, fork, 0.7f, StrokeCap.Round)
+                        }
                     }
                     previous = next
                 }
             }
         }
 
+        // Soft colored junction glow keeps the five materials visually continuous without changing zones.
         if (!minimal) {
             val seamColors = listOf(
-                Color(0xFF8CFFF1),
-                Color(0xFFFFA22E),
-                Color(0xFF59D6FF),
-                Color(0xFFB88A52),
-                Color(0xFFFFE63B)
+                Color(0xFF72FFF0),
+                Color(0xFFFF8C18),
+                Color(0xFF45CFFF),
+                Color(0xFFB97C44),
+                Color(0xFFFFDD28)
             )
             repeat(5) { i ->
-                val seam = point(base + zone * i)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            seamColors[i].copy(alpha = 0.22f + 0.12f * pulse),
-                            seamColors[i].copy(alpha = 0.08f),
-                            Color.Transparent
-                        ),
-                        center = seam,
-                        radius = if (fullEffects) 10f else 7f
-                    ),
-                    radius = if (fullEffects) 10f else 7f,
-                    center = seam
+                glowAt(
+                    point(base + zone * i),
+                    seamColors[i],
+                    if (fullEffects) 16f else 11f,
+                    if (fullEffects) 0.16f else 0.11f
                 )
             }
         }
