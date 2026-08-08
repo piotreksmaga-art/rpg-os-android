@@ -6,6 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 object KnowledgeTransmissionSchema141 {
     const val MIGRATION_ID = "GM-141-KNOWLEDGE-TRANSMISSION-V1"
     const val MIGRATION_V2_ID = "GM-141-KNOWLEDGE-TRANSMISSION-V2-RESEARCH"
+    const val MIGRATION_V3_ID = "GM-141-KNOWLEDGE-TRANSMISSION-V3-ORGANIZATION"
 
     fun ensure(db: SQLiteDatabase) {
         val ownsTransaction = !db.inTransaction()
@@ -15,6 +16,7 @@ object KnowledgeTransmissionSchema141 {
             recordMigration(db, MIGRATION_ID,
                 "Auditable NPC knowledge paths: source, sender, receiver, channel and resulting BELIEF")
             migrateV2ResearchChannel(db)
+            migrateV3OrganizationChannel(db)
             createIndexes(db)
             if (ownsTransaction) db.setTransactionSuccessful()
         } finally {
@@ -32,7 +34,7 @@ object KnowledgeTransmissionSchema141 {
                 source_npc_id TEXT,
                 receiver_id TEXT NOT NULL,
                 resulting_belief_id TEXT NOT NULL,
-                channel TEXT NOT NULL CHECK(channel IN ('OBSERVATION','REPORT','RESEARCH','INFERENCE')),
+                channel TEXT NOT NULL CHECK(channel IN ('OBSERVATION','REPORT','RESEARCH','INFERENCE','ORGANIZATION')),
                 turn_number INTEGER NOT NULL,
                 confidence REAL NOT NULL CHECK(confidence >= 0.0 AND confidence <= 1.0),
                 created_at INTEGER NOT NULL,
@@ -51,17 +53,50 @@ object KnowledgeTransmissionSchema141 {
     private fun migrateV2ResearchChannel(db: SQLiteDatabase) {
         if (migrationApplied(db, MIGRATION_V2_ID)) return
 
-        db.execSQL("DROP TABLE IF EXISTS gm_knowledge_transmissions_v2")
+        rebuildLedger(
+            db = db,
+            temporaryTable = "gm_knowledge_transmissions_v2",
+            allowedChannels = "'OBSERVATION','REPORT','RESEARCH','INFERENCE'"
+        )
+        recordMigration(
+            db,
+            MIGRATION_V2_ID,
+            "Knowledge transmission ledger supports explicit RESEARCH provenance channel"
+        )
+    }
+
+    /** V3 adds organization publication as a first-class, non-NPC-sender information path. */
+    private fun migrateV3OrganizationChannel(db: SQLiteDatabase) {
+        if (migrationApplied(db, MIGRATION_V3_ID)) return
+
+        rebuildLedger(
+            db = db,
+            temporaryTable = "gm_knowledge_transmissions_v3",
+            allowedChannels = "'OBSERVATION','REPORT','RESEARCH','INFERENCE','ORGANIZATION'"
+        )
+        recordMigration(
+            db,
+            MIGRATION_V3_ID,
+            "Knowledge transmission ledger supports authorized ORGANIZATION publication channel"
+        )
+    }
+
+    private fun rebuildLedger(
+        db: SQLiteDatabase,
+        temporaryTable: String,
+        allowedChannels: String
+    ) {
+        db.execSQL("DROP TABLE IF EXISTS $temporaryTable")
         db.execSQL(
             """
-            CREATE TABLE gm_knowledge_transmissions_v2 (
+            CREATE TABLE $temporaryTable (
                 transmission_id TEXT PRIMARY KEY,
                 campaign_id TEXT NOT NULL,
                 source_truth_id TEXT NOT NULL,
                 source_npc_id TEXT,
                 receiver_id TEXT NOT NULL,
                 resulting_belief_id TEXT NOT NULL,
-                channel TEXT NOT NULL CHECK(channel IN ('OBSERVATION','REPORT','RESEARCH','INFERENCE')),
+                channel TEXT NOT NULL CHECK(channel IN ($allowedChannels)),
                 turn_number INTEGER NOT NULL,
                 confidence REAL NOT NULL CHECK(confidence >= 0.0 AND confidence <= 1.0),
                 created_at INTEGER NOT NULL,
@@ -73,7 +108,7 @@ object KnowledgeTransmissionSchema141 {
         )
         db.execSQL(
             """
-            INSERT INTO gm_knowledge_transmissions_v2(
+            INSERT INTO $temporaryTable(
                 transmission_id,campaign_id,source_truth_id,source_npc_id,
                 receiver_id,resulting_belief_id,channel,turn_number,confidence,created_at
             )
@@ -83,12 +118,7 @@ object KnowledgeTransmissionSchema141 {
             """.trimIndent()
         )
         db.execSQL("DROP TABLE gm_knowledge_transmissions")
-        db.execSQL("ALTER TABLE gm_knowledge_transmissions_v2 RENAME TO gm_knowledge_transmissions")
-        recordMigration(
-            db,
-            MIGRATION_V2_ID,
-            "Knowledge transmission ledger supports explicit RESEARCH provenance channel"
-        )
+        db.execSQL("ALTER TABLE $temporaryTable RENAME TO gm_knowledge_transmissions")
     }
 
     private fun createIndexes(db: SQLiteDatabase) {
