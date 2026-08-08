@@ -1,9 +1,8 @@
 package com.rpgos.app
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import java.io.File
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 
 class CampaignSelectionManager(private val context: Context) {
     private val prefs = context.getSharedPreferences("rpgos_selection", Context.MODE_PRIVATE)
@@ -36,6 +35,21 @@ class CampaignSelectionManager(private val context: Context) {
         require(!target.exists()) { "Kampania już istnieje." }
         source.copyRecursively(target, overwrite = false)
         File(target, "backups").mkdirs()
+
+        // A copied campaign must never inherit the durable identity of its
+        // template. Import/export does not call this path, so imported saves
+        // correctly preserve their original campaign UID.
+        val campaignDb = File(target, "campaign.db")
+        if (campaignDb.exists()) {
+            SQLiteDatabase.openDatabase(
+                campaignDb.absolutePath,
+                null,
+                SQLiteDatabase.OPEN_READWRITE
+            ).use { db ->
+                CampaignIdentityResolver.forkIdentity(db)
+            }
+        }
+
         setActiveCampaign(target.name)
         return target
     }
