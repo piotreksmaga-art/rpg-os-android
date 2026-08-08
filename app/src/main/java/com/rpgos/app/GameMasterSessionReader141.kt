@@ -9,6 +9,7 @@ data class GameMasterSessionSnapshot141(
     val currentChapter: Long,
     val playerUid: String?,
     val locationUid: String?,
+    val time: TimeSnapshot?,
     val stateFieldCount: Int,
     val eventCount: Int,
     val factCount: Int,
@@ -31,15 +32,7 @@ class GameMasterSessionReader141(private val db: SQLiteDatabase) {
 
         val playerUid = resolvePlayerUid()
         val gmLocation = playerUid?.let {
-            scalarString(
-                """
-                SELECT value_json FROM gm_entity_state
-                WHERE campaign_id=? AND entity_type='CHARACTER' AND entity_id=?
-                  AND field_key='position.location_uid'
-                LIMIT 1
-                """.trimIndent(),
-                arrayOf(meta.campaignUid, it)
-            )
+            stateValue(meta.campaignUid, "CHARACTER", it, "position.location_uid")
         }
         val legacyLocation = playerUid?.let {
             scalarString(
@@ -48,9 +41,26 @@ class GameMasterSessionReader141(private val db: SQLiteDatabase) {
             )
         }
 
+        val legacyTime = readLegacyTime()
+        val gmTime = readGmTime(meta.campaignUid, legacyTime)
+
         val warnings = mutableListOf<String>()
         if (!gmLocation.isNullOrBlank() && !legacyLocation.isNullOrBlank() && gmLocation != legacyLocation) {
             warnings += "LOCATION_DIVERGENCE: legacy=$legacyLocation gm141=$gmLocation"
+        }
+        if (legacyTime != null && gmTime != null) {
+            if (legacyTime.label != gmTime.label) {
+                warnings += "TIME_LABEL_DIVERGENCE: legacy=${legacyTime.label} gm141=${gmTime.label}"
+            }
+            if (legacyTime.era != gmTime.era) {
+                warnings += "TIME_ERA_DIVERGENCE: legacy=${legacyTime.era} gm141=${gmTime.era}"
+            }
+            if (legacyTime.season != gmTime.season) {
+                warnings += "TIME_SEASON_DIVERGENCE: legacy=${legacyTime.season} gm141=${gmTime.season}"
+            }
+            if (legacyTime.hour != gmTime.hour) {
+                warnings += "TIME_CLOCK_DIVERGENCE: legacy=${legacyTime.hour} gm141=${gmTime.hour}"
+            }
         }
         if (meta.currentTurn < 0L) warnings += "NEGATIVE_CURRENT_TURN"
 
@@ -61,6 +71,7 @@ class GameMasterSessionReader141(private val db: SQLiteDatabase) {
             currentChapter = meta.currentChapter,
             playerUid = playerUid,
             locationUid = gmLocation ?: legacyLocation,
+            time = gmTime ?: legacyTime,
             stateFieldCount = count("gm_entity_state", meta.campaignUid),
             eventCount = count("gm_events", meta.campaignUid),
             factCount = count("gm_facts", meta.campaignUid),
@@ -74,6 +85,67 @@ class GameMasterSessionReader141(private val db: SQLiteDatabase) {
         val session = read() ?: return base
         return base.copy(location = session.locationUid ?: base.location)
     }
+
+    fun time(base: TimeSnapshot = TimeSnapshot()): TimeSnapshot {
+        val session = read() ?: return base
+        return session.time ?: base
+    }
+
+    private fun readGmTime(campaignUid: String, fallback: TimeSnapshot?): TimeSnapshot? {
+        if (!tableExists("gm_entity_state")) return null
+        val yearLabel = stateValue(campaignUid, "CAMPAIGN", campaignUid, "time.year_label")
+        val era = stateValue(campaignUid, "CAMPAIGN", campaignUid, "time.era")
+        val season = stateValue(campaignUid, "CAMPAIGN", campaignUid, "time.season")
+        val hour = stateValue(campaignUid, "CAMPAIGN", campaignUid, "time.hour")
+        val minute = stateValue(campaignUid, "CAMPAIGN", campaignUid, "time.minute")
+
+        if (listOf(yearLabel, era, season, hour, minute).all { it == null }) return null
+
+        val base = fallback ?: TimeSnapshot()
+        return TimeSnapshot(
+            label = yearLabel ?: base.label,
+            era = era ?: base.era,
+            season = season ?: base.season,
+            hour = formatClock(hour, minute, base.hour)
+        )
+    }
+
+    private fun readLegacyTime(): TimeSnapshot? = runCatching {
+        db.rawQuery(
+            "SELECT year_label,era_name,season,hour,minute FROM campaign_calendar WHERE id=1 LIMIT 1",
+            null
+        ).use { c ->
+            if (!c.moveToFirst()) return@use null
+            TimeSnapshot(
+                label = if (c.isNull(0)) "—" else c.getString(0),
+                era = if (c.isNull(1)) "—" else c.getString(1),
+                season = if (c.isNull(2)) "—" else c.getString(2),
+                hour = "%02d:%02d".format(c.getInt(3), c.getInt(4))
+            )
+        }
+    }.getOrNull()
+
+    private fun formatClock(hour: String?, minute: String?, fallback: String): String {
+        if (hour == null && minute == null) return fallback
+        val h = hour?.toIntOrNull()
+        val m = minute?.toIntOrNull()
+        if (h == null || m == null || h !in 0..23 || m !in 0..59) return fallback
+        return "%02d:%02d".format(h, m)
+    }
+
+    private fun stateValue(
+        campaignUid: String,
+        entityType: String,
+        entityId: String,
+        field: String
+    ): String? = scalarString(
+        """
+        SELECT value_json FROM gm_entity_state
+        WHERE campaign_id=? AND entity_type=? AND entity_id=? AND field_key=?
+        LIMIT 1
+        """.trimIndent(),
+        arrayOf(campaignUid, entityType, entityId, field)
+    )
 
     private fun resolvePlayerUid(): String? {
         val candidates = listOf(
