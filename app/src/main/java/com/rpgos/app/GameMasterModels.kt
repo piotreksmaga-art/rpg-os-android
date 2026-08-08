@@ -3,9 +3,9 @@ package com.rpgos.app
 /**
  * Neutral contracts for the RPG OS Game Master engine.
  *
- * The AI model is intentionally separated from storage. A campaign may grow to
- * millions of words while a single turn receives only the bounded working set
- * selected by retrieval.
+ * The AI model is intentionally separated from storage and mechanics. A
+ * campaign may grow to millions of words while a single turn receives only the
+ * bounded working set selected by retrieval.
  */
 data class GameMasterTurnRequest(
     val campaignId: String,
@@ -53,13 +53,36 @@ data class ContextSource(
     val confidence: Double = 1.0
 )
 
+/**
+ * Untrusted AI proposal. Nothing in this object changes canonical state.
+ * Mechanical consequences are requests that must be resolved by Rule Engine.
+ */
+data class GameMasterProposal(
+    val narrativeDraft: String,
+    val proposedActions: List<ProposedWorldAction> = emptyList(),
+    val proposedMemories: List<MemoryWrite> = emptyList(),
+    val proposedChronicleEntries: List<ChronicleWrite> = emptyList(),
+    val diagnostics: GameMasterDiagnostics = GameMasterDiagnostics()
+)
+
+data class ProposedWorldAction(
+    val actionType: String,
+    val actorId: String? = null,
+    val targetId: String? = null,
+    val parametersJson: String = "{}",
+    val reason: String = ""
+)
+
+/** Result after deterministic/rule-based resolution and validation. */
 data class GameMasterTurnResult(
     val narrative: String,
-    val stateMutations: List<GameStateMutation>,
-    val memoryWrites: List<MemoryWrite>,
-    val chronicleEntries: List<ChronicleWrite>,
-    val worldEvents: List<WorldEventWrite>,
-    val diagnostics: GameMasterDiagnostics
+    val stateMutations: List<GameStateMutation> = emptyList(),
+    val truthWrites: List<TruthWrite> = emptyList(),
+    val divergenceWrites: List<DivergenceWrite> = emptyList(),
+    val memoryWrites: List<MemoryWrite> = emptyList(),
+    val chronicleEntries: List<ChronicleWrite> = emptyList(),
+    val worldEvents: List<WorldEventWrite> = emptyList(),
+    val diagnostics: GameMasterDiagnostics = GameMasterDiagnostics()
 )
 
 data class GameStateMutation(
@@ -67,11 +90,41 @@ data class GameStateMutation(
     val entityId: String,
     val field: String,
     val operation: MutationOperation,
-    val value: String,
-    val reason: String
+    val oldValue: String? = null,
+    val newValue: String? = null,
+    val reason: String,
+    val causedByEventKey: String? = null
 )
 
 enum class MutationOperation { SET, ADD, REMOVE, INCREMENT, DECREMENT }
+
+data class TruthWrite(
+    val kind: TruthKind,
+    val subjectId: String?,
+    val predicate: String,
+    val value: String,
+    val holderId: String? = null,
+    val confidence: Double = 1.0,
+    val sourceType: ProvenanceType,
+    val sourceId: String? = null,
+    val validFromTurn: Long? = null,
+    val validUntilTurn: Long? = null
+) {
+    init {
+        require(kind != TruthKind.BELIEF || !holderId.isNullOrBlank()) {
+            "BELIEF wymaga holderId."
+        }
+        require(confidence in 0.0..1.0) { "confidence musi mieścić się w zakresie 0..1." }
+    }
+}
+
+data class DivergenceWrite(
+    val canonSubjectId: String,
+    val canonEventId: String? = null,
+    val divergenceType: String,
+    val description: String,
+    val causedByEventKey: String? = null
+)
 
 data class MemoryWrite(
     val memoryType: MemoryType,
@@ -107,16 +160,34 @@ data class WorldEventWrite(
     val eventKey: String,
     val description: String,
     val effectiveChapter: Long,
+    val actorId: String? = null,
+    val targetId: String? = null,
+    val causeEventKey: String? = null,
+    val payloadJson: String = "{}",
     val visibility: EventVisibility = EventVisibility.WORLD_INTERNAL
 )
 
 enum class EventVisibility { PLAYER_KNOWN, NPC_LOCAL, WORLD_INTERNAL, GM_ONLY }
 
 data class GameMasterDiagnostics(
-    val contextCharacters: Int,
-    val retrievedMemoryCount: Int,
-    val retrievedCanonCount: Int,
-    val retrievedNpcCount: Int,
-    val retrievedThreadCount: Int,
+    val contextCharacters: Int = 0,
+    val retrievedMemoryCount: Int = 0,
+    val retrievedCanonCount: Int = 0,
+    val retrievedNpcCount: Int = 0,
+    val retrievedThreadCount: Int = 0,
     val warnings: List<String> = emptyList()
 )
+
+data class GameMasterValidationIssue(
+    val code: String,
+    val message: String,
+    val severity: ValidationSeverity
+)
+
+enum class ValidationSeverity { WARNING, ERROR }
+
+data class GameMasterValidationReport(
+    val issues: List<GameMasterValidationIssue> = emptyList()
+) {
+    val accepted: Boolean get() = issues.none { it.severity == ValidationSeverity.ERROR }
+}
