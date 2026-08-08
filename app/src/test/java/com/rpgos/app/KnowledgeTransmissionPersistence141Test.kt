@@ -12,7 +12,7 @@ class KnowledgeTransmissionPersistence141Test {
     @Test
     fun beliefAndTransmissionShareResultingBeliefUid() = runBlocking {
         val repo = PersistenceFakeRepository()
-        val ledger = RecordingKnowledgeStore()
+        val ledger = RecordingKnowledgeStore(repo)
         val state = GameMasterStateRepository141(repo, campaign, ledger)
 
         state.commitTurn(
@@ -38,8 +38,10 @@ class KnowledgeTransmissionPersistence141Test {
             )
         )
 
-        val durableBelief = assertNotNull(repo.lastTruth).let { repo.lastTruth!! }
-        val transmission = assertNotNull(ledger.last).let { ledger.last!! }
+        assertNotNull(repo.lastTruth)
+        assertNotNull(ledger.last)
+        val durableBelief = repo.lastTruth!!
+        val transmission = ledger.last!!
         assertEquals(TruthKind.BELIEF, durableBelief.kind)
         assertEquals(durableBelief.uid, transmission.resultingBeliefUid)
         assertEquals(EntityUid("BELIEF-SOURCE-A"), transmission.sourceTruthUid)
@@ -72,7 +74,7 @@ class KnowledgeTransmissionPersistence141Test {
 
     private fun section(name: String) = ContextSection(name, "{}", 1)
 
-    private inner class PersistenceFakeRepository : UnifiedCampaignRepository {
+    private class PersistenceFakeRepository : UnifiedCampaignRepository {
         var turn = 0L
         var transactionEntered = false
         var transactionActive = false
@@ -102,12 +104,14 @@ class KnowledgeTransmissionPersistence141Test {
         }
     }
 
-    private inner class RecordingKnowledgeStore : KnowledgeTransmissionStore141 {
+    private class RecordingKnowledgeStore(
+        private val repo: PersistenceFakeRepository
+    ) : KnowledgeTransmissionStore141 {
         var last: KnowledgeTransmission141? = null
         var calledWhileRepositoryTransactionActive = false
 
         override suspend fun appendKnowledgeTransmission(record: KnowledgeTransmission141) {
-            calledWhileRepositoryTransactionActive = repoForCheck?.transactionActive ?: true
+            calledWhileRepositoryTransactionActive = repo.transactionActive
             last = record
         }
 
@@ -117,7 +121,5 @@ class KnowledgeTransmissionPersistence141Test {
             beforeOrAtTurn: Long?,
             limit: Int
         ): List<KnowledgeTransmission141> = listOfNotNull(last)
-
-        private val repoForCheck: PersistenceFakeRepository? get() = null
     }
 }
