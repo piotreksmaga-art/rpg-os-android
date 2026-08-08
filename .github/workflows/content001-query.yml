@@ -1,0 +1,38 @@
+name: Content001 Query Canon IDs
+on:
+  push:
+    branches: [ "content-001-third-raikage" ]
+    paths: [ '.github/workflows/content001-query.yml' ]
+permissions:
+  contents: write
+jobs:
+  query:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Query canon records
+        shell: bash
+        run: |
+          rm -rf /tmp/naruto_wp && mkdir -p /tmp/naruto_wp
+          unzip -q app/src/main/assets/Naruto.worldpack.zip -d /tmp/naruto_wp
+          DB=/tmp/naruto_wp/world.db
+          {
+            echo '--- villages ---'
+            sqlite3 -header -column "$DB" "SELECT * FROM canon_villages WHERE name LIKE '%Kumo%' OR name LIKE '%Cloud%';"
+            echo '--- countries ---'
+            sqlite3 -header -column "$DB" "SELECT * FROM canon_countries WHERE name LIKE '%Lightning%';"
+            echo '--- techniques ---'
+            sqlite3 -header -column "$DB" "SELECT technique_uid,name,category,rank,element_key,source_uid,verification_status FROM canon_technique_index WHERE name LIKE '%Hell%' OR name LIKE '%Black Lightning%' OR name LIKE '%Lightning Release Chakra Mode%' OR name LIKE '%Body Flicker%' OR name LIKE '%Lightning Straight%';"
+            echo '--- sources ---'
+            sqlite3 -header -column "$DB" "SELECT source_uid,source_type,title,authority_tier FROM canon_sources LIMIT 30;"
+            echo '--- third/fourth raikage existing ---'
+            sqlite3 -header -column "$DB" "SELECT * FROM canon_characters_v2 WHERE name LIKE '%Raikage%' OR name='A';"
+          } > CONTENT001_CANON_IDS.txt
+      - name: Commit query report
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add CONTENT001_CANON_IDS.txt
+          git commit -m 'Content 001: record relevant canon IDs'
+          git push
