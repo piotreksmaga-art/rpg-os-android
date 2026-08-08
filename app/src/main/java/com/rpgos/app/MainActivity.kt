@@ -2345,13 +2345,6 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
             verticalArrangement=Arrangement.spacedBy(14.dp)
         ){
             item{
-                DragonSystemHeader(
-                    visualEffectsLevel=effects,
-                    introAnimation=false
-                )
-            }
-
-            item{
                 GlowPanel(
                     modifier=Modifier.fillMaxWidth(),
                     borderColor=Color(0x6656E1D2),
