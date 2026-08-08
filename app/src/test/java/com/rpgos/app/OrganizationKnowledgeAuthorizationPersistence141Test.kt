@@ -65,6 +65,7 @@ class OrganizationKnowledgeAuthorizationPersistence141Test {
 
         val factory = GameMasterRepositoryFactory(context, store)
         val campaignUid = factory.openActiveSession().use { active ->
+            writeSourceFact(active, publication)
             val auth = requireNotNull(active.organizationAuthorizationStore)
             auth.appendMembership(active.campaignUid, membership)
             auth.appendPublication(active.campaignUid, publication)
@@ -105,6 +106,7 @@ class OrganizationKnowledgeAuthorizationPersistence141Test {
         )
 
         GameMasterRepositoryFactory(context, store).openActiveSession().use { active ->
+            writeSourceFact(active, publication)
             val auth = requireNotNull(active.organizationAuthorizationStore)
             auth.appendMembership(active.campaignUid, membership)
             auth.appendPublication(active.campaignUid, publication)
@@ -119,5 +121,104 @@ class OrganizationKnowledgeAuthorizationPersistence141Test {
             assertTrue(auth.membershipsForNpc(active.campaignUid, npc, 9L).isEmpty())
             assertTrue(auth.publicationsForOrganization(active.campaignUid, org, 10L).isEmpty())
         }
+    }
+
+    @Test
+    fun appendPublicationRejectsUnknownTruthUid() = runBlocking {
+        val publication = publication("unknown", "FACT-missing")
+
+        GameMasterRepositoryFactory(context, store).openActiveSession().use { active ->
+            val auth = requireNotNull(active.organizationAuthorizationStore)
+            val failure = runCatching {
+                auth.appendPublication(active.campaignUid, publication)
+            }.exceptionOrNull()
+
+            assertNotNull(failure)
+            assertTrue(failure?.message.orEmpty(), failure?.message.orEmpty().contains("nieistniejący truth_id"))
+            assertNull(auth.publicationByUid(active.campaignUid, publication.publicationUid, 5L))
+        }
+    }
+
+    @Test
+    fun appendPublicationRejectsBeliefAndSemanticMismatch() = runBlocking {
+        GameMasterRepositoryFactory(context, store).openActiveSession().use { active ->
+            val auth = requireNotNull(active.organizationAuthorizationStore)
+
+            val beliefPublication = publication("belief", "BELIEF-source")
+            writeSourceFact(active, beliefPublication, kind = TruthKind.BELIEF)
+            val beliefFailure = runCatching {
+                auth.appendPublication(active.campaignUid, beliefPublication)
+            }.exceptionOrNull()
+            assertTrue(beliefFailure?.message.orEmpty(), beliefFailure?.message.orEmpty().contains("wyłącznie FACT"))
+
+            val mismatchPublication = publication("mismatch", "FACT-mismatch")
+            writeSourceFact(active, mismatchPublication, predicate = "different.predicate")
+            val mismatchFailure = runCatching {
+                auth.appendPublication(active.campaignUid, mismatchPublication)
+            }.exceptionOrNull()
+            assertTrue(mismatchFailure?.message.orEmpty(), mismatchFailure?.message.orEmpty().contains("predicate="))
+        }
+    }
+
+    @Test
+    fun appendPublicationCannotOutliveSourceFact() = runBlocking {
+        val publication = publication("window", "FACT-window", validFrom = 4L, validUntil = 12L)
+
+        GameMasterRepositoryFactory(context, store).openActiveSession().use { active ->
+            writeSourceFact(active, publication, validFrom = 3L, validUntil = 8L)
+            val auth = requireNotNull(active.organizationAuthorizationStore)
+            val failure = runCatching {
+                auth.appendPublication(active.campaignUid, publication)
+            }.exceptionOrNull()
+
+            assertTrue(failure?.message.orEmpty(), failure?.message.orEmpty().contains("wykracza poza ważność FACT"))
+            assertNull(auth.publicationByUid(active.campaignUid, publication.publicationUid, 6L))
+        }
+    }
+
+    private fun publication(
+        suffix: String,
+        truthUid: String,
+        validFrom: Long = 2L,
+        validUntil: Long? = 10L
+    ) = OrganizationFactPublication141(
+        publicationUid = EntityUid("PUBLICATION-$suffix"),
+        organizationUid = EntityUid("ORG-$suffix"),
+        truthUid = EntityUid(truthUid),
+        subjectUid = EntityUid("SUBJECT-$suffix"),
+        predicate = "classified.$suffix",
+        minimumClearance = 1,
+        validFromTurn = validFrom,
+        validUntilTurn = validUntil
+    )
+
+    private suspend fun writeSourceFact(
+        active: ActiveGameMasterRepository,
+        publication: OrganizationFactPublication141,
+        kind: TruthKind = TruthKind.FACT,
+        subjectUid: EntityUid = publication.subjectUid,
+        predicate: String = publication.predicate,
+        validFrom: Long = 0L,
+        validUntil: Long? = null
+    ) {
+        active.repository.writeTruth(
+            CampaignTruth(
+                uid = publication.truthUid,
+                kind = kind,
+                subjectUid = subjectUid,
+                predicate = predicate,
+                value = "source-value",
+                holderUid = if (kind == TruthKind.BELIEF) EntityUid("NPC-source-holder") else null,
+                validFromTurn = validFrom,
+                validUntilTurn = validUntil,
+                provenance = ProvenanceRecord(
+                    type = ProvenanceType.SYSTEM_SIMULATION,
+                    sourceUid = null,
+                    turnId = validFrom,
+                    confidence = 1.0,
+                    verified = true
+                )
+            )
+        )
     }
 }
