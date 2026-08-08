@@ -1,7 +1,9 @@
 package com.rpgos.app
 
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -16,8 +18,7 @@ class GameMaster141ValidationTest {
         )
         val validator = GameMasterTurnValidator141(repo, campaignUid)
         val report = validator.validate(
-            request(),
-            context(),
+            request(), context(),
             GameMasterTurnResult(
                 narrative = "Skutek akcji.",
                 worldEvents = listOf(
@@ -53,8 +54,7 @@ class GameMaster141ValidationTest {
         )
         val validator = GameMasterTurnValidator141(repo, campaignUid)
         val report = validator.validate(
-            request(),
-            context(),
+            request(), context(),
             GameMasterTurnResult(
                 narrative = "Skutek akcji.",
                 stateMutations = listOf(
@@ -78,8 +78,7 @@ class GameMaster141ValidationTest {
     fun validatorRejectsUnknownEventDependency() = runBlocking {
         val validator = GameMasterTurnValidator141(FakeRepository(), campaignUid)
         val report = validator.validate(
-            request(),
-            context(),
+            request(), context(),
             GameMasterTurnResult(
                 narrative = "Skutek akcji.",
                 worldEvents = listOf(
@@ -95,6 +94,54 @@ class GameMaster141ValidationTest {
         )
         assertFalse(report.accepted)
         assertTrue(report.issues.any { it.code == "UNKNOWN_EVENT_CAUSE" })
+    }
+
+    @Test
+    fun validatorRejectsTwoMutationsOfSameField() = runBlocking {
+        val repo = FakeRepository(
+            state = mapOf(StateKey("CHARACTER", "player", "hp") to "100")
+        )
+        val mutation = GameStateMutation(
+            entityType = "CHARACTER",
+            entityId = "player",
+            field = "hp",
+            operation = MutationOperation.SET,
+            oldValue = "100",
+            newValue = "90",
+            reason = "test"
+        )
+        val report = GameMasterTurnValidator141(repo, campaignUid).validate(
+            request(), context(),
+            GameMasterTurnResult(
+                narrative = "Skutek akcji.",
+                stateMutations = listOf(mutation, mutation.copy(newValue = "80"))
+            )
+        )
+        assertFalse(report.accepted)
+        assertTrue(report.issues.any { it.code == "DUPLICATE_FIELD_MUTATION" })
+    }
+
+    @Test
+    fun resolverInitializesMissingNumericFieldWithoutFakeOldValue() = runBlocking {
+        val resolver = GameMasterRuleResolver141(FakeRepository(), campaignUid)
+        val result = resolver.resolve(
+            request(), context(),
+            GameMasterProposal(
+                narrativeDraft = "Rozwój.",
+                proposedActions = listOf(
+                    ProposedWorldAction(
+                        actionType = "STATE_INCREMENT",
+                        targetId = "player",
+                        parametersJson = """{"entity_type":"CHARACTER","field":"stat.focus","amount":"3"}""",
+                        reason = "trening"
+                    )
+                ),
+                diagnostics = GameMasterDiagnostics(0, 0, 0, 0, 0)
+            )
+        )
+        val mutation = result.stateMutations.single()
+        assertNull(mutation.oldValue)
+        assertEquals("3", mutation.newValue)
     }
 
     @Test
