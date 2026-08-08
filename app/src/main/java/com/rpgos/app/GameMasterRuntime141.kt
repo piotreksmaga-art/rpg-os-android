@@ -47,7 +47,15 @@ class GameMasterRuntime141(
             )
 
             val baseResolver = GameMasterRuleResolver141(session.repository, session.campaignUid)
-            val safeResolver = KnowledgeSafeRuleResolver141(baseResolver)
+            val organizationResolver = OrganizationKnowledgeRuleResolver141(
+                delegate = baseResolver,
+                repository = session.repository,
+                campaignUid = session.campaignUid,
+                authorizationStore = requireNotNull(session.organizationAuthorizationStore) {
+                    "Brak trwałego organization authorization store."
+                }
+            )
+            val safeResolver = KnowledgeSafeRuleResolver141(organizationResolver)
             val lifecycleResolver = NpcKnowledgeLifecycleRuleResolver141(
                 delegate = safeResolver,
                 repository = session.repository,
