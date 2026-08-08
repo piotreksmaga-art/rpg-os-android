@@ -436,72 +436,73 @@ private fun DragonSystemHeader(
         if (introAnimation) {
             delay(4600)
             introRunning = false
-        } else {
-            introRunning = false
-        }
+        } else introRunning = false
     }
 
-    val transition = rememberInfiniteTransition(label = "dragonOrbit")
+    val transition = rememberInfiniteTransition(label = "dragonGuardianOrbit")
     val orbit by transition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
             animation = tween(
                 durationMillis = when (mode) {
-                    "full" -> 5200
-                    "minimal" -> 12000
-                    else -> 7600
+                    "full" -> 7000
+                    "minimal" -> 15000
+                    else -> 9200
                 },
                 easing = LinearEasing
             ),
             repeatMode = RepeatMode.Restart
         ),
-        label = "orbit"
+        label = "guardianOrbit"
     )
-    val wingPulse by transition.animateFloat(
-        initialValue = 0.85f,
-        targetValue = 1.15f,
+    val breathe by transition.animateFloat(
+        initialValue = 0.94f,
+        targetValue = 1.06f,
         animationSpec = infiniteRepeatable(
-            animation = tween(700, easing = FastOutSlowInEasing),
+            animation = tween(1050, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "wingPulse"
+        label = "dragonBreathe"
     )
     val glow by transition.animateFloat(
-        initialValue = 0.45f,
-        targetValue = 0.9f,
+        initialValue = 0.55f,
+        targetValue = 0.92f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1100),
+            animation = tween(1250, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "glow"
+        label = "logoGlow"
     )
 
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(240.dp),
+        modifier = Modifier.fillMaxWidth().height(258.dp),
         contentAlignment = Alignment.Center
     ) {
-        if (mode == "full") {
-            DragonParticles(orbit)
-        }
+        if (mode == "full") DragonParticles(orbit)
 
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        val activeOrbit = if (mode == "minimal" && !introRunning) 318f else orbit
+        DragonGuardian(
+            angle = activeOrbit,
+            breathe = if (mode == "minimal") 1f else breathe,
+            trail = mode != "minimal",
+            fullEffects = mode == "full"
+        )
+
+        // Text is intentionally drawn after the dragon: maximum readability.
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 "SYSTEM",
                 style = MaterialTheme.typography.labelLarge,
-                color = Color(0xFF55D6FF).copy(alpha = 0.85f)
+                color = Color(0xFF55D6FF).copy(alpha = 0.90f)
             )
             Text(
                 "RPG OS",
                 style = MaterialTheme.typography.displaySmall,
                 fontWeight = FontWeight.Black,
-                color = Color(0xFFB8E5FF),
+                color = Color(0xFFD5F1FF),
                 modifier = Modifier.graphicsLayer {
-                    shadowElevation = 6f + 12f * glow
+                    shadowElevation = 5f + 10f * glow
                 }
             )
             Text(
@@ -510,183 +511,243 @@ private fun DragonSystemHeader(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-
-        val activeOrbit = if (mode == "minimal" && !introRunning) 315f else orbit
-        DragonSprite(
-            angle = activeOrbit,
-            wingPulse = if (mode == "minimal") 0.95f else wingPulse,
-            trail = mode != "minimal",
-            fullEffects = mode == "full"
-        )
     }
 }
 
 @Composable
-private fun DragonSprite(
+private fun DragonGuardian(
     angle: Float,
-    wingPulse: Float,
+    breathe: Float,
     trail: Boolean,
     fullEffects: Boolean
 ) {
-    BoxWithConstraints(
-        Modifier.fillMaxSize()
-    ) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
-        val radians = Math.toRadians(angle.toDouble())
-
-        // graphicsLayer translations are pixels, while maxWidth/maxHeight are dp.
-        // Convert explicitly so the dragon really travels around the logo rather
-        // than making a tiny orbit through the text on high-density phones.
         val widthPx = with(density) { maxWidth.toPx() }
         val heightPx = with(density) { maxHeight.toPx() }
-        val dragonHalfPx = with(density) { 32.dp.toPx() }
-        val edgePaddingPx = with(density) { 6.dp.toPx() }
+        val radiusX = widthPx * 0.405f
+        val radiusY = heightPx * 0.365f
 
-        val radiusX = minOf(
-            widthPx * 0.39f,
-            widthPx / 2f - dragonHalfPx - edgePaddingPx
-        ).coerceAtLeast(0f)
-        val radiusY = minOf(
-            heightPx * 0.34f,
-            heightPx / 2f - dragonHalfPx - edgePaddingPx
-        ).coerceAtLeast(0f)
-
+        val radians = Math.toRadians(angle.toDouble())
         val x = cos(radians).toFloat() * radiusX
         val y = sin(radians).toFloat() * radiusY
 
         if (trail) {
-            DragonOrbitTrail(
-                angle = angle,
-                fullEffects = fullEffects
-            )
+            DragonEnergyBody(angle = angle, fullEffects = fullEffects)
         }
 
         Canvas(
             Modifier
-                .size(64.dp)
+                .size(92.dp)
                 .align(Alignment.Center)
                 .graphicsLayer {
                     translationX = x
                     translationY = y
                     rotationZ = angle + 90f
+                    scaleX = breathe
+                    scaleY = breathe
                 }
         ) {
             val c = center
-            val body = Color(0xFF31B7E8)
-            val bright = Color(0xFF74F0E1)
+            val u = size.minDimension / 100f
 
-            // Local aura: brightest directly at the dragon.
+            // Soft aura with continuous alpha falloff; no hard "bubble".
             drawCircle(
-                color = Color(0x6638BFFF),
-                radius = size.minDimension * 0.42f,
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0x553EF2FF),
+                        Color(0x2231BFFF),
+                        Color.Transparent
+                    ),
+                    center = c,
+                    radius = 42f * u
+                ),
+                radius = 42f * u,
                 center = c
             )
-            drawCircle(
-                color = Color(0x3338E8FF),
-                radius = size.minDimension * 0.56f,
-                center = c
-            )
 
-            val bodyPath = Path().apply {
-                moveTo(c.x - 16f, c.y + 2f)
-                quadraticBezierTo(c.x - 2f, c.y - 10f, c.x + 18f, c.y)
-                quadraticBezierTo(c.x - 3f, c.y + 10f, c.x - 16f, c.y + 2f)
+            val neck = Path().apply {
+                moveTo(c.x - 38*u, c.y + 4*u)
+                cubicTo(c.x - 27*u, c.y - 12*u, c.x - 11*u, c.y - 14*u, c.x + 2*u, c.y - 6*u)
+                cubicTo(c.x - 7*u, c.y + 2*u, c.x - 20*u, c.y + 13*u, c.x - 39*u, c.y + 14*u)
                 close()
             }
-            drawPath(bodyPath, body)
+            drawPath(neck, Color(0xCC087DBD))
+            drawPath(neck, color = Color(0xAA56E8FF), style = Stroke(width = 1.25f*u))
 
-            val wingTop = Path().apply {
-                moveTo(c.x - 2f, c.y - 4f)
-                lineTo(c.x - 22f * wingPulse, c.y - 20f * wingPulse)
-                lineTo(c.x + 2f, c.y - 10f)
+            val head = Path().apply {
+                moveTo(c.x - 3*u, c.y - 8*u)
+                cubicTo(c.x + 10*u, c.y - 16*u, c.x + 26*u, c.y - 15*u, c.x + 38*u, c.y - 7*u)
+                lineTo(c.x + 48*u, c.y - 2*u)
+                lineTo(c.x + 39*u, c.y + 3*u)
+                lineTo(c.x + 46*u, c.y + 8*u)
+                cubicTo(c.x + 31*u, c.y + 13*u, c.x + 16*u, c.y + 11*u, c.x + 4*u, c.y + 6*u)
+                cubicTo(c.x - 2*u, c.y + 2*u, c.x - 6*u, c.y - 3*u, c.x - 3*u, c.y - 8*u)
                 close()
             }
-            val wingBottom = Path().apply {
-                moveTo(c.x - 2f, c.y + 4f)
-                lineTo(c.x - 22f * wingPulse, c.y + 20f * wingPulse)
-                lineTo(c.x + 2f, c.y + 10f)
+            drawPath(head, Color(0xEE13A9DF))
+            drawPath(head, color = Color(0xDD8AF6FF), style = Stroke(width = 1.6f*u))
+
+            val brow = Path().apply {
+                moveTo(c.x + 8*u, c.y - 9*u)
+                quadraticBezierTo(c.x + 20*u, c.y - 20*u, c.x + 33*u, c.y - 10*u)
+                quadraticBezierTo(c.x + 22*u, c.y - 8*u, c.x + 12*u, c.y - 2*u)
                 close()
             }
-            drawPath(wingTop, Color(0xFF1B7FC7))
-            drawPath(wingBottom, Color(0xFF159B9D))
+            drawPath(brow, Color(0xAA5BE9FF))
 
-            drawCircle(
-                bright,
-                radius = 3.2f,
-                center = c.copy(x = c.x + 15f, y = c.y - 2f)
-            )
+            val upperHorn = Path().apply {
+                moveTo(c.x + 8*u, c.y - 13*u)
+                cubicTo(c.x - 1*u, c.y - 28*u, c.x - 17*u, c.y - 31*u, c.x - 28*u, c.y - 34*u)
+                cubicTo(c.x - 16*u, c.y - 25*u, c.x - 6*u, c.y - 18*u, c.x + 13*u, c.y - 8*u)
+            }
+            drawPath(upperHorn, color = Color(0xFF7CEEFF), style = Stroke(width = 2.1f*u, cap = StrokeCap.Round))
+
+            val lowerHorn = Path().apply {
+                moveTo(c.x + 4*u, c.y - 10*u)
+                cubicTo(c.x - 7*u, c.y - 22*u, c.x - 19*u, c.y - 22*u, c.x - 34*u, c.y - 20*u)
+            }
+            drawPath(lowerHorn, color = Color(0xCC39BFFF), style = Stroke(width = 1.7f*u, cap = StrokeCap.Round))
+
+            repeat(5) { i ->
+                val px = c.x + (-8 + i*7)*u
+                val py = c.y + (-11 + (i%2)*2)*u
+                val spike = Path().apply {
+                    moveTo(px, py)
+                    lineTo(px - 7*u, py - (11 + i)*u)
+                    lineTo(px + 4*u, py - u)
+                    close()
+                }
+                drawPath(spike, if (i%2==0) Color(0xCC48DFFF) else Color(0xAA1F9DFF))
+            }
 
             drawLine(
-                color = Color(0xFF2ED6C7),
-                start = c.copy(x = c.x - 14f, y = c.y + 2f),
-                end = c.copy(x = c.x - 28f, y = c.y + 9f),
-                strokeWidth = 4f,
+                color = Color(0xCCB9FAFF),
+                start = Offset(c.x + 24*u, c.y + 5*u),
+                end = Offset(c.x + 40*u, c.y + 4*u),
+                strokeWidth = 1.2f*u,
                 cap = StrokeCap.Round
             )
-            drawLine(
-                color = Color(0xFF1A8AD5),
-                start = c.copy(x = c.x - 28f, y = c.y + 9f),
-                end = c.copy(x = c.x - 38f, y = c.y + 2f),
-                strokeWidth = 3f,
-                cap = StrokeCap.Round
+            repeat(3) { i ->
+                val tx = c.x + (29 + i*4)*u
+                val tooth = Path().apply {
+                    moveTo(tx, c.y + 4*u)
+                    lineTo(tx + 1.4f*u, c.y + 8*u)
+                    lineTo(tx + 2.5f*u, c.y + 4*u)
+                    close()
+                }
+                drawPath(tooth, Color(0xDDE8FFFF))
+            }
+
+            val eye = Offset(c.x + 27*u, c.y - 5*u)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color.White, Color(0xFF7CF7E8), Color.Transparent),
+                    center = eye,
+                    radius = 7*u
+                ),
+                radius = 7*u,
+                center = eye
             )
+            drawCircle(color = Color.White, radius = 1.7f*u, center = eye)
+
+            val whisker1 = Path().apply {
+                moveTo(c.x + 30*u, c.y + u)
+                cubicTo(c.x + 44*u, c.y + 10*u, c.x + 54*u, c.y + 17*u, c.x + 61*u, c.y + 14*u)
+            }
+            drawPath(whisker1, color = Color(0xAA70F3FF), style = Stroke(width = 1.15f*u, cap = StrokeCap.Round))
+
+            val whisker2 = Path().apply {
+                moveTo(c.x + 28*u, c.y + 3*u)
+                cubicTo(c.x + 42*u, c.y + 16*u, c.x + 46*u, c.y + 25*u, c.x + 54*u, c.y + 27*u)
+            }
+            drawPath(whisker2, color = Color(0x8850D8FF), style = Stroke(width = 0.9f*u, cap = StrokeCap.Round))
+
+            val claw = Path().apply {
+                moveTo(c.x - 18*u, c.y + 10*u)
+                cubicTo(c.x - 9*u, c.y + 17*u, c.x - 3*u, c.y + 20*u, c.x + 3*u, c.y + 16*u)
+                lineTo(c.x - u, c.y + 22*u)
+                lineTo(c.x - 6*u, c.y + 18*u)
+                lineTo(c.x - 11*u, c.y + 24*u)
+                lineTo(c.x - 13*u, c.y + 16*u)
+                close()
+            }
+            drawPath(claw, Color(0xAA1B9FD4))
         }
     }
 }
 
 @Composable
-private fun DragonOrbitTrail(
+private fun DragonEnergyBody(
     angle: Float,
     fullEffects: Boolean
 ) {
     Canvas(Modifier.fillMaxSize()) {
-        val segmentCount = if (fullEffects) 28 else 20
-        val angularGap = if (fullEffects) 3.8f else 4.6f
-        val radiusX = size.width * 0.39f
-        val radiusY = size.height * 0.34f
-
+        val segments = if (fullEffects) 52 else 40
+        val step = if (fullEffects) 2.8f else 3.4f
+        val radiusX = size.width * 0.405f
+        val radiusY = size.height * 0.365f
         var previous: Offset? = null
 
-        // Draw from the oldest/dimmest point to the newest/brightest point.
-        for (i in segmentCount downTo 1) {
-            val trailAngle = angle - i * angularGap
-            val radians = Math.toRadians(trailAngle.toDouble())
-            val point = Offset(
-                x = center.x + cos(radians).toFloat() * radiusX,
-                y = center.y + sin(radians).toFloat() * radiusY
+        for (i in segments downTo 1) {
+            val a = angle - i * step
+            val rad = Math.toRadians(a.toDouble())
+            val p = Offset(
+                center.x + cos(rad).toFloat() * radiusX,
+                center.y + sin(rad).toFloat() * radiusY
             )
 
-            // 0 near the far end of the trail, 1 close to the dragon.
-            val proximity = 1f - (i.toFloat() / (segmentCount + 1f))
-            val maxAlpha = if (fullEffects) 0.58f else 0.40f
-            val alpha = (0.015f + proximity * proximity * maxAlpha)
-                .coerceIn(0f, 0.72f)
+            // Cubic fade: strongest near the head, increasingly transparent toward the tail.
+            val t = 1f - i.toFloat() / (segments + 1f)
+            val alpha = (t*t*t * if (fullEffects) 0.84f else 0.70f).coerceIn(0f, 0.86f)
+            val width = 1.0f + t * if (fullEffects) 13f else 10f
 
             previous?.let { old ->
                 drawLine(
-                    color = Color(0xFF2EBEFF).copy(alpha = alpha * 0.72f),
+                    color = Color(0xFF087BC5).copy(alpha = alpha * 0.34f),
                     start = old,
-                    end = point,
-                    strokeWidth = 1.4f + proximity * if (fullEffects) 5.2f else 3.6f,
+                    end = p,
+                    strokeWidth = width * 2.05f,
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFF1A87FF).copy(alpha = alpha * 0.72f),
+                            Color(0xFF51EBDD).copy(alpha = alpha)
+                        ),
+                        start = old,
+                        end = p
+                    ),
+                    start = old,
+                    end = p,
+                    strokeWidth = width,
                     cap = StrokeCap.Round
                 )
             }
 
-            drawCircle(
-                color = Color(0xFF39E3D1).copy(alpha = alpha),
-                radius = 1.1f + proximity * if (fullEffects) 5.4f else 3.7f,
-                center = point
-            )
-
-            if (fullEffects && i % 3 == 0) {
-                drawCircle(
-                    color = Color(0xFF6DDCFF).copy(alpha = alpha * 0.32f),
-                    radius = 5f + proximity * 10f,
-                    center = point
+            if (i % 3 == 0 && t > 0.16f) {
+                val nx = cos(rad).toFloat()
+                val ny = sin(rad).toFloat()
+                val tangent = Offset(-ny, nx)
+                val spikeLen = 3f + 8f*t
+                drawLine(
+                    color = Color(0xFF80F4FF).copy(alpha = alpha * 0.65f),
+                    start = p,
+                    end = Offset(p.x + tangent.x*spikeLen, p.y + tangent.y*spikeLen),
+                    strokeWidth = 1f + 1.3f*t,
+                    cap = StrokeCap.Round
                 )
             }
 
-            previous = point
+            if (fullEffects && i % 4 == 0 && t > 0.25f) {
+                drawCircle(
+                    color = Color(0xFF8EFCFF).copy(alpha = alpha * 0.44f),
+                    radius = 1.2f + 2.5f*t,
+                    center = Offset(p.x + 3f*sin(rad).toFloat(), p.y - 3f*cos(rad).toFloat())
+                )
+            }
+            previous = p
         }
     }
 }
