@@ -1,28 +1,25 @@
 package com.rpgos.app
 
-/**
- * Neutral contracts for the RPG OS Game Master engine.
- *
- * The AI model is intentionally separated from storage and mechanics. A
- * campaign may grow to millions of words while a single turn receives only the
- * bounded working set selected by retrieval.
- */
-data class GameMasterTurnRequest(
-    val campaignId: String,
-    val worldPackId: String,
-    val playerAction: String,
-    val currentChapter: Long,
-    val locale: String = "pl-PL",
-    val contextBudget: ContextBudget = ContextBudget()
+data class ContextBudget(
+    val maxCharacters: Int = 90_000,
+    val recentNarrativeCharacters: Int = 24_000,
+    val memoryCharacters: Int = 24_000,
+    val worldKnowledgeCharacters: Int = 18_000,
+    val stateCharacters: Int = 14_000,
+    val rulesCharacters: Int = 10_000
 )
 
-data class ContextBudget(
-    val maxCharacters: Int = 120_000,
-    val recentNarrativeCharacters: Int = 24_000,
-    val memoryCharacters: Int = 28_000,
-    val worldKnowledgeCharacters: Int = 28_000,
-    val stateCharacters: Int = 20_000,
-    val rulesCharacters: Int = 20_000
+data class ContextSource(
+    val sourceType: String,
+    val sourceId: String,
+    val description: String? = null
+)
+
+data class ContextSection(
+    val title: String,
+    val content: String,
+    val priority: Int,
+    val estimatedCharacters: Int = content.length
 )
 
 data class GameMasterContext(
@@ -37,26 +34,29 @@ data class GameMasterContext(
     val rules: ContextSection,
     val recentNarrative: ContextSection,
     val provenance: List<ContextSource> = emptyList()
+) {
+    fun totalCharacters(): Int = listOf(
+        scene,
+        playerState,
+        activeWorldState,
+        activeThreads,
+        relevantMemories,
+        canonKnowledge,
+        rules,
+        recentNarrative
+    ).sumOf { it.estimatedCharacters }
+}
+
+data class GameMasterTurnRequest(
+    val campaignId: String,
+    val worldPackId: String,
+    val playerAction: String,
+    val currentChapter: Long,
+    val locale: String = "pl-PL",
+    val contextBudget: ContextBudget = ContextBudget()
 )
 
-data class ContextSection(
-    val title: String,
-    val content: String,
-    val priority: Int,
-    val estimatedCharacters: Int = content.length
-)
-
-data class ContextSource(
-    val sourceType: String,
-    val sourceId: String,
-    val reason: String,
-    val confidence: Double = 1.0
-)
-
-/**
- * Untrusted AI proposal. Nothing in this object changes canonical state.
- * Mechanical consequences are requests that must be resolved by Rule Engine.
- */
+/** Untrusted semantic proposal returned by the model. It is never persisted directly. */
 data class GameMasterProposal(
     val narrativeDraft: String,
     val proposedActions: List<ProposedWorldAction> = emptyList(),
@@ -117,6 +117,32 @@ data class TruthWrite(
             "BELIEF wymaga holderId."
         }
         require(confidence in 0.0..1.0) { "confidence musi mieścić się w zakresie 0..1." }
+
+        val expectedKnowledgeProvenance = when (knowledgeChannel) {
+            KnowledgeChannel141.OBSERVATION -> ProvenanceType.NPC_OBSERVATION
+            KnowledgeChannel141.REPORT -> ProvenanceType.NPC_REPORT
+            KnowledgeChannel141.RESEARCH -> ProvenanceType.NPC_RESEARCH
+            KnowledgeChannel141.INFERENCE -> ProvenanceType.NPC_INFERENCE
+            null -> null
+        }
+        val isNpcKnowledgeProvenance = sourceType in setOf(
+            ProvenanceType.NPC_OBSERVATION,
+            ProvenanceType.NPC_REPORT,
+            ProvenanceType.NPC_RESEARCH,
+            ProvenanceType.NPC_INFERENCE
+        )
+        require(!isNpcKnowledgeProvenance || kind == TruthKind.BELIEF) {
+            "Provenance wiedzy NPC może być użyte wyłącznie dla BELIEF."
+        }
+        require(!isNpcKnowledgeProvenance || knowledgeChannel != null) {
+            "BELIEF z provenance wiedzy NPC wymaga knowledgeChannel."
+        }
+        require(expectedKnowledgeProvenance == null || sourceType == expectedKnowledgeProvenance) {
+            "knowledgeChannel $knowledgeChannel nie odpowiada sourceType $sourceType."
+        }
+        require(knowledgeChannel == null || !sourceId.isNullOrBlank()) {
+            "BELIEF z knowledgeChannel wymaga trwałego sourceId."
+        }
         require(knowledgeChannel != KnowledgeChannel141.REPORT || !sourceNpcId.isNullOrBlank()) {
             "BELIEF z kanału REPORT wymaga sourceNpcId."
         }
@@ -143,56 +169,39 @@ data class MemoryWrite(
 enum class MemoryType {
     FACT,
     RELATIONSHIP,
-    PROMISE,
-    SECRET,
     DISCOVERY,
-    CHARACTER_DEVELOPMENT,
+    PROMISE,
+    THREAT,
+    MYSTERY,
+    CHARACTER_ARC,
     WORLD_CHANGE,
-    PLAYER_PREFERENCE,
-    LONG_TERM_THREAD
+    PERSONAL
 }
 
 data class ChronicleWrite(
-    val chapter: Long,
     val title: String,
     val summary: String,
-    val participants: Set<String> = emptySet(),
-    val locationIds: Set<String> = emptySet()
+    val chapter: Long,
+    val importance: Double = 0.5,
+    val relatedEventKeys: Set<String> = emptySet()
 )
 
 data class WorldEventWrite(
     val eventType: String,
     val eventKey: String,
-    val description: String,
-    val effectiveChapter: Long,
     val actorId: String? = null,
     val targetId: String? = null,
-    val causeEventKey: String? = null,
+    val description: String,
     val payloadJson: String = "{}",
-    val visibility: EventVisibility = EventVisibility.WORLD_INTERNAL
+    val causeEventKey: String? = null,
+    val effectiveChapter: Long
 )
-
-enum class EventVisibility { PLAYER_KNOWN, NPC_LOCAL, WORLD_INTERNAL, GM_ONLY }
 
 data class GameMasterDiagnostics(
+    val retrievedMemories: Int = 0,
+    val retrievedCanonRecords: Int = 0,
+    val retrievedNpcRecords: Int = 0,
     val contextCharacters: Int = 0,
-    val retrievedMemoryCount: Int = 0,
-    val retrievedCanonCount: Int = 0,
-    val retrievedNpcCount: Int = 0,
-    val retrievedThreadCount: Int = 0,
+    val modelLatencyMs: Long = 0,
     val warnings: List<String> = emptyList()
 )
-
-data class GameMasterValidationIssue(
-    val code: String,
-    val message: String,
-    val severity: ValidationSeverity
-)
-
-enum class ValidationSeverity { WARNING, ERROR }
-
-data class GameMasterValidationReport(
-    val issues: List<GameMasterValidationIssue> = emptyList()
-) {
-    val accepted: Boolean get() = issues.none { it.severity == ValidationSeverity.ERROR }
-}
