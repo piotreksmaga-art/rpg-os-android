@@ -1,6 +1,17 @@
 {
   "schemaVersion": 1,
   "channel": "alpha",
-  "generatedAt": "2026-08-08T14:04:00Z",
-  "packages": []
+  "generatedAt": "2026-08-08T14:22:00Z",
+  "packages": [
+    {
+      "id": "Naruto",
+      "type": "WORLD",
+      "version": 2,
+      "minEngineVersionCode": 140,
+      "downloadUrl": "https://raw.githubusercontent.com/piotreksmaga-art/rpg-os-android/master/content/packages/Naruto-v2.zip",
+      "sha256": "21de4d27f238d1261a6bbc4d02334be9a278d90a4398d1ebeed89b6ac5005cfd",
+      "sizeBytes": 70114,
+      "description": "Naruto Content 002: szczegółowy kanoniczny profil Trzeciego Raikage (A), techniki, cechy i relacje."
+    }
+  ]
 }
