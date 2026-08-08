@@ -66,14 +66,12 @@ class NpcKnowledgeDiagnostics141(
         val history = timeline.query(holderUid, atTurnId = view.atTurnId, limit = 5_000)
         val issues = mutableListOf<Issue>()
 
-        if (view.unresolvedBeliefConflicts.isNotEmpty()) {
-            view.unresolvedBeliefConflicts.forEach { conflict ->
-                issues += Issue(
-                    severity = Severity.WARNING,
-                    code = "NPC_KNOWLEDGE_UNRESOLVED_CONFLICT",
-                    message = "Nierozstrzygnięty konflikt ${conflict.predicate}: ${conflict.competingBeliefs.map { it.value }.distinct()}."
-                )
-            }
+        view.unresolvedBeliefConflicts.forEach { conflict ->
+            issues += Issue(
+                severity = Severity.WARNING,
+                code = "NPC_KNOWLEDGE_UNRESOLVED_CONFLICT",
+                message = "Nierozstrzygnięty konflikt ${conflict.predicate}: ${conflict.competingBeliefs.map { it.value }.distinct()}."
+            )
         }
 
         val summaries = view.beliefs.map { belief ->
@@ -82,7 +80,7 @@ class NpcKnowledgeDiagnostics141(
                 beliefUid = belief.uid,
                 atTurnId = view.atTurnId
             )
-            if (explanation.lineage.cycleDetected) {
+            if (explanation.cycleDetected) {
                 issues += Issue(
                     Severity.ERROR,
                     "NPC_KNOWLEDGE_LINEAGE_CYCLE",
@@ -90,7 +88,7 @@ class NpcKnowledgeDiagnostics141(
                     belief.uid
                 )
             }
-            if (explanation.lineage.truncated) {
+            if (explanation.lineageTruncated) {
                 issues += Issue(
                     Severity.WARNING,
                     "NPC_KNOWLEDGE_LINEAGE_TRUNCATED",
@@ -98,14 +96,14 @@ class NpcKnowledgeDiagnostics141(
                     belief.uid
                 )
             }
-            if (explanation.lineage.terminalSourceUid != null &&
-                explanation.lineage.chain.lastOrNull()?.provenance?.sourceUid != null &&
-                !explanation.lineage.cycleDetected && !explanation.lineage.truncated
+            if (explanation.terminalSourceUid != null &&
+                explanation.provenanceChain.lastOrNull()?.provenance?.sourceUid != null &&
+                !explanation.cycleDetected && !explanation.lineageTruncated
             ) {
                 issues += Issue(
                     Severity.WARNING,
                     "NPC_KNOWLEDGE_LINEAGE_MISSING_SOURCE",
-                    "Lineage dla ${belief.uid.value} kończy się na brakującym źródle ${explanation.lineage.terminalSourceUid.value}.",
+                    "Lineage dla ${belief.uid.value} kończy się na brakującym źródle ${explanation.terminalSourceUid.value}.",
                     belief.uid
                 )
             }
@@ -118,10 +116,10 @@ class NpcKnowledgeDiagnostics141(
                 confidence = belief.provenance.confidence,
                 provenance = belief.provenance.type,
                 learnedTurn = belief.provenance.turnId ?: belief.validFromTurn,
-                status = explanation.timelineStatus,
-                lineageDepth = explanation.lineage.chain.size,
-                lineageCycle = explanation.lineage.cycleDetected,
-                lineageTruncated = explanation.lineage.truncated
+                status = explanation.status,
+                lineageDepth = explanation.provenanceChain.size,
+                lineageCycle = explanation.cycleDetected,
+                lineageTruncated = explanation.lineageTruncated
             )
         }
 
