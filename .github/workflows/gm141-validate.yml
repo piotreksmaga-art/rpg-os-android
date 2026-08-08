@@ -13,7 +13,12 @@ jobs:
         with:
           python-version: '3.12'
       - name: Validate GM141 backend syntax
-        run: python -m py_compile backend/app.py
+        run: python -m py_compile backend/app.py backend/test_gm141_contract.py
+      - name: Install backend test dependencies
+        run: pip install -r backend/requirements.txt pytest httpx
+      - name: Test GM141 backend contract
+        working-directory: backend
+        run: pytest -q test_gm141_contract.py
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
