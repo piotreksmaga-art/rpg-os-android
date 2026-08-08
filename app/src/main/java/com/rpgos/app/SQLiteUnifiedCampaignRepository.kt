@@ -29,6 +29,7 @@ class SQLiteUnifiedCampaignRepository(
     init {
         db.setForeignKeyConstraintsEnabled(true)
         CampaignSourceOfTruthSchema.ensure(db)
+        NpcKnowledgePersistenceSchema141.ensure(db)
         ensureMeta()
     }
 
@@ -357,7 +358,7 @@ class SQLiteUnifiedCampaignRepository(
                 put("entity_type", mutation.entityType)
                 put("entity_id", mutation.entityUid.value)
                 put("field_key", mutation.field)
-                put("operation", mutation.operation.name)
+                put("operation", mutation.operation.name),
                 mutation.oldValue?.let { put("old_value_json", it) }
                 mutation.newValue?.let { put("new_value_json", it) }
                 put("reason", mutation.reason)
@@ -366,248 +367,253 @@ class SQLiteUnifiedCampaignRepository(
             }
         )
 
-        if (mutation.operation == MutationOperation.REMOVE && mutation.newValue == null) {
-            db.delete(
+        when (mutation.operation) {
+            StateMutationOperation.DELETE -> db.delete(
                 "gm_entity_state",
                 "campaign_id=? AND entity_type=? AND entity_id=? AND field_key=?",
                 arrayOf(campaignUid.value, mutation.entityType, mutation.entityUid.value, mutation.field)
             )
-            return
+            StateMutationOperation.SET,
+            StateMutationOperation.INCREMENT,
+            StateMutationOperation.DECREMENT -> {
+                val value = requireNotNull(mutation.newValue) {
+                    "Operacja ${mutation.operation} wymaga newValue."
+                }
+                val values = ContentValues().apply {
+                    put("campaign_id", campaignUid.value)
+                    put("entity_type", mutation.entityType)
+                    put("entity_id", mutation.entityUid.value)
+                    put("field_key", mutation.field)
+                    put("value_json", value)
+                    put("valid_from_turn", mutation.turnId)
+                    put("updated_at", System.currentTimeMillis())
+                    put("provenance_type", ProvenanceType.SYSTEM_SIMULATION.name)
+                    mutation.causedByEventUid?.let { put("provenance_id", it.value) }
+                }
+                db.insertWithOnConflict(
+                    "gm_entity_state",
+                    null,
+                    values,
+                    SQLiteDatabase.CONFLICT_REPLACE
+                )
+            }
         }
-
-        val resolved = requireNotNull(mutation.newValue) {
-            "Mutacja ${mutation.operation} wymaga resolved newValue."
-        }
-        db.insertWithOnConflict(
-            "gm_entity_state",
-            null,
-            ContentValues().apply {
-                put("campaign_id", campaignUid.value)
-                put("entity_type", mutation.entityType)
-                put("entity_id", mutation.entityUid.value)
-                put("field_key", mutation.field)
-                put("value_json", resolved)
-                put("valid_from_turn", mutation.turnId)
-                put("updated_at", System.currentTimeMillis())
-                put("provenance_type", ProvenanceType.CAMPAIGN_EVENT.name)
-                mutation.causedByEventUid?.let { put("provenance_id", it.value) }
-            },
-            SQLiteDatabase.CONFLICT_REPLACE
-        )
     }
 
     override suspend fun writeTruth(truth: CampaignTruth) {
-        val fromTurn = truth.validFromTurn ?: truth.provenance.turnId ?: currentTurnId(campaignUid)
-        db.insertWithOnConflict(
-            "gm_facts",
-            null,
-            ContentValues().apply {
-                put("fact_id", truth.uid.value)
-                put("campaign_id", campaignUid.value)
-                truth.subjectUid?.let { put("subject_id", it.value) }
-                put("predicate", truth.predicate)
-                put("object_json", truth.value)
-                put("truth_kind", truth.kind.name)
-                truth.holderUid?.let { put("holder_id", it.value) }
-                put("confidence", truth.provenance.confidence)
-                put("valid_from_turn", fromTurn)
-                truth.validUntilTurn?.let { put("valid_until_turn", it) }
-                put("source_type", truth.provenance.type.name)
-                truth.provenance.sourceUid?.let { put("source_id", it.value) }
-                truth.provenance.turnId?.let { put("source_turn", it) }
-                truth.provenance.canonStatus?.let { put("canon_status", it) }
-                put("verified", if (truth.provenance.verified) 1 else 0)
-                put("created_at", System.currentTimeMillis())
-            },
-            SQLiteDatabase.CONFLICT_REPLACE
-        )
+        val values = ContentValues().apply {
+            put("fact_id", truth.uid.value)
+            put("campaign_id", campaignUid.value)
+            truth.subjectUid?.let { put("subject_id", it.value) }
+            put("predicate", truth.predicate)
+            put("object_json", truth.value)
+            put("truth_kind", truth.kind.name)
+            truth.holderUid?.let { put("holder_id", it.value) }
+            put("confidence", truth.provenance.confidence)
+            put("valid_from_turn", truth.validFromTurn ?: truth.provenance.turnId ?: 0L)
+            truth.validUntilTurn?.let { put("valid_until_turn", it) }
+            put("source_type", truth.provenance.type.name)
+            truth.provenance.sourceUid?.let { put("source_id", it.value) }
+            truth.provenance.turnId?.let { put("source_turn", it) }
+            truth.provenance.canonStatus?.let { put("canon_status", it) }
+            put("verified", if (truth.provenance.verified) 1 else 0)
+            put("created_at", System.currentTimeMillis())
+        }
+        db.insertOrThrow("gm_facts", null, values)
     }
 
     override suspend fun writeMemory(memory: DurableMemoryRecord) {
         requireCampaign(memory.campaignUid)
-        db.insertWithOnConflict(
-            "gm_memories",
-            null,
-            ContentValues().apply {
-                put("memory_id", memory.memoryUid.value)
-                put("campaign_id", campaignUid.value)
-                put("memory_kind", memory.kind.name)
-                memory.subjectUid?.let { put("subject_id", it.value) }
-                put("text", memory.text)
-                put("importance", memory.importance)
-                put("confidence", 1.0)
-                put("first_turn", memory.createdTurn)
-                put("last_reinforced_turn", memory.createdTurn)
-                put("tags_json", JSONArray(memory.tags.sorted()).toString())
-                put("archived", 0)
-            },
-            SQLiteDatabase.CONFLICT_REPLACE
-        )
+        val values = ContentValues().apply {
+            put("memory_id", memory.memoryUid.value)
+            put("campaign_id", campaignUid.value)
+            put("memory_kind", memory.kind.name)
+            memory.subjectUid?.let { put("subject_id", it.value) }
+            put("text", memory.text)
+            put("importance", memory.importance)
+            put("confidence", 1.0)
+            put("first_turn", memory.createdTurn)
+            put("last_reinforced_turn", memory.createdTurn)
+            put("tags_json", JSONArray(memory.tags.toList()).toString())
+            put("archived", 0)
+        }
+        db.insertOrThrow("gm_memories", null, values)
         memory.sourceEventUids.forEach { eventUid ->
-            db.insertWithOnConflict(
+            db.insertOrThrow(
                 "gm_memory_event_links",
                 null,
                 ContentValues().apply {
                     put("memory_id", memory.memoryUid.value)
                     put("event_id", eventUid.value)
-                },
-                SQLiteDatabase.CONFLICT_IGNORE
+                }
             )
         }
     }
 
     override suspend fun writeChronicle(entry: DurableChronicleRecord) {
         requireCampaign(entry.campaignUid)
-        db.insertWithOnConflict(
+        val turnUid = resolveTurnUid(entry.turnId)
+        db.insertOrThrow(
             "gm_chronicle_entries",
             null,
             ContentValues().apply {
                 put("chronicle_id", entry.entryUid.value)
                 put("campaign_id", campaignUid.value)
-                put("turn_id", resolveTurnUid(entry.turnId))
+                put("turn_id", turnUid)
                 put("chapter", entry.chapter)
                 put("title", entry.title)
                 put("summary", entry.summary)
                 put("created_at", System.currentTimeMillis())
-            },
-            SQLiteDatabase.CONFLICT_REPLACE
+            }
         )
         entry.eventUids.forEach { eventUid ->
-            db.insertWithOnConflict(
+            db.insertOrThrow(
                 "gm_chronicle_event_links",
                 null,
                 ContentValues().apply {
                     put("chronicle_id", entry.entryUid.value)
                     put("event_id", eventUid.value)
-                },
-                SQLiteDatabase.CONFLICT_IGNORE
+                }
             )
         }
     }
 
-    override suspend fun latestSnapshot(campaignUid: EntityUid): CampaignSnapshotRef? {
+    override suspend fun latestSnapshot(campaignUid: EntityUid): CampaignSnapshot? {
         requireCampaign(campaignUid)
         db.rawQuery(
             """
-            SELECT snapshot_id, turn_number, event_sequence, created_at
-            FROM gm_snapshots WHERE campaign_id=?
-            ORDER BY turn_number DESC LIMIT 1
+            SELECT snapshot_id, turn_number, event_sequence, state_hash, payload_path,
+                   engine_version_code, world_pack_id, campaign_schema_version,
+                   event_schema_version, memory_schema_version, created_at
+            FROM gm_snapshots
+            WHERE campaign_id=?
+            ORDER BY turn_number DESC, created_at DESC
+            LIMIT 1
             """.trimIndent(),
             arrayOf(campaignUid.value)
         ).use { c ->
             if (!c.moveToFirst()) return null
-            return CampaignSnapshotRef(
+            return CampaignSnapshot(
                 snapshotUid = EntityUid(c.getString(0)),
                 campaignUid = campaignUid,
                 throughTurnId = c.getLong(1),
                 throughEventSequence = c.getLong(2),
-                createdAtEpochMs = c.getLong(3)
+                stateHash = c.getString(3),
+                payloadPath = c.getString(4),
+                engineVersionCode = c.getInt(5),
+                worldPackUid = EntityUid(c.getString(6)),
+                campaignSchemaVersion = c.getInt(7),
+                eventSchemaVersion = c.getInt(8),
+                memorySchemaVersion = c.getInt(9),
+                createdAtEpochMs = c.getLong(10)
             )
         }
     }
 
-    override suspend fun createSnapshot(
-        campaignUid: EntityUid,
-        throughTurnId: Long
-    ): CampaignSnapshotRef {
-        requireCampaign(campaignUid)
-        require(transactionDepth == 0 && !db.inTransaction()) {
-            "Snapshotu nie wolno tworzyć wewnątrz aktywnej transakcji."
-        }
-        val current = currentTurnId(campaignUid)
-        require(throughTurnId in 0..current) { "Niepoprawny zakres snapshotu: $throughTurnId / $current" }
-
-        db.rawQuery("PRAGMA wal_checkpoint(FULL)", null).use { it.moveToFirst() }
-        val snapshotUid = EntityUid("SNAP-${UUID.randomUUID()}")
-        val campaignFile = File(db.path)
-        val dir = File(campaignFile.parentFile, "snapshots").apply { mkdirs() }
-        val target = File(dir, "${snapshotUid.value}.db")
-        campaignFile.copyTo(target, overwrite = true)
-        val hash = sha256(target)
-        val eventSequence = eventCountThrough(throughTurnId)
-        val now = System.currentTimeMillis()
-
+    override suspend fun writeSnapshot(snapshot: CampaignSnapshot) {
+        requireCampaign(snapshot.campaignUid)
         db.insertOrThrow(
             "gm_snapshots",
             null,
             ContentValues().apply {
-                put("snapshot_id", snapshotUid.value)
+                put("snapshot_id", snapshot.snapshotUid.value)
                 put("campaign_id", campaignUid.value)
-                put("turn_number", throughTurnId)
-                put("event_sequence", eventSequence)
-                put("state_hash", hash)
-                put("storage_path", target.absolutePath)
-                put("created_at", now)
+                put("turn_number", snapshot.throughTurnId)
+                put("event_sequence", snapshot.throughEventSequence)
+                put("state_hash", snapshot.stateHash)
+                put("payload_path", snapshot.payloadPath)
+                put("engine_version_code", snapshot.engineVersionCode)
+                put("world_pack_id", snapshot.worldPackUid.value)
+                put("campaign_schema_version", snapshot.campaignSchemaVersion)
+                put("event_schema_version", snapshot.eventSchemaVersion)
+                put("memory_schema_version", snapshot.memorySchemaVersion)
+                put("created_at", snapshot.createdAtEpochMs)
             }
         )
         db.execSQL(
             "UPDATE gm_campaign_meta SET current_snapshot_id=?, updated_at=? WHERE campaign_id=?",
-            arrayOf(snapshotUid.value, now, campaignUid.value)
+            arrayOf(snapshot.snapshotUid.value, System.currentTimeMillis(), campaignUid.value)
         )
-        return CampaignSnapshotRef(snapshotUid, campaignUid, throughTurnId, eventSequence, now)
     }
 
-    override suspend fun pruneSnapshots(campaignUid: EntityUid, keepNewest: Int) {
-        requireCampaign(campaignUid)
-        require(keepNewest >= 1) { "keepNewest musi być >= 1." }
-        require(transactionDepth == 0 && !db.inTransaction()) {
-            "Retencji snapshotów nie wolno wykonywać wewnątrz aktywnej transakcji."
-        }
-
-        val currentSnapshotId = db.rawQuery(
-            "SELECT current_snapshot_id FROM gm_campaign_meta WHERE campaign_id=? LIMIT 1",
-            arrayOf(campaignUid.value)
-        ).use { c -> if (c.moveToFirst() && !c.isNull(0)) c.getString(0) else null }
-
-        data class SnapshotFile(val id: String, val path: String?)
-        val stale = mutableListOf<SnapshotFile>()
-        db.rawQuery(
-            """
-            SELECT snapshot_id,storage_path FROM gm_snapshots
-            WHERE campaign_id=?
-            ORDER BY turn_number DESC, created_at DESC
-            """.trimIndent(),
-            arrayOf(campaignUid.value)
-        ).use { c ->
-            var index = 0
-            while (c.moveToNext()) {
-                val id = c.getString(0)
-                val path = if (c.isNull(1)) null else c.getString(1)
-                if (index >= keepNewest && id != currentSnapshotId) stale += SnapshotFile(id, path)
-                index++
+    override suspend fun inTransaction(block: suspend UnifiedCampaignRepository.() -> Unit) {
+        if (transactionDepth > 0) {
+            transactionDepth += 1
+            try {
+                block(this)
+            } finally {
+                transactionDepth -= 1
             }
-        }
-
-        stale.forEach { snapshot ->
-            snapshot.path?.takeIf { it.isNotBlank() }?.let { path ->
-                runCatching { File(path).takeIf(File::exists)?.delete() }
-            }
-            db.delete(
-                "gm_snapshots",
-                "campaign_id=? AND snapshot_id=?",
-                arrayOf(campaignUid.value, snapshot.id)
-            )
-        }
-    }
-
-    override suspend fun <T> inTransaction(block: suspend UnifiedCampaignRepository.() -> T): T {
-        check(transactionDepth == 0 && !db.inTransaction()) {
-            "Zagnieżdżone transakcje UnifiedCampaignRepository nie są obsługiwane."
+            return
         }
         db.beginTransaction()
-        transactionDepth++
-        return try {
-            val result = block(this)
+        transactionDepth = 1
+        try {
+            block(this)
             db.setTransactionSuccessful()
-            result
         } finally {
-            transactionDepth--
+            transactionDepth = 0
             db.endTransaction()
         }
     }
 
+    override suspend fun buildAndWriteSnapshot(campaignUid: EntityUid): CampaignSnapshot {
+        requireCampaign(campaignUid)
+        val turn = currentTurnId(campaignUid)
+        val eventSequence = latestEventSequence(turn)
+        val payload = snapshotPayload(turn)
+        val snapshotUid = EntityUid("SNAP-${UUID.randomUUID()}")
+        val directory = File(context.filesDir, "gm141/snapshots/${campaignUid.value}").apply { mkdirs() }
+        val file = File(directory, "${snapshotUid.value}.json")
+        file.writeText(payload)
+        val snapshot = CampaignSnapshot(
+            snapshotUid = snapshotUid,
+            campaignUid = campaignUid,
+            throughTurnId = turn,
+            throughEventSequence = eventSequence,
+            stateHash = sha256(payload),
+            payloadPath = file.absolutePath,
+            engineVersionCode = BuildConfig.VERSION_CODE,
+            worldPackUid = worldPackUid,
+            campaignSchemaVersion = CampaignSourceOfTruthSchema.SCHEMA_VERSION,
+            eventSchemaVersion = CampaignSourceOfTruthSchema.EVENT_SCHEMA_VERSION,
+            memorySchemaVersion = CampaignSourceOfTruthSchema.MEMORY_SCHEMA_VERSION,
+            createdAtEpochMs = System.currentTimeMillis()
+        )
+        writeSnapshot(snapshot)
+        return snapshot
+    }
+
     override fun close() {
         if (ownsDatabase && db.isOpen) db.close()
+    }
+
+    private fun ensureMeta() {
+        val now = System.currentTimeMillis()
+        db.execSQL(
+            """
+            INSERT OR IGNORE INTO gm_campaign_meta(
+                campaign_id,world_pack_id,engine_version_code,campaign_schema_version,
+                event_schema_version,memory_schema_version,created_at,updated_at,current_turn,current_chapter
+            ) VALUES(?,?,?,?,?,?,?,?,0,0)
+            """.trimIndent(),
+            arrayOf(
+                campaignUid.value,
+                worldPackUid.value,
+                BuildConfig.VERSION_CODE,
+                CampaignSourceOfTruthSchema.SCHEMA_VERSION,
+                CampaignSourceOfTruthSchema.EVENT_SCHEMA_VERSION,
+                CampaignSourceOfTruthSchema.MEMORY_SCHEMA_VERSION,
+                now,
+                now
+            )
+        )
+    }
+
+    private fun requireCampaign(requested: EntityUid) {
+        require(requested == campaignUid) {
+            "Repozytorium ${campaignUid.value} nie może obsługiwać kampanii ${requested.value}."
+        }
     }
 
     private fun readTruth(c: Cursor): CampaignTruth = CampaignTruth(
@@ -629,89 +635,6 @@ class SQLiteUnifiedCampaignRepository(
         )
     )
 
-    private fun memoryEventUids(memoryUid: EntityUid): Set<EntityUid> {
-        val out = linkedSetOf<EntityUid>()
-        db.rawQuery(
-            "SELECT event_id FROM gm_memory_event_links WHERE memory_id=? ORDER BY event_id",
-            arrayOf(memoryUid.value)
-        ).use { c -> while (c.moveToNext()) out += EntityUid(c.getString(0)) }
-        return out
-    }
-
-    private fun jsonStringSet(raw: String?): Set<String> {
-        if (raw.isNullOrBlank()) return emptySet()
-        return runCatching {
-            val array = JSONArray(raw)
-            buildSet {
-                for (i in 0 until array.length()) add(array.getString(i))
-            }
-        }.getOrElse { emptySet() }
-    }
-
-    private fun ensureMeta() {
-        val now = System.currentTimeMillis()
-        db.insertWithOnConflict(
-            "gm_campaign_meta",
-            null,
-            ContentValues().apply {
-                put("campaign_id", campaignUid.value)
-                put("world_pack_id", worldPackUid.value)
-                put("engine_version_code", BuildConfig.VERSION_CODE)
-                put("campaign_schema_version", CampaignSourceOfTruthSchema.SCHEMA_VERSION)
-                put("event_schema_version", CampaignSourceOfTruthSchema.EVENT_SCHEMA_VERSION)
-                put("memory_schema_version", CampaignSourceOfTruthSchema.MEMORY_SCHEMA_VERSION)
-                put("created_at", now)
-                put("updated_at", now)
-                put("current_turn", 0)
-                put("current_chapter", 0)
-            },
-            SQLiteDatabase.CONFLICT_IGNORE
-        )
-        db.execSQL(
-            """
-            UPDATE gm_campaign_meta
-            SET world_pack_id=?, engine_version_code=?,
-                campaign_schema_version=?, event_schema_version=?, memory_schema_version=?, updated_at=?
-            WHERE campaign_id=?
-            """.trimIndent(),
-            arrayOf(
-                worldPackUid.value,
-                BuildConfig.VERSION_CODE,
-                CampaignSourceOfTruthSchema.SCHEMA_VERSION,
-                CampaignSourceOfTruthSchema.EVENT_SCHEMA_VERSION,
-                CampaignSourceOfTruthSchema.MEMORY_SCHEMA_VERSION,
-                now,
-                campaignUid.value
-            )
-        )
-    }
-
-    private fun requireCampaign(uid: EntityUid) {
-        require(uid == campaignUid) {
-            "Repozytorium ${campaignUid.value} nie może obsłużyć kampanii ${uid.value}."
-        }
-    }
-
-    private fun resolveTurnUid(turnId: Long): String {
-        db.rawQuery(
-            "SELECT turn_id FROM gm_turns WHERE campaign_id=? AND turn_number=?",
-            arrayOf(campaignUid.value, turnId.toString())
-        ).use { c ->
-            require(c.moveToFirst()) { "Brak rekordu tury $turnId przed zapisem zależnych danych." }
-            return c.getString(0)
-        }
-    }
-
-    private fun resolveTurnChapter(turnId: Long): Long {
-        db.rawQuery(
-            "SELECT chapter FROM gm_turns WHERE campaign_id=? AND turn_number=?",
-            arrayOf(campaignUid.value, turnId.toString())
-        ).use { c ->
-            require(c.moveToFirst()) { "Brak rekordu tury $turnId." }
-            return c.getLong(0)
-        }
-    }
-
     private fun readStateValue(mutation: DurableStateMutation): String? {
         db.rawQuery(
             """
@@ -722,26 +645,72 @@ class SQLiteUnifiedCampaignRepository(
         ).use { c -> return if (c.moveToFirst()) c.getString(0) else null }
     }
 
-    private fun eventCountThrough(throughTurnId: Long): Long {
+    private fun resolveTurnUid(turnId: Long): String {
         db.rawQuery(
-            "SELECT COUNT(*) FROM gm_events WHERE campaign_id=? AND turn_number<=?",
-            arrayOf(campaignUid.value, throughTurnId.toString())
+            "SELECT turn_id FROM gm_turns WHERE campaign_id=? AND turn_number=?",
+            arrayOf(campaignUid.value, turnId.toString())
         ).use { c ->
-            c.moveToFirst()
-            return c.getLong(0)
+            require(c.moveToFirst()) { "Nie znaleziono trwałej tury $turnId." }
+            return c.getString(0)
         }
     }
 
-    private fun sha256(file: File): String {
-        val md = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buffer = ByteArray(64 * 1024)
-            while (true) {
-                val count = input.read(buffer)
-                if (count <= 0) break
-                md.update(buffer, 0, count)
+    private fun resolveTurnChapter(turnId: Long): Int {
+        db.rawQuery(
+            "SELECT chapter FROM gm_turns WHERE campaign_id=? AND turn_number=?",
+            arrayOf(campaignUid.value, turnId.toString())
+        ).use { c ->
+            require(c.moveToFirst()) { "Nie znaleziono rozdziału dla tury $turnId." }
+            return c.getInt(0)
+        }
+    }
+
+    private fun memoryEventUids(memoryUid: EntityUid): Set<EntityUid> {
+        val result = linkedSetOf<EntityUid>()
+        db.rawQuery(
+            "SELECT event_id FROM gm_memory_event_links WHERE memory_id=? ORDER BY event_id",
+            arrayOf(memoryUid.value)
+        ).use { c -> while (c.moveToNext()) result += EntityUid(c.getString(0)) }
+        return result
+    }
+
+    private fun jsonStringSet(raw: String): Set<String> {
+        val arr = JSONArray(raw)
+        return buildSet {
+            for (i in 0 until arr.length()) add(arr.getString(i))
+        }
+    }
+
+    private fun latestEventSequence(turnId: Long): Long {
+        db.rawQuery(
+            "SELECT COALESCE(MAX(sequence),0) FROM gm_events WHERE campaign_id=? AND turn_number=?",
+            arrayOf(campaignUid.value, turnId.toString())
+        ).use { c -> return if (c.moveToFirst()) c.getLong(0) else 0L }
+    }
+
+    private fun snapshotPayload(turnId: Long): String {
+        val state = mutableListOf<String>()
+        db.rawQuery(
+            """
+            SELECT entity_type,entity_id,field_key,value_json,valid_from_turn
+            FROM gm_entity_state WHERE campaign_id=?
+            ORDER BY entity_type,entity_id,field_key
+            """.trimIndent(),
+            arrayOf(campaignUid.value)
+        ).use { c ->
+            while (c.moveToNext()) {
+                state += listOf(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getLong(4).toString())
+                    .joinToString("\u001F")
             }
         }
-        return md.digest().joinToString("") { "%02x".format(it) }
+        return buildString {
+            append("campaign=").append(campaignUid.value).append('\n')
+            append("turn=").append(turnId).append('\n')
+            state.forEach { append(it).append('\n') }
+        }
     }
+
+    private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray())
+        .joinToString("") { "%02x".format(it) }
 }
