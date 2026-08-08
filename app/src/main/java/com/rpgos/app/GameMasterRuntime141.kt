@@ -46,10 +46,11 @@ class GameMasterRuntime141(
                 contextBudget = contextBudget
             )
 
+            val baseResolver = GameMasterRuleResolver141(session.repository, session.campaignUid)
             val engine = GameMasterEngine(
                 contextRepository = contextRepository,
                 modelGateway = modelGateway,
-                ruleResolver = GameMasterRuleResolver141(session.repository, session.campaignUid),
+                ruleResolver = KnowledgeSafeRuleResolver141(baseResolver),
                 validator = GameMasterTurnValidator141(session.repository, session.campaignUid),
                 stateRepository = GameMasterStateRepository141(session.repository, session.campaignUid)
             )
