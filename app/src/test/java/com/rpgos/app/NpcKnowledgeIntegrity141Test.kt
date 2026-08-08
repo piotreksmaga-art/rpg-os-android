@@ -35,6 +35,7 @@ class NpcKnowledgeIntegrity141Test {
                 holder_id TEXT,
                 subject_id TEXT,
                 predicate TEXT NOT NULL,
+                object_json TEXT NOT NULL,
                 valid_from_turn INTEGER NOT NULL,
                 valid_until_turn INTEGER
             )
@@ -177,22 +178,53 @@ class NpcKnowledgeIntegrity141Test {
         assertTrue(report.issues.any { it.code == "ORG_PUBLICATION_OUTLIVES_FACT" })
     }
 
+    @Test
+    fun detectsPublishedFactValueRebinding() {
+        fact(
+            uid = "FACT-rebound",
+            kind = "FACT",
+            holder = null,
+            subject = "TARGET",
+            predicate = "classified.location",
+            value = "ORIGINAL"
+        )
+        val originalHash = OrganizationPublicationSourceHash141.hash("ORIGINAL")
+        db.execSQL(
+            """
+            INSERT INTO gm_organization_fact_publications(
+                publication_id,campaign_id,organization_id,truth_id,subject_id,predicate,
+                minimum_clearance,valid_from_turn,valid_until_turn,source_value_hash,created_at
+            ) VALUES('PUB-rebound','CAMPAIGN-test','ORG-a','FACT-rebound','TARGET','classified.location',1,1,NULL,?,1)
+            """.trimIndent(),
+            arrayOf(originalHash)
+        )
+        db.execSQL(
+            "UPDATE gm_facts SET object_json='TAMPERED' WHERE campaign_id='CAMPAIGN-test' AND fact_id='FACT-rebound'"
+        )
+
+        val report = NpcKnowledgeIntegrity141(db).check()
+        assertFalse(report.ok)
+        assertTrue(report.issues.any { it.code == "ORG_PUBLICATION_SOURCE_VALUE_CHANGED" })
+    }
+
     private fun fact(
         uid: String,
         kind: String,
         holder: String?,
         subject: String = "SUBJECT-test",
         predicate: String = "test.predicate",
+        value: String = "value-$uid",
         validFrom: Long = 0L,
         validUntil: Long? = null
     ) {
         db.execSQL(
             """
             INSERT INTO gm_facts(
-                fact_id,campaign_id,truth_kind,holder_id,subject_id,predicate,valid_from_turn,valid_until_turn
-            ) VALUES(?,?,?,?,?,?,?,?)
+                fact_id,campaign_id,truth_kind,holder_id,subject_id,predicate,object_json,
+                valid_from_turn,valid_until_turn
+            ) VALUES(?,?,?,?,?,?,?,?,?)
             """.trimIndent(),
-            arrayOf(uid, "CAMPAIGN-test", kind, holder, subject, predicate, validFrom, validUntil)
+            arrayOf(uid, "CAMPAIGN-test", kind, holder, subject, predicate, value, validFrom, validUntil)
         )
     }
 }
