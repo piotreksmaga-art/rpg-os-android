@@ -275,7 +275,7 @@ private fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
-                DragonSystemHeader(
+                ElementalSystemHeader(
                     visualEffectsLevel = visualEffectsLevel,
                     introAnimation = introAnimation
                 )
@@ -425,7 +425,7 @@ private fun HomeScreen(
 
 
 @Composable
-private fun DragonSystemHeader(
+private fun ElementalSystemHeader(
     visualEffectsLevel: String,
     introAnimation: Boolean
 ) {
@@ -434,62 +434,66 @@ private fun DragonSystemHeader(
 
     LaunchedEffect(introAnimation) {
         if (introAnimation) {
-            delay(4600)
+            delay(3600)
             introRunning = false
-        } else introRunning = false
+        } else {
+            introRunning = false
+        }
     }
 
-    val transition = rememberInfiniteTransition(label = "dragonGuardianOrbit")
+    val transition = rememberInfiniteTransition(label = "elementalOrbit")
     val orbit by transition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
             animation = tween(
                 durationMillis = when (mode) {
-                    "full" -> 7000
-                    "minimal" -> 15000
-                    else -> 9200
+                    "full" -> 7600
+                    "minimal" -> 16000
+                    else -> 9800
                 },
                 easing = LinearEasing
             ),
             repeatMode = RepeatMode.Restart
         ),
-        label = "guardianOrbit"
+        label = "elementalOrbitAngle"
     )
-    val breathe by transition.animateFloat(
-        initialValue = 0.94f,
-        targetValue = 1.06f,
+
+    val pulse by transition.animateFloat(
+        initialValue = 0.82f,
+        targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
             animation = tween(1050, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "dragonBreathe"
+        label = "elementalPulse"
     )
+
     val glow by transition.animateFloat(
-        initialValue = 0.55f,
-        targetValue = 0.92f,
+        initialValue = 0.45f,
+        targetValue = 0.90f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1250, easing = FastOutSlowInEasing),
+            animation = tween(1200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "logoGlow"
+        label = "elementalLogoGlow"
     )
 
     Box(
-        modifier = Modifier.fillMaxWidth().height(258.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(258.dp),
         contentAlignment = Alignment.Center
     ) {
-        if (mode == "full") DragonParticles(orbit)
+        val activeOrbit = if (mode == "minimal" && !introRunning) 0f else orbit
 
-        val activeOrbit = if (mode == "minimal" && !introRunning) 318f else orbit
-        DragonGuardian(
+        ElementalOrbit(
             angle = activeOrbit,
-            breathe = if (mode == "minimal") 1f else breathe,
-            trail = mode != "minimal",
-            fullEffects = mode == "full"
+            fullEffects = mode == "full",
+            minimal = mode == "minimal",
+            pulse = if (mode == "minimal") 0.9f else pulse
         )
 
-        // Text is intentionally drawn after the dragon: maximum readability.
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 "SYSTEM",
@@ -515,414 +519,263 @@ private fun DragonSystemHeader(
 }
 
 @Composable
-private fun DragonGuardian(
+private fun ElementalOrbit(
     angle: Float,
-    breathe: Float,
-    trail: Boolean,
-    fullEffects: Boolean
-) {
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val density = LocalDensity.current
-        val widthPx = with(density) { maxWidth.toPx() }
-        val heightPx = with(density) { maxHeight.toPx() }
-        val radiusX = widthPx * 0.405f
-        val radiusY = heightPx * 0.365f
-
-        val radians = Math.toRadians(angle.toDouble())
-        val x = cos(radians).toFloat() * radiusX
-        val y = sin(radians).toFloat() * radiusY
-
-        if (trail) {
-            DragonEnergyBody(angle = angle, fullEffects = fullEffects)
-        }
-
-        Canvas(
-            Modifier
-                .size(104.dp)
-                .align(Alignment.Center)
-                .graphicsLayer {
-                    translationX = x
-                    translationY = y
-                    rotationZ = angle + 90f
-                    scaleX = breathe
-                    scaleY = breathe
-                }
-        ) {
-            val c = center
-            val u = size.minDimension / 100f
-
-            // Soft aura with continuous alpha falloff; no hard "bubble".
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        Color(0x553EF2FF),
-                        Color(0x2231BFFF),
-                        Color.Transparent
-                    ),
-                    center = c,
-                    radius = 42f * u
-                ),
-                radius = 42f * u,
-                center = c
-            )
-
-            val neck = Path().apply {
-                moveTo(c.x - 38*u, c.y + 4*u)
-                cubicTo(c.x - 27*u, c.y - 12*u, c.x - 11*u, c.y - 14*u, c.x + 2*u, c.y - 6*u)
-                cubicTo(c.x - 7*u, c.y + 2*u, c.x - 20*u, c.y + 13*u, c.x - 39*u, c.y + 14*u)
-                close()
-            }
-            drawPath(neck, Color(0xCC087DBD))
-            drawPath(neck, color = Color(0xAA56E8FF), style = Stroke(width = 1.25f*u))
-
-            val head = Path().apply {
-                moveTo(c.x - 3*u, c.y - 8*u)
-                cubicTo(c.x + 10*u, c.y - 16*u, c.x + 26*u, c.y - 15*u, c.x + 38*u, c.y - 7*u)
-                lineTo(c.x + 48*u, c.y - 2*u)
-                lineTo(c.x + 39*u, c.y + 3*u)
-                lineTo(c.x + 46*u, c.y + 8*u)
-                cubicTo(c.x + 31*u, c.y + 13*u, c.x + 16*u, c.y + 11*u, c.x + 4*u, c.y + 6*u)
-                cubicTo(c.x - 2*u, c.y + 2*u, c.x - 6*u, c.y - 3*u, c.x - 3*u, c.y - 8*u)
-                close()
-            }
-            drawPath(head, Color(0xEE13A9DF))
-            drawPath(head, color = Color(0xDD8AF6FF), style = Stroke(width = 1.6f*u))
-
-            val brow = Path().apply {
-                moveTo(c.x + 8*u, c.y - 9*u)
-                quadraticBezierTo(c.x + 20*u, c.y - 20*u, c.x + 33*u, c.y - 10*u)
-                quadraticBezierTo(c.x + 22*u, c.y - 8*u, c.x + 12*u, c.y - 2*u)
-                close()
-            }
-            drawPath(brow, Color(0xAA5BE9FF))
-
-            val upperHorn = Path().apply {
-                moveTo(c.x + 8*u, c.y - 13*u)
-                cubicTo(c.x - 1*u, c.y - 28*u, c.x - 17*u, c.y - 31*u, c.x - 28*u, c.y - 34*u)
-                cubicTo(c.x - 16*u, c.y - 25*u, c.x - 6*u, c.y - 18*u, c.x + 13*u, c.y - 8*u)
-            }
-            drawPath(upperHorn, color = Color(0xFF7CEEFF), style = Stroke(width = 2.1f*u, cap = StrokeCap.Round))
-
-            val lowerHorn = Path().apply {
-                moveTo(c.x + 4*u, c.y - 10*u)
-                cubicTo(c.x - 7*u, c.y - 22*u, c.x - 19*u, c.y - 22*u, c.x - 34*u, c.y - 20*u)
-            }
-            drawPath(lowerHorn, color = Color(0xCC39BFFF), style = Stroke(width = 1.7f*u, cap = StrokeCap.Round))
-
-            repeat(5) { i ->
-                val px = c.x + (-8 + i*7)*u
-                val py = c.y + (-11 + (i%2)*2)*u
-                val spike = Path().apply {
-                    moveTo(px, py)
-                    lineTo(px - 7*u, py - (11 + i)*u)
-                    lineTo(px + 4*u, py - u)
-                    close()
-                }
-                drawPath(spike, if (i%2==0) Color(0xCC48DFFF) else Color(0xAA1F9DFF))
-            }
-
-            drawLine(
-                color = Color(0xCCB9FAFF),
-                start = Offset(c.x + 24*u, c.y + 5*u),
-                end = Offset(c.x + 40*u, c.y + 4*u),
-                strokeWidth = 1.2f*u,
-                cap = StrokeCap.Round
-            )
-            repeat(3) { i ->
-                val tx = c.x + (29 + i*4)*u
-                val tooth = Path().apply {
-                    moveTo(tx, c.y + 4*u)
-                    lineTo(tx + 1.4f*u, c.y + 8*u)
-                    lineTo(tx + 2.5f*u, c.y + 4*u)
-                    close()
-                }
-                drawPath(tooth, Color(0xDDE8FFFF))
-            }
-
-            val eye = Offset(c.x + 27*u, c.y - 5*u)
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color.White, Color(0xFF7CF7E8), Color.Transparent),
-                    center = eye,
-                    radius = 7*u
-                ),
-                radius = 7*u,
-                center = eye
-            )
-            drawCircle(color = Color.White, radius = 1.7f*u, center = eye)
-
-            val whisker1 = Path().apply {
-                moveTo(c.x + 30*u, c.y + u)
-                cubicTo(c.x + 44*u, c.y + 10*u, c.x + 54*u, c.y + 17*u, c.x + 61*u, c.y + 14*u)
-            }
-            drawPath(whisker1, color = Color(0xAA70F3FF), style = Stroke(width = 1.15f*u, cap = StrokeCap.Round))
-
-            val whisker2 = Path().apply {
-                moveTo(c.x + 28*u, c.y + 3*u)
-                cubicTo(c.x + 42*u, c.y + 16*u, c.x + 46*u, c.y + 25*u, c.x + 54*u, c.y + 27*u)
-            }
-            drawPath(whisker2, color = Color(0x8850D8FF), style = Stroke(width = 0.9f*u, cap = StrokeCap.Round))
-
-            val claw = Path().apply {
-                moveTo(c.x - 18*u, c.y + 10*u)
-                cubicTo(c.x - 9*u, c.y + 17*u, c.x - 3*u, c.y + 20*u, c.x + 3*u, c.y + 16*u)
-                lineTo(c.x - u, c.y + 22*u)
-                lineTo(c.x - 6*u, c.y + 18*u)
-                lineTo(c.x - 11*u, c.y + 24*u)
-                lineTo(c.x - 13*u, c.y + 16*u)
-                close()
-            }
-            drawPath(claw, Color(0xAA1B9FD4))
-        }
-    }
-}
-
-@Composable
-private fun DragonEnergyBody(
-    angle: Float,
-    fullEffects: Boolean
+    fullEffects: Boolean,
+    minimal: Boolean,
+    pulse: Float
 ) {
     Canvas(Modifier.fillMaxSize()) {
-        val segments = if (fullEffects) 58 else 46
-        val step = if (fullEffects) 2.55f else 3.0f
         val radiusX = size.width * 0.405f
         val radiusY = size.height * 0.365f
 
-        fun orbitPoint(a: Float): Offset {
+        fun point(a: Float, offsetNormal: Float = 0f): Offset {
             val r = Math.toRadians(a.toDouble())
+            val cx = cos(r).toFloat()
+            val sy = sin(r).toFloat()
+            val base = Offset(
+                center.x + cx * radiusX,
+                center.y + sy * radiusY
+            )
+            if (offsetNormal == 0f) return base
+
+            val nx0 = cx / radiusX.coerceAtLeast(1f)
+            val ny0 = sy / radiusY.coerceAtLeast(1f)
+            val nLen = kotlin.math.sqrt(nx0 * nx0 + ny0 * ny0).coerceAtLeast(0.0001f)
             return Offset(
-                center.x + cos(r).toFloat() * radiusX,
-                center.y + sin(r).toFloat() * radiusY
+                base.x + nx0 / nLen * offsetNormal,
+                base.y + ny0 / nLen * offsetNormal
             )
         }
 
-        var previous: Offset? = null
-
-        for (i in segments downTo 1) {
-            val a = angle - i * step
-            val p = orbitPoint(a)
-            val ahead = orbitPoint(a + 0.9f)
-            val dx = ahead.x - p.x
-            val dy = ahead.y - p.y
-            val len = kotlin.math.sqrt(dx*dx + dy*dy).coerceAtLeast(0.001f)
-            val tx = dx / len
-            val ty = dy / len
-            val nx = -ty
-            val ny = tx
-
-            // 0 at the tail, 1 close to the head.
-            val t = 1f - i.toFloat() / (segments + 1f)
-            val fade = (t*t*t).coerceIn(0f, 1f)
-            val alpha = fade * if (fullEffects) 0.92f else 0.80f
-
-            // Dragon tapers strongly toward the tail.
-            val bodyRadius = 1.8f + t * if (fullEffects) 13.0f else 10.5f
-
-            previous?.let { old ->
-                // Very soft outer energy veil.
-                drawLine(
-                    color = Color(0xFF0879CB).copy(alpha = alpha * 0.17f),
-                    start = old,
-                    end = p,
-                    strokeWidth = bodyRadius * 3.05f,
-                    cap = StrokeCap.Round
-                )
-
-                // Main serpentine body.
-                drawLine(
-                    brush = Brush.linearGradient(
-                        colors = listOf(
-                            Color(0xFF0869BA).copy(alpha = alpha * 0.92f),
-                            Color(0xFF16B7E5).copy(alpha = alpha),
-                            Color(0xFF49E9D8).copy(alpha = alpha * 0.95f)
+        fun drawSmoothSegment(
+            startDeg: Float,
+            endDeg: Float,
+            colorA: Color,
+            colorB: Color,
+            width: Float,
+            alpha: Float
+        ) {
+            val steps = if (fullEffects) 42 else 30
+            var prev: Offset? = null
+            repeat(steps + 1) { i ->
+                val t = i.toFloat() / steps
+                val a = startDeg + (endDeg - startDeg) * t
+                val p = point(a)
+                prev?.let { old ->
+                    drawLine(
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                colorA.copy(alpha = alpha),
+                                colorB.copy(alpha = alpha)
+                            ),
+                            start = old,
+                            end = p
                         ),
                         start = old,
-                        end = p
-                    ),
-                    start = old,
-                    end = p,
-                    strokeWidth = bodyRadius * 1.72f,
-                    cap = StrokeCap.Round
-                )
-
-                // Luminous ventral stripe gives the body volume.
-                drawLine(
-                    color = Color(0xFFC4FBFF).copy(alpha = alpha * 0.30f),
-                    start = Offset(old.x + nx*bodyRadius*0.18f, old.y + ny*bodyRadius*0.18f),
-                    end = Offset(p.x + nx*bodyRadius*0.18f, p.y + ny*bodyRadius*0.18f),
-                    strokeWidth = (0.8f + t*2.2f),
-                    cap = StrokeCap.Round
-                )
-            }
-
-            // Overlapping scale plates along both sides.
-            if (t > 0.12f && i % 2 == 0) {
-                val scaleR = 1.1f + t*3.2f
-                val side = if ((i/2) % 2 == 0) 1f else -1f
-                val scaleCenter = Offset(
-                    p.x + nx * bodyRadius * 0.48f * side,
-                    p.y + ny * bodyRadius * 0.48f * side
-                )
-                drawCircle(
-                    color = if (side > 0)
-                        Color(0xFF57E8F4).copy(alpha = alpha * 0.34f)
-                    else
-                        Color(0xFF168CCC).copy(alpha = alpha * 0.32f),
-                    radius = scaleR,
-                    center = scaleCenter
-                )
-                drawCircle(
-                    color = Color(0xFFB6FBFF).copy(alpha = alpha * 0.20f),
-                    radius = scaleR * 0.55f,
-                    center = scaleCenter
-                )
-            }
-
-            // Pronounced dorsal mane / spikes, getting larger toward the head.
-            if (i % 3 == 0 && t > 0.16f) {
-                val spikeLen = 3.5f + 11.5f*t
-                val baseHalf = 1.2f + 2.0f*t
-                val base1 = Offset(p.x - tx*baseHalf, p.y - ty*baseHalf)
-                val base2 = Offset(p.x + tx*baseHalf, p.y + ty*baseHalf)
-                val tip = Offset(
-                    p.x + nx*spikeLen,
-                    p.y + ny*spikeLen
-                )
-                val spike = Path().apply {
-                    moveTo(base1.x, base1.y)
-                    lineTo(tip.x, tip.y)
-                    lineTo(base2.x, base2.y)
-                    close()
-                }
-                drawPath(
-                    spike,
-                    color = Color(0xFF72F3FF).copy(alpha = alpha * 0.63f)
-                )
-                drawPath(
-                    spike,
-                    color = Color(0xFFD5FFFF).copy(alpha = alpha * 0.20f),
-                    style = Stroke(width = 0.6f + t*0.5f)
-                )
-            }
-
-            // Four small limbs placed along the front half of the body.
-            val limbSlots = setOf(8, 14, 21, 28)
-            if (i in limbSlots && t > 0.38f) {
-                val side = if (i % 2 == 0) -1f else 1f
-                val shoulder = Offset(
-                    p.x + nx * bodyRadius * 0.7f * side,
-                    p.y + ny * bodyRadius * 0.7f * side
-                )
-                val elbow = Offset(
-                    shoulder.x + nx * side * (6f + 5f*t) - tx*(2f + 3f*t),
-                    shoulder.y + ny * side * (6f + 5f*t) - ty*(2f + 3f*t)
-                )
-                val paw = Offset(
-                    elbow.x + tx*(6f + 3f*t) + nx*side*3f,
-                    elbow.y + ty*(6f + 3f*t) + ny*side*3f
-                )
-                drawLine(
-                    color = Color(0xFF169FD3).copy(alpha = alpha * 0.82f),
-                    start = shoulder,
-                    end = elbow,
-                    strokeWidth = 2.1f + 2.4f*t,
-                    cap = StrokeCap.Round
-                )
-                drawLine(
-                    color = Color(0xFF38D8E8).copy(alpha = alpha * 0.78f),
-                    start = elbow,
-                    end = paw,
-                    strokeWidth = 1.7f + 1.8f*t,
-                    cap = StrokeCap.Round
-                )
-                repeat(3) { claw ->
-                    val spread = (claw - 1) * 2.2f
-                    val clawEnd = Offset(
-                        paw.x + tx*(3.2f+t*1.5f) + nx*spread,
-                        paw.y + ty*(3.2f+t*1.5f) + ny*spread
+                        end = p,
+                        strokeWidth = width,
+                        cap = StrokeCap.Round
                     )
+                }
+                prev = p
+            }
+        }
+
+        val base = angle
+        val zone = 72f
+
+        // WIND
+        run {
+            val start = base
+            val end = base + zone
+            drawSmoothSegment(
+                start, end,
+                Color(0xFF64F4E8),
+                Color(0xFF5DE58D),
+                width = 5.0f * pulse,
+                alpha = 0.78f
+            )
+            if (!minimal) {
+                repeat(if (fullEffects) 18 else 10) { i ->
+                    val t = i / (if (fullEffects) 17f else 9f)
+                    val a = start + zone * t
+                    val wave = sin((t * 6.283f * 2f) + Math.toRadians(angle.toDouble()).toFloat()) * (5f + 5f * pulse)
+                    val p1 = point(a - 2.3f, wave)
+                    val p2 = point(a + 2.3f, -wave * 0.55f)
                     drawLine(
-                        color = Color(0xFFC2FCFF).copy(alpha = alpha * 0.70f),
-                        start = paw,
-                        end = clawEnd,
-                        strokeWidth = 0.8f + t*0.5f,
+                        color = Color(0xFF9FFFF7).copy(alpha = 0.15f + 0.32f * pulse),
+                        start = p1,
+                        end = p2,
+                        strokeWidth = 1.0f + 1.0f * pulse,
                         cap = StrokeCap.Round
                     )
                 }
             }
+        }
 
-            // Small particles appear around the front half in Full mode only.
-            if (fullEffects && i % 4 == 0 && t > 0.32f) {
-                val sparkle = Offset(
-                    p.x + nx*(bodyRadius + 5f + (i%3)*2f),
-                    p.y + ny*(bodyRadius + 5f + (i%3)*2f)
+        // FIRE
+        run {
+            val start = base + zone
+            val end = base + zone * 2f
+            drawSmoothSegment(
+                start, end,
+                Color(0xFFFFB02E),
+                Color(0xFFFF4B12),
+                width = 6.2f * pulse,
+                alpha = 0.95f
+            )
+            if (!minimal) {
+                repeat(if (fullEffects) 22 else 12) { i ->
+                    val t = i / (if (fullEffects) 21f else 11f)
+                    val a = start + zone * t
+                    val amp = (4f + (i % 4) * 2.2f) * pulse
+                    val p = point(a)
+                    val q = point(a + (if (i % 2 == 0) 1.8f else -1.8f), amp)
+                    drawLine(
+                        color = if (i % 3 == 0)
+                            Color(0xFFFFD05A).copy(alpha = 0.66f)
+                        else
+                            Color(0xFFFF5B18).copy(alpha = 0.48f),
+                        start = p,
+                        end = q,
+                        strokeWidth = 1.2f + (i % 3) * 0.6f,
+                        cap = StrokeCap.Round
+                    )
+                }
+            }
+        }
+
+        // WATER
+        run {
+            val start = base + zone * 2f
+            val end = base + zone * 3f
+            drawSmoothSegment(
+                start, end,
+                Color(0xFF54D8FF),
+                Color(0xFF2374FF),
+                width = 6.0f * pulse,
+                alpha = 0.88f
+            )
+            if (!minimal) {
+                drawSmoothSegment(
+                    start + 3f, end - 3f,
+                    Color(0xFFBDF8FF),
+                    Color(0xFF60AFFF),
+                    width = 1.8f,
+                    alpha = 0.58f
                 )
+                repeat(if (fullEffects) 16 else 9) { i ->
+                    val t = i / (if (fullEffects) 15f else 8f)
+                    val a = start + zone * t
+                    val p = point(a, 5f + (i % 3) * 3f)
+                    drawCircle(
+                        color = Color(0xFF78DFFF).copy(alpha = 0.32f + 0.22f * pulse),
+                        radius = 1.0f + (i % 3) * 0.8f,
+                        center = p
+                    )
+                }
+            }
+        }
+
+        // EARTH
+        run {
+            val start = base + zone * 3f
+            val end = base + zone * 4f
+            drawSmoothSegment(
+                start, end,
+                Color(0xFFD49A52),
+                Color(0xFF7E5A35),
+                width = 6.0f * pulse,
+                alpha = 0.86f
+            )
+            if (!minimal) {
+                repeat(if (fullEffects) 15 else 8) { i ->
+                    val t = i / (if (fullEffects) 14f else 7f)
+                    val a = start + zone * t
+                    val normal = if (i % 2 == 0) 3.5f else -3.5f
+                    val p = point(a, normal)
+                    val r = 1.8f + (i % 4) * 0.75f
+                    drawCircle(
+                        color = if (i % 3 == 0)
+                            Color(0xFFD7B07A).copy(alpha = 0.70f)
+                        else
+                            Color(0xFF745137).copy(alpha = 0.78f),
+                        radius = r,
+                        center = p
+                    )
+                    if (fullEffects && i % 2 == 0) {
+                        drawCircle(
+                            color = Color(0xFFB7834F).copy(alpha = 0.20f),
+                            radius = r * 2.2f,
+                            center = p
+                        )
+                    }
+                }
+            }
+        }
+
+        // LIGHTNING
+        run {
+            val start = base + zone * 4f
+            val end = base + 360f
+            drawSmoothSegment(
+                start, end,
+                Color(0xFFFFF47A),
+                Color(0xFFFFB300),
+                width = 4.8f * pulse,
+                alpha = 0.96f
+            )
+            if (!minimal) {
+                repeat(if (fullEffects) 18 else 10) { i ->
+                    val t = i / (if (fullEffects) 17f else 9f)
+                    val a = start + zone * t
+                    val main = point(a)
+                    val branch1 = point(
+                        a + (if (i % 2 == 0) 2.2f else -2.2f),
+                        (7f + (i % 3) * 3f) * pulse
+                    )
+                    drawLine(
+                        color = Color(0xFFFFD72E).copy(alpha = 0.56f + 0.18f * pulse),
+                        start = main,
+                        end = branch1,
+                        strokeWidth = 1.0f + (i % 2) * 0.7f,
+                        cap = StrokeCap.Round
+                    )
+                    if (fullEffects && i % 3 == 0) {
+                        val branch2 = point(
+                            a + (if (i % 2 == 0) -4.0f else 4.0f),
+                            (11f + (i % 4) * 2f) * pulse
+                        )
+                        drawLine(
+                            color = Color(0xFFFFFFB0).copy(alpha = 0.38f),
+                            start = branch1,
+                            end = branch2,
+                            strokeWidth = 0.8f,
+                            cap = StrokeCap.Round
+                        )
+                    }
+                }
+            }
+        }
+
+        if (!minimal) {
+            repeat(5) { i ->
+                val seam = point(base + zone * i)
                 drawCircle(
-                    color = Color(0xFF8CFAFF).copy(alpha = alpha * 0.42f),
-                    radius = 0.8f + 2.1f*t,
-                    center = sparkle
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.20f + 0.16f * pulse),
+                            Color(0xFF78DFFF).copy(alpha = 0.10f),
+                            Color.Transparent
+                        ),
+                        center = seam,
+                        radius = if (fullEffects) 12f else 8f
+                    ),
+                    radius = if (fullEffects) 12f else 8f,
+                    center = seam
                 )
             }
-
-            previous = p
-        }
-
-        // A recognisable forked tail fin instead of a simple fading point.
-        val tailAngle = angle - segments * step
-        val tail = orbitPoint(tailAngle)
-        val ahead = orbitPoint(tailAngle + 1.0f)
-        val dx = ahead.x - tail.x
-        val dy = ahead.y - tail.y
-        val len = kotlin.math.sqrt(dx*dx + dy*dy).coerceAtLeast(0.001f)
-        val tx = dx/len
-        val ty = dy/len
-        val nx = -ty
-        val ny = tx
-
-        val tailRoot = Offset(tail.x - tx*3f, tail.y - ty*3f)
-        val tailTip = Offset(tail.x - tx*17f, tail.y - ty*17f)
-        val finA = Offset(tailTip.x + nx*9f, tailTip.y + ny*9f)
-        val finB = Offset(tailTip.x - nx*9f, tailTip.y - ny*9f)
-
-        val fork = Path().apply {
-            moveTo(tailRoot.x, tailRoot.y)
-            quadraticBezierTo(
-                tail.x - tx*8f + nx*3f,
-                tail.y - ty*8f + ny*3f,
-                finA.x, finA.y
-            )
-            lineTo(tailTip.x + tx*4f, tailTip.y + ty*4f)
-            lineTo(finB.x, finB.y)
-            quadraticBezierTo(
-                tail.x - tx*8f - nx*3f,
-                tail.y - ty*8f - ny*3f,
-                tailRoot.x, tailRoot.y
-            )
-            close()
-        }
-        drawPath(fork, Color(0x1829C8E8))
-        drawPath(
-            fork,
-            Color(0x207DF6FF),
-            style = Stroke(width = 1.2f)
-        )
-    }
-}
-
-@Composable
-private fun DragonParticles(angle: Float) {
-    Canvas(Modifier.fillMaxSize()) {
-        val base = Math.toRadians(angle.toDouble())
-        repeat(9) { i ->
-            val phase = base + i * 0.72
-            val r = size.minDimension * (0.18f + (i % 3) * 0.045f)
-            val px = center.x + cos(phase).toFloat() * r
-            val py = center.y + sin(phase * 1.25).toFloat() * r * 0.52f
-            drawCircle(
-                color = if (i % 2 == 0) Color(0x554EA8FF) else Color(0x5531D9C5),
-                radius = 2.5f + (i % 3),
-                center = Offset(px, py)
-            )
         }
     }
 }
