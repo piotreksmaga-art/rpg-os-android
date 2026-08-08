@@ -1,2 +1,0 @@
-world.db
-worldpack.json
