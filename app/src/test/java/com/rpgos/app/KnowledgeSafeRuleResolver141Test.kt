@@ -53,7 +53,8 @@ class KnowledgeSafeRuleResolver141Test {
                         holderId = "NPC-A",
                         confidence = 0.95,
                         sourceType = ProvenanceType.NPC_OBSERVATION,
-                        sourceId = "FACT-1"
+                        sourceId = "FACT-1",
+                        knowledgeChannel = KnowledgeChannel141.OBSERVATION
                     )
                 )
             )
