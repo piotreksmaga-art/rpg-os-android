@@ -474,6 +474,48 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         _developerStatus.value = "Raport diagnostyczny wyczyszczony."
     }
 
+    fun loadGm141OfflineDiagnostics() {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            try {
+                _developerStatus.value = "GM141: audyt offline..."
+                _developerDiagnostic.value = GameMasterDiagnosticsService141(app, store).report()
+                _developerStatus.value = "✅ GM141: raport offline gotowy. Bez AI i bez zapisu tury."
+            } catch (t: Throwable) {
+                DiagnosticLogger.log(app, "GM141_OFFLINE_DIAGNOSTICS_FAILED", t)
+                _developerStatus.value = "❌ GM141 diagnostyka: ${t::class.simpleName}: ${t.message}"
+            }
+        }
+    }
+
+    fun testGm141ProposalEndpoint() {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            try {
+                _developerStatus.value = "GM141: test /v1/gm/proposal bez zapisu..."
+                GameMasterRepositoryFactory(app, store).openActiveSession().use { session ->
+                    val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1L
+                    val request = GameMasterTurnRequest(
+                        campaignId = session.campaignUid.value,
+                        worldPackId = session.worldPackUid.value,
+                        playerAction = "DIAGNOSTIC_PROPOSAL_ONLY: zwróć minimalną bezpieczną propozycję testową bez zmian stanu.",
+                        currentChapter = chapter,
+                        locale = "pl-PL"
+                    )
+                    val context = GameMasterContextRepository141(app, store).buildContext(request)
+                    val proposal = GameMasterBackendGateway141(_settings.value.backendUrl)
+                        .generateProposal(request, context)
+                    require(proposal.narrativeDraft.isNotBlank()) { "Backend zwrócił pustą narrację." }
+                    _developerStatus.value =
+                        "✅ GM141 proposal OK | akcje=${proposal.proposedActions.size}, pamięci=${proposal.proposedMemories.size}, kronika=${proposal.proposedChronicleEntries.size}. Nic nie zapisano."
+                }
+            } catch (t: Throwable) {
+                DiagnosticLogger.log(app, "GM141_PROPOSAL_TEST_FAILED", t)
+                _developerStatus.value = "❌ GM141 proposal: ${t::class.simpleName}: ${t.message}"
+            }
+        }
+    }
+
     fun runDeveloperSelfTest() {
         viewModelScope.launch {
             val app = getApplication<Application>()

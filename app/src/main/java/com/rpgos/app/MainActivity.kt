@@ -2141,7 +2141,13 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
                 Text("Test ContextBundle")
             }
             Button(onClick={vm::testBackendConnection},modifier=Modifier.fillMaxWidth()){
-                Text("Test backendu")
+                Text("Test backendu legacy")
+            }
+            Button(onClick={vm::loadGm141OfflineDiagnostics},modifier=Modifier.fillMaxWidth()){
+                Text("Raport GM141 offline")
+            }
+            Button(onClick={vm::testGm141ProposalEndpoint},modifier=Modifier.fillMaxWidth()){
+                Text("Test endpointu GM141 (bez zapisu)")
             }
             Button(onClick={vm::createDeveloperBackup},modifier=Modifier.fillMaxWidth()){
                 Text("Utwórz backup diagnostyczny")
