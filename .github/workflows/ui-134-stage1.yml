@@ -1,31 +1,25 @@
-name: UI 134 Stage 1
-
+name: UI134
 on:
   push:
-    branches: [ "ui-134-header" ]
-
+    branches:
+      - ui-134-header
 permissions:
   contents: write
-
 jobs:
-  build-ui134:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ui-134-header
           fetch-depth: 0
-
-      - name: Apply UI 134 stage 1
-        shell: bash
+      - name: Patch
         run: |
-          python3 <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
-
-          p = Path('app/src/main/java/com/rpgos/app/MainActivity.kt')
+          p = Path("app/src/main/java/com/rpgos/app/MainActivity.kt")
           s = p.read_text()
-
-          old_gradient = '''private val ScreenGradient = Brush.verticalGradient(
+          s = s.replace("""private val ScreenGradient = Brush.verticalGradient(
     colorStops = arrayOf(
         0.00f to Color(0xFF020711),
         0.18f to Color(0xFF041326),
@@ -34,8 +28,7 @@ jobs:
         0.82f to Color(0xFF082B33),
         1.00f to Color(0xFF02060C)
     )
-)'''
-          new_gradient = '''private val ScreenGradient = Brush.verticalGradient(
+)""", """private val ScreenGradient = Brush.verticalGradient(
     colorStops = arrayOf(
         0.00f to Color(0xFF01050D),
         0.20f to Color(0xFF03101D),
@@ -44,58 +37,35 @@ jobs:
         0.86f to Color(0xFF06252D),
         1.00f to Color(0xFF01050A)
     )
-)'''
-          if old_gradient not in s:
-              raise RuntimeError('ScreenGradient block not found')
-          s = s.replace(old_gradient, new_gradient, 1)
-
-          old_screen = '''@Composable
+)""", 1)
+          s = s.replace("""@Composable
 private fun GradientScreen(content: @Composable BoxScope.() -> Unit) {
     Box(
         Modifier.fillMaxSize().background(ScreenGradient),
         content = content
     )
-}'''
-          new_screen = '''@Composable
+}""", """@Composable
 private fun GradientScreen(content: @Composable BoxScope.() -> Unit) {
     Box(Modifier.fillMaxSize().background(ScreenGradient)) {
         Box(
-            Modifier
-                .fillMaxWidth()
-                .height(420.dp)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color(0x3322A8FF),
-                            Color(0x1810C7D4),
-                            Color.Transparent
-                        ),
-                        radius = 760f
-                    )
+            Modifier.fillMaxWidth().height(420.dp).background(
+                Brush.radialGradient(
+                    colors = listOf(Color(0x3322A8FF), Color(0x1810C7D4), Color.Transparent),
+                    radius = 760f
                 )
+            )
         )
         Box(
-            Modifier
-                .fillMaxWidth()
-                .height(560.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            Color(0x141E8FFF),
-                            Color.Transparent,
-                            Color(0x1219D4C6)
-                        )
-                    )
+            Modifier.fillMaxWidth().height(560.dp).background(
+                Brush.horizontalGradient(
+                    colors = listOf(Color(0x141E8FFF), Color.Transparent, Color(0x1219D4C6))
                 )
+            )
         )
         content()
     }
-}'''
-          if old_screen not in s:
-              raise RuntimeError('GradientScreen block not found')
-          s = s.replace(old_screen, new_screen, 1)
-
-          old_header_item = '''            item {
+}""", 1)
+          old = """            item {
                 SystemHeader()
                 Spacer(Modifier.height(12.dp))
                 Surface(
@@ -103,15 +73,15 @@ private fun GradientScreen(content: @Composable BoxScope.() -> Unit) {
                     color = Color(0xCC0A4B9A)
                 ) {
                     Text(
-                        "ALPHA 5 • ${BuildConfig.VERSION_NAME}",
+                        \"ALPHA 5 • ${BuildConfig.VERSION_NAME}\",
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         style = MaterialTheme.typography.labelMedium,
                         color = Color.White
                     )
                 }
                 Spacer(Modifier.height(18.dp))
-            }'''
-          new_header_item = '''            item {
+            }"""
+          new = """            item {
                 SystemHeader()
                 Spacer(Modifier.height(6.dp))
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -125,125 +95,71 @@ private fun GradientScreen(content: @Composable BoxScope.() -> Unit) {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("✦", color = Color(0xFF63E6FF), style = MaterialTheme.typography.labelLarge)
-                            Text(
-                                "ALPHA 5",
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF5DDCFF)
-                            )
-                            Text("•", color = Color(0xFF5D7690))
-                            Text(
-                                BuildConfig.VERSION_NAME,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = Color(0xFFD8E9F7)
-                            )
+                            Text(\"✦\", color = Color(0xFF63E6FF), style = MaterialTheme.typography.labelLarge)
+                            Text(\"ALPHA 5\", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = Color(0xFF5DDCFF))
+                            Text(\"•\", color = Color(0xFF5D7690))
+                            Text(BuildConfig.VERSION_NAME, style = MaterialTheme.typography.labelMedium, color = Color(0xFFD8E9F7))
                         }
                     }
                 }
                 Spacer(Modifier.height(18.dp))
-            }'''
-          if old_header_item not in s:
-              raise RuntimeError('Home header item not found')
-          s = s.replace(old_header_item, new_header_item, 1)
-
-          old_header = '''@Composable
+            }"""
+          if old not in s:
+              raise SystemExit("header item not found")
+          s = s.replace(old, new, 1)
+          old = """@Composable
 private fun SystemHeader() {
     Box(
         modifier = Modifier.fillMaxWidth().height(168.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("SYSTEM", style = MaterialTheme.typography.labelLarge, color = Color(0xFF55D6FF).copy(alpha = 0.90f))
-            Text("RPG OS", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black, color = Color(0xFFD5F1FF))
-            Text("Twoje kampanie. Jeden system.", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(\"SYSTEM\", style = MaterialTheme.typography.labelLarge, color = Color(0xFF55D6FF).copy(alpha = 0.90f))
+            Text(\"RPG OS\", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Black, color = Color(0xFFD5F1FF))
+            Text(\"Twoje kampanie. Jeden system.\", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
-}'''
-          new_header = '''@Composable
+}"""
+          new = """@Composable
 private fun SystemHeader() {
-    Box(
-        modifier = Modifier.fillMaxWidth().height(184.dp),
-        contentAlignment = Alignment.Center
-    ) {
+    Box(modifier = Modifier.fillMaxWidth().height(184.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                "SYSTEM",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF44D8FF)
-            )
+            Text(\"SYSTEM\", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Color(0xFF44D8FF))
             Spacer(Modifier.height(5.dp))
-            Text(
-                "RPG OS",
-                style = MaterialTheme.typography.displayMedium,
-                fontWeight = FontWeight.Black,
-                color = Color(0xFFE4F4FF)
-            )
+            Text(\"RPG OS\", style = MaterialTheme.typography.displayMedium, fontWeight = FontWeight.Black, color = Color(0xFFE4F4FF))
             Spacer(Modifier.height(9.dp))
-            Row(
-                modifier = Modifier.width(210.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
+            Row(modifier = Modifier.width(210.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f).height(1.dp).background(Brush.horizontalGradient(listOf(Color.Transparent, Color(0xFF45D9FF)))))
-                Text("◇", modifier = Modifier.padding(horizontal = 8.dp), color = Color(0xFF69E7FF))
+                Text(\"◇\", modifier = Modifier.padding(horizontal = 8.dp), color = Color(0xFF69E7FF))
                 Box(Modifier.weight(1f).height(1.dp).background(Brush.horizontalGradient(listOf(Color(0xFF45D9FF), Color.Transparent))))
             }
             Spacer(Modifier.height(9.dp))
-            Text(
-                "Twoje kampanie. Jeden system.",
-                style = MaterialTheme.typography.titleMedium,
-                color = Color(0xFFC1D0E1)
-            )
+            Text(\"Twoje kampanie. Jeden system.\", style = MaterialTheme.typography.titleMedium, color = Color(0xFFC1D0E1))
         }
     }
-}'''
-          if old_header not in s:
-              raise RuntimeError('SystemHeader block not found')
-          s = s.replace(old_header, new_header, 1)
-          p.write_text(s)
-
-          g = Path('app/build.gradle.kts')
-          t = g.read_text()
-          if 'versionCode = 133' not in t:
-              raise RuntimeError('Expected versionCode 133')
-          t = t.replace('versionCode = 133', 'versionCode = 134', 1)
-          t = t.replace('versionName = "1.2.0-alpha5-clean133"', 'versionName = "1.2.0-alpha5-ui134"', 1)
+}"""
+          if old not in s:
+              raise SystemExit("system header not found")
+          p.write_text(s.replace(old, new, 1))
+          g = Path("app/build.gradle.kts")
+          t = g.read_text().replace("versionCode = 133", "versionCode = 134", 1).replace("versionName = \"1.2.0-alpha5-clean133\"", "versionName = \"1.2.0-alpha5-ui134\"", 1)
           g.write_text(t)
           PY
-
-      - name: Verify scope
-        run: |
-          grep -q 'versionCode = 134' app/build.gradle.kts
-          grep -q 'versionName = "1.2.0-alpha5-ui134"' app/build.gradle.kts
-          grep -q 'Brush.radialGradient' app/src/main/java/com/rpgos/app/MainActivity.kt
-          grep -q 'Text("◇"' app/src/main/java/com/rpgos/app/MainActivity.kt
-
-      - name: Set up Java 17
-        uses: actions/setup-java@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK 36
-        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
-
-      - name: Set up Gradle 9.5
-        uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
-
-      - name: Compile UI 134
-        run: gradle --no-daemon :app:assembleDebug --stacktrace
-
-      - name: Commit source changes
+      - name: Build
+        run: gradle --no-daemon :app:assembleDebug
+      - name: Commit
         run: |
-          git config user.name "piotreksmaga-art"
-          git config user.email "piotreksmaga@gmail.com"
+          git config user.name piotreksmaga-art
+          git config user.email piotreksmaga@gmail.com
           git add app/src/main/java/com/rpgos/app/MainActivity.kt app/build.gradle.kts
-          git commit -m "UI 134 — premium background, header and version badge"
+          git commit -m "UI 134 - premium header background and badge"
           git push origin HEAD:ui-134-header
