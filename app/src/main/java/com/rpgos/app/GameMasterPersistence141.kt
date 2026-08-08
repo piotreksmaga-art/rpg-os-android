@@ -33,7 +33,6 @@ class GameMasterStateRepository141(
             val turnId = previousTurn + 1L
             val now = System.currentTimeMillis()
 
-            // Resolve every local event key exactly once before dependent writes.
             val eventUids = LinkedHashMap<String, EntityUid>()
             result.worldEvents.forEach { event ->
                 require(event.eventKey !in eventUids) { "Duplikat eventKey: ${event.eventKey}" }
@@ -244,11 +243,6 @@ class GameMasterStateRepository141(
     }
 }
 
-/**
- * Structural + Source-of-Truth validator used after Rule Resolver and before
- * persistence. It rejects contradictions that can be detected without asking
- * the language model to judge its own output.
- */
 class GameMasterTurnValidator141(
     private val repository: UnifiedCampaignRepository,
     private val campaignUid: EntityUid
@@ -261,150 +255,101 @@ class GameMasterTurnValidator141(
     ): GameMasterValidationReport {
         val issues = mutableListOf<GameMasterValidationIssue>()
 
-        errorIf(request.campaignId != campaignUid.value, issues, "CAMPAIGN_MISMATCH",
-            "Żądanie nie należy do aktywnej kampanii.")
-        errorIf(context.campaignId != campaignUid.value, issues, "CONTEXT_CAMPAIGN_MISMATCH",
-            "Kontekst nie należy do aktywnej kampanii.")
-        errorIf(context.chapter != request.currentChapter, issues, "CHAPTER_MISMATCH",
-            "Rozdział kontekstu i żądania jest różny.")
+        errorIf(request.campaignId != campaignUid.value, issues, "CAMPAIGN_MISMATCH", "Żądanie nie należy do aktywnej kampanii.")
+        errorIf(context.campaignId != campaignUid.value, issues, "CONTEXT_CAMPAIGN_MISMATCH", "Kontekst nie należy do aktywnej kampanii.")
+        errorIf(context.chapter != request.currentChapter, issues, "CHAPTER_MISMATCH", "Rozdział kontekstu i żądania jest różny.")
         errorIf(result.narrative.isBlank(), issues, "EMPTY_NARRATIVE", "Narracja jest pusta.")
 
         val eventKeys = result.worldEvents.map { it.eventKey }
         errorIf(eventKeys.any { it.isBlank() }, issues, "EMPTY_EVENT_KEY", "Event ma pusty eventKey.")
-        errorIf(eventKeys.size != eventKeys.toSet().size, issues, "DUPLICATE_EVENT_KEY",
-            "W jednej turze występują zduplikowane eventKey.")
+        errorIf(eventKeys.size != eventKeys.toSet().size, issues, "DUPLICATE_EVENT_KEY", "W jednej turze występują zduplikowane eventKey.")
         val eventKeySet = eventKeys.toSet()
 
         result.worldEvents.forEach { event ->
-            errorIf(event.description.isBlank(), issues, "EMPTY_EVENT_DESCRIPTION",
-                "Event ${event.eventKey} nie ma opisu.")
-            errorIf(event.effectiveChapter < 0L, issues, "INVALID_EVENT_CHAPTER",
-                "Event ${event.eventKey} ma ujemny effectiveChapter.")
-            errorIf(event.causeEventKey != null && event.causeEventKey !in eventKeySet, issues,
-                "UNKNOWN_EVENT_CAUSE", "Event ${event.eventKey} wskazuje nieznany causeEventKey=${event.causeEventKey}.")
+            errorIf(event.description.isBlank(), issues, "EMPTY_EVENT_DESCRIPTION", "Event ${event.eventKey} nie ma opisu.")
+            errorIf(event.effectiveChapter < 0L, issues, "INVALID_EVENT_CHAPTER", "Event ${event.eventKey} ma ujemny effectiveChapter.")
+            errorIf(event.causeEventKey != null && event.causeEventKey !in eventKeySet, issues, "UNKNOWN_EVENT_CAUSE", "Event ${event.eventKey} wskazuje nieznany causeEventKey=${event.causeEventKey}.")
             if (runCatching { JSONObject(event.payloadJson) }.isFailure) {
                 issues += error("INVALID_EVENT_JSON", "Event ${event.eventKey} zawiera niepoprawny payload JSON.")
             }
         }
 
-        val mutationKeys = result.stateMutations.map {
-            Triple(it.entityType, it.entityId, it.field)
-        }
-        errorIf(mutationKeys.size != mutationKeys.toSet().size, issues, "DUPLICATE_FIELD_MUTATION",
-            "Jedna tura nie może modyfikować tego samego pola stanu więcej niż raz.")
+        val mutationKeys = result.stateMutations.map { Triple(it.entityType, it.entityId, it.field) }
+        errorIf(mutationKeys.size != mutationKeys.toSet().size, issues, "DUPLICATE_FIELD_MUTATION", "Jedna tura nie może modyfikować tego samego pola stanu więcej niż raz.")
 
         result.stateMutations.forEach { mutation ->
             errorIf(mutation.entityType.isBlank(), issues, "EMPTY_ENTITY_TYPE", "Mutacja ma pusty entityType.")
             errorIf(mutation.entityId.isBlank(), issues, "EMPTY_ENTITY_ID", "Mutacja ma pusty entityId.")
             errorIf(mutation.field.isBlank(), issues, "EMPTY_FIELD", "Mutacja ma puste pole.")
-            errorIf(mutation.reason.isBlank(), issues, "EMPTY_MUTATION_REASON",
-                "Mutacja ${mutation.entityId}.${mutation.field} nie ma uzasadnienia.")
-            errorIf(mutation.causedByEventKey != null && mutation.causedByEventKey !in eventKeySet, issues,
-                "UNKNOWN_MUTATION_CAUSE",
-                "Mutacja ${mutation.entityId}.${mutation.field} wskazuje nieznany event ${mutation.causedByEventKey}.")
+            errorIf(mutation.reason.isBlank(), issues, "EMPTY_MUTATION_REASON", "Mutacja ${mutation.entityId}.${mutation.field} nie ma uzasadnienia.")
+            errorIf(mutation.causedByEventKey != null && mutation.causedByEventKey !in eventKeySet, issues, "UNKNOWN_MUTATION_CAUSE", "Mutacja ${mutation.entityId}.${mutation.field} wskazuje nieznany event ${mutation.causedByEventKey}.")
             val requiresValue = mutation.operation != MutationOperation.REMOVE
-            errorIf(requiresValue && mutation.newValue == null, issues, "MISSING_MUTATION_VALUE",
-                "Mutacja ${mutation.operation} ${mutation.entityId}.${mutation.field} nie ma newValue.")
+            errorIf(requiresValue && mutation.newValue == null, issues, "MISSING_MUTATION_VALUE", "Mutacja ${mutation.operation} ${mutation.entityId}.${mutation.field} nie ma newValue.")
 
             if (mutation.entityId.isNotBlank() && mutation.entityType.isNotBlank() && mutation.field.isNotBlank()) {
-                val current = repository.getEntityState(
-                    campaignUid,
-                    EntityUid(mutation.entityId),
-                    mutation.entityType
-                ).firstOrNull { it.field == mutation.field }?.value
+                val current = repository.getEntityState(campaignUid, EntityUid(mutation.entityId), mutation.entityType)
+                    .firstOrNull { it.field == mutation.field }?.value
                 if (mutation.oldValue != null && current != mutation.oldValue) {
-                    issues += error(
-                        "STALE_OLD_VALUE",
-                        "${mutation.entityId}.${mutation.field}: oczekiwano '${mutation.oldValue}', Source of Truth ma '$current'."
-                    )
+                    issues += error("STALE_OLD_VALUE", "${mutation.entityId}.${mutation.field}: oczekiwano '${mutation.oldValue}', Source of Truth ma '$current'.")
                 }
             }
         }
 
         result.truthWrites.forEach { truth ->
             errorIf(truth.predicate.isBlank(), issues, "EMPTY_PREDICATE", "Fact/belief ma pusty predicate.")
-            errorIf(truth.confidence !in 0.0..1.0, issues, "INVALID_TRUTH_CONFIDENCE",
-                "Fact/belief ${truth.predicate} ma confidence poza zakresem 0..1.")
-            errorIf(truth.kind == TruthKind.BELIEF && truth.holderId.isNullOrBlank(), issues,
-                "BELIEF_WITHOUT_HOLDER", "BELIEF ${truth.predicate} nie ma holderId.")
-            errorIf(truth.kind == TruthKind.BELIEF && truth.knowledgeChannel == null, issues,
-                "BELIEF_WITHOUT_KNOWLEDGE_CHANNEL", "BELIEF ${truth.predicate} nie ma jawnego kanału wiedzy.")
-            errorIf(truth.kind == TruthKind.BELIEF && truth.sourceId.isNullOrBlank(), issues,
-                "BELIEF_WITHOUT_SOURCE", "BELIEF ${truth.predicate} nie wskazuje trwałego źródła.")
-            errorIf(truth.kind == TruthKind.BELIEF && truth.knowledgeChannel == KnowledgeChannel141.REPORT &&
-                truth.sourceNpcId.isNullOrBlank(), issues, "REPORT_WITHOUT_SOURCE_NPC",
-                "BELIEF ${truth.predicate} z kanału REPORT nie wskazuje nadawcy.")
+            errorIf(truth.confidence !in 0.0..1.0, issues, "INVALID_TRUTH_CONFIDENCE", "Fact/belief ${truth.predicate} ma confidence poza zakresem 0..1.")
+            errorIf(truth.kind == TruthKind.BELIEF && truth.holderId.isNullOrBlank(), issues, "BELIEF_WITHOUT_HOLDER", "BELIEF ${truth.predicate} nie ma holderId.")
+            errorIf(truth.kind == TruthKind.BELIEF && truth.knowledgeChannel == null, issues, "BELIEF_WITHOUT_KNOWLEDGE_CHANNEL", "BELIEF ${truth.predicate} nie ma jawnego kanału wiedzy.")
+            errorIf(truth.kind == TruthKind.BELIEF && truth.sourceId.isNullOrBlank(), issues, "BELIEF_WITHOUT_SOURCE", "BELIEF ${truth.predicate} nie wskazuje trwałego źródła.")
+            errorIf(truth.kind == TruthKind.BELIEF && truth.knowledgeChannel == KnowledgeChannel141.REPORT && truth.sourceNpcId.isNullOrBlank(), issues, "REPORT_WITHOUT_SOURCE_NPC", "BELIEF ${truth.predicate} z kanału REPORT nie wskazuje nadawcy.")
             if (truth.kind == TruthKind.BELIEF && truth.knowledgeChannel != null) {
                 val expected = when (truth.knowledgeChannel) {
                     KnowledgeChannel141.OBSERVATION -> ProvenanceType.NPC_OBSERVATION
                     KnowledgeChannel141.REPORT -> ProvenanceType.NPC_REPORT
+                    KnowledgeChannel141.RESEARCH -> ProvenanceType.NPC_RESEARCH
                     KnowledgeChannel141.INFERENCE -> ProvenanceType.NPC_INFERENCE
                 }
-                errorIf(truth.sourceType != expected, issues, "KNOWLEDGE_PROVENANCE_MISMATCH",
-                    "BELIEF ${truth.predicate}: kanał ${truth.knowledgeChannel} nie pasuje do ${truth.sourceType}.")
+                errorIf(truth.sourceType != expected, issues, "KNOWLEDGE_PROVENANCE_MISMATCH", "BELIEF ${truth.predicate}: kanał ${truth.knowledgeChannel} nie pasuje do ${truth.sourceType}.")
             }
-            errorIf(truth.kind != TruthKind.BELIEF && truth.knowledgeChannel != null, issues,
-                "KNOWLEDGE_CHANNEL_ON_NON_BELIEF", "Tylko BELIEF może posiadać knowledgeChannel.")
-            errorIf(truth.validFromTurn != null && truth.validUntilTurn != null &&
-                truth.validUntilTurn < truth.validFromTurn, issues, "INVALID_TRUTH_INTERVAL",
-                "Fact/belief ${truth.predicate} ma odwrócony przedział czasu.")
-            if (truth.sourceType == ProvenanceType.CAMPAIGN_EVENT && !truth.sourceId.isNullOrBlank() &&
-                truth.sourceId !in eventKeySet) {
-                issues += warning(
-                    "EXTERNAL_EVENT_PROVENANCE",
-                    "${truth.predicate} wskazuje CAMPAIGN_EVENT spoza bieżącej tury; sourceId zostanie potraktowane jako trwały UID."
-                )
+            errorIf(truth.kind != TruthKind.BELIEF && truth.knowledgeChannel != null, issues, "KNOWLEDGE_CHANNEL_ON_NON_BELIEF", "Tylko BELIEF może posiadać knowledgeChannel.")
+            errorIf(truth.validFromTurn != null && truth.validUntilTurn != null && truth.validUntilTurn < truth.validFromTurn, issues, "INVALID_TRUTH_INTERVAL", "Fact/belief ${truth.predicate} ma odwrócony przedział czasu.")
+            if (truth.sourceType == ProvenanceType.CAMPAIGN_EVENT && !truth.sourceId.isNullOrBlank() && truth.sourceId !in eventKeySet) {
+                issues += warning("EXTERNAL_EVENT_PROVENANCE", "${truth.predicate} wskazuje CAMPAIGN_EVENT spoza bieżącej tury; sourceId zostanie potraktowane jako trwały UID.")
             }
         }
 
         result.divergenceWrites.forEach { divergence ->
-            errorIf(divergence.canonSubjectId.isBlank(), issues, "EMPTY_CANON_SUBJECT",
-                "Divergence nie ma canonSubjectId.")
-            errorIf(divergence.divergenceType.isBlank(), issues, "EMPTY_DIVERGENCE_TYPE",
-                "Divergence nie ma typu.")
-            errorIf(divergence.description.isBlank(), issues, "EMPTY_DIVERGENCE_DESCRIPTION",
-                "Divergence nie ma opisu.")
-            errorIf(divergence.causedByEventKey != null && divergence.causedByEventKey !in eventKeySet, issues,
-                "UNKNOWN_DIVERGENCE_CAUSE", "Divergence wskazuje nieznany event ${divergence.causedByEventKey}.")
+            errorIf(divergence.canonSubjectId.isBlank(), issues, "EMPTY_CANON_SUBJECT", "Divergence nie ma canonSubjectId.")
+            errorIf(divergence.divergenceType.isBlank(), issues, "EMPTY_DIVERGENCE_TYPE", "Divergence nie ma typu.")
+            errorIf(divergence.description.isBlank(), issues, "EMPTY_DIVERGENCE_DESCRIPTION", "Divergence nie ma opisu.")
+            errorIf(divergence.causedByEventKey != null && divergence.causedByEventKey !in eventKeySet, issues, "UNKNOWN_DIVERGENCE_CAUSE", "Divergence wskazuje nieznany event ${divergence.causedByEventKey}.")
         }
 
         result.memoryWrites.forEach { memory ->
             errorIf(memory.text.isBlank(), issues, "EMPTY_MEMORY", "Pamięć ma pustą treść.")
-            errorIf(memory.importance !in 0.0..1.0, issues, "INVALID_MEMORY_IMPORTANCE",
-                "Pamięć ma importance poza zakresem 0..1.")
-            errorIf(memory.chapter > request.currentChapter, issues, "FUTURE_MEMORY",
-                "Pamięć nie może powstać w przyszłym rozdziale.")
+            errorIf(memory.importance !in 0.0..1.0, issues, "INVALID_MEMORY_IMPORTANCE", "Pamięć ma importance poza zakresem 0..1.")
+            errorIf(memory.chapter > request.currentChapter, issues, "FUTURE_MEMORY", "Pamięć nie może powstać w przyszłym rozdziale.")
             memory.tags.filter { it.startsWith(EVENT_TAG_PREFIX) }.forEach { tag ->
                 val key = tag.removePrefix(EVENT_TAG_PREFIX)
-                errorIf(key !in eventKeySet, issues, "UNKNOWN_MEMORY_EVENT",
-                    "Pamięć wskazuje nieznany eventKey=$key.")
+                errorIf(key !in eventKeySet, issues, "UNKNOWN_MEMORY_EVENT", "Pamięć wskazuje nieznany eventKey=$key.")
             }
         }
 
         result.chronicleEntries.forEach { chronicle ->
             errorIf(chronicle.title.isBlank(), issues, "EMPTY_CHRONICLE_TITLE", "Wpis kroniki nie ma tytułu.")
             errorIf(chronicle.summary.isBlank(), issues, "EMPTY_CHRONICLE_SUMMARY", "Wpis kroniki nie ma podsumowania.")
-            errorIf(chronicle.chapter != request.currentChapter, issues, "CHRONICLE_CHAPTER_MISMATCH",
-                "Wpis kroniki ma rozdział ${chronicle.chapter}, oczekiwano ${request.currentChapter}.")
+            errorIf(chronicle.chapter != request.currentChapter, issues, "CHRONICLE_CHAPTER_MISMATCH", "Wpis kroniki ma rozdział ${chronicle.chapter}, oczekiwano ${request.currentChapter}.")
         }
 
         return GameMasterValidationReport(issues)
     }
 
-    private fun errorIf(
-        condition: Boolean,
-        issues: MutableList<GameMasterValidationIssue>,
-        code: String,
-        message: String
-    ) {
+    private fun errorIf(condition: Boolean, issues: MutableList<GameMasterValidationIssue>, code: String, message: String) {
         if (condition) issues += error(code, message)
     }
 
-    private fun error(code: String, message: String) =
-        GameMasterValidationIssue(code, message, ValidationSeverity.ERROR)
-
-    private fun warning(code: String, message: String) =
-        GameMasterValidationIssue(code, message, ValidationSeverity.WARNING)
+    private fun error(code: String, message: String) = GameMasterValidationIssue(code, message, ValidationSeverity.ERROR)
+    private fun warning(code: String, message: String) = GameMasterValidationIssue(code, message, ValidationSeverity.WARNING)
 
     companion object {
         private const val EVENT_TAG_PREFIX = "event:"
