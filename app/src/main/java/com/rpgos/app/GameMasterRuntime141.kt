@@ -51,7 +51,9 @@ class GameMasterRuntime141(
                 contextRepository = contextRepository,
                 modelGateway = modelGateway,
                 ruleResolver = KnowledgeSafeRuleResolver141(baseResolver),
-                validator = GameMasterTurnValidator141(session.repository, session.campaignUid),
+                validator = NpcKnowledgeSemanticTurnValidator141(
+                    GameMasterTurnValidator141(session.repository, session.campaignUid)
+                ),
                 stateRepository = GameMasterStateRepository141(
                     repository = session.repository,
                     campaignUid = session.campaignUid,
