@@ -10,7 +10,8 @@ data class ActiveGameMasterRepository(
     val repository: SQLiteUnifiedCampaignRepository,
     val knowledgeStore: KnowledgeTransmissionStore141,
     val npcKnowledgeStores: SQLiteNpcKnowledgeStores141? = null,
-    val organizationAuthorizationStore: OrganizationKnowledgeAuthorizationStore141? = null
+    val organizationAuthorizationStore: OrganizationKnowledgeAuthorizationStore141? = null,
+    val truthSupersessionStore: TruthSupersession141? = null
 ) : AutoCloseable {
     override fun close() = repository.close()
 }
@@ -45,15 +46,20 @@ class GameMasterRepositoryFactory(
                 ownsDatabase = true
             )
 
-            // Knowledge persistence uses additive migrations in the same campaign.db.
-            // Generic transmission comes first, then richer NPC lifecycle ledgers and
-            // durable organization authorization records.
+            // Knowledge and truth-lifecycle persistence use additive migrations in the same
+            // campaign.db. No parallel source of truth is introduced.
             KnowledgeTransmissionSchema141.ensure(db)
             NpcKnowledgePersistenceSchema141.ensure(db)
             OrganizationKnowledgeAuthorizationSchema141.ensure(db)
+            TruthSupersessionSchema141.ensure(db)
             val knowledgeStore = SQLiteKnowledgeTransmissionStore141(db, campaignUid)
             val npcKnowledgeStores = SQLiteNpcKnowledgeStores141(db, campaignUid)
             val organizationAuthorizationStore = SQLiteOrganizationKnowledgeAuthorizationStore141(db)
+            val truthSupersessionStore = SQLiteTruthSupersessionStore141(
+                db = db,
+                repository = repository,
+                campaignUid = campaignUid
+            )
             GameMasterLegacyBootstrap141.ensure(db, campaignUid)
 
             ActiveGameMasterRepository(
@@ -62,7 +68,8 @@ class GameMasterRepositoryFactory(
                 repository = repository,
                 knowledgeStore = knowledgeStore,
                 npcKnowledgeStores = npcKnowledgeStores,
-                organizationAuthorizationStore = organizationAuthorizationStore
+                organizationAuthorizationStore = organizationAuthorizationStore,
+                truthSupersessionStore = truthSupersessionStore
             )
         } catch (t: Throwable) {
             if (repository != null) repository.close() else db.close()
