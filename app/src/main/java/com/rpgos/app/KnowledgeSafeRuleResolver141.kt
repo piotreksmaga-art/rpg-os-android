@@ -28,6 +28,7 @@ class KnowledgeSafeRuleResolver141(
                 KnowledgeChannel141.REPORT -> ProvenanceType.NPC_REPORT
                 KnowledgeChannel141.RESEARCH -> ProvenanceType.NPC_RESEARCH
                 KnowledgeChannel141.INFERENCE -> ProvenanceType.NPC_INFERENCE
+                KnowledgeChannel141.ORGANIZATION -> ProvenanceType.ORGANIZATION_REPORT
             }
             require(belief.sourceType == expectedProvenance) {
                 "BELIEF #${index + 1}: kanał $channel wymaga provenance $expectedProvenance, otrzymano ${belief.sourceType}."
@@ -35,6 +36,11 @@ class KnowledgeSafeRuleResolver141(
             if (channel == KnowledgeChannel141.REPORT) {
                 require(!belief.sourceNpcId.isNullOrBlank()) {
                     "BELIEF #${index + 1} z kanału REPORT nie ma sourceNpcId."
+                }
+            }
+            if (channel == KnowledgeChannel141.ORGANIZATION) {
+                require(belief.sourceNpcId.isNullOrBlank()) {
+                    "BELIEF #${index + 1} z kanału ORGANIZATION nie może mieć sourceNpcId."
                 }
             }
         }
