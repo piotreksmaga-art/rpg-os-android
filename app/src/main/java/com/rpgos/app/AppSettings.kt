@@ -8,9 +8,7 @@ data class RpgOsSettings(
     val worldPackId: String,
     val campaignId: String,
     val showGmDiagnostics: Boolean,
-    val autoBackup: Boolean,
-    val visualEffectsLevel: String = "standard",
-    val introAnimation: Boolean = true
+    val autoBackup: Boolean
 )
 
 class AppSettings(private val context: Context) {
@@ -40,9 +38,7 @@ class AppSettings(private val context: Context) {
             worldPackId = prefs.getString("worldpack_id", "naruto") ?: "naruto",
             campaignId = prefs.getString("campaign_id", "naruto-default") ?: "naruto-default",
             showGmDiagnostics = prefs.getBoolean("show_gm_diagnostics", true),
-            autoBackup = prefs.getBoolean("auto_backup", true),
-            visualEffectsLevel = prefs.getString("visual_effects_level", "standard") ?: "standard",
-            introAnimation = prefs.getBoolean("intro_animation", true)
+            autoBackup = prefs.getBoolean("auto_backup", true)
         )
     }
 
@@ -54,8 +50,6 @@ class AppSettings(private val context: Context) {
             .putString("campaign_id", settings.campaignId)
             .putBoolean("show_gm_diagnostics", settings.showGmDiagnostics)
             .putBoolean("auto_backup", settings.autoBackup)
-            .putString("visual_effects_level", settings.visualEffectsLevel)
-            .putBoolean("intro_animation", settings.introAnimation)
             .apply()
     }
 }
