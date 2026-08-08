@@ -538,7 +538,7 @@ private fun DragonGuardian(
 
         Canvas(
             Modifier
-                .size(92.dp)
+                .size(104.dp)
                 .align(Alignment.Center)
                 .graphicsLayer {
                     translationX = x
@@ -683,72 +683,229 @@ private fun DragonEnergyBody(
     fullEffects: Boolean
 ) {
     Canvas(Modifier.fillMaxSize()) {
-        val segments = if (fullEffects) 52 else 40
-        val step = if (fullEffects) 2.8f else 3.4f
+        val segments = if (fullEffects) 58 else 46
+        val step = if (fullEffects) 2.55f else 3.0f
         val radiusX = size.width * 0.405f
         val radiusY = size.height * 0.365f
+
+        fun orbitPoint(a: Float): Offset {
+            val r = Math.toRadians(a.toDouble())
+            return Offset(
+                center.x + cos(r).toFloat() * radiusX,
+                center.y + sin(r).toFloat() * radiusY
+            )
+        }
+
         var previous: Offset? = null
 
         for (i in segments downTo 1) {
             val a = angle - i * step
-            val rad = Math.toRadians(a.toDouble())
-            val p = Offset(
-                center.x + cos(rad).toFloat() * radiusX,
-                center.y + sin(rad).toFloat() * radiusY
-            )
+            val p = orbitPoint(a)
+            val ahead = orbitPoint(a + 0.9f)
+            val dx = ahead.x - p.x
+            val dy = ahead.y - p.y
+            val len = kotlin.math.sqrt(dx*dx + dy*dy).coerceAtLeast(0.001f)
+            val tx = dx / len
+            val ty = dy / len
+            val nx = -ty
+            val ny = tx
 
-            // Cubic fade: strongest near the head, increasingly transparent toward the tail.
+            // 0 at the tail, 1 close to the head.
             val t = 1f - i.toFloat() / (segments + 1f)
-            val alpha = (t*t*t * if (fullEffects) 0.84f else 0.70f).coerceIn(0f, 0.86f)
-            val width = 1.0f + t * if (fullEffects) 13f else 10f
+            val fade = (t*t*t).coerceIn(0f, 1f)
+            val alpha = fade * if (fullEffects) 0.92f else 0.80f
+
+            // Dragon tapers strongly toward the tail.
+            val bodyRadius = 1.8f + t * if (fullEffects) 13.0f else 10.5f
 
             previous?.let { old ->
+                // Very soft outer energy veil.
                 drawLine(
-                    color = Color(0xFF087BC5).copy(alpha = alpha * 0.34f),
+                    color = Color(0xFF0879CB).copy(alpha = alpha * 0.17f),
                     start = old,
                     end = p,
-                    strokeWidth = width * 2.05f,
+                    strokeWidth = bodyRadius * 3.05f,
                     cap = StrokeCap.Round
                 )
+
+                // Main serpentine body.
                 drawLine(
                     brush = Brush.linearGradient(
                         colors = listOf(
-                            Color(0xFF1A87FF).copy(alpha = alpha * 0.72f),
-                            Color(0xFF51EBDD).copy(alpha = alpha)
+                            Color(0xFF0869BA).copy(alpha = alpha * 0.92f),
+                            Color(0xFF16B7E5).copy(alpha = alpha),
+                            Color(0xFF49E9D8).copy(alpha = alpha * 0.95f)
                         ),
                         start = old,
                         end = p
                     ),
                     start = old,
                     end = p,
-                    strokeWidth = width,
+                    strokeWidth = bodyRadius * 1.72f,
                     cap = StrokeCap.Round
                 )
-            }
 
-            if (i % 3 == 0 && t > 0.16f) {
-                val nx = cos(rad).toFloat()
-                val ny = sin(rad).toFloat()
-                val tangent = Offset(-ny, nx)
-                val spikeLen = 3f + 8f*t
+                // Luminous ventral stripe gives the body volume.
                 drawLine(
-                    color = Color(0xFF80F4FF).copy(alpha = alpha * 0.65f),
-                    start = p,
-                    end = Offset(p.x + tangent.x*spikeLen, p.y + tangent.y*spikeLen),
-                    strokeWidth = 1f + 1.3f*t,
+                    color = Color(0xFFC4FBFF).copy(alpha = alpha * 0.30f),
+                    start = Offset(old.x + nx*bodyRadius*0.18f, old.y + ny*bodyRadius*0.18f),
+                    end = Offset(p.x + nx*bodyRadius*0.18f, p.y + ny*bodyRadius*0.18f),
+                    strokeWidth = (0.8f + t*2.2f),
                     cap = StrokeCap.Round
                 )
             }
 
-            if (fullEffects && i % 4 == 0 && t > 0.25f) {
+            // Overlapping scale plates along both sides.
+            if (t > 0.12f && i % 2 == 0) {
+                val scaleR = 1.1f + t*3.2f
+                val side = if ((i/2) % 2 == 0) 1f else -1f
+                val scaleCenter = Offset(
+                    p.x + nx * bodyRadius * 0.48f * side,
+                    p.y + ny * bodyRadius * 0.48f * side
+                )
                 drawCircle(
-                    color = Color(0xFF8EFCFF).copy(alpha = alpha * 0.44f),
-                    radius = 1.2f + 2.5f*t,
-                    center = Offset(p.x + 3f*sin(rad).toFloat(), p.y - 3f*cos(rad).toFloat())
+                    color = if (side > 0)
+                        Color(0xFF57E8F4).copy(alpha = alpha * 0.34f)
+                    else
+                        Color(0xFF168CCC).copy(alpha = alpha * 0.32f),
+                    radius = scaleR,
+                    center = scaleCenter
+                )
+                drawCircle(
+                    color = Color(0xFFB6FBFF).copy(alpha = alpha * 0.20f),
+                    radius = scaleR * 0.55f,
+                    center = scaleCenter
                 )
             }
+
+            // Pronounced dorsal mane / spikes, getting larger toward the head.
+            if (i % 3 == 0 && t > 0.16f) {
+                val spikeLen = 3.5f + 11.5f*t
+                val baseHalf = 1.2f + 2.0f*t
+                val base1 = Offset(p.x - tx*baseHalf, p.y - ty*baseHalf)
+                val base2 = Offset(p.x + tx*baseHalf, p.y + ty*baseHalf)
+                val tip = Offset(
+                    p.x + nx*spikeLen,
+                    p.y + ny*spikeLen
+                )
+                val spike = Path().apply {
+                    moveTo(base1.x, base1.y)
+                    lineTo(tip.x, tip.y)
+                    lineTo(base2.x, base2.y)
+                    close()
+                }
+                drawPath(
+                    spike,
+                    color = Color(0xFF72F3FF).copy(alpha = alpha * 0.63f)
+                )
+                drawPath(
+                    spike,
+                    color = Color(0xFFD5FFFF).copy(alpha = alpha * 0.20f),
+                    style = Stroke(width = 0.6f + t*0.5f)
+                )
+            }
+
+            // Four small limbs placed along the front half of the body.
+            val limbSlots = setOf(8, 14, 21, 28)
+            if (i in limbSlots && t > 0.38f) {
+                val side = if (i % 2 == 0) -1f else 1f
+                val shoulder = Offset(
+                    p.x + nx * bodyRadius * 0.7f * side,
+                    p.y + ny * bodyRadius * 0.7f * side
+                )
+                val elbow = Offset(
+                    shoulder.x + nx * side * (6f + 5f*t) - tx*(2f + 3f*t),
+                    shoulder.y + ny * side * (6f + 5f*t) - ty*(2f + 3f*t)
+                )
+                val paw = Offset(
+                    elbow.x + tx*(6f + 3f*t) + nx*side*3f,
+                    elbow.y + ty*(6f + 3f*t) + ny*side*3f
+                )
+                drawLine(
+                    color = Color(0xFF169FD3).copy(alpha = alpha * 0.82f),
+                    start = shoulder,
+                    end = elbow,
+                    strokeWidth = 2.1f + 2.4f*t,
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    color = Color(0xFF38D8E8).copy(alpha = alpha * 0.78f),
+                    start = elbow,
+                    end = paw,
+                    strokeWidth = 1.7f + 1.8f*t,
+                    cap = StrokeCap.Round
+                )
+                repeat(3) { claw ->
+                    val spread = (claw - 1) * 2.2f
+                    val clawEnd = Offset(
+                        paw.x + tx*(3.2f+t*1.5f) + nx*spread,
+                        paw.y + ty*(3.2f+t*1.5f) + ny*spread
+                    )
+                    drawLine(
+                        color = Color(0xFFC2FCFF).copy(alpha = alpha * 0.70f),
+                        start = paw,
+                        end = clawEnd,
+                        strokeWidth = 0.8f + t*0.5f,
+                        cap = StrokeCap.Round
+                    )
+                }
+            }
+
+            // Small particles appear around the front half in Full mode only.
+            if (fullEffects && i % 4 == 0 && t > 0.32f) {
+                val sparkle = Offset(
+                    p.x + nx*(bodyRadius + 5f + (i%3)*2f),
+                    p.y + ny*(bodyRadius + 5f + (i%3)*2f)
+                )
+                drawCircle(
+                    color = Color(0xFF8CFAFF).copy(alpha = alpha * 0.42f),
+                    radius = 0.8f + 2.1f*t,
+                    center = sparkle
+                )
+            }
+
             previous = p
         }
+
+        // A recognisable forked tail fin instead of a simple fading point.
+        val tailAngle = angle - segments * step
+        val tail = orbitPoint(tailAngle)
+        val ahead = orbitPoint(tailAngle + 1.0f)
+        val dx = ahead.x - tail.x
+        val dy = ahead.y - tail.y
+        val len = kotlin.math.sqrt(dx*dx + dy*dy).coerceAtLeast(0.001f)
+        val tx = dx/len
+        val ty = dy/len
+        val nx = -ty
+        val ny = tx
+
+        val tailRoot = Offset(tail.x - tx*3f, tail.y - ty*3f)
+        val tailTip = Offset(tail.x - tx*17f, tail.y - ty*17f)
+        val finA = Offset(tailTip.x + nx*9f, tailTip.y + ny*9f)
+        val finB = Offset(tailTip.x - nx*9f, tailTip.y - ny*9f)
+
+        val fork = Path().apply {
+            moveTo(tailRoot.x, tailRoot.y)
+            quadraticBezierTo(
+                tail.x - tx*8f + nx*3f,
+                tail.y - ty*8f + ny*3f,
+                finA.x, finA.y
+            )
+            lineTo(tailTip.x + tx*4f, tailTip.y + ty*4f)
+            lineTo(finB.x, finB.y)
+            quadraticBezierTo(
+                tail.x - tx*8f - nx*3f,
+                tail.y - ty*8f - ny*3f,
+                tailRoot.x, tailRoot.y
+            )
+            close()
+        }
+        drawPath(fork, Color(0x1829C8E8))
+        drawPath(
+            fork,
+            Color(0x207DF6FF),
+            style = Stroke(width = 1.2f)
+        )
     }
 }
 

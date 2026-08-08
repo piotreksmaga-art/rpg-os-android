@@ -1,0 +1,13 @@
+{
+  "versionCode": 128,
+  "versionName": "1.2.0-alpha5-guardian128",
+  "orbit_unchanged": true,
+  "ui_unchanged": true,
+  "segmented_full_body": true,
+  "scales": true,
+  "dorsal_mane_spikes": true,
+  "four_limbs_with_claws": true,
+  "forked_tail": true,
+  "cubic_alpha_falloff": true,
+  "larger_detailed_head": true
+}
