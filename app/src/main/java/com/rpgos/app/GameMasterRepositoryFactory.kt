@@ -27,6 +27,7 @@ class GameMasterRepositoryFactory(
         return try {
             MigrationManager().ensureV1(db)
             val campaignUid = CampaignIdentityResolver.ensure(db)
+            GameMasterLegacyBootstrap141.ensure(db, campaignUid)
             val worldPackUid = resolveWorldPackUid()
             ActiveGameMasterRepository(
                 campaignUid = campaignUid,
