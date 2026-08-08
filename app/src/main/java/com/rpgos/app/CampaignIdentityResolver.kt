@@ -30,6 +30,19 @@ object CampaignIdentityResolver {
         val ownsTransaction = !db.inTransaction()
         if (ownsTransaction) db.beginTransaction()
         try {
+            // Snapshot files contain absolute storage paths belonging to the
+            // source campaign. A fork keeps history/state but must create its
+            // own future checkpoints.
+            if (tableExists(db, "gm_snapshots")) {
+                db.delete("gm_snapshots", "campaign_id=?", arrayOf(oldUid))
+            }
+            if (tableExists(db, "gm_campaign_meta")) {
+                db.execSQL(
+                    "UPDATE gm_campaign_meta SET current_snapshot_id=NULL WHERE campaign_id=?",
+                    arrayOf(oldUid)
+                )
+            }
+
             CAMPAIGN_SCOPED_TABLES.forEach { table ->
                 if (tableExists(db, table)) {
                     db.execSQL(
@@ -63,7 +76,6 @@ object CampaignIdentityResolver {
         "gm_events",
         "gm_memories",
         "gm_chronicle_entries",
-        "gm_divergences",
-        "gm_snapshots"
+        "gm_divergences"
     )
 }
