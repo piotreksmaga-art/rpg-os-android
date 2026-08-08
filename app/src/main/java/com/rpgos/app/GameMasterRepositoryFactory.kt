@@ -42,6 +42,10 @@ class GameMasterRepositoryFactory(
                 ownsDatabase = true
             )
 
+            // Knowledge transmission is a separate versioned migration because
+            // campaigns may already have passed Source-of-Truth V1. It depends
+            // on gm_facts, therefore it must run after repository construction.
+            KnowledgeTransmissionSchema141.ensure(db)
             GameMasterLegacyBootstrap141.ensure(db, campaignUid)
 
             ActiveGameMasterRepository(
