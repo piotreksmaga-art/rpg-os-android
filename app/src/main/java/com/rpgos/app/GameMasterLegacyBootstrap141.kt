@@ -5,58 +5,78 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 
 /**
- * One-time compatibility import from the existing RPG OS campaign schema into
- * GM 141 working state. It never deletes or updates legacy tables and never
- * overwrites a field that already exists in gm_entity_state.
+ * Compatibility imports from the existing RPG OS campaign schema into GM141
+ * working state. Each logical import has its own durable migration marker so a
+ * later build can add baseline domains without silently skipping them on saves
+ * that already ran an older bootstrap.
+ *
+ * Imports never delete or update legacy tables and never overwrite a field that
+ * already exists in gm_entity_state.
  */
 object GameMasterLegacyBootstrap141 {
     const val MIGRATION_ID = "GM-141-LEGACY-STATE-BOOTSTRAP-V1"
+    const val CALENDAR_MIGRATION_ID = "GM-141-CALENDAR-BOOTSTRAP-V1"
 
     fun ensure(db: SQLiteDatabase, campaignUid: EntityUid) {
         CampaignSourceOfTruthSchema.ensure(db)
-        if (wasApplied(db)) return
+
+        val baselineApplied = wasApplied(db, MIGRATION_ID)
+        val calendarApplied = wasApplied(db, CALENDAR_MIGRATION_ID)
+        if (baselineApplied && calendarApplied) return
 
         val ownsTransaction = !db.inTransaction()
         if (ownsTransaction) db.beginTransaction()
         try {
-            // Campaign time exists independently of whether a player entity can
-            // be resolved, so import it before character-scoped baseline data.
-            importCalendar(db, campaignUid)
-
-            val playerUid = resolvePlayerUid(db)
-            if (playerUid != null) {
-                importCharacterStats(db, campaignUid, playerUid)
-                importStatusSnapshot(db, campaignUid, playerUid)
-                importPosition(db, campaignUid, playerUid)
-                importFinances(db, campaignUid, playerUid)
-                importSkills(db, campaignUid, playerUid)
-                importTechniques(db, campaignUid, playerUid)
+            if (!calendarApplied) {
+                importCalendar(db, campaignUid)
+                markApplied(
+                    db,
+                    CALENDAR_MIGRATION_ID,
+                    "GM141 imported campaign calendar baseline"
+                )
             }
 
-            db.execSQL(
-                """
-                INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes)
-                VALUES(?,?,?)
-                """.trimIndent(),
-                arrayOf(
+            if (!baselineApplied) {
+                val playerUid = resolvePlayerUid(db)
+                if (playerUid != null) {
+                    importCharacterStats(db, campaignUid, playerUid)
+                    importStatusSnapshot(db, campaignUid, playerUid)
+                    importPosition(db, campaignUid, playerUid)
+                    importFinances(db, campaignUid, playerUid)
+                    importSkills(db, campaignUid, playerUid)
+                    importTechniques(db, campaignUid, playerUid)
+                }
+
+                markApplied(
+                    db,
                     MIGRATION_ID,
-                    System.currentTimeMillis(),
                     if (playerUid == null)
-                        "GM141 legacy bootstrap completed; campaign time imported, player UID was not resolvable"
-                    else "GM141 imported campaign time and baseline state for player $playerUid"
+                        "GM141 legacy baseline completed; player UID was not resolvable"
+                    else "GM141 imported baseline state for player $playerUid"
                 )
-            )
+            }
+
             if (ownsTransaction) db.setTransactionSuccessful()
         } finally {
             if (ownsTransaction) db.endTransaction()
         }
     }
 
-    private fun wasApplied(db: SQLiteDatabase): Boolean =
+    private fun wasApplied(db: SQLiteDatabase, migrationId: String): Boolean =
         db.rawQuery(
             "SELECT 1 FROM rpgos_schema_migrations WHERE migration_id=? LIMIT 1",
-            arrayOf(MIGRATION_ID)
+            arrayOf(migrationId)
         ).use { it.moveToFirst() }
+
+    private fun markApplied(db: SQLiteDatabase, migrationId: String, notes: String) {
+        db.execSQL(
+            """
+            INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes)
+            VALUES(?,?,?)
+            """.trimIndent(),
+            arrayOf(migrationId, System.currentTimeMillis(), notes)
+        )
+    }
 
     private fun resolvePlayerUid(db: SQLiteDatabase): String? {
         val candidates = listOf(
