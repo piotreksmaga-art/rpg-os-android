@@ -80,6 +80,18 @@ class KnowledgeTransmissionIntegrity141(private val db: SQLiteDatabase) {
         )
         countIssue(
             issues,
+            "KNOWLEDGE_REPORT_SENDER_NOT_HOLDER",
+            "REPORT przekazuje BELIEF, którego source NPC nie jest holderem.",
+            """
+            SELECT COUNT(*) FROM gm_knowledge_transmissions k
+            JOIN gm_facts s ON s.fact_id=k.source_truth_id AND s.campaign_id=k.campaign_id
+            WHERE k.campaign_id=? AND k.channel='REPORT' AND s.truth_kind='BELIEF'
+              AND (k.source_npc_id IS NULL OR s.holder_id IS NULL OR s.holder_id!=k.source_npc_id)
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        )
+        countIssue(
+            issues,
             "KNOWLEDGE_FROM_FUTURE",
             "Ledger zawiera transmisję z tury późniejszej niż current_turn.",
             """
@@ -87,6 +99,42 @@ class KnowledgeTransmissionIntegrity141(private val db: SQLiteDatabase) {
             WHERE campaign_id=? AND turn_number>?
             """.trimIndent(),
             arrayOf(campaignUid, currentTurn.toString())
+        )
+        countIssue(
+            issues,
+            "KNOWLEDGE_SOURCE_NOT_VALID_AT_TRANSFER",
+            "Transmisja używa źródła przed jego powstaniem albo po jego wygaśnięciu.",
+            """
+            SELECT COUNT(*) FROM gm_knowledge_transmissions k
+            JOIN gm_facts s ON s.fact_id=k.source_truth_id AND s.campaign_id=k.campaign_id
+            WHERE k.campaign_id=? AND (
+                k.turn_number < s.valid_from_turn OR
+                (s.valid_until_turn IS NOT NULL AND k.turn_number > s.valid_until_turn)
+            )
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        )
+        countIssue(
+            issues,
+            "KNOWLEDGE_CONFIDENCE_INCREASE",
+            "Confidence wynikowego BELIEF jest wyższe niż confidence źródła.",
+            """
+            SELECT COUNT(*) FROM gm_knowledge_transmissions k
+            JOIN gm_facts s ON s.fact_id=k.source_truth_id AND s.campaign_id=k.campaign_id
+            JOIN gm_facts r ON r.fact_id=k.resulting_belief_id AND r.campaign_id=k.campaign_id
+            WHERE k.campaign_id=? AND r.confidence > s.confidence + 0.000001
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        )
+        countIssue(
+            issues,
+            "KNOWLEDGE_SELF_REFERENCE",
+            "Transmisja wskazuje ten sam truth jako źródło i wynik.",
+            """
+            SELECT COUNT(*) FROM gm_knowledge_transmissions
+            WHERE campaign_id=? AND source_truth_id=resulting_belief_id
+            """.trimIndent(),
+            arrayOf(campaignUid)
         )
         countIssue(
             issues,
