@@ -4,7 +4,7 @@ package com.rpgos.app
  * Builds the only durable campaign-truth view an NPC decision/dialogue layer is allowed to see.
  *
  * The policy is intentionally fail-closed:
- * - a holder always receives only its own active BELIEF records,
+ * - a holder always receives only its own active, non-retracted BELIEF records,
  * - contradictory BELIEF records are resolved by NpcKnowledgeLifecycle141 before exposure,
  * - objective FACT records require an explicit, time-valid access grant,
  * - NARRATIVE is never knowledge,
@@ -16,7 +16,8 @@ package com.rpgos.app
 class NpcKnowledgeAccessPolicy141(
     private val repository: UnifiedCampaignRepository,
     private val campaignUid: EntityUid,
-    private val lifecycle: NpcKnowledgeLifecycle141 = NpcKnowledgeLifecycle141()
+    private val lifecycle: NpcKnowledgeLifecycle141 = NpcKnowledgeLifecycle141(),
+    private val retractionStore: NpcBeliefRetractionStore141? = null
 ) {
     enum class GrantKind {
         OBSERVABLE_FACT,
@@ -62,7 +63,8 @@ class NpcKnowledgeAccessPolicy141(
         val organizationFacts: List<CampaignTruth>,
         val deniedGrants: List<DeniedGrant>,
         val beliefResolutions: List<NpcKnowledgeLifecycle141.Resolution> = emptyList(),
-        val unresolvedBeliefConflicts: List<NpcKnowledgeLifecycle141.Conflict> = emptyList()
+        val unresolvedBeliefConflicts: List<NpcKnowledgeLifecycle141.Conflict> = emptyList(),
+        val retractedBeliefUids: Set<EntityUid> = emptySet()
     ) {
         val accessibleTruths: List<CampaignTruth> =
             (beliefs + observableFacts + organizationFacts).distinctBy { it.uid }
@@ -86,6 +88,10 @@ class NpcKnowledgeAccessPolicy141(
     ): View {
         require(beliefLimit in 1..1_000) { "beliefLimit musi należeć do 1..1000." }
         val turn = atTurnId ?: repository.currentTurnId(campaignUid)
+        val retractedBeliefUids = retractionStore
+            ?.retractionsForHolder(campaignUid, holderUid, turn)
+            ?.mapTo(linkedSetOf()) { it.retractedBeliefUid }
+            ?: emptySet()
 
         val rawBeliefs = repository.getBeliefs(
             campaignUid = campaignUid,
@@ -95,6 +101,7 @@ class NpcKnowledgeAccessPolicy141(
         ).asSequence()
             .filter { it.kind == TruthKind.BELIEF }
             .filter { it.holderUid == holderUid }
+            .filter { it.uid !in retractedBeliefUids }
             .filter { isTruthActive(it, turn) }
             .distinctBy { it.uid }
             .toList()
@@ -143,7 +150,8 @@ class NpcKnowledgeAccessPolicy141(
             organizationFacts = organization.distinctBy { it.uid },
             deniedGrants = denied,
             beliefResolutions = lifecycleResult.resolutions,
-            unresolvedBeliefConflicts = lifecycleResult.unresolvedConflicts
+            unresolvedBeliefConflicts = lifecycleResult.unresolvedConflicts,
+            retractedBeliefUids = retractedBeliefUids
         )
     }
 
