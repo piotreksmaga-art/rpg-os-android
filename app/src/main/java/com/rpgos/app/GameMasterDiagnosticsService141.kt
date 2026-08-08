@@ -11,12 +11,13 @@ class GameMasterDiagnosticsService141(
         store.openSaveDb().use { db ->
             val session = GameMasterSessionReader141(db).read()
             val integrity = GameMasterIntegrity141(db).check()
+            val knowledgeIntegrity = KnowledgeTransmissionIntegrity141(db).check()
 
             if (session == null) {
                 return buildString {
                     appendLine("GM141: niezainicjalizowany")
-                    append("Integralność: ")
-                    append(if (integrity.ok) "OK" else "BŁĄD")
+                    appendLine("Integralność: ${if (integrity.ok) "OK" else "BŁĄD"}")
+                    append("Ledger wiedzy: ${if (knowledgeIntegrity.ok) "OK" else "BŁĄD"}")
                 }
             }
 
@@ -40,6 +41,7 @@ class GameMasterDiagnosticsService141(
                     else "snapshot=${snapshot.snapshotUid.value} throughTurn=${snapshot.throughTurnId} events=${snapshot.throughEventSequence}"
                 )
                 appendLine("integrity=${if (integrity.ok) "OK" else "ERROR"}")
+                appendLine("knowledgeIntegrity=${if (knowledgeIntegrity.ok) "OK" else "ERROR"}")
 
                 val warnings = session.consistencyWarnings
                 if (warnings.isNotEmpty()) {
@@ -50,6 +52,13 @@ class GameMasterDiagnosticsService141(
                 if (integrity.issues.isNotEmpty()) {
                     appendLine("integrityIssues=${integrity.issues.size}")
                     integrity.issues.forEach {
+                        appendLine("- ${it.severity} ${it.code} x${it.count}: ${it.message}")
+                    }
+                }
+
+                if (knowledgeIntegrity.issues.isNotEmpty()) {
+                    appendLine("knowledgeIntegrityIssues=${knowledgeIntegrity.issues.size}")
+                    knowledgeIntegrity.issues.forEach {
                         appendLine("- ${it.severity} ${it.code} x${it.count}: ${it.message}")
                     }
                 }
