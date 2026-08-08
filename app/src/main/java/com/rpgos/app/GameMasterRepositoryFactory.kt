@@ -8,7 +8,8 @@ data class ActiveGameMasterRepository(
     val campaignUid: EntityUid,
     val worldPackUid: EntityUid,
     val repository: SQLiteUnifiedCampaignRepository,
-    val knowledgeStore: KnowledgeTransmissionStore141
+    val knowledgeStore: KnowledgeTransmissionStore141,
+    val npcKnowledgeStores: SQLiteNpcKnowledgeStores141? = null
 ) : AutoCloseable {
     override fun close() = repository.close()
 }
@@ -43,18 +44,20 @@ class GameMasterRepositoryFactory(
                 ownsDatabase = true
             )
 
-            // Knowledge transmission is a separate versioned migration because
-            // campaigns may already have passed Source-of-Truth V1. It depends
-            // on gm_facts, therefore it must run after repository construction.
+            // Knowledge persistence uses additive migrations in the same campaign.db.
+            // Generic transmission comes first, then the richer NPC lifecycle ledgers.
             KnowledgeTransmissionSchema141.ensure(db)
+            NpcKnowledgePersistenceSchema141.ensure(db)
             val knowledgeStore = SQLiteKnowledgeTransmissionStore141(db, campaignUid)
+            val npcKnowledgeStores = SQLiteNpcKnowledgeStores141(db, campaignUid)
             GameMasterLegacyBootstrap141.ensure(db, campaignUid)
 
             ActiveGameMasterRepository(
                 campaignUid = campaignUid,
                 worldPackUid = worldPackUid,
                 repository = repository,
-                knowledgeStore = knowledgeStore
+                knowledgeStore = knowledgeStore,
+                npcKnowledgeStores = npcKnowledgeStores
             )
         } catch (t: Throwable) {
             if (repository != null) repository.close() else db.close()
