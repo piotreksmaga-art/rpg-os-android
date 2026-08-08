@@ -7,7 +7,8 @@ import java.io.File
 data class ActiveGameMasterRepository(
     val campaignUid: EntityUid,
     val worldPackUid: EntityUid,
-    val repository: SQLiteUnifiedCampaignRepository
+    val repository: SQLiteUnifiedCampaignRepository,
+    val knowledgeStore: KnowledgeTransmissionStore141
 ) : AutoCloseable {
     override fun close() = repository.close()
 }
@@ -46,12 +47,14 @@ class GameMasterRepositoryFactory(
             // campaigns may already have passed Source-of-Truth V1. It depends
             // on gm_facts, therefore it must run after repository construction.
             KnowledgeTransmissionSchema141.ensure(db)
+            val knowledgeStore = SQLiteKnowledgeTransmissionStore141(db, campaignUid)
             GameMasterLegacyBootstrap141.ensure(db, campaignUid)
 
             ActiveGameMasterRepository(
                 campaignUid = campaignUid,
                 worldPackUid = worldPackUid,
-                repository = repository
+                repository = repository,
+                knowledgeStore = knowledgeStore
             )
         } catch (t: Throwable) {
             if (repository != null) repository.close() else db.close()
