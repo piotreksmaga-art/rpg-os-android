@@ -44,17 +44,27 @@ data class ProvenanceRecord(
     }
 }
 
-/** A time-bounded durable statement about the campaign. */
+/**
+ * A time-bounded durable statement about the campaign.
+ * holderUid is required for BELIEF because a belief is never global truth.
+ */
 data class CampaignTruth(
     val uid: EntityUid,
     val kind: TruthKind,
     val subjectUid: EntityUid?,
     val predicate: String,
     val value: String,
+    val holderUid: EntityUid? = null,
     val validFromTurn: Long? = null,
     val validUntilTurn: Long? = null,
     val provenance: ProvenanceRecord
-)
+) {
+    init {
+        require(kind != TruthKind.BELIEF || holderUid != null) {
+            "BELIEF musi wskazywać holderUid."
+        }
+    }
+}
 
 /** A canon baseline overridden by a campaign-specific divergence. */
 data class CanonDivergence(
@@ -84,6 +94,8 @@ data class CampaignSnapshotRef(
  */
 interface UnifiedCampaignRepository {
     suspend fun currentTurnId(campaignUid: EntityUid): Long
+
+    suspend fun writeTurn(turn: DurableTurnRecord)
 
     suspend fun getTruth(
         campaignUid: EntityUid,
