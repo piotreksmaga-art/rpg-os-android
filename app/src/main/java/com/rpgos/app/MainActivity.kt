@@ -464,14 +464,6 @@ private fun PremiumHomeAction(
                     color = Color(0xFFB9C9DA)
                 )
             }
-            Box(
-                Modifier
-                    .size(34.dp)
-                    .background(accent.copy(alpha = 0.10f), RoundedCornerShape(50)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("›", style = MaterialTheme.typography.headlineSmall, color = accent)
-            }
         }
     }
 }
