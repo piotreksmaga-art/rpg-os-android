@@ -50,6 +50,12 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
@@ -72,6 +78,8 @@ dependencies {
     // Android's mockable android.jar intentionally throws for org.json methods.
     // Use the real JVM implementation so resolver/parser tests exercise JSON.
     testImplementation("org.json:json:20250517")
+    // Real Android SQLite semantics in local JVM tests; Robolectric 4.16 supports API 36.
+    testImplementation("org.robolectric:robolectric:4.16.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling:1.11.4")
 }
