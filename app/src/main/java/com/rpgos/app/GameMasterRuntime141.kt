@@ -53,7 +53,21 @@ class GameMasterRuntime141(
                 validator = GameMasterTurnValidator141(session.repository, session.campaignUid),
                 stateRepository = GameMasterStateRepository141(session.repository, session.campaignUid)
             )
-            return engine.play(request)
+
+            val result = engine.play(request)
+
+            // Checkpoint maintenance intentionally happens only after the turn
+            // transaction has committed. Failure is diagnostic-only: it must
+            // never make a canonical turn appear rolled back or uncommitted.
+            GameMasterSnapshotPolicy141.maintain(
+                repository = session.repository,
+                campaignUid = session.campaignUid,
+                onFailure = { error ->
+                    DiagnosticLogger.log(context, "GM141_SNAPSHOT_MAINTENANCE_FAILED", error)
+                }
+            )
+
+            return result
         }
     }
 }
