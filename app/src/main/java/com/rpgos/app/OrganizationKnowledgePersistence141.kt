@@ -2,6 +2,13 @@ package com.rpgos.app
 
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
+import java.security.MessageDigest
+
+object OrganizationPublicationSourceHash141 {
+    fun hash(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it) }
+}
 
 /**
  * Durable authorization boundary for organization knowledge.
@@ -12,6 +19,7 @@ import android.database.sqlite.SQLiteDatabase
  */
 object OrganizationKnowledgeAuthorizationSchema141 {
     const val MIGRATION_ID = "GM-141-ORGANIZATION-KNOWLEDGE-AUTH-V1"
+    const val SOURCE_HASH_MIGRATION_ID = "GM-141-ORGANIZATION-KNOWLEDGE-AUTH-V2-SOURCE-HASH"
 
     fun ensure(db: SQLiteDatabase) {
         val ownsTransaction = !db.inTransaction()
@@ -59,17 +67,22 @@ object OrganizationKnowledgeAuthorizationSchema141 {
                     minimum_clearance INTEGER NOT NULL CHECK(minimum_clearance >= 0),
                     valid_from_turn INTEGER NOT NULL CHECK(valid_from_turn >= 0),
                     valid_until_turn INTEGER,
+                    source_value_hash TEXT,
                     created_at INTEGER NOT NULL,
                     CHECK(valid_until_turn IS NULL OR valid_until_turn >= valid_from_turn)
                 )
                 """.trimIndent()
             )
+            if (!columnExists(db, "gm_organization_fact_publications", "source_value_hash")) {
+                db.execSQL("ALTER TABLE gm_organization_fact_publications ADD COLUMN source_value_hash TEXT")
+            }
             db.execSQL(
                 """
                 CREATE INDEX IF NOT EXISTS idx_gm_org_publications_org_turn
                 ON gm_organization_fact_publications(campaign_id, organization_id, valid_from_turn, valid_until_turn)
                 """.trimIndent()
             )
+            backfillSourceHashes(db)
             db.execSQL(
                 """
                 INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes)
@@ -81,11 +94,61 @@ object OrganizationKnowledgeAuthorizationSchema141 {
                     "GM141 durable organization memberships and fact publication authority"
                 )
             )
+            db.execSQL(
+                """
+                INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes)
+                VALUES(?,?,?)
+                """.trimIndent(),
+                arrayOf(
+                    SOURCE_HASH_MIGRATION_ID,
+                    System.currentTimeMillis(),
+                    "GM141 binds organization publications to the published FACT value hash"
+                )
+            )
             if (ownsTransaction) db.setTransactionSuccessful()
         } finally {
             if (ownsTransaction) db.endTransaction()
         }
     }
+
+    private fun backfillSourceHashes(db: SQLiteDatabase) {
+        if (!tableExists(db, "gm_facts")) return
+        val updates = mutableListOf<Pair<String, String>>()
+        db.rawQuery(
+            """
+            SELECT p.publication_id,f.object_json
+            FROM gm_organization_fact_publications p
+            JOIN gm_facts f ON f.campaign_id=p.campaign_id AND f.fact_id=p.truth_id
+            WHERE p.source_value_hash IS NULL
+            """.trimIndent(),
+            null
+        ).use { c ->
+            while (c.moveToNext()) {
+                updates += c.getString(0) to OrganizationPublicationSourceHash141.hash(c.getString(1))
+            }
+        }
+        updates.forEach { (publicationUid, hash) ->
+            db.execSQL(
+                "UPDATE gm_organization_fact_publications SET source_value_hash=? WHERE publication_id=?",
+                arrayOf(hash, publicationUid)
+            )
+        }
+    }
+
+    private fun tableExists(db: SQLiteDatabase, name: String): Boolean =
+        db.rawQuery(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+            arrayOf(name)
+        ).use { it.moveToFirst() }
+
+    private fun columnExists(db: SQLiteDatabase, table: String, column: String): Boolean =
+        db.rawQuery("PRAGMA table_info($table)", null).use { c ->
+            val nameIndex = c.getColumnIndex("name")
+            while (c.moveToNext()) {
+                if (nameIndex >= 0 && c.getString(nameIndex) == column) return@use true
+            }
+            false
+        }
 }
 
 interface OrganizationKnowledgeAuthorizationStore141 {
@@ -124,6 +187,7 @@ class SQLiteOrganizationKnowledgeAuthorizationStore141(
         val kind: String,
         val subjectId: String?,
         val predicate: String,
+        val valueHash: String,
         val validFromTurn: Long,
         val validUntilTurn: Long?
     )
@@ -145,7 +209,7 @@ class SQLiteOrganizationKnowledgeAuthorizationStore141(
     }
 
     override suspend fun appendPublication(campaignUid: EntityUid, publication: OrganizationFactPublication141) {
-        validateSourceFact(campaignUid, publication)
+        val source = validateSourceFact(campaignUid, publication)
         val values = ContentValues().apply {
             put("publication_id", publication.publicationUid.value)
             put("campaign_id", campaignUid.value)
@@ -156,6 +220,7 @@ class SQLiteOrganizationKnowledgeAuthorizationStore141(
             put("minimum_clearance", publication.minimumClearance)
             put("valid_from_turn", publication.validFromTurn)
             publication.validUntilTurn?.let { put("valid_until_turn", it) }
+            put("source_value_hash", source.valueHash)
             put("created_at", System.currentTimeMillis())
         }
         db.insertOrThrow("gm_organization_fact_publications", null, values)
@@ -202,7 +267,8 @@ class SQLiteOrganizationKnowledgeAuthorizationStore141(
         val out = mutableListOf<OrganizationFactPublication141>()
         db.rawQuery(
             """
-            SELECT publication_id,truth_id,subject_id,predicate,minimum_clearance,valid_from_turn,valid_until_turn
+            SELECT publication_id,truth_id,subject_id,predicate,minimum_clearance,
+                   valid_from_turn,valid_until_turn,source_value_hash
             FROM gm_organization_fact_publications
             WHERE campaign_id=? AND organization_id=?
               AND valid_from_turn<=?
@@ -212,10 +278,13 @@ class SQLiteOrganizationKnowledgeAuthorizationStore141(
             arrayOf(campaignUid.value, organizationUid.value, atTurnId.toString(), atTurnId.toString())
         ).use { c ->
             while (c.moveToNext()) {
+                val truthUid = EntityUid(c.getString(1))
+                val expectedHash = if (c.isNull(7)) null else c.getString(7)
+                if (!sourceValueHashMatches(campaignUid, truthUid, expectedHash)) continue
                 out += OrganizationFactPublication141(
                     publicationUid = EntityUid(c.getString(0)),
                     organizationUid = organizationUid,
-                    truthUid = EntityUid(c.getString(1)),
+                    truthUid = truthUid,
                     subjectUid = EntityUid(c.getString(2)),
                     predicate = c.getString(3),
                     minimumClearance = c.getInt(4),
@@ -264,7 +333,8 @@ class SQLiteOrganizationKnowledgeAuthorizationStore141(
         require(atTurnId >= 0L) { "atTurnId nie może być ujemny." }
         db.rawQuery(
             """
-            SELECT organization_id,truth_id,subject_id,predicate,minimum_clearance,valid_from_turn,valid_until_turn
+            SELECT organization_id,truth_id,subject_id,predicate,minimum_clearance,
+                   valid_from_turn,valid_until_turn,source_value_hash
             FROM gm_organization_fact_publications
             WHERE campaign_id=? AND publication_id=?
               AND valid_from_turn<=?
@@ -274,10 +344,13 @@ class SQLiteOrganizationKnowledgeAuthorizationStore141(
             arrayOf(campaignUid.value, publicationUid.value, atTurnId.toString(), atTurnId.toString())
         ).use { c ->
             if (!c.moveToFirst()) return null
+            val truthUid = EntityUid(c.getString(1))
+            val expectedHash = if (c.isNull(7)) null else c.getString(7)
+            if (!sourceValueHashMatches(campaignUid, truthUid, expectedHash)) return null
             return OrganizationFactPublication141(
                 publicationUid = publicationUid,
                 organizationUid = EntityUid(c.getString(0)),
-                truthUid = EntityUid(c.getString(1)),
+                truthUid = truthUid,
                 subjectUid = EntityUid(c.getString(2)),
                 predicate = c.getString(3),
                 minimumClearance = c.getInt(4),
@@ -290,10 +363,10 @@ class SQLiteOrganizationKnowledgeAuthorizationStore141(
     private fun validateSourceFact(
         campaignUid: EntityUid,
         publication: OrganizationFactPublication141
-    ) {
+    ): SourceFactMeta {
         val source = db.rawQuery(
             """
-            SELECT truth_kind,subject_id,predicate,valid_from_turn,valid_until_turn
+            SELECT truth_kind,subject_id,predicate,object_json,valid_from_turn,valid_until_turn
             FROM gm_facts
             WHERE campaign_id=? AND fact_id=?
             LIMIT 1
@@ -305,8 +378,9 @@ class SQLiteOrganizationKnowledgeAuthorizationStore141(
                 kind = c.getString(0),
                 subjectId = if (c.isNull(1)) null else c.getString(1),
                 predicate = c.getString(2),
-                validFromTurn = c.getLong(3),
-                validUntilTurn = if (c.isNull(4)) null else c.getLong(4)
+                valueHash = OrganizationPublicationSourceHash141.hash(c.getString(3)),
+                validFromTurn = c.getLong(4),
+                validUntilTurn = if (c.isNull(5)) null else c.getLong(5)
             )
         } ?: error(
             "Organization publication ${publication.publicationUid.value} wskazuje nieistniejący truth_id=${publication.truthUid.value}."
@@ -329,5 +403,19 @@ class SQLiteOrganizationKnowledgeAuthorizationStore141(
                 "Organization publication ${publication.publicationUid.value} wykracza poza ważność FACT ${publication.truthUid.value}."
             }
         }
+        return source
+    }
+
+    private fun sourceValueHashMatches(
+        campaignUid: EntityUid,
+        truthUid: EntityUid,
+        expectedHash: String?
+    ): Boolean {
+        if (expectedHash.isNullOrBlank()) return false
+        val value = db.rawQuery(
+            "SELECT object_json FROM gm_facts WHERE campaign_id=? AND fact_id=? LIMIT 1",
+            arrayOf(campaignUid.value, truthUid.value)
+        ).use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: return false
+        return OrganizationPublicationSourceHash141.hash(value) == expectedHash
     }
 }
