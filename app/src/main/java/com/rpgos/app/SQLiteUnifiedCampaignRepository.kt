@@ -2,6 +2,7 @@ package com.rpgos.app
 
 import android.content.ContentValues
 import android.content.Context
+import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import org.json.JSONArray
 import java.io.Closeable
@@ -70,6 +71,50 @@ class SQLiteUnifiedCampaignRepository(
         )
     }
 
+    override suspend fun getEntityState(
+        campaignUid: EntityUid,
+        entityUid: EntityUid,
+        entityType: String?
+    ): List<CampaignStateField> {
+        requireCampaign(campaignUid)
+        val sql: String
+        val args: Array<String>
+        if (entityType == null) {
+            sql = """
+                SELECT entity_type, entity_id, field_key, value_json, valid_from_turn,
+                       provenance_type, provenance_id
+                FROM gm_entity_state
+                WHERE campaign_id=? AND entity_id=?
+                ORDER BY entity_type, field_key
+            """.trimIndent()
+            args = arrayOf(campaignUid.value, entityUid.value)
+        } else {
+            sql = """
+                SELECT entity_type, entity_id, field_key, value_json, valid_from_turn,
+                       provenance_type, provenance_id
+                FROM gm_entity_state
+                WHERE campaign_id=? AND entity_id=? AND entity_type=?
+                ORDER BY field_key
+            """.trimIndent()
+            args = arrayOf(campaignUid.value, entityUid.value, entityType)
+        }
+        val out = mutableListOf<CampaignStateField>()
+        db.rawQuery(sql, args).use { c ->
+            while (c.moveToNext()) {
+                out += CampaignStateField(
+                    entityType = c.getString(0),
+                    entityUid = EntityUid(c.getString(1)),
+                    field = c.getString(2),
+                    value = c.getString(3),
+                    validFromTurn = c.getLong(4),
+                    provenanceType = c.getString(5)?.let { runCatching { ProvenanceType.valueOf(it) }.getOrNull() },
+                    provenanceUid = c.getString(6)?.let(::EntityUid)
+                )
+            }
+        }
+        return out
+    }
+
     override suspend fun getTruth(
         campaignUid: EntityUid,
         subjectUid: EntityUid,
@@ -82,7 +127,7 @@ class SQLiteUnifiedCampaignRepository(
         db.rawQuery(
             """
             SELECT fact_id, truth_kind, subject_id, predicate, object_json, holder_id,
-                   valid_from_turn, valid_until_turn, source_type, source_id,
+                   valid_from_turn, valid_until_turn, source_type, source_id, source_turn,
                    confidence, canon_status, verified
             FROM gm_facts
             WHERE campaign_id=? AND subject_id=? AND predicate=?
@@ -92,28 +137,135 @@ class SQLiteUnifiedCampaignRepository(
             """.trimIndent(),
             arrayOf(campaignUid.value, subjectUid.value, predicate, turn.toString(), turn.toString())
         ).use { c ->
+            while (c.moveToNext()) result += readTruth(c)
+        }
+        return result
+    }
+
+    override suspend fun getBeliefs(
+        campaignUid: EntityUid,
+        holderUid: EntityUid,
+        subjectUid: EntityUid?,
+        atTurnId: Long?,
+        limit: Int
+    ): List<CampaignTruth> {
+        requireCampaign(campaignUid)
+        require(limit in 1..1000) { "Niepoprawny limit beliefs: $limit" }
+        val turn = atTurnId ?: currentTurnId(campaignUid)
+        val subjectClause = if (subjectUid == null) "" else " AND subject_id=?"
+        val args = mutableListOf(campaignUid.value, holderUid.value, turn.toString(), turn.toString())
+        subjectUid?.let { args += it.value }
+        args += limit.toString()
+        val result = mutableListOf<CampaignTruth>()
+        db.rawQuery(
+            """
+            SELECT fact_id, truth_kind, subject_id, predicate, object_json, holder_id,
+                   valid_from_turn, valid_until_turn, source_type, source_id, source_turn,
+                   confidence, canon_status, verified
+            FROM gm_facts
+            WHERE campaign_id=? AND truth_kind='BELIEF' AND holder_id=?
+              AND valid_from_turn<=?
+              AND (valid_until_turn IS NULL OR valid_until_turn>=?)
+              $subjectClause
+            ORDER BY confidence DESC, valid_from_turn DESC
+            LIMIT ?
+            """.trimIndent(),
+            args.toTypedArray()
+        ).use { c ->
+            while (c.moveToNext()) result += readTruth(c)
+        }
+        return result
+    }
+
+    override suspend fun recentEvents(
+        campaignUid: EntityUid,
+        beforeOrAtTurn: Long?,
+        limit: Int
+    ): List<DurableCampaignEvent> {
+        requireCampaign(campaignUid)
+        require(limit in 1..1000) { "Niepoprawny limit eventów: $limit" }
+        val turn = beforeOrAtTurn ?: currentTurnId(campaignUid)
+        val out = mutableListOf<DurableCampaignEvent>()
+        db.rawQuery(
+            """
+            SELECT event_id, turn_number, sequence, event_type, actor_id, target_id,
+                   cause_event_id, description, payload_json, source_type, source_id, confidence
+            FROM gm_events
+            WHERE campaign_id=? AND turn_number<=?
+            ORDER BY turn_number DESC, sequence DESC
+            LIMIT ?
+            """.trimIndent(),
+            arrayOf(campaignUid.value, turn.toString(), limit.toString())
+        ).use { c ->
             while (c.moveToNext()) {
-                result += CampaignTruth(
-                    uid = EntityUid(c.getString(0)),
-                    kind = TruthKind.valueOf(c.getString(1)),
-                    subjectUid = c.getString(2)?.let(::EntityUid),
-                    predicate = c.getString(3),
-                    value = c.getString(4),
-                    holderUid = c.getString(5)?.let(::EntityUid),
-                    validFromTurn = c.getLong(6),
-                    validUntilTurn = if (c.isNull(7)) null else c.getLong(7),
+                out += DurableCampaignEvent(
+                    eventUid = EntityUid(c.getString(0)),
+                    campaignUid = campaignUid,
+                    turnId = c.getLong(1),
+                    sequence = c.getLong(2),
+                    type = runCatching { CampaignEventType.valueOf(c.getString(3)) }.getOrDefault(CampaignEventType.CUSTOM),
+                    actorUid = c.getString(4)?.let(::EntityUid),
+                    targetUid = c.getString(5)?.let(::EntityUid),
+                    causeEventUid = c.getString(6)?.let(::EntityUid),
+                    description = c.getString(7),
+                    payloadJson = c.getString(8),
                     provenance = ProvenanceRecord(
-                        type = ProvenanceType.valueOf(c.getString(8)),
-                        sourceUid = c.getString(9)?.let(::EntityUid),
-                        turnId = c.getLong(6),
-                        confidence = c.getDouble(10),
-                        canonStatus = c.getString(11),
-                        verified = c.getInt(12) != 0
+                        type = ProvenanceType.valueOf(c.getString(9)),
+                        sourceUid = c.getString(10)?.let(::EntityUid),
+                        turnId = c.getLong(1),
+                        confidence = c.getDouble(11)
                     )
                 )
             }
         }
-        return result
+        return out
+    }
+
+    override suspend fun memories(
+        campaignUid: EntityUid,
+        subjectUid: EntityUid?,
+        kinds: Set<DurableMemoryKind>,
+        limit: Int
+    ): List<DurableMemoryRecord> {
+        requireCampaign(campaignUid)
+        require(limit in 1..1000) { "Niepoprawny limit pamięci: $limit" }
+        if (kinds.isEmpty()) return emptyList()
+
+        val kindPlaceholders = kinds.joinToString(",") { "?" }
+        val subjectClause = if (subjectUid == null) "" else " AND subject_id=?"
+        val args = mutableListOf(campaignUid.value)
+        args += kinds.map { it.name }
+        subjectUid?.let { args += it.value }
+        args += limit.toString()
+
+        val out = mutableListOf<DurableMemoryRecord>()
+        db.rawQuery(
+            """
+            SELECT memory_id, memory_kind, subject_id, text, importance, first_turn, tags_json
+            FROM gm_memories
+            WHERE campaign_id=? AND archived=0 AND memory_kind IN ($kindPlaceholders)
+              $subjectClause
+            ORDER BY importance DESC, last_reinforced_turn DESC
+            LIMIT ?
+            """.trimIndent(),
+            args.toTypedArray()
+        ).use { c ->
+            while (c.moveToNext()) {
+                val memoryUid = EntityUid(c.getString(0))
+                out += DurableMemoryRecord(
+                    memoryUid = memoryUid,
+                    campaignUid = campaignUid,
+                    kind = DurableMemoryKind.valueOf(c.getString(1)),
+                    subjectUid = c.getString(2)?.let(::EntityUid),
+                    text = c.getString(3),
+                    importance = c.getDouble(4),
+                    createdTurn = c.getLong(5),
+                    sourceEventUids = memoryEventUids(memoryUid),
+                    tags = jsonStringSet(c.getString(6))
+                )
+            }
+        }
+        return out
     }
 
     override suspend fun getActiveDivergences(campaignUid: EntityUid): List<CanonDivergence> {
@@ -262,6 +414,7 @@ class SQLiteUnifiedCampaignRepository(
                 truth.validUntilTurn?.let { put("valid_until_turn", it) }
                 put("source_type", truth.provenance.type.name)
                 truth.provenance.sourceUid?.let { put("source_id", it.value) }
+                truth.provenance.turnId?.let { put("source_turn", it) }
                 truth.provenance.canonStatus?.let { put("canon_status", it) }
                 put("verified", if (truth.provenance.verified) 1 else 0)
                 put("created_at", System.currentTimeMillis())
@@ -412,6 +565,44 @@ class SQLiteUnifiedCampaignRepository(
 
     override fun close() {
         if (ownsDatabase && db.isOpen) db.close()
+    }
+
+    private fun readTruth(c: Cursor): CampaignTruth = CampaignTruth(
+        uid = EntityUid(c.getString(0)),
+        kind = TruthKind.valueOf(c.getString(1)),
+        subjectUid = c.getString(2)?.let(::EntityUid),
+        predicate = c.getString(3),
+        value = c.getString(4),
+        holderUid = c.getString(5)?.let(::EntityUid),
+        validFromTurn = c.getLong(6),
+        validUntilTurn = if (c.isNull(7)) null else c.getLong(7),
+        provenance = ProvenanceRecord(
+            type = ProvenanceType.valueOf(c.getString(8)),
+            sourceUid = c.getString(9)?.let(::EntityUid),
+            turnId = if (c.isNull(10)) null else c.getLong(10),
+            confidence = c.getDouble(11),
+            canonStatus = c.getString(12),
+            verified = c.getInt(13) != 0
+        )
+    )
+
+    private fun memoryEventUids(memoryUid: EntityUid): Set<EntityUid> {
+        val out = linkedSetOf<EntityUid>()
+        db.rawQuery(
+            "SELECT event_id FROM gm_memory_event_links WHERE memory_id=? ORDER BY event_id",
+            arrayOf(memoryUid.value)
+        ).use { c -> while (c.moveToNext()) out += EntityUid(c.getString(0)) }
+        return out
+    }
+
+    private fun jsonStringSet(raw: String?): Set<String> {
+        if (raw.isNullOrBlank()) return emptySet()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildSet {
+                for (i in 0 until array.length()) add(array.getString(i))
+            }
+        }.getOrElse { emptySet() }
     }
 
     private fun ensureMeta() {
