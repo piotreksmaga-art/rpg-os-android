@@ -78,6 +78,7 @@ class ContentUpdateManager(
                 validatePayload(pkg, staging)
 
                 val target = targetDirectory(pkg)
+                target.parentFile?.mkdirs()
                 val previous = if (target.exists()) {
                     File(backupRoot, "$safeId-${System.currentTimeMillis()}").also { backup ->
                         copyDirectory(target, backup)
@@ -203,7 +204,7 @@ class ContentUpdateManager(
             ContentPackageType.WORLD -> {
                 require(File(dir, "world.db").exists()) { "Worldpack ${pkg.id} nie zawiera world.db." }
                 val validation = PackageValidator().validateWorldPack(dir)
-                require(validation.ok) { validation.errors.joinToString("; ").ifBlank { "Worldpack jest niepoprawny." } }
+                require(validation.ok) { validation.message.ifBlank { "Worldpack jest niepoprawny." } }
             }
             else -> {
                 require(File(dir, "content.json").exists()) {
