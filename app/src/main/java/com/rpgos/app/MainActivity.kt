@@ -310,7 +310,7 @@ private fun HomeScreen(
                 PremiumHomeAction(
                     title = "Nowa gra",
                     subtitle = "Wybierz świat i rozpocznij nową kampanię.",
-                    glyph = "+",
+                    icon = HomeIcon.NEW_GAME,
                     accent = Color(0xFF48B7FF),
                     iconBrush = BlueGradient,
                     onClick = onNewGame
@@ -321,7 +321,7 @@ private fun HomeScreen(
                 PremiumHomeAction(
                     title = "Kontynuuj",
                     subtitle = "Wróć do ostatniej lub wybranej kampanii.",
-                    glyph = "▶",
+                    icon = HomeIcon.CONTINUE,
                     accent = Color(0xFF56E1D2),
                     iconBrush = TealGradient,
                     onClick = onContinue
@@ -334,7 +334,7 @@ private fun HomeScreen(
                         modifier = Modifier.weight(1f),
                         title = "Zapisy",
                         subtitle = "Kampanie i kopie",
-                        glyph = "▣",
+                        icon = HomeIcon.SAVES,
                         accent = Color(0xFF7BBEFF),
                         onClick = onSaves
                     )
@@ -342,7 +342,7 @@ private fun HomeScreen(
                         modifier = Modifier.weight(1f),
                         title = "Galeria",
                         subtitle = "Obrazy i sceny",
-                        glyph = "▧",
+                        icon = HomeIcon.GALLERY,
                         accent = Color(0xFF56E1D2),
                         onClick = onGallery
                     )
@@ -355,7 +355,7 @@ private fun HomeScreen(
                         modifier = Modifier.weight(1f),
                         title = "Ustawienia",
                         subtitle = "Dostosuj system",
-                        glyph = "⚙",
+                        icon = HomeIcon.SETTINGS,
                         accent = Color(0xFF52D8FF),
                         onClick = onSettings
                     )
@@ -363,7 +363,7 @@ private fun HomeScreen(
                         modifier = Modifier.weight(1f),
                         title = "O programie",
                         subtitle = "Wersja i informacje",
-                        glyph = "i",
+                        icon = HomeIcon.ABOUT,
                         accent = Color(0xFF8FC9FF),
                         onClick = onAbout
                     )
@@ -412,11 +412,80 @@ private fun SystemHeader() {
     }
 }
 
+private enum class HomeIcon { NEW_GAME, CONTINUE, SAVES, GALLERY, SETTINGS, ABOUT }
+
+@Composable
+private fun RpgHomeIcon(icon: HomeIcon, color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val c = Offset(w / 2f, h / 2f)
+        val sw = size.minDimension * 0.085f
+        when (icon) {
+            HomeIcon.NEW_GAME -> {
+                drawCircle(color.copy(alpha = 0.95f), radius = size.minDimension * 0.34f, center = c, style = Stroke(width = sw))
+                drawLine(color, Offset(w * 0.50f, h * 0.31f), Offset(w * 0.50f, h * 0.69f), sw, StrokeCap.Round)
+                drawLine(color, Offset(w * 0.31f, h * 0.50f), Offset(w * 0.69f, h * 0.50f), sw, StrokeCap.Round)
+            }
+            HomeIcon.CONTINUE -> {
+                val p = Path().apply {
+                    moveTo(w * 0.35f, h * 0.27f)
+                    lineTo(w * 0.72f, h * 0.50f)
+                    lineTo(w * 0.35f, h * 0.73f)
+                    close()
+                }
+                drawPath(p, color)
+            }
+            HomeIcon.SAVES -> {
+                val p = Path().apply {
+                    moveTo(w * 0.24f, h * 0.20f)
+                    lineTo(w * 0.68f, h * 0.20f)
+                    lineTo(w * 0.78f, h * 0.30f)
+                    lineTo(w * 0.78f, h * 0.80f)
+                    lineTo(w * 0.22f, h * 0.80f)
+                    lineTo(w * 0.22f, h * 0.20f)
+                    close()
+                }
+                drawPath(p, color, style = Stroke(width = sw))
+                drawLine(color, Offset(w * 0.34f, h * 0.22f), Offset(w * 0.34f, h * 0.43f), sw, StrokeCap.Round)
+                drawLine(color, Offset(w * 0.34f, h * 0.62f), Offset(w * 0.66f, h * 0.62f), sw, StrokeCap.Round)
+            }
+            HomeIcon.GALLERY -> {
+                drawRoundRect(color, Offset(w * 0.18f, h * 0.22f), androidx.compose.ui.geometry.Size(w * 0.64f, h * 0.56f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.08f), style = Stroke(width = sw))
+                drawCircle(color, radius = w * 0.075f, center = Offset(w * 0.62f, h * 0.38f))
+                val p = Path().apply {
+                    moveTo(w * 0.25f, h * 0.67f)
+                    lineTo(w * 0.42f, h * 0.49f)
+                    lineTo(w * 0.53f, h * 0.60f)
+                    lineTo(w * 0.62f, h * 0.52f)
+                    lineTo(w * 0.76f, h * 0.67f)
+                }
+                drawPath(p, color, style = Stroke(width = sw))
+            }
+            HomeIcon.SETTINGS -> {
+                drawCircle(color, radius = size.minDimension * 0.25f, center = c, style = Stroke(width = sw))
+                drawCircle(color, radius = size.minDimension * 0.075f, center = c, style = Stroke(width = sw))
+                repeat(8) { i ->
+                    val a = Math.toRadians((i * 45.0) - 90.0)
+                    val r1 = size.minDimension * 0.31f
+                    val r2 = size.minDimension * 0.41f
+                    drawLine(color, Offset(c.x + (kotlin.math.cos(a) * r1).toFloat(), c.y + (kotlin.math.sin(a) * r1).toFloat()), Offset(c.x + (kotlin.math.cos(a) * r2).toFloat(), c.y + (kotlin.math.sin(a) * r2).toFloat()), sw, StrokeCap.Round)
+                }
+            }
+            HomeIcon.ABOUT -> {
+                drawCircle(color, radius = size.minDimension * 0.35f, center = c, style = Stroke(width = sw))
+                drawCircle(color, radius = size.minDimension * 0.045f, center = Offset(c.x, h * 0.34f))
+                drawLine(color, Offset(c.x, h * 0.47f), Offset(c.x, h * 0.67f), sw, StrokeCap.Round)
+            }
+        }
+    }
+}
+
 @Composable
 private fun PremiumHomeAction(
     title: String,
     subtitle: String,
-    glyph: String,
+    icon: HomeIcon,
     accent: Color,
     iconBrush: Brush,
     onClick: () -> Unit
@@ -437,40 +506,44 @@ private fun PremiumHomeAction(
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
         Row(
-            Modifier.padding(horizontal = 18.dp, vertical = 20.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 Modifier
-                    .size(66.dp)
-                    .background(iconBrush, RoundedCornerShape(20.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(20.dp)),
+                    .width(4.dp)
+                    .height(46.dp)
+                    .background(accent.copy(alpha = 0.82f), RoundedCornerShape(50))
+            )
+            Spacer(Modifier.width(14.dp))
+            Box(
+                Modifier
+                    .size(60.dp)
+                    .background(iconBrush, RoundedCornerShape(18.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(18.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(glyph, style = MaterialTheme.typography.displaySmall, color = Color.White, fontWeight = FontWeight.Light)
+                RpgHomeIcon(icon = icon, color = Color.White, modifier = Modifier.size(28.dp))
             }
-            Spacer(Modifier.width(18.dp))
-            Column(Modifier.weight(1f)) {
+            Spacer(Modifier.width(16.dp))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
+            ) {
                 Text(
                     title,
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFFEAF5FF)
                 )
-                Spacer(Modifier.height(3.dp))
+                Spacer(Modifier.height(4.dp))
                 Text(
                     subtitle,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFFB9C9DA)
                 )
-            }
-            Box(
-                Modifier
-                    .size(34.dp)
-                    .background(accent.copy(alpha = 0.10f), RoundedCornerShape(50)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("›", style = MaterialTheme.typography.headlineSmall, color = accent)
             }
         }
     }
@@ -481,7 +554,7 @@ private fun PremiumMiniHomeCard(
     modifier: Modifier = Modifier,
     title: String,
     subtitle: String,
-    glyph: String,
+    icon: HomeIcon,
     accent: Color,
     onClick: () -> Unit
 ) {
@@ -511,7 +584,7 @@ private fun PremiumMiniHomeCard(
                     .border(1.dp, accent.copy(alpha = 0.28f), RoundedCornerShape(11.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(glyph, style = MaterialTheme.typography.titleLarge, color = accent, fontWeight = FontWeight.SemiBold)
+                RpgHomeIcon(icon = icon, color = accent, modifier = Modifier.size(22.dp))
             }
             Column {
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFFE7F1FB))
