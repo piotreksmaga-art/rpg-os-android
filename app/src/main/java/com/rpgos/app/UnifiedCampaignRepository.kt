@@ -24,6 +24,7 @@ enum class ProvenanceType {
     PLAYER_STATE,
     NPC_OBSERVATION,
     NPC_REPORT,
+    NPC_RESEARCH,
     NPC_INFERENCE,
     PLAYER_CLAIM,
     SYSTEM_SIMULATION,
