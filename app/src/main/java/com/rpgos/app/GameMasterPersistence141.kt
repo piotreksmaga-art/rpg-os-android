@@ -12,7 +12,8 @@ import java.util.UUID
  */
 class GameMasterStateRepository141(
     private val repository: UnifiedCampaignRepository,
-    private val campaignUid: EntityUid
+    private val campaignUid: EntityUid,
+    private val knowledgeStore: KnowledgeTransmissionStore141? = null
 ) : GameMasterStateRepository {
 
     override suspend fun commitTurn(
@@ -106,25 +107,52 @@ class GameMasterStateRepository141(
                         eventUids[truth.sourceId] ?: EntityUid(truth.sourceId)
                     else -> EntityUid(truth.sourceId)
                 }
-                writeTruth(
-                    CampaignTruth(
-                        uid = uid("FACT"),
-                        kind = truth.kind,
-                        subjectUid = truth.subjectId.asUidOrNull(),
-                        predicate = truth.predicate,
-                        value = truth.value,
-                        holderUid = truth.holderId.asUidOrNull(),
-                        validFromTurn = truth.validFromTurn ?: turnId,
-                        validUntilTurn = truth.validUntilTurn,
-                        provenance = ProvenanceRecord(
-                            type = truth.sourceType,
-                            sourceUid = sourceUid,
-                            turnId = turnId,
-                            confidence = truth.confidence,
-                            verified = truth.sourceType in VERIFIED_PROVENANCE
-                        )
+                val durableTruth = CampaignTruth(
+                    uid = uid("FACT"),
+                    kind = truth.kind,
+                    subjectUid = truth.subjectId.asUidOrNull(),
+                    predicate = truth.predicate,
+                    value = truth.value,
+                    holderUid = truth.holderId.asUidOrNull(),
+                    validFromTurn = truth.validFromTurn ?: turnId,
+                    validUntilTurn = truth.validUntilTurn,
+                    provenance = ProvenanceRecord(
+                        type = truth.sourceType,
+                        sourceUid = sourceUid,
+                        turnId = turnId,
+                        confidence = truth.confidence,
+                        verified = truth.sourceType in VERIFIED_PROVENANCE
                     )
                 )
+                writeTruth(durableTruth)
+
+                if (truth.kind == TruthKind.BELIEF) {
+                    val channel = requireNotNull(truth.knowledgeChannel) {
+                        "BELIEF ${truth.predicate} nie ma knowledgeChannel."
+                    }
+                    val sourceTruthUid = requireNotNull(sourceUid) {
+                        "BELIEF ${truth.predicate} nie ma trwałego sourceId."
+                    }
+                    val receiverUid = requireNotNull(durableTruth.holderUid) {
+                        "BELIEF ${truth.predicate} nie ma holderUid."
+                    }
+                    val ledger = requireNotNull(knowledgeStore) {
+                        "Brak KnowledgeTransmissionStore141 dla zapisu BELIEF."
+                    }
+                    ledger.appendKnowledgeTransmission(
+                        KnowledgeTransmission141(
+                            transmissionUid = uid("KNOW"),
+                            campaignUid = campaignUid,
+                            sourceTruthUid = sourceTruthUid,
+                            sourceNpcUid = truth.sourceNpcId.asUidOrNull(),
+                            receiverUid = receiverUid,
+                            resultingBeliefUid = durableTruth.uid,
+                            channel = channel,
+                            turnId = turnId,
+                            confidence = durableTruth.provenance.confidence
+                        )
+                    )
+                }
             }
 
             result.divergenceWrites.forEach { divergence ->
@@ -299,6 +327,24 @@ class GameMasterTurnValidator141(
                 "Fact/belief ${truth.predicate} ma confidence poza zakresem 0..1.")
             errorIf(truth.kind == TruthKind.BELIEF && truth.holderId.isNullOrBlank(), issues,
                 "BELIEF_WITHOUT_HOLDER", "BELIEF ${truth.predicate} nie ma holderId.")
+            errorIf(truth.kind == TruthKind.BELIEF && truth.knowledgeChannel == null, issues,
+                "BELIEF_WITHOUT_KNOWLEDGE_CHANNEL", "BELIEF ${truth.predicate} nie ma jawnego kanału wiedzy.")
+            errorIf(truth.kind == TruthKind.BELIEF && truth.sourceId.isNullOrBlank(), issues,
+                "BELIEF_WITHOUT_SOURCE", "BELIEF ${truth.predicate} nie wskazuje trwałego źródła.")
+            errorIf(truth.kind == TruthKind.BELIEF && truth.knowledgeChannel == KnowledgeChannel141.REPORT &&
+                truth.sourceNpcId.isNullOrBlank(), issues, "REPORT_WITHOUT_SOURCE_NPC",
+                "BELIEF ${truth.predicate} z kanału REPORT nie wskazuje nadawcy.")
+            if (truth.kind == TruthKind.BELIEF && truth.knowledgeChannel != null) {
+                val expected = when (truth.knowledgeChannel) {
+                    KnowledgeChannel141.OBSERVATION -> ProvenanceType.NPC_OBSERVATION
+                    KnowledgeChannel141.REPORT -> ProvenanceType.NPC_REPORT
+                    KnowledgeChannel141.INFERENCE -> ProvenanceType.NPC_INFERENCE
+                }
+                errorIf(truth.sourceType != expected, issues, "KNOWLEDGE_PROVENANCE_MISMATCH",
+                    "BELIEF ${truth.predicate}: kanał ${truth.knowledgeChannel} nie pasuje do ${truth.sourceType}.")
+            }
+            errorIf(truth.kind != TruthKind.BELIEF && truth.knowledgeChannel != null, issues,
+                "KNOWLEDGE_CHANNEL_ON_NON_BELIEF", "Tylko BELIEF może posiadać knowledgeChannel.")
             errorIf(truth.validFromTurn != null && truth.validUntilTurn != null &&
                 truth.validUntilTurn < truth.validFromTurn, issues, "INVALID_TRUTH_INTERVAL",
                 "Fact/belief ${truth.predicate} ma odwrócony przedział czasu.")
