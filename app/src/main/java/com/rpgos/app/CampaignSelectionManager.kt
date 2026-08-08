@@ -33,14 +33,16 @@ class CampaignSelectionManager(private val context: Context) {
         require(source.isDirectory) { "Brak szablonu kampanii." }
         val target = File(saves, "$safe.campaign")
         require(!target.exists()) { "Kampania już istnieje." }
-        source.copyRecursively(target, overwrite = false)
-        File(target, "backups").mkdirs()
 
-        // A copied campaign must never inherit the durable identity of its
-        // template. Import/export does not call this path, so imported saves
-        // correctly preserve their original campaign UID.
-        val campaignDb = File(target, "campaign.db")
-        if (campaignDb.exists()) {
+        try {
+            source.copyRecursively(target, overwrite = false)
+            File(target, "backups").mkdirs()
+
+            // A copied campaign must never inherit the durable identity of its
+            // template. Import/export does not call this path, so imported saves
+            // correctly preserve their original campaign UID.
+            val campaignDb = File(target, "campaign.db")
+            require(campaignDb.exists()) { "Skopiowana kampania nie zawiera campaign.db." }
             SQLiteDatabase.openDatabase(
                 campaignDb.absolutePath,
                 null,
@@ -48,9 +50,16 @@ class CampaignSelectionManager(private val context: Context) {
             ).use { db ->
                 CampaignIdentityResolver.forkIdentity(db)
             }
-        }
 
-        setActiveCampaign(target.name)
-        return target
+            // Selection changes only after the copied database has a valid,
+            // independent identity. A failed fork can never become active.
+            setActiveCampaign(target.name)
+            return target
+        } catch (t: Throwable) {
+            // Filesystem copy is not transactional. Remove the incomplete fork
+            // so it cannot masquerade as a valid campaign or block a retry.
+            runCatching { target.deleteRecursively() }
+            throw t
+        }
     }
 }
