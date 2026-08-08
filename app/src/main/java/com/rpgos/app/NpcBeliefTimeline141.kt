@@ -67,14 +67,14 @@ class NpcBeliefTimeline141(
         val entries = beliefs.map { belief ->
             val retraction = retractions[belief.uid]
             val replacement = retraction?.let { r ->
-                repository.getTruth(
-                    campaignUid = campaignUid,
-                    subjectUid = requireNotNull(belief.subjectUid) {
-                        "Retracted BELIEF ${belief.uid.value} bez subjectUid nie może odtworzyć replacement truth."
-                    },
-                    predicate = belief.predicate,
-                    atTurnId = r.turnId
-                ).firstOrNull { it.uid == r.replacementTruthUid }
+                belief.subjectUid?.let { subject ->
+                    repository.getTruth(
+                        campaignUid = campaignUid,
+                        subjectUid = subject,
+                        predicate = belief.predicate,
+                        atTurnId = r.turnId
+                    ).firstOrNull { it.uid == r.replacementTruthUid }
+                }
             }
 
             val expiredAt = belief.validUntilTurn?.takeIf { it < turn }
