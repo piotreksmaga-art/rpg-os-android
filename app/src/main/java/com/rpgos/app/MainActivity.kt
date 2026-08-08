@@ -67,6 +67,13 @@ private val RpgOsColors = darkColorScheme(
     onSurface = Color(0xFFE6F0FF),
     surfaceVariant = Color(0xFF0B1B2B),
     onSurfaceVariant = Color(0xFFB8C8DA),
+    surfaceContainerLowest = Color(0xFF030812),
+    surfaceContainerLow = Color(0xFF06101C),
+    surfaceContainer = Color(0xFF081522),
+    surfaceContainerHigh = Color(0xFF0A1928),
+    surfaceContainerHighest = Color(0xFF0D2030),
+    surfaceBright = Color(0xFF10293B),
+    surfaceDim = Color(0xFF020710),
     outline = Color(0xFF31516D),
     error = Color(0xFFFFB4AB)
 )
@@ -955,9 +962,12 @@ private fun CampaignShell(
         return
     }
 
-    Scaffold(
+    GradientScreen {
+        Scaffold(
+            containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xE6030B16)),
                 title = {
                     Column {
                         Text("RPG OS", fontWeight = FontWeight.Bold)
@@ -974,7 +984,10 @@ private fun CampaignShell(
             )
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                containerColor = Color(0xF207111E),
+                tonalElevation = 0.dp
+            ) {
                 CampaignTab.entries.forEach { item ->
                     NavigationBarItem(
                         selected = tab == item,
@@ -998,6 +1011,7 @@ private fun CampaignShell(
                 )
             }
         }
+    }
     }
 }
 
@@ -1106,16 +1120,24 @@ private fun SmallMenuCard(
     text: String,
     onClick: () -> Unit
 ) {
-    ElevatedCard(
+    val shape = RoundedCornerShape(20.dp)
+    Card(
         onClick = onClick,
-        modifier = modifier.height(82.dp),
-        shape = RoundedCornerShape(20.dp)
+        modifier = modifier
+            .height(82.dp)
+            .background(
+                Brush.verticalGradient(listOf(Color(0xED091521), Color(0xF3050B12))),
+                shape
+            )
+            .border(1.dp, Color(0x553EBBE0), shape),
+        shape = shape,
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
         Box(
             Modifier.fillMaxSize().padding(14.dp),
             contentAlignment = Alignment.BottomStart
         ) {
-            Text(text, fontWeight = FontWeight.Bold)
+            Text(text, fontWeight = FontWeight.Bold, color = Color(0xFFE7F1FB))
         }
     }
 }
@@ -1135,18 +1157,33 @@ private fun StandardPage(
     onBack: () -> Unit,
     content: @Composable () -> Unit
 ) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(title, fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    TextButton(onClick = onBack) { Text("‹ Wróć") }
-                }
-            )
-        }
-    ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
-            content()
+    GradientScreen {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            title,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFEAF5FF)
+                        )
+                    },
+                    navigationIcon = {
+                        TextButton(onClick = onBack) {
+                            Text("‹ Wróć", color = Color(0xFF63B9FF))
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color(0xE6030B16),
+                        scrolledContainerColor = Color(0xF2030B16)
+                    )
+                )
+            }
+        ) { padding ->
+            Box(Modifier.padding(padding).fillMaxSize()) {
+                content()
+            }
         }
     }
 }
@@ -1196,9 +1233,11 @@ private fun AboutScreen(onBack: () -> Unit) {
 @Composable
 private fun EmptyState(title: String, text: String) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0x443EBBE0), RoundedCornerShape(22.dp)),
         shape = RoundedCornerShape(22.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant
+        color = Color(0xE6081522)
     ) {
         Column(
             Modifier.padding(24.dp),
