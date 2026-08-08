@@ -43,7 +43,12 @@ class NpcBeliefTimeline141(
         atTurnId: Long? = null,
         limit: Int = 500
     ): Result {
-        require(limit in 1..5_000) { "limit musi należeć do 1..5000." }
+        // UnifiedCampaignRepository.getBeliefs deliberately caps holder-scoped reads at 1000.
+        // Keep this facade inside the same contract so diagnostics can never request an
+        // impossible repository query.
+        require(limit in 1..MAX_BELIEF_QUERY_LIMIT) {
+            "limit musi należeć do 1..$MAX_BELIEF_QUERY_LIMIT."
+        }
         require(predicate == null || predicate.isNotBlank()) { "predicate nie może być pusty." }
         val turn = atTurnId ?: repository.currentTurnId(campaignUid)
 
@@ -103,5 +108,9 @@ class NpcBeliefTimeline141(
         )
 
         return Result(holderUid, subjectUid, predicate, turn, entries)
+    }
+
+    companion object {
+        const val MAX_BELIEF_QUERY_LIMIT = 1_000
     }
 }
