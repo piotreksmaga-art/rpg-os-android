@@ -78,12 +78,12 @@ data class GameMasterTurnResult(
     val narrative: String,
     val stateMutations: List<GameStateMutation> = emptyList(),
     val truthWrites: List<TruthWrite> = emptyList(),
-    val npcKnowledgeWrites: NpcKnowledgeWrites141 = NpcKnowledgeWrites141(),
     val divergenceWrites: List<DivergenceWrite> = emptyList(),
     val memoryWrites: List<MemoryWrite> = emptyList(),
     val chronicleEntries: List<ChronicleWrite> = emptyList(),
     val worldEvents: List<WorldEventWrite> = emptyList(),
-    val diagnostics: GameMasterDiagnostics = GameMasterDiagnostics()
+    val diagnostics: GameMasterDiagnostics = GameMasterDiagnostics(),
+    val npcKnowledgeWrites: NpcKnowledgeWrites141 = NpcKnowledgeWrites141()
 )
 
 data class GameStateMutation(
