@@ -31,10 +31,14 @@ class GameMasterContextRepository141(
             val memories = repo.memories(session.campaignUid, limit = 60)
             val divergences = repo.getActiveDivergences(session.campaignUid)
 
-            val playerUid = (legacy.playerStatus["player_uid"] as? String)
-                ?.trim()?.takeIf { it.isNotEmpty() }?.let(::EntityUid)
+            val playerUid = resolvePlayerUid(legacy)
             val gmPlayerState = if (playerUid == null) emptyList()
             else repo.getEntityState(session.campaignUid, playerUid, "CHARACTER")
+            val gmCampaignState = repo.getEntityState(
+                session.campaignUid,
+                session.campaignUid,
+                "CAMPAIGN"
+            )
 
             val relevantNpcUids = linkedSetOf<EntityUid>()
             legacy.relevantNpcs.forEach { row ->
@@ -58,7 +62,8 @@ class GameMasterContextRepository141(
             val scene = section(
                 "CURRENT_SCENE",
                 JSONObject(legacy.scene).apply {
-                    put("time", JSONObject(legacy.time))
+                    put("time_legacy", JSONObject(legacy.time))
+                    put("gm141_campaign_state", JSONArray(gmCampaignState.map { stateJson(it) }))
                     put("player_action", request.playerAction)
                     put("gm141_turn", turn)
                 }.toString(),
@@ -132,9 +137,10 @@ class GameMasterContextRepository141(
                 FACT, BELIEF and NARRATIVE are distinct. Narrative is never evidence by itself.
                 A BELIEF belongs only to its holder and must not leak to another NPC without a valid information path.
                 Campaign Source of Truth and accepted divergences override the untouched canon baseline.
+                GM141 campaign state is authoritative over legacy scene/time values when both are present.
                 Do not retroactively remove established skills, achievements or facts without an explicit world event that causes the loss.
                 Do not invent prior history. If an asserted past event is absent from durable state and retrieved history, treat it as unsupported.
-                Use exact GM141 field keys from gm141_source_of_truth when proposing state changes.
+                Use exact GM141 field keys from gm141_source_of_truth or gm141_campaign_state when proposing state changes.
                 Return semantic proposed_actions only. Do not return SQL, table mutations or trusted StatePatch objects.
                 Prose alone never changes canonical campaign state.
                 """.trimIndent(),
@@ -172,6 +178,23 @@ class GameMasterContextRepository141(
                 )
             )
         }
+    }
+
+    private fun resolvePlayerUid(legacy: ContextBundle): EntityUid? {
+        val legacyUid = (legacy.playerStatus["player_uid"] as? String)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let(::EntityUid)
+        if (legacyUid != null) return legacyUid
+
+        return runCatching {
+            store.openSaveDb().use { db ->
+                GameMasterSessionReader141(db).read()?.playerUid
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let(::EntityUid)
+            }
+        }.getOrNull()
     }
 
     private fun allocation(budget: ContextBudget, fraction: Double, sectionMaximum: Int): Int =
