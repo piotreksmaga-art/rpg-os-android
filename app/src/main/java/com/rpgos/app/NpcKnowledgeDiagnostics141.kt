@@ -60,10 +60,16 @@ class NpcKnowledgeDiagnostics141(
         beliefLimit: Int = 200
     ): Report {
         require(recentChangeLimit in 1..200) { "recentChangeLimit musi należeć do 1..200." }
-        require(beliefLimit in 1..1_000) { "beliefLimit musi należeć do 1..1000." }
+        require(beliefLimit in 1..NpcBeliefTimeline141.MAX_BELIEF_QUERY_LIMIT) {
+            "beliefLimit musi należeć do 1..${NpcBeliefTimeline141.MAX_BELIEF_QUERY_LIMIT}."
+        }
 
         val view = policy.buildView(holderUid, atTurnId = atTurnId, beliefLimit = beliefLimit)
-        val history = timeline.query(holderUid, atTurnId = view.atTurnId, limit = 5_000)
+        val history = timeline.query(
+            holderUid,
+            atTurnId = view.atTurnId,
+            limit = NpcBeliefTimeline141.MAX_BELIEF_QUERY_LIMIT
+        )
         val issues = mutableListOf<Issue>()
 
         view.unresolvedBeliefConflicts.forEach { conflict ->
