@@ -163,7 +163,146 @@ class GameMasterIntegrity141(private val db: SQLiteDatabase) {
             arrayOf(campaignUid, metaTurn.toString())
         )
 
+        auditKnowledgeTransmissions(issues, campaignUid, metaTurn)
         return report(issues)
+    }
+
+    private fun auditKnowledgeTransmissions(
+        issues: MutableList<GameMasterIntegrityIssue141>,
+        campaignUid: String,
+        metaTurn: Long
+    ) {
+        if (!tableExists("gm_knowledge_transmissions")) {
+            issues += GameMasterIntegrityIssue141(
+                "KNOWLEDGE_LEDGER_NOT_INITIALIZED",
+                ValidationSeverity.WARNING,
+                "Ledger transmisji wiedzy NPC nie został jeszcze zainicjalizowany."
+            )
+            return
+        }
+
+        addCountIssue(
+            issues,
+            "NPC_BELIEF_WITHOUT_TRANSMISSION",
+            "BELIEF utworzone przez jawny kanał wiedzy nie ma rekordu transmisji.",
+            """
+            SELECT COUNT(*)
+            FROM gm_facts f
+            LEFT JOIN gm_knowledge_transmissions k
+              ON k.campaign_id=f.campaign_id AND k.resulting_belief_id=f.fact_id
+            WHERE f.campaign_id=?
+              AND f.truth_kind='BELIEF'
+              AND f.source_type IN ('NPC_OBSERVATION','NPC_REPORT','NPC_INFERENCE')
+              AND k.transmission_id IS NULL
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        )
+
+        addCountIssue(
+            issues,
+            "KNOWLEDGE_WITH_UNKNOWN_SOURCE",
+            "Transmisja wiedzy wskazuje nieistniejące źródło.",
+            """
+            SELECT COUNT(*)
+            FROM gm_knowledge_transmissions k
+            LEFT JOIN gm_facts source ON source.fact_id=k.source_truth_id
+            WHERE k.campaign_id=? AND source.fact_id IS NULL
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        )
+
+        addCountIssue(
+            issues,
+            "KNOWLEDGE_WITH_UNKNOWN_RESULT",
+            "Transmisja wiedzy wskazuje nieistniejący wynikowy BELIEF.",
+            """
+            SELECT COUNT(*)
+            FROM gm_knowledge_transmissions k
+            LEFT JOIN gm_facts result ON result.fact_id=k.resulting_belief_id
+            WHERE k.campaign_id=? AND result.fact_id IS NULL
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        )
+
+        addCountIssue(
+            issues,
+            "KNOWLEDGE_RESULT_NOT_BELIEF",
+            "Wynik transmisji wiedzy nie jest BELIEF.",
+            """
+            SELECT COUNT(*)
+            FROM gm_knowledge_transmissions k
+            JOIN gm_facts result ON result.fact_id=k.resulting_belief_id
+            WHERE k.campaign_id=? AND result.truth_kind!='BELIEF'
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        )
+
+        addCountIssue(
+            issues,
+            "KNOWLEDGE_RECEIVER_MISMATCH",
+            "Odbiorca transmisji nie jest holderem wynikowego BELIEF.",
+            """
+            SELECT COUNT(*)
+            FROM gm_knowledge_transmissions k
+            JOIN gm_facts result ON result.fact_id=k.resulting_belief_id
+            WHERE k.campaign_id=? AND (result.holder_id IS NULL OR result.holder_id!=k.receiver_id)
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        )
+
+        addCountIssue(
+            issues,
+            "REPORT_WITHOUT_SENDER",
+            "Transmisja REPORT nie wskazuje nadawcy.",
+            """
+            SELECT COUNT(*) FROM gm_knowledge_transmissions
+            WHERE campaign_id=? AND channel='REPORT' AND (source_npc_id IS NULL OR trim(source_npc_id)='')
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        )
+
+        addCountIssue(
+            issues,
+            "KNOWLEDGE_FROM_FUTURE",
+            "Ledger zawiera transmisję z przyszłej tury.",
+            """
+            SELECT COUNT(*) FROM gm_knowledge_transmissions
+            WHERE campaign_id=? AND turn_number>?
+            """.trimIndent(),
+            arrayOf(campaignUid, metaTurn.toString())
+        )
+
+        addCountIssue(
+            issues,
+            "KNOWLEDGE_SOURCE_NOT_VALID_AT_TRANSFER",
+            "Źródło transmisji nie było temporalnie ważne w chwili przekazania wiedzy.",
+            """
+            SELECT COUNT(*)
+            FROM gm_knowledge_transmissions k
+            JOIN gm_facts source ON source.fact_id=k.source_truth_id
+            WHERE k.campaign_id=?
+              AND (source.valid_from_turn>k.turn_number OR
+                   (source.valid_until_turn IS NOT NULL AND source.valid_until_turn<k.turn_number))
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        )
+
+        addCountIssue(
+            issues,
+            "KNOWLEDGE_CHANNEL_PROVENANCE_MISMATCH",
+            "Kanał transmisji nie zgadza się z provenance wynikowego BELIEF.",
+            """
+            SELECT COUNT(*)
+            FROM gm_knowledge_transmissions k
+            JOIN gm_facts result ON result.fact_id=k.resulting_belief_id
+            WHERE k.campaign_id=? AND (
+                (k.channel='OBSERVATION' AND result.source_type!='NPC_OBSERVATION') OR
+                (k.channel='REPORT' AND result.source_type!='NPC_REPORT') OR
+                (k.channel='INFERENCE' AND result.source_type!='NPC_INFERENCE')
+            )
+            """.trimIndent(),
+            arrayOf(campaignUid)
+        )
     }
 
     private fun addCountIssue(
