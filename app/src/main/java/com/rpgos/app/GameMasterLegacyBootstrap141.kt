@@ -19,6 +19,10 @@ object GameMasterLegacyBootstrap141 {
         val ownsTransaction = !db.inTransaction()
         if (ownsTransaction) db.beginTransaction()
         try {
+            // Campaign time exists independently of whether a player entity can
+            // be resolved, so import it before character-scoped baseline data.
+            importCalendar(db, campaignUid)
+
             val playerUid = resolvePlayerUid(db)
             if (playerUid != null) {
                 importCharacterStats(db, campaignUid, playerUid)
@@ -38,8 +42,8 @@ object GameMasterLegacyBootstrap141 {
                     MIGRATION_ID,
                     System.currentTimeMillis(),
                     if (playerUid == null)
-                        "GM141 legacy bootstrap completed; player UID was not resolvable"
-                    else "GM141 imported baseline state for player $playerUid"
+                        "GM141 legacy bootstrap completed; campaign time imported, player UID was not resolvable"
+                    else "GM141 imported campaign time and baseline state for player $playerUid"
                 )
             )
             if (ownsTransaction) db.setTransactionSuccessful()
@@ -70,6 +74,37 @@ object GameMasterLegacyBootstrap141 {
             if (!value.isNullOrBlank()) return value
         }
         return null
+    }
+
+    private fun importCalendar(db: SQLiteDatabase, campaignUid: EntityUid) {
+        runCatching {
+            db.rawQuery("SELECT * FROM campaign_calendar WHERE id=1 LIMIT 1", null).use { c ->
+                if (!c.moveToFirst()) return@use
+                val aliases = mapOf(
+                    "year_label" to "time.year_label",
+                    "era_name" to "time.era",
+                    "season" to "time.season",
+                    "hour" to "time.hour",
+                    "minute" to "time.minute",
+                    "day" to "time.day",
+                    "day_of_year" to "time.day_of_year",
+                    "year" to "time.year"
+                )
+                c.columnNames.forEachIndexed { index, column ->
+                    val field = aliases[column] ?: return@forEachIndexed
+                    if (!c.isNull(index)) {
+                        putState(
+                            db = db,
+                            campaignUid = campaignUid,
+                            entityType = "CAMPAIGN",
+                            entityUid = campaignUid.value,
+                            field = field,
+                            value = cursorValue(c, index)
+                        )
+                    }
+                }
+            }
+        }
     }
 
     private fun importCharacterStats(db: SQLiteDatabase, campaignUid: EntityUid, playerUid: String) {
