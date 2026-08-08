@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -151,13 +152,19 @@ private fun GlowPanel(
             onClick = onClick,
             modifier = base,
             shape = shape,
-            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+            colors = CardDefaults.cardColors(
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            )
         ) { Column(Modifier.padding(18.dp), content = content) }
     } else {
         Card(
             modifier = base,
             shape = shape,
-            colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+            colors = CardDefaults.cardColors(
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            )
         ) { Column(Modifier.padding(18.dp), content = content) }
     }
 }
@@ -305,7 +312,7 @@ private fun HomeScreen(
                         }
                         Spacer(Modifier.width(16.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("Nowa gra", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Text("Nowa gra", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                             Text(
                                 "Wybierz świat i rozpocznij nową kampanię.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -335,7 +342,7 @@ private fun HomeScreen(
                         }
                         Spacer(Modifier.width(16.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("Kontynuuj", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text("Kontynuuj", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                             Text(
                                 "Wróć do ostatniej lub wybranej kampanii.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -355,7 +362,7 @@ private fun HomeScreen(
                     ) {
                         Text("▣", color = Color(0xFF7BBEFF), style = MaterialTheme.typography.headlineSmall)
                         Spacer(Modifier.weight(1f))
-                        Text("Zapisy", fontWeight = FontWeight.Bold)
+                        Text("Zapisy", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     }
                     GlowPanel(
                         modifier = Modifier.weight(1f).height(106.dp),
@@ -365,7 +372,7 @@ private fun HomeScreen(
                     ) {
                         Text("▧", color = Color(0xFF56E1D2), style = MaterialTheme.typography.headlineSmall)
                         Spacer(Modifier.weight(1f))
-                        Text("Galeria", fontWeight = FontWeight.Bold)
+                        Text("Galeria", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
             }
@@ -380,7 +387,7 @@ private fun HomeScreen(
                     ) {
                         Text("⚙", color = Color(0xFF52D8FF), style = MaterialTheme.typography.headlineSmall)
                         Spacer(Modifier.weight(1f))
-                        Text("Ustawienia", fontWeight = FontWeight.Bold)
+                        Text("Ustawienia", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     }
                     GlowPanel(
                         modifier = Modifier.weight(1f).height(106.dp),
@@ -389,7 +396,7 @@ private fun HomeScreen(
                     ) {
                         Text("i", color = Color(0xFF8FC9FF), style = MaterialTheme.typography.headlineSmall)
                         Spacer(Modifier.weight(1f))
-                        Text("O programie", fontWeight = FontWeight.Bold)
+                        Text("O programie", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
             }
@@ -473,7 +480,7 @@ private fun DragonSystemHeader(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(156.dp),
+            .height(240.dp),
         contentAlignment = Alignment.Center
     ) {
         if (mode == "full") {
@@ -524,37 +531,34 @@ private fun DragonSprite(
     BoxWithConstraints(
         Modifier.fillMaxSize()
     ) {
+        val density = LocalDensity.current
         val radians = Math.toRadians(angle.toDouble())
-        val radiusX = maxWidth.value * 0.36f
-        val radiusY = maxHeight.value * 0.29f
+
+        // graphicsLayer translations are pixels, while maxWidth/maxHeight are dp.
+        // Convert explicitly so the dragon really travels around the logo rather
+        // than making a tiny orbit through the text on high-density phones.
+        val widthPx = with(density) { maxWidth.toPx() }
+        val heightPx = with(density) { maxHeight.toPx() }
+        val dragonHalfPx = with(density) { 32.dp.toPx() }
+        val edgePaddingPx = with(density) { 6.dp.toPx() }
+
+        val radiusX = minOf(
+            widthPx * 0.39f,
+            widthPx / 2f - dragonHalfPx - edgePaddingPx
+        ).coerceAtLeast(0f)
+        val radiusY = minOf(
+            heightPx * 0.34f,
+            heightPx / 2f - dragonHalfPx - edgePaddingPx
+        ).coerceAtLeast(0f)
+
         val x = cos(radians).toFloat() * radiusX
         val y = sin(radians).toFloat() * radiusY
 
         if (trail) {
-            Canvas(
-                Modifier
-                    .size(88.dp)
-                    .align(Alignment.Center)
-                    .graphicsLayer {
-                        translationX = x - 18f
-                        translationY = y + 10f
-                        alpha = if (fullEffects) 0.55f else 0.32f
-                    }
-            ) {
-                drawLine(
-                    brush = Brush.linearGradient(
-                        listOf(
-                            Color.Transparent,
-                            Color(0xFF1ED8CF),
-                            Color(0xFF339DFF)
-                        )
-                    ),
-                    start = center.copy(x = center.x - size.width * 0.32f),
-                    end = center.copy(x = center.x + size.width * 0.25f),
-                    strokeWidth = if (fullEffects) 9f else 6f,
-                    cap = StrokeCap.Round
-                )
-            }
+            DragonOrbitTrail(
+                angle = angle,
+                fullEffects = fullEffects
+            )
         }
 
         Canvas(
@@ -571,9 +575,15 @@ private fun DragonSprite(
             val body = Color(0xFF31B7E8)
             val bright = Color(0xFF74F0E1)
 
+            // Local aura: brightest directly at the dragon.
             drawCircle(
-                color = Color(0x5538BFFF),
-                radius = size.minDimension * 0.38f,
+                color = Color(0x6638BFFF),
+                radius = size.minDimension * 0.42f,
+                center = c
+            )
+            drawCircle(
+                color = Color(0x3338E8FF),
+                radius = size.minDimension * 0.56f,
                 center = c
             )
 
@@ -600,7 +610,11 @@ private fun DragonSprite(
             drawPath(wingTop, Color(0xFF1B7FC7))
             drawPath(wingBottom, Color(0xFF159B9D))
 
-            drawCircle(bright, radius = 3.2f, center = c.copy(x = c.x + 15f, y = c.y - 2f))
+            drawCircle(
+                bright,
+                radius = 3.2f,
+                center = c.copy(x = c.x + 15f, y = c.y - 2f)
+            )
 
             drawLine(
                 color = Color(0xFF2ED6C7),
@@ -616,6 +630,63 @@ private fun DragonSprite(
                 strokeWidth = 3f,
                 cap = StrokeCap.Round
             )
+        }
+    }
+}
+
+@Composable
+private fun DragonOrbitTrail(
+    angle: Float,
+    fullEffects: Boolean
+) {
+    Canvas(Modifier.fillMaxSize()) {
+        val segmentCount = if (fullEffects) 28 else 20
+        val angularGap = if (fullEffects) 3.8f else 4.6f
+        val radiusX = size.width * 0.39f
+        val radiusY = size.height * 0.34f
+
+        var previous: Offset? = null
+
+        // Draw from the oldest/dimmest point to the newest/brightest point.
+        for (i in segmentCount downTo 1) {
+            val trailAngle = angle - i * angularGap
+            val radians = Math.toRadians(trailAngle.toDouble())
+            val point = Offset(
+                x = center.x + cos(radians).toFloat() * radiusX,
+                y = center.y + sin(radians).toFloat() * radiusY
+            )
+
+            // 0 near the far end of the trail, 1 close to the dragon.
+            val proximity = 1f - (i.toFloat() / (segmentCount + 1f))
+            val maxAlpha = if (fullEffects) 0.58f else 0.40f
+            val alpha = (0.015f + proximity * proximity * maxAlpha)
+                .coerceIn(0f, 0.72f)
+
+            previous?.let { old ->
+                drawLine(
+                    color = Color(0xFF2EBEFF).copy(alpha = alpha * 0.72f),
+                    start = old,
+                    end = point,
+                    strokeWidth = 1.4f + proximity * if (fullEffects) 5.2f else 3.6f,
+                    cap = StrokeCap.Round
+                )
+            }
+
+            drawCircle(
+                color = Color(0xFF39E3D1).copy(alpha = alpha),
+                radius = 1.1f + proximity * if (fullEffects) 5.4f else 3.7f,
+                center = point
+            )
+
+            if (fullEffects && i % 3 == 0) {
+                drawCircle(
+                    color = Color(0xFF6DDCFF).copy(alpha = alpha * 0.32f),
+                    radius = 5f + proximity * 10f,
+                    center = point
+                )
+            }
+
+            previous = point
         }
     }
 }
