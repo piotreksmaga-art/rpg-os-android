@@ -1,0 +1,30 @@
+name: Elemental 132 cleanup
+
+on:
+  push:
+    branches: [ "elemental-132" ]
+    paths:
+      - ".github/workflows/elemental132-cleanup.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout elemental-132
+        uses: actions/checkout@v4
+        with:
+          ref: elemental-132
+
+      - name: Remove generated build outputs
+        shell: bash
+        run: |
+          rm -rf .gradle app/build
+          rm -f .github/workflows/elemental132-cleanup.yml
+          git config user.name "piotreksmaga-art"
+          git config user.email "piotreksmaga@gmail.com"
+          git add -A
+          git commit -m "Elemental 132: remove generated build outputs"
+          git push origin HEAD:elemental-132
