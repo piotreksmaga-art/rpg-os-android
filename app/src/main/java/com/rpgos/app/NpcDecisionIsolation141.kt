@@ -12,11 +12,19 @@ data class NpcDecisionRequest141(
     val turnId: Long,
     val purpose: String,
     val localState: Map<String, String> = emptyMap(),
-    val grants: List<NpcKnowledgeAccessPolicy141.Grant> = emptyList()
+    val grants: List<NpcKnowledgeAccessPolicy141.Grant> = emptyList(),
+    val observer: ScenePerceptionGrantResolver141.Observer? = null,
+    val sceneFacts: List<ScenePerceptionGrantResolver141.CandidateFact> = emptyList()
 ) {
     init {
         require(turnId >= 0L) { "turnId nie może być ujemny." }
         require(purpose.isNotBlank()) { "purpose nie może być pusty." }
+        require(observer == null || observer.npcUid == npcUid) {
+            "Observer perception musi należeć do NPC ${npcUid.value}."
+        }
+        require(observer != null || sceneFacts.isEmpty()) {
+            "sceneFacts wymagają observer perception."
+        }
     }
 }
 
@@ -25,7 +33,8 @@ data class NpcDecisionContext141(
     val turnId: Long,
     val purpose: String,
     val localState: Map<String, String>,
-    val knowledge: NpcKnowledgeAccessPolicy141.View
+    val knowledge: NpcKnowledgeAccessPolicy141.View,
+    val perceptionDenied: List<ScenePerceptionGrantResolver141.DeniedCandidate> = emptyList()
 ) {
     init {
         require(knowledge.holderUid == npcUid) {
@@ -57,8 +66,9 @@ fun interface NpcDecisionGateway141 {
 }
 
 /**
- * Builds an isolated context, invokes the NPC gateway and validates that every explicitly referenced
- * durable truth was actually visible to that NPC at the decision turn.
+ * Builds an isolated context, resolves one-turn scene perception, invokes the NPC gateway and
+ * validates that every explicitly referenced durable truth was actually visible to that NPC at
+ * the decision turn.
  */
 class NpcDecisionService141(
     repository: UnifiedCampaignRepository,
@@ -66,19 +76,29 @@ class NpcDecisionService141(
     private val gateway: NpcDecisionGateway141
 ) {
     private val accessPolicy = NpcKnowledgeAccessPolicy141(repository, campaignUid)
+    private val perceptionResolver = ScenePerceptionGrantResolver141()
 
     suspend fun decide(request: NpcDecisionRequest141): NpcDecisionProposal141 {
+        val perception = request.observer?.let { observer ->
+            perceptionResolver.resolve(
+                observer = observer,
+                turnId = request.turnId,
+                candidates = request.sceneFacts
+            )
+        } ?: ScenePerceptionGrantResolver141.Result(emptyList(), emptyList())
+
         val knowledge = accessPolicy.buildView(
             holderUid = request.npcUid,
             atTurnId = request.turnId,
-            grants = request.grants
+            grants = request.grants + perception.grants
         )
         val context = NpcDecisionContext141(
             npcUid = request.npcUid,
             turnId = request.turnId,
             purpose = request.purpose,
             localState = request.localState.toMap(),
-            knowledge = knowledge
+            knowledge = knowledge,
+            perceptionDenied = perception.denied
         )
 
         val proposal = gateway.decide(context)
