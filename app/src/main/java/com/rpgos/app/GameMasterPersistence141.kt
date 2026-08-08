@@ -417,12 +417,14 @@ class GameMasterTurnValidator141(
             errorIf(truth.kind == TruthKind.BELIEF && truth.knowledgeChannel == null, issues, "BELIEF_WITHOUT_KNOWLEDGE_CHANNEL", "BELIEF ${truth.predicate} nie ma jawnego kanału wiedzy.")
             errorIf(truth.kind == TruthKind.BELIEF && truth.sourceId.isNullOrBlank(), issues, "BELIEF_WITHOUT_SOURCE", "BELIEF ${truth.predicate} nie wskazuje trwałego źródła.")
             errorIf(truth.kind == TruthKind.BELIEF && truth.knowledgeChannel == KnowledgeChannel141.REPORT && truth.sourceNpcId.isNullOrBlank(), issues, "REPORT_WITHOUT_SOURCE_NPC", "BELIEF ${truth.predicate} z kanału REPORT nie wskazuje nadawcy.")
+            errorIf(truth.kind == TruthKind.BELIEF && truth.knowledgeChannel == KnowledgeChannel141.ORGANIZATION && !truth.sourceNpcId.isNullOrBlank(), issues, "ORGANIZATION_WITH_SOURCE_NPC", "BELIEF ${truth.predicate} z kanału ORGANIZATION nie może wskazywać nadawcy NPC.")
             if (truth.kind == TruthKind.BELIEF && truth.knowledgeChannel != null) {
                 val expected = when (truth.knowledgeChannel) {
                     KnowledgeChannel141.OBSERVATION -> ProvenanceType.NPC_OBSERVATION
                     KnowledgeChannel141.REPORT -> ProvenanceType.NPC_REPORT
                     KnowledgeChannel141.RESEARCH -> ProvenanceType.NPC_RESEARCH
                     KnowledgeChannel141.INFERENCE -> ProvenanceType.NPC_INFERENCE
+                    KnowledgeChannel141.ORGANIZATION -> ProvenanceType.ORGANIZATION_REPORT
                 }
                 errorIf(truth.sourceType != expected, issues, "KNOWLEDGE_PROVENANCE_MISMATCH", "BELIEF ${truth.predicate}: kanał ${truth.knowledgeChannel} nie pasuje do ${truth.sourceType}.")
             }
