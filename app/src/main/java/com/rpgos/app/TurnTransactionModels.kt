@@ -7,6 +7,19 @@ enum class TurnTransactionStatus {
     ROLLED_BACK
 }
 
+data class DurableTurnRecord(
+    val turnUid: EntityUid,
+    val campaignUid: EntityUid,
+    val turnId: Long,
+    val chapter: Long,
+    val playerInput: String,
+    val narrative: String,
+    val startedAtEpochMs: Long,
+    val committedAtEpochMs: Long? = null,
+    val status: TurnTransactionStatus = TurnTransactionStatus.VALIDATED,
+    val failureReason: String? = null
+)
+
 enum class CampaignEventType {
     NPC_CREATED,
     NPC_KILLED,
@@ -47,6 +60,7 @@ data class DurableStateMutation(
     val campaignUid: EntityUid,
     val turnId: Long,
     val entityUid: EntityUid,
+    val entityType: String = "ENTITY",
     val field: String,
     val operation: MutationOperation,
     val oldValue: String? = null,
@@ -87,15 +101,17 @@ data class DurableChronicleRecord(
 )
 
 data class TurnCommitPlan(
-    val campaignUid: EntityUid,
-    val turnId: Long,
+    val turn: DurableTurnRecord,
     val events: List<DurableCampaignEvent> = emptyList(),
     val mutations: List<DurableStateMutation> = emptyList(),
     val truths: List<CampaignTruth> = emptyList(),
     val memories: List<DurableMemoryRecord> = emptyList(),
     val chronicleEntries: List<DurableChronicleRecord> = emptyList(),
     val status: TurnTransactionStatus = TurnTransactionStatus.PLANNED
-)
+) {
+    val campaignUid: EntityUid get() = turn.campaignUid
+    val turnId: Long get() = turn.turnId
+}
 
 /**
  * Commits every accepted consequence of one GM turn in a single repository
@@ -106,8 +122,24 @@ class TurnTransactionCoordinator(
 ) {
     suspend fun commit(plan: TurnCommitPlan): TurnCommitPlan {
         require(plan.turnId > 0) { "turnId musi być dodatni." }
+        require(plan.turn.playerInput.isNotBlank()) { "Tura musi zawierać akcję gracza." }
+        require(plan.turn.narrative.isNotBlank()) { "Tura musi zawierać narrację MG." }
+        require(plan.events.all { it.campaignUid == plan.campaignUid && it.turnId == plan.turnId }) {
+            "Wszystkie eventy muszą należeć do tej samej tury."
+        }
+        require(plan.mutations.all { it.campaignUid == plan.campaignUid && it.turnId == plan.turnId }) {
+            "Wszystkie mutacje muszą należeć do tej samej tury."
+        }
+
+        val committedAt = System.currentTimeMillis()
+        val committedTurn = plan.turn.copy(
+            status = TurnTransactionStatus.COMMITTED,
+            committedAtEpochMs = committedAt,
+            failureReason = null
+        )
 
         repository.inTransaction {
+            writeTurn(committedTurn)
             plan.events.sortedBy { it.sequence }.forEach { appendEvent(it) }
             plan.mutations.forEach { applyMutation(it) }
             plan.truths.forEach { writeTruth(it) }
@@ -115,6 +147,6 @@ class TurnTransactionCoordinator(
             plan.chronicleEntries.forEach { writeChronicle(it) }
         }
 
-        return plan.copy(status = TurnTransactionStatus.COMMITTED)
+        return plan.copy(turn = committedTurn, status = TurnTransactionStatus.COMMITTED)
     }
 }
