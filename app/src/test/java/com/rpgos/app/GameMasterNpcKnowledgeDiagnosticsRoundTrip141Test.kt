@@ -22,7 +22,8 @@ class GameMasterNpcKnowledgeDiagnosticsRoundTrip141Test {
 
     private val holder = EntityUid("NPC-diagnostics-roundtrip")
     private val subject = EntityUid("SUBJECT-diagnostics-roundtrip")
-    private val sourceFactUid = EntityUid("FACT-source-diagnostics")
+    private val oldEvidenceUid = EntityUid("FACT-old-location-evidence")
+    private val suspicionEvidenceUid = EntityUid("FACT-suspicion-evidence")
 
     @Before
     fun setUp() {
@@ -58,23 +59,42 @@ class GameMasterNpcKnowledgeDiagnosticsRoundTrip141Test {
 
         val expected = factory.openActiveSession().use { active ->
             val initialTurn = active.repository.currentTurnId(active.campaignUid)
-            active.repository.writeTruth(
-                CampaignTruth(
-                    uid = sourceFactUid,
-                    kind = TruthKind.FACT,
-                    subjectUid = subject,
-                    predicate = "evidence",
-                    value = "enemy-pattern",
-                    validFromTurn = initialTurn,
-                    provenance = ProvenanceRecord(
-                        type = ProvenanceType.CAMPAIGN_EVENT,
-                        sourceUid = null,
-                        turnId = initialTurn,
-                        confidence = 1.0,
-                        verified = true
+            active.repository.inTransaction {
+                writeTruth(
+                    CampaignTruth(
+                        uid = oldEvidenceUid,
+                        kind = TruthKind.FACT,
+                        subjectUid = subject,
+                        predicate = "location",
+                        value = "KONOHA-EVIDENCE",
+                        validFromTurn = initialTurn,
+                        provenance = ProvenanceRecord(
+                            type = ProvenanceType.CAMPAIGN_EVENT,
+                            sourceUid = null,
+                            turnId = initialTurn,
+                            confidence = 1.0,
+                            verified = true
+                        )
                     )
                 )
-            )
+                writeTruth(
+                    CampaignTruth(
+                        uid = suspicionEvidenceUid,
+                        kind = TruthKind.FACT,
+                        subjectUid = subject,
+                        predicate = "suspicion",
+                        value = "enemy-pattern",
+                        validFromTurn = initialTurn,
+                        provenance = ProvenanceRecord(
+                            type = ProvenanceType.CAMPAIGN_EVENT,
+                            sourceUid = null,
+                            turnId = initialTurn,
+                            confidence = 1.0,
+                            verified = true
+                        )
+                    )
+                )
+            }
 
             val state = GameMasterStateRepository141(
                 repository = active.repository,
@@ -82,11 +102,13 @@ class GameMasterNpcKnowledgeDiagnosticsRoundTrip141Test {
                 knowledgeStore = active.knowledgeStore,
                 npcKnowledgeStores = active.npcKnowledgeStores
             )
+
+            // Turn 1: the NPC acquires a belief that remains active after the turn.
             state.commitTurn(
-                request = request(active),
-                context = gmContext(active),
+                request = request(active, currentChapter = 1L),
+                context = gmContext(active, chapter = 1L),
                 result = GameMasterTurnResult(
-                    narrative = "NPC aktualizuje wiedzę po nowych dowodach.",
+                    narrative = "NPC przyjmuje pierwszą hipotezę o położeniu celu.",
                     truthWrites = listOf(
                         TruthWrite(
                             kind = TruthKind.BELIEF,
@@ -96,10 +118,39 @@ class GameMasterNpcKnowledgeDiagnosticsRoundTrip141Test {
                             holderId = holder.value,
                             confidence = 0.55,
                             sourceType = ProvenanceType.NPC_INFERENCE,
-                            sourceId = sourceFactUid.value,
+                            sourceId = oldEvidenceUid.value,
                             knowledgeChannel = KnowledgeChannel141.INFERENCE,
                             truthKey = "old-location-belief"
-                        ),
+                        )
+                    ),
+                    npcKnowledgeWrites = NpcKnowledgeWrites141(
+                        inferences = listOf(
+                            NpcInferenceWrite141(
+                                holderId = holder.value,
+                                resultingBelief = TruthRef141(truthKey = "old-location-belief"),
+                                premiseTruths = listOf(TruthRef141(durableUid = oldEvidenceUid.value)),
+                                confidence = 0.55
+                            )
+                        )
+                    )
+                )
+            )
+            val firstTurn = initialTurn + 1L
+            val oldBelief = active.repository.getBeliefs(
+                active.campaignUid,
+                holder,
+                subject,
+                firstTurn,
+                20
+            ).single { it.predicate == "location" && it.value == "KONOHA" }
+
+            // Turn 2: new evidence replaces the old belief while another inference stays active.
+            state.commitTurn(
+                request = request(active, currentChapter = 2L),
+                context = gmContext(active, chapter = 2L),
+                result = GameMasterTurnResult(
+                    narrative = "Nowe dowody obalają starą hipotezę i wzmacniają podejrzenie.",
+                    truthWrites = listOf(
                         TruthWrite(
                             kind = TruthKind.FACT,
                             subjectId = subject.value,
@@ -117,7 +168,7 @@ class GameMasterNpcKnowledgeDiagnosticsRoundTrip141Test {
                             holderId = holder.value,
                             confidence = 0.80,
                             sourceType = ProvenanceType.NPC_INFERENCE,
-                            sourceId = sourceFactUid.value,
+                            sourceId = suspicionEvidenceUid.value,
                             knowledgeChannel = KnowledgeChannel141.INFERENCE,
                             truthKey = "inferred-suspicion-belief"
                         )
@@ -127,14 +178,14 @@ class GameMasterNpcKnowledgeDiagnosticsRoundTrip141Test {
                             NpcInferenceWrite141(
                                 holderId = holder.value,
                                 resultingBelief = TruthRef141(truthKey = "inferred-suspicion-belief"),
-                                premiseTruths = listOf(TruthRef141(durableUid = sourceFactUid.value)),
+                                premiseTruths = listOf(TruthRef141(durableUid = suspicionEvidenceUid.value)),
                                 confidence = 0.80
                             )
                         ),
                         retractions = listOf(
                             NpcBeliefRetractionWrite141(
                                 holderId = holder.value,
-                                retractedBelief = TruthRef141(truthKey = "old-location-belief"),
+                                retractedBelief = TruthRef141(durableUid = oldBelief.uid.value),
                                 replacementTruth = TruthRef141(truthKey = "replacement-location-fact"),
                                 reason = "direct evidence"
                             )
@@ -143,16 +194,14 @@ class GameMasterNpcKnowledgeDiagnosticsRoundTrip141Test {
                 )
             )
 
-            val committedTurn = initialTurn + 1L
-            val beliefs = active.repository.getBeliefs(
+            val committedTurn = firstTurn + 1L
+            val inferredBelief = active.repository.getBeliefs(
                 active.campaignUid,
                 holder,
                 subject,
                 committedTurn,
                 20
-            )
-            val oldBelief = beliefs.single { it.predicate == "location" && it.value == "KONOHA" }
-            val inferredBelief = beliefs.single { it.predicate == "suspicion" && it.value == "enemy" }
+            ).single { it.predicate == "suspicion" && it.value == "enemy" }
             val replacementFact = active.repository.getTruth(
                 active.campaignUid,
                 subject,
@@ -240,16 +289,16 @@ class GameMasterNpcKnowledgeDiagnosticsRoundTrip141Test {
         }
     }
 
-    private fun request(active: ActiveGameMasterRepository) = GameMasterTurnRequest(
+    private fun request(active: ActiveGameMasterRepository, currentChapter: Long) = GameMasterTurnRequest(
         campaignId = active.campaignUid.value,
         worldPackId = active.worldPackUid.value,
         playerAction = "test",
-        currentChapter = 1L
+        currentChapter = currentChapter
     )
 
-    private fun gmContext(active: ActiveGameMasterRepository) = GameMasterContext(
+    private fun gmContext(active: ActiveGameMasterRepository, chapter: Long) = GameMasterContext(
         campaignId = active.campaignUid.value,
-        chapter = 1L,
+        chapter = chapter,
         scene = section("scene"),
         playerState = section("player"),
         activeWorldState = section("world"),
