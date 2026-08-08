@@ -78,6 +78,7 @@ data class GameMasterTurnResult(
     val narrative: String,
     val stateMutations: List<GameStateMutation> = emptyList(),
     val truthWrites: List<TruthWrite> = emptyList(),
+    val npcKnowledgeWrites: NpcKnowledgeWrites141 = NpcKnowledgeWrites141(),
     val divergenceWrites: List<DivergenceWrite> = emptyList(),
     val memoryWrites: List<MemoryWrite> = emptyList(),
     val chronicleEntries: List<ChronicleWrite> = emptyList(),
@@ -110,7 +111,9 @@ data class TruthWrite(
     val validFromTurn: Long? = null,
     val validUntilTurn: Long? = null,
     val knowledgeChannel: KnowledgeChannel141? = null,
-    val sourceNpcId: String? = null
+    val sourceNpcId: String? = null,
+    /** Stable only inside this resolved turn; persistence maps it to the generated durable UID. */
+    val truthKey: String? = null
 ) {
     init {
         require(kind != TruthKind.BELIEF || !holderId.isNullOrBlank()) {
@@ -120,6 +123,74 @@ data class TruthWrite(
         require(knowledgeChannel != KnowledgeChannel141.REPORT || !sourceNpcId.isNullOrBlank()) {
             "BELIEF z kanału REPORT wymaga sourceNpcId."
         }
+        require(truthKey == null || truthKey.isNotBlank()) { "truthKey nie może być pusty." }
+    }
+}
+
+/** Reference either to a durable truth from an older turn or to a truth written in this turn. */
+data class TruthRef141(
+    val durableUid: String? = null,
+    val truthKey: String? = null
+) {
+    init {
+        require(!durableUid.isNullOrBlank() xor !truthKey.isNullOrBlank()) {
+            "TruthRef141 wymaga dokładnie jednego z durableUid lub truthKey."
+        }
+    }
+}
+
+data class NpcKnowledgeWrites141(
+    val retractions: List<NpcBeliefRetractionWrite141> = emptyList(),
+    val inferences: List<NpcInferenceWrite141> = emptyList(),
+    val organizationTransmissions: List<OrganizationKnowledgeWrite141> = emptyList(),
+    val resolutions: List<NpcKnowledgeResolutionWrite141> = emptyList()
+)
+
+data class NpcBeliefRetractionWrite141(
+    val holderId: String,
+    val retractedBelief: TruthRef141,
+    val replacementTruth: TruthRef141,
+    val reason: String
+)
+
+data class NpcInferenceWrite141(
+    val holderId: String,
+    val resultingBelief: TruthRef141,
+    val premiseTruths: List<TruthRef141>,
+    val confidence: Double
+) {
+    init {
+        require(confidence in 0.0..1.0) { "confidence inference musi mieścić się w zakresie 0..1." }
+        require(premiseTruths.isNotEmpty()) { "Inference wymaga co najmniej jednej przesłanki." }
+    }
+}
+
+data class OrganizationKnowledgeWrite141(
+    val organizationId: String,
+    val membershipId: String,
+    val publicationId: String,
+    val sourceTruth: TruthRef141,
+    val receiverId: String,
+    val resultingBelief: TruthRef141,
+    val confidence: Double
+) {
+    init {
+        require(confidence in 0.0..1.0) { "confidence organization knowledge musi mieścić się w zakresie 0..1." }
+    }
+}
+
+data class NpcKnowledgeResolutionWrite141(
+    val holderId: String,
+    val subjectId: String? = null,
+    val predicate: String,
+    val competingBeliefs: List<TruthRef141>,
+    val winner: TruthRef141? = null,
+    val supersededBeliefs: List<TruthRef141> = emptyList(),
+    val reason: NpcKnowledgeLifecycle141.ResolutionReason
+) {
+    init {
+        require(predicate.isNotBlank()) { "Resolution predicate nie może być pusty." }
+        require(competingBeliefs.size >= 2) { "Resolution wymaga co najmniej dwóch konkurencyjnych BELIEF-ów." }
     }
 }
 
