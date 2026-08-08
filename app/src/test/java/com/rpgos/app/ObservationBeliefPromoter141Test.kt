@@ -108,6 +108,7 @@ class ObservationBeliefPromoter141Test {
         val promoter = ObservationBeliefPromoter141(repo, campaign, FakeLedger())
         val badGrant = grant(fact).copy(kind = NpcKnowledgeAccessPolicy141.GrantKind.ORGANIZATION_FACT)
         promoter.promote(npc, 20, listOf(badGrant))
+        Unit
     }
 
     private fun fact(uid: String, value: String, confidence: Double) = CampaignTruth(
