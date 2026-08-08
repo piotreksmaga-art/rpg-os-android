@@ -58,6 +58,20 @@ class GameMasterContextRepository141(
             val memories = retrieved.memories
             val beliefs = retrieved.beliefsByHolder.values.flatten()
 
+            // Lineage is intentionally bounded independently from BELIEF text.
+            // It explains how a relevant NPC learned something without exposing
+            // the whole campaign-wide rumour graph to the model.
+            val knowledgeLineage = linkedMapOf<EntityUid, List<KnowledgeTransmission141>>()
+            relevantNpcUids.take(16).forEach { npcUid ->
+                val rows = session.knowledgeStore.knowledgeTransmissionsForReceiver(
+                    campaignUid = session.campaignUid,
+                    receiverUid = npcUid,
+                    beforeOrAtTurn = turn,
+                    limit = 8
+                )
+                if (rows.isNotEmpty()) knowledgeLineage[npcUid] = rows
+            }
+
             val budget = request.contextBudget
             val scene = section(
                 "CURRENT_SCENE",
@@ -92,6 +106,14 @@ class GameMasterContextRepository141(
                     put("npc_knowledge_legacy", JSONArray(legacy.npcKnowledge.map(::JSONObject)))
                     put("npc_beliefs_gm141", truthsJson(beliefs))
                     put("npc_belief_holders_gm141", JSONArray(retrieved.beliefsByHolder.keys.map { it.value }))
+                    put(
+                        "npc_knowledge_lineage_gm141",
+                        JSONArray(
+                            knowledgeLineage.flatMap { (holder, transmissions) ->
+                                transmissions.map { transmissionJson(holder, it) }
+                            }
+                        )
+                    )
                     put("missions", JSONArray(legacy.missions.map(::JSONObject)))
                     put("pressures", JSONArray(legacy.worldPressures.map(::JSONObject)))
                     put("active_world_events", JSONArray(legacy.activeWorldEvents.map(::JSONObject)))
@@ -137,6 +159,8 @@ class GameMasterContextRepository141(
                 """
                 FACT, BELIEF and NARRATIVE are distinct. Narrative is never evidence by itself.
                 A BELIEF belongs only to its holder and must not leak to another NPC without a valid information path.
+                npc_knowledge_lineage_gm141 is the auditable path by which a holder acquired a BELIEF; do not invent missing transfers.
+                OBSERVATION, REPORT and INFERENCE are different knowledge channels and may carry different confidence.
                 Campaign Source of Truth and accepted divergences override the untouched canon baseline.
                 GM141 campaign state is authoritative over legacy scene/time values when both are present.
                 Do not retroactively remove established skills, achievements or facts without an explicit world event that causes the loss.
@@ -176,7 +200,8 @@ class GameMasterContextRepository141(
                     ContextSource("GM141_STATE", session.campaignUid.value, "canonical mutable working state"),
                     ContextSource("GM141_EVENT_STORE", session.campaignUid.value, "recent accepted events"),
                     ContextSource("GM141_MEMORY", session.campaignUid.value, "bounded temporal episodic and semantic memory"),
-                    ContextSource("GM141_RETRIEVER", session.campaignUid.value, "query-ranked temporal retrieval with holder-scoped beliefs")
+                    ContextSource("GM141_RETRIEVER", session.campaignUid.value, "query-ranked temporal retrieval with holder-scoped beliefs"),
+                    ContextSource("GM141_KNOWLEDGE_LEDGER", session.campaignUid.value, "bounded auditable NPC information paths")
                 )
             )
         }
@@ -235,6 +260,21 @@ class GameMasterContextRepository141(
             put("confidence", truth.provenance.confidence)
         }
     })
+
+    private fun transmissionJson(
+        holder: EntityUid,
+        transmission: KnowledgeTransmission141
+    ): JSONObject = JSONObject().apply {
+        put("holder", holder.value)
+        put("transmission_id", transmission.transmissionUid.value)
+        put("source_truth_id", transmission.sourceTruthUid.value)
+        put("source_npc_id", transmission.sourceNpcUid?.value)
+        put("receiver_id", transmission.receiverUid.value)
+        put("resulting_belief_id", transmission.resultingBeliefUid.value)
+        put("channel", transmission.channel.name)
+        put("turn", transmission.turnId)
+        put("confidence", transmission.confidence)
+    }
 
     private fun eventJson(event: DurableCampaignEvent): JSONObject = JSONObject().apply {
         put("id", event.eventUid.value)
