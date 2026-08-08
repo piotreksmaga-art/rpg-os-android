@@ -34,7 +34,9 @@ class NpcKnowledgeIntegrity141Test {
                 truth_kind TEXT NOT NULL,
                 holder_id TEXT,
                 subject_id TEXT,
-                predicate TEXT NOT NULL
+                predicate TEXT NOT NULL,
+                valid_from_turn INTEGER NOT NULL,
+                valid_until_turn INTEGER
             )
             """.trimIndent()
         )
@@ -145,19 +147,52 @@ class NpcKnowledgeIntegrity141Test {
         assertTrue(report.issues.any { it.code == "ORG_KNOWLEDGE_INSUFFICIENT_CLEARANCE" })
     }
 
+    @Test
+    fun detectsUnusedTamperedOrganizationPublication() {
+        fact(
+            uid = "FACT-windowed",
+            kind = "FACT",
+            holder = null,
+            subject = "TARGET-real",
+            predicate = "classified.real",
+            validFrom = 2L,
+            validUntil = 5L
+        )
+        db.execSQL(
+            """
+            INSERT INTO gm_organization_fact_publications(
+                publication_id,campaign_id,organization_id,truth_id,subject_id,predicate,
+                minimum_clearance,valid_from_turn,valid_until_turn,created_at
+            ) VALUES(
+                'PUB-unused','CAMPAIGN-test','ORG-a','FACT-windowed','TARGET-wrong','classified.wrong',
+                1,1,9,1
+            )
+            """.trimIndent()
+        )
+
+        val report = NpcKnowledgeIntegrity141(db).check()
+        assertFalse(report.ok)
+        assertTrue(report.issues.any { it.code == "ORG_PUBLICATION_FACT_MISMATCH" })
+        assertTrue(report.issues.any { it.code == "ORG_PUBLICATION_BEFORE_FACT" })
+        assertTrue(report.issues.any { it.code == "ORG_PUBLICATION_OUTLIVES_FACT" })
+    }
+
     private fun fact(
         uid: String,
         kind: String,
         holder: String?,
         subject: String = "SUBJECT-test",
-        predicate: String = "test.predicate"
+        predicate: String = "test.predicate",
+        validFrom: Long = 0L,
+        validUntil: Long? = null
     ) {
         db.execSQL(
             """
-            INSERT INTO gm_facts(fact_id,campaign_id,truth_kind,holder_id,subject_id,predicate)
-            VALUES(?,?,?,?,?,?)
+            INSERT INTO gm_facts(
+                fact_id,campaign_id,truth_kind,holder_id,subject_id,predicate,valid_from_turn,valid_until_turn
+            ) VALUES(?,?,?,?,?,?,?,?)
             """.trimIndent(),
-            arrayOf(uid, "CAMPAIGN-test", kind, holder, subject, predicate)
+            arrayOf(uid, "CAMPAIGN-test", kind, holder, subject, predicate, validFrom, validUntil)
         )
     }
 }
