@@ -26,7 +26,6 @@ android {
         )
     }
 
-
     signingConfigs {
         create("release") {
             val keystorePath = System.getenv("RPGOS_KEYSTORE_PATH")
@@ -68,6 +67,11 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("com.squareup.okhttp3:okhttp:5.3.2")
+
     testImplementation("junit:junit:4.13.2")
+    // Android's mockable android.jar intentionally throws for org.json methods.
+    // Use the real JVM implementation so resolver/parser tests exercise JSON.
+    testImplementation("org.json:json:20250517")
+
     debugImplementation("androidx.compose.ui:ui-tooling:1.11.4")
 }
