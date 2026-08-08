@@ -24,51 +24,54 @@ class KnowledgeLineageResolver141(
         val chain = mutableListOf<CampaignTruth>()
         val visited = linkedSetOf<EntityUid>()
         var current = truth
-        var terminalSourceUid: EntityUid? = null
-        var cycleDetected = false
-        var truncated = false
+        var depth = 0
 
-        repeat(maxDepth) {
+        while (depth < maxDepth) {
             if (!visited.add(current.uid)) {
-                cycleDetected = true
-                return@repeat
+                return Result(
+                    chain = chain,
+                    terminalSourceUid = current.uid,
+                    cycleDetected = true,
+                    truncated = false
+                )
             }
             chain += current
+            depth += 1
 
             val sourceUid = current.provenance.sourceUid
-            if (sourceUid == null) return Result(chain, null, cycleDetected = false, truncated = false)
+                ?: return Result(chain, null, cycleDetected = false, truncated = false)
 
             // Propagated knowledge preserves subject + predicate. Query at the moment the
             // child was created so an older source can still be found if it later expired.
             val subject = current.subjectUid
-            if (subject == null) {
-                terminalSourceUid = sourceUid
-                return Result(chain, terminalSourceUid, cycleDetected = false, truncated = false)
-            }
+                ?: return Result(chain, sourceUid, cycleDetected = false, truncated = false)
 
             val sourceTurn = current.validFromTurn ?: current.provenance.turnId ?: 0L
-            val candidates = repository.getTruth(
+            val parent = repository.getTruth(
                 campaignUid = campaignUid,
                 subjectUid = subject,
                 predicate = current.predicate,
                 atTurnId = sourceTurn
-            )
-            val parent = candidates.firstOrNull { it.uid == sourceUid }
-            if (parent == null) {
-                terminalSourceUid = sourceUid
-                return Result(chain, terminalSourceUid, cycleDetected = false, truncated = false)
-            }
+            ).firstOrNull { it.uid == sourceUid }
+                ?: return Result(chain, sourceUid, cycleDetected = false, truncated = false)
 
             if (parent.uid in visited) {
                 chain += parent
-                cycleDetected = true
-                return Result(chain, parent.uid, cycleDetected = true, truncated = false)
+                return Result(
+                    chain = chain,
+                    terminalSourceUid = parent.uid,
+                    cycleDetected = true,
+                    truncated = false
+                )
             }
             current = parent
         }
 
-        truncated = true
-        terminalSourceUid = current.provenance.sourceUid
-        return Result(chain, terminalSourceUid, cycleDetected, truncated)
+        return Result(
+            chain = chain,
+            terminalSourceUid = current.provenance.sourceUid,
+            cycleDetected = false,
+            truncated = true
+        )
     }
 }
