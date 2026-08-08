@@ -120,6 +120,14 @@ interface OrganizationKnowledgeAuthorizationStore141 {
 class SQLiteOrganizationKnowledgeAuthorizationStore141(
     private val db: SQLiteDatabase
 ) : OrganizationKnowledgeAuthorizationStore141 {
+    private data class SourceFactMeta(
+        val kind: String,
+        val subjectId: String?,
+        val predicate: String,
+        val validFromTurn: Long,
+        val validUntilTurn: Long?
+    )
+
     init { OrganizationKnowledgeAuthorizationSchema141.ensure(db) }
 
     override suspend fun appendMembership(campaignUid: EntityUid, membership: OrganizationMembership141) {
@@ -137,6 +145,7 @@ class SQLiteOrganizationKnowledgeAuthorizationStore141(
     }
 
     override suspend fun appendPublication(campaignUid: EntityUid, publication: OrganizationFactPublication141) {
+        validateSourceFact(campaignUid, publication)
         val values = ContentValues().apply {
             put("publication_id", publication.publicationUid.value)
             put("campaign_id", campaignUid.value)
@@ -275,6 +284,50 @@ class SQLiteOrganizationKnowledgeAuthorizationStore141(
                 validFromTurn = c.getLong(5),
                 validUntilTurn = if (c.isNull(6)) null else c.getLong(6)
             )
+        }
+    }
+
+    private fun validateSourceFact(
+        campaignUid: EntityUid,
+        publication: OrganizationFactPublication141
+    ) {
+        val source = db.rawQuery(
+            """
+            SELECT truth_kind,subject_id,predicate,valid_from_turn,valid_until_turn
+            FROM gm_facts
+            WHERE campaign_id=? AND fact_id=?
+            LIMIT 1
+            """.trimIndent(),
+            arrayOf(campaignUid.value, publication.truthUid.value)
+        ).use { c ->
+            if (!c.moveToFirst()) null
+            else SourceFactMeta(
+                kind = c.getString(0),
+                subjectId = if (c.isNull(1)) null else c.getString(1),
+                predicate = c.getString(2),
+                validFromTurn = c.getLong(3),
+                validUntilTurn = if (c.isNull(4)) null else c.getLong(4)
+            )
+        } ?: error(
+            "Organization publication ${publication.publicationUid.value} wskazuje nieistniejący truth_id=${publication.truthUid.value}."
+        )
+
+        require(source.kind == TruthKind.FACT.name) {
+            "Organization publication ${publication.publicationUid.value} może wskazywać wyłącznie FACT, a znaleziono ${source.kind}."
+        }
+        require(source.subjectId == publication.subjectUid.value) {
+            "Organization publication ${publication.publicationUid.value} ma subject=${publication.subjectUid.value}, ale FACT ${publication.truthUid.value} ma subject=${source.subjectId}."
+        }
+        require(source.predicate == publication.predicate) {
+            "Organization publication ${publication.publicationUid.value} ma predicate=${publication.predicate}, ale FACT ${publication.truthUid.value} ma predicate=${source.predicate}."
+        }
+        require(publication.validFromTurn >= source.validFromTurn) {
+            "Organization publication ${publication.publicationUid.value} zaczyna się przed ważnością FACT ${publication.truthUid.value}."
+        }
+        if (source.validUntilTurn != null) {
+            require(publication.validUntilTurn != null && publication.validUntilTurn <= source.validUntilTurn) {
+                "Organization publication ${publication.publicationUid.value} wykracza poza ważność FACT ${publication.truthUid.value}."
+            }
         }
     }
 }
