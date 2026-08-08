@@ -6,6 +6,7 @@ import java.util.UUID
 enum class KnowledgeChannel141 {
     OBSERVATION,
     REPORT,
+    RESEARCH,
     INFERENCE
 }
 
@@ -64,6 +65,14 @@ class NpcKnowledgePropagation141(
                 }
                 provenanceType = ProvenanceType.NPC_REPORT
                 channelConfidence = 0.85
+            }
+
+            KnowledgeChannel141.RESEARCH -> {
+                require(source.kind == TruthKind.FACT) {
+                    "RESEARCH wymaga trwałego FACT jako podstawy badania."
+                }
+                provenanceType = ProvenanceType.NPC_RESEARCH
+                channelConfidence = 0.95
             }
 
             KnowledgeChannel141.INFERENCE -> {
