@@ -4,6 +4,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -162,5 +163,63 @@ class GameMasterNpcKnowledgeDiagnosticsRoundTrip141Test {
         assertTrue(report.contains("${oldBeliefUid.value} status=RETRACTED"))
         assertTrue(report.contains("replacement=${replacementFactUid.value}"))
         assertTrue(report.contains("status=OK"))
+    }
+
+    @Test
+    fun failedNpcKnowledgeTransactionRollsBackAllLedgerWrites() = runBlocking {
+        val factory = GameMasterRepositoryFactory(context, store)
+        val campaignUid = factory.openActiveSession().use { active ->
+            val stores = requireNotNull(active.npcKnowledgeStores)
+            val tx = NpcKnowledgeTurnTransaction141(active.repository, stores)
+
+            runCatching {
+                tx.commit {
+                    inferences.appendInference(
+                        NpcInferenceLedgerEntry141(
+                            inferenceUid = EntityUid("INFERENCE-rollback"),
+                            campaignUid = active.campaignUid,
+                            holderUid = holder,
+                            resultingBeliefUid = EntityUid("BELIEF-rollback"),
+                            premiseTruthUids = listOf(EntityUid("FACT-rollback")),
+                            turnId = 30,
+                            confidence = 0.5
+                        )
+                    )
+                    retractions.appendRetraction(
+                        NpcBeliefRetraction141(
+                            retractionUid = EntityUid("RETRACTION-rollback"),
+                            campaignUid = active.campaignUid,
+                            holderUid = holder,
+                            retractedBeliefUid = EntityUid("BELIEF-old-rollback"),
+                            replacementTruthUid = EntityUid("FACT-new-rollback"),
+                            turnId = 30,
+                            reason = "forced rollback"
+                        )
+                    )
+                    error("simulate failed turn")
+                }
+            }
+            active.campaignUid
+        }
+
+        factory.openActiveSession().use { reopened ->
+            val stores = requireNotNull(reopened.npcKnowledgeStores)
+            assertEquals(campaignUid, reopened.campaignUid)
+            assertEquals(
+                null,
+                stores.inferences.inferenceForBelief(
+                    campaignUid = campaignUid,
+                    holderUid = holder,
+                    resultingBeliefUid = EntityUid("BELIEF-rollback")
+                )
+            )
+            assertTrue(
+                stores.retractions.retractionsForHolder(
+                    campaignUid = campaignUid,
+                    holderUid = holder,
+                    beforeOrAtTurn = 100
+                ).none { it.retractionUid == EntityUid("RETRACTION-rollback") }
+            )
+        }
     }
 }
