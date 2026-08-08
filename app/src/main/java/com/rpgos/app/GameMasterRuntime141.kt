@@ -47,10 +47,17 @@ class GameMasterRuntime141(
             )
 
             val baseResolver = GameMasterRuleResolver141(session.repository, session.campaignUid)
+            val safeResolver = KnowledgeSafeRuleResolver141(baseResolver)
+            val lifecycleResolver = NpcKnowledgeLifecycleRuleResolver141(
+                delegate = safeResolver,
+                repository = session.repository,
+                campaignUid = session.campaignUid,
+                retractionStore = session.npcKnowledgeStores?.retractions
+            )
             val engine = GameMasterEngine(
                 contextRepository = contextRepository,
                 modelGateway = modelGateway,
-                ruleResolver = KnowledgeSafeRuleResolver141(baseResolver),
+                ruleResolver = lifecycleResolver,
                 validator = NpcKnowledgeSemanticTurnValidator141(
                     GameMasterTurnValidator141(session.repository, session.campaignUid)
                 ),
