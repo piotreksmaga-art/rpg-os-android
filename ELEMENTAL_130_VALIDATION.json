@@ -1,0 +1,16 @@
+{
+  "versionCode": 130,
+  "versionName": "1.2.0-alpha5-elemental130",
+  "scope": "five-element-visuals-only",
+  "orbitGeometryChanged": false,
+  "orbitMotionChanged": false,
+  "introAnimationChanged": false,
+  "otherUiChanged": false,
+  "elements": {
+    "wind": "layered ribbons",
+    "fire": "core flames embers",
+    "water": "wave crest droplets",
+    "earth": "angular rock shards",
+    "lightning": "zigzag core branches"
+  }
+}
