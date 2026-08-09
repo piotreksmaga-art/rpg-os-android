@@ -22,9 +22,10 @@ fun interface BatchMemoryEmbeddingProvider141 {
 /**
  * Incremental derived-index maintenance for long campaigns.
  *
- * It never changes truth/memory records. Only missing or stale rows in one explicit
- * provider/model/dimension space are refreshed. Provider output is validated before
- * any vector enters campaign.db, so model-space drift cannot silently mix indexes.
+ * It never changes truth/memory records. Only rows missing in one explicit
+ * provider/model/dimension space are refreshed. MemoryEmbeddingIndexSchema141
+ * invalidates derived rows automatically when memory content changes, therefore
+ * a changed memory becomes a missing row again without an unbounded stale scan.
  */
 class MemoryEmbeddingMaintenance141(
     private val db: SQLiteDatabase,
@@ -87,14 +88,14 @@ class MemoryEmbeddingMaintenance141(
         val out = mutableListOf<DurableMemoryRecord>()
         db.rawQuery(
             """
-            SELECT m.memory_id,m.memory_kind,m.subject_id,m.text,m.importance,m.first_turn,m.tags_json,
-                   e.content_hash
+            SELECT m.memory_id,m.memory_kind,m.subject_id,m.text,m.importance,m.first_turn,m.tags_json
             FROM gm_memories m
             LEFT JOIN gm_memory_embeddings e
               ON e.memory_id=m.memory_id
              AND e.campaign_id=m.campaign_id
              AND e.provider=? AND e.model=? AND e.dimensions=?
             WHERE m.campaign_id=? AND m.archived=0 AND m.first_turn<=?
+              AND e.memory_id IS NULL
             ORDER BY m.first_turn,m.memory_id
             LIMIT ?
             """.trimIndent(),
@@ -104,11 +105,11 @@ class MemoryEmbeddingMaintenance141(
                 space.dimensions.toString(),
                 campaignUid.value,
                 throughTurnId.toString(),
-                maxOf(limit * 8, limit).toString()
+                limit.toString()
             )
         ).use { c ->
-            while (c.moveToNext() && out.size < limit) {
-                val memory = DurableMemoryRecord(
+            while (c.moveToNext()) {
+                out += DurableMemoryRecord(
                     memoryUid = EntityUid(c.getString(0)),
                     campaignUid = campaignUid,
                     kind = DurableMemoryKind.valueOf(c.getString(1)),
@@ -119,8 +120,6 @@ class MemoryEmbeddingMaintenance141(
                     sourceEventUids = emptySet(),
                     tags = parseTags(c.getString(6))
                 )
-                val storedHash = if (c.isNull(7)) null else c.getString(7)
-                if (storedHash != MemoryEmbeddingFingerprint141.hash(memory)) out += memory
             }
         }
         return out
