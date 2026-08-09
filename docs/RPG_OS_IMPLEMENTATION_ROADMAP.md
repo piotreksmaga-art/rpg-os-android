@@ -4,6 +4,7 @@ Status: ACTIVE / CANONICAL ROADMAP
 Architecture: `docs/RPG_OS_MASTER_ARCHITECTURE.md`
 Phase 0 evidence: `docs/PHASE_0_AUDIT.md`, `docs/PHASE_0_MUTATION_PATH_AUDIT.md`, `docs/PHASE_0_PLAYER_STATE_AUDIT.md`.
 Phase 1 evidence: `docs/PHASE_1_UNIFIED_REPOSITORY.md`.
+Phase 2 evidence: `docs/PHASE_2_SOURCE_OF_TRUTH.md`.
 
 ## Statusy
 - `[x] COMPLETE` — wdrożone, zintegrowane, persisted, bezpieczne migracyjnie, przetestowane i build/CI przechodzą.
@@ -31,8 +32,8 @@ Evidence:
 # FAZA A — FUNDAMENT DANYCH I GRACZA
 - [x] 1. Unified Repository + stable UID
   Evidence: `ActiveCampaignRef`, `CampaignRepository`, `UnifiedGameRepository` i application-level repository boundary istnieją; `LocalGameStore`, backup/snapshot, restore, ContextBuilder/backend campaign_id i settings używają jednej aktywnej tożsamości kampanii. Legacy Naruto mapping jest zachowany jako jawny default/migration constant. Repository identity tests oraz CI/build przechodzą. Szczegóły: `docs/PHASE_1_UNIFIED_REPOSITORY.md`.
-- [-] 2. Campaign Source of Truth + FACT/BELIEF/NARRATIVE + provenance
-  Evidence: `SourceOfTruthRegistry`, table registry i knowledge tables istnieją; brak jednolitego truth/provenance contract.
+- [x] 2. Campaign Source of Truth + FACT/BELIEF/NARRATIVE + provenance
+  Evidence: `CampaignTruthModels`, `CampaignTruthStore`, migracja `RPGOS-2.0-TRUTH`, typed `CampaignRepository.recordTruth/truthRecords`, runtime `campaign_truth` w ContextBundle, jawne provenance oraz semantyka backendu są zintegrowane. BELIEF wymaga perspektywy, NARRATIVE nie może automatycznie stać się FACT, a generic StatePatch nie może pisać bezpośrednio do `campaign_truth_records`. Existing campaigns są chronione addytywną migracją bez wymyślania legacy provenance. JVM tests i signed build przechodzą. Szczegóły: `docs/PHASE_2_SOURCE_OF_TRUTH.md`.
 - [-] 3. Player State Contract: Persistent / Derived / Runtime
   Evidence: wiele player tables istnieje; brak authoritative contract i jawnego activePlayerUid.
 - [-] 4. Dynamic StatDefinition/PlayerStat + ResourceDefinition/PlayerResource
@@ -67,7 +68,7 @@ Evidence:
 
 # FAZA B — INTEGRALNOŚĆ KAMPANII
 - [-] 26. Single Truth Mutation Path enforcement
-  Evidence: AI patch przechodzi przez `StatePatchEngine`, ale manifest, visuals, migrations/repair/restore i inne writer paths nie są częścią jednej authoritative mutation policy.
+  Evidence: AI patch przechodzi przez `StatePatchEngine`; Phase 2 dodatkowo blokuje bezpośredni generic StatePatch do `campaign_truth_records`, ale manifest, visuals, migrations/repair/restore i inne writer paths nie są jeszcze częścią jednej authoritative mutation policy.
 - [-] 27. Turn Transaction atomic commit/rollback
   Evidence: SQLite transaction istnieje tylko dla StatePatch operations; narration/events/ledgers/memory/manifest nie są jednym commit.
 - [ ] 28. Idempotency + double-commit protection
@@ -85,25 +86,25 @@ Evidence:
 - [-] 35. Canon Divergence
   Evidence: `timeline_divergences` jest runtime-writable i prompt uwzględnia divergence; brak dedicated validator/resolution semantics.
 - [-] 36. Schema Versioning + migration safety + legacy provenance
-  Evidence: `rpgos_schema_migrations`/RPGOS-1.0 istnieją; migration framework jest minimalny.
+  Evidence: `rpgos_schema_migrations`, `RPGOS-1.0` i addytywna `RPGOS-2.0-TRUTH` istnieją; ogólny migration framework nadal jest minimalny.
 
 # FAZA C — CZAS, WIEDZA I RETRIEVAL
 - [-] 37. NPC Knowledge model + acquisition provenance
-  Evidence: information facts/knowledge, npc memories, confidence/accuracy/acquisition_method są pobierane; brak acquisition validator.
+  Evidence: information facts/knowledge, npc memories, confidence/accuracy/acquisition_method są pobierane; Phase 2 ma ogólny provenance contract, ale brak jeszcze acquisition validator dla NPC knowledge.
 - [-] 38. GM/NPC/PC/player-visible knowledge separation
-  Evidence: backend prompt deklaruje isolation, ale brak mechanicznego perspective filter contract.
+  Evidence: backend rozróżnia BELIEF od FACT i deklaruje isolation, ale brak mechanicznego perspective filter contract dla wszystkich źródeł wiedzy.
 - [-] 39. Temporal Engine historical truth
   Evidence: calendar/day/timeline timestamps istnieją; brak validFrom/validUntil engine i historical-state resolver.
 - [-] 40. Scheduler
   Evidence: `npc_schedules`, mission deadlines i `future_world_pressure` są danymi schedulowanymi; brak jednego Scheduler runtime.
 - [-] 41. Structured SQL Retriever
-  Evidence: rozbudowany SQL retrieval istnieje w `ContextBuilder`/readers; brak repository-driven retriever abstraction.
+  Evidence: rozbudowany SQL retrieval istnieje w `ContextBuilder`/readers, a Phase 2 dodaje bounded truth retrieval; brak repository-driven retriever abstraction.
 - [-] 42. Knowledge Graph / causal retrieval
   Evidence: relation/consequence structures istnieją; brak canonical graph retriever.
 - [ ] 43. Intent Parser
 - [ ] 44. Turn Planner
 - [-] 45. Context Builder
-  Evidence: `ContextBuilder v1` działa realnie; używa direct SQL, heuristic player UID i statycznych LIMIT-ów.
+  Evidence: `ContextBuilder v1` działa realnie i ContextBundle przenosi już `campaign_truth`; nadal używa direct SQL, heuristic player UID i statycznych LIMIT-ów.
 - [ ] 46. Context Budget Manager
 - [ ] 47. Iterative Retrieval + missing-context loop
 
@@ -114,7 +115,7 @@ Evidence:
   Evidence: strict schema: narration, max 3 choices, StatePatch, chapter_events; docelowy proposal contract jest szerszy.
 - [ ] 50. Mechanics Resolution integration
 - [-] 51. Consistency Validator
-  Evidence: structured schema + writable-table guard istnieją; brak pełnych domain/timeline/knowledge/causal invariants.
+  Evidence: structured schema + writable-table guard + truth semantics istnieją; brak pełnych domain/timeline/knowledge/causal invariants.
 - [ ] 52. Counterfactual Guard
 - [ ] 53. Repair Pass dla proposal/narrative
 - [ ] 54. Committed narrative delivery only after valid transaction
@@ -126,7 +127,7 @@ Evidence:
 - [-] 56. Episodic Memory
   Evidence: `npc_memories_v2`, `narrative_memory_index` i long-term retrieval istnieją; brak docelowego lifecycle/consolidation contract.
 - [-] 57. Semantic Campaign Memory
-  Evidence: summary/index/fact structures mogą pełnić część roli semantic memory; brak explicit semantic fact lifecycle/provenance engine.
+  Evidence: summary/index/fact structures i Phase 2 truth records mogą pełnić część roli semantic memory; brak explicit semantic memory lifecycle/consolidation engine.
 - [ ] 58. Memory Consolidation without recursive summary degradation
 - [ ] 59. Vector/Semantic Retrieval engine/index integration
 - [ ] 60. Time Skip Processor
@@ -158,11 +159,11 @@ Evidence:
   Evidence: DiagnosticLogger/DiagnosticsSnapshot i dev self-test istnieją; brak canonical per-turn latency/count/transaction metrics.
 - [ ] 75. Replay Debugger
 - [-] 76. Integrity Test Suite
-  Evidence: standardowe JVM unit tests istnieją od Phase 1 i są uruchamiane przez CI przed release build; coverage jest nadal wąskie, brak pełnych integration/instrumentation/invariant tests.
+  Evidence: standardowe JVM unit tests istnieją od Phase 1 i są uruchamiane przez CI przed release build; Phase 2 dodaje truth/provenance invariants, ale coverage nadal jest wąskie i brak pełnych integration/instrumentation/invariant tests.
 - [-] 77. Long Campaign Stress Tests
   Evidence: configurable script domyślnie 10k chapter manifests + SQLite integrity_check; brak 100k/1M events/5M words i canonical fact/knowledge/causal/economy checks.
 - [-] 78. Android performance profiling/optimization
-  Evidence: bounded SQL LIMIT-y i proste cache/read models istnieją; brak realnego profiling budget/test harness.
+  Evidence: bounded SQL LIMIT-y, bounded truth retrieval i proste cache/read models istnieją; brak realnego profiling budget/test harness.
 - [-] 79. AI cost optimization / model routing
   Evidence: model może być wybrany przez env, ale brak local/small/medium/strong routing architecture.
 
@@ -196,7 +197,10 @@ Evidence:
 # FAZA 1 — WYNIK
 Unified Repository + active campaign identity jest COMPLETE. Spełniono pięć kryteriów delta Phase 1; dowód implementacyjny i CI znajduje się w `docs/PHASE_1_UNIFIED_REPOSITORY.md`.
 
-# NASTĘPNA ZALEŻNOŚĆ PO FAZIE 1
-Następnym najwcześniejszym zadaniem jest **2. Campaign Source of Truth + FACT/BELIEF/NARRATIVE + provenance**. Nie należy jeszcze skakać do Player Engine, dopóki jednolity truth/provenance contract nie określi, co jest faktem kampanii, przekonaniem aktora i narracją oraz skąd pochodzi każda istotna trwała zmiana.
+# FAZA 2 — WYNIK
+Campaign Source of Truth + FACT/BELIEF/NARRATIVE + provenance jest COMPLETE. Typowana prawda kampanii jest persisted, odseparowana per campaign, przekazywana do ContextBundle i interpretowana przez backend zgodnie z kontraktem. Generic StatePatch nie może ominąć truth API. Migracja istniejących kampanii jest addytywna i nie fabrykuje historycznego provenance. Dowody: `docs/PHASE_2_SOURCE_OF_TRUTH.md`.
+
+# NASTĘPNA ZALEŻNOŚĆ PO FAZIE 2
+Następnym najwcześniejszym zadaniem jest **3. Player State Contract: Persistent / Derived / Runtime**. Nie należy jeszcze skakać do dynamicznych statystyk, talentów ani PlayerDomainEngine, dopóki nie istnieje jawny authoritative player identity/state contract określający, które dane są trwałe, derived i runtime.
 
 Po każdym wdrożeniu zmieniaj status wyłącznie z dowodem: pliki + migracja (jeśli potrzebna) + test + build/CI.
