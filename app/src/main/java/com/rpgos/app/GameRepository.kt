@@ -16,6 +16,14 @@ interface CampaignRepository {
     fun activePlayerRef(): ActivePlayerRef?
     fun setActivePlayer(playerUid: String): ActivePlayerRef
     fun playerState(): PlayerStateSnapshot?
+
+    fun statDefinitions(): List<StatDefinition>
+    fun resourceDefinitions(): List<ResourceDefinition>
+    fun registerStatDefinitions(worldPackUid: String, definitions: List<StatDefinition>)
+    fun registerResourceDefinitions(worldPackUid: String, definitions: List<ResourceDefinition>)
+    fun playerStats(): List<PlayerStat>
+    fun playerResources(): List<PlayerResource>
+
     fun activeCampaignDirName(): String
     fun activeWorldPackDirName(): String
     fun setActiveCampaign(dirName: String)

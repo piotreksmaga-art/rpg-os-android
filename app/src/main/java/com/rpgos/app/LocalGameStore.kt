@@ -116,6 +116,54 @@ class LocalGameStore(private val context: Context) {
         }
     }
 
+    fun statDefinitions(): List<StatDefinition> {
+        openSaveDb().use { db ->
+            ensureCurrentSchema(db)
+            return StatResourceStore(db, selection.activeCampaignRef().campaignId).statDefinitions()
+        }
+    }
+
+    fun resourceDefinitions(): List<ResourceDefinition> {
+        openSaveDb().use { db ->
+            ensureCurrentSchema(db)
+            return StatResourceStore(db, selection.activeCampaignRef().campaignId).resourceDefinitions()
+        }
+    }
+
+    fun registerStatDefinitions(worldPackUid: String, definitions: List<StatDefinition>) {
+        openSaveDb().use { db ->
+            ensureCurrentSchema(db)
+            StatResourceStore(db, selection.activeCampaignRef().campaignId)
+                .registerStatDefinitions(worldPackUid, definitions)
+        }
+    }
+
+    fun registerResourceDefinitions(worldPackUid: String, definitions: List<ResourceDefinition>) {
+        openSaveDb().use { db ->
+            ensureCurrentSchema(db)
+            StatResourceStore(db, selection.activeCampaignRef().campaignId)
+                .registerResourceDefinitions(worldPackUid, definitions)
+        }
+    }
+
+    fun playerStats(): List<PlayerStat> {
+        openSaveDb().use { db ->
+            ensureCurrentSchema(db)
+            val campaignId = selection.activeCampaignRef().campaignId
+            val playerUid = ActivePlayerStore(db, campaignId).active()?.playerUid ?: return emptyList()
+            return StatResourceStore(db, campaignId).playerStats(playerUid)
+        }
+    }
+
+    fun playerResources(): List<PlayerResource> {
+        openSaveDb().use { db ->
+            ensureCurrentSchema(db)
+            val campaignId = selection.activeCampaignRef().campaignId
+            val playerUid = ActivePlayerStore(db, campaignId).active()?.playerUid ?: return emptyList()
+            return StatResourceStore(db, campaignId).playerResources(playerUid)
+        }
+    }
+
     fun fullCharacterPanel(): CharacterPanelSnapshot {
         openSaveDb().use { db ->
             ensureCurrentSchema(db)
@@ -309,7 +357,7 @@ class LocalGameStore(private val context: Context) {
         SQLiteDatabase.openDatabase(File(saveDir, "campaign.db").absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
 
     private fun ensureCurrentSchema(saveDb: SQLiteDatabase) {
-        MigrationManager().ensureV3(saveDb, selection.activeCampaignRef().campaignId)
+        MigrationManager().ensureV4(saveDb, selection.activeCampaignRef().campaignId)
     }
 
     fun status(): StatusSnapshot {

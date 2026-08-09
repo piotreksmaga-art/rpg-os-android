@@ -101,4 +101,91 @@ class MigrationManager {
         }
         ActivePlayerStore(saveDb, campaignId).seedFromLegacyIfMissing()
     }
+
+    fun ensureV4(saveDb: SQLiteDatabase, campaignId: String) {
+        ensureV3(saveDb, campaignId)
+        saveDb.beginTransaction()
+        try {
+            saveDb.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS stat_definitions(
+                    stat_uid TEXT PRIMARY KEY,
+                    stat_key TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    unit TEXT,
+                    min_value REAL,
+                    max_value REAL,
+                    growth_rule_uid TEXT,
+                    derivation_rule_uid TEXT,
+                    world_pack_uid TEXT NOT NULL,
+                    UNIQUE(world_pack_uid,stat_key),
+                    CHECK(min_value IS NULL OR max_value IS NULL OR min_value <= max_value)
+                )
+                """.trimIndent()
+            )
+            saveDb.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS player_stats(
+                    campaign_id TEXT NOT NULL,
+                    character_uid TEXT NOT NULL,
+                    stat_uid TEXT NOT NULL,
+                    base_value REAL NOT NULL,
+                    version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+                    PRIMARY KEY(campaign_id,character_uid,stat_uid),
+                    FOREIGN KEY(stat_uid) REFERENCES stat_definitions(stat_uid)
+                )
+                """.trimIndent()
+            )
+            saveDb.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS resource_definitions(
+                    resource_uid TEXT PRIMARY KEY,
+                    resource_key TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    unit TEXT,
+                    min_value REAL,
+                    max_value REAL,
+                    max_rule_uid TEXT,
+                    regeneration_rule_uid TEXT,
+                    world_pack_uid TEXT NOT NULL,
+                    UNIQUE(world_pack_uid,resource_key),
+                    CHECK(min_value IS NULL OR max_value IS NULL OR min_value <= max_value)
+                )
+                """.trimIndent()
+            )
+            saveDb.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS player_resources(
+                    campaign_id TEXT NOT NULL,
+                    character_uid TEXT NOT NULL,
+                    resource_uid TEXT NOT NULL,
+                    current_value REAL NOT NULL,
+                    version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+                    PRIMARY KEY(campaign_id,character_uid,resource_uid),
+                    FOREIGN KEY(resource_uid) REFERENCES resource_definitions(resource_uid)
+                )
+                """.trimIndent()
+            )
+            saveDb.execSQL(
+                "CREATE INDEX IF NOT EXISTS idx_stat_definitions_world_pack ON stat_definitions(world_pack_uid,category,stat_key)"
+            )
+            saveDb.execSQL(
+                "CREATE INDEX IF NOT EXISTS idx_player_stats_character ON player_stats(campaign_id,character_uid)"
+            )
+            saveDb.execSQL(
+                "CREATE INDEX IF NOT EXISTS idx_resource_definitions_world_pack ON resource_definitions(world_pack_uid,category,resource_key)"
+            )
+            saveDb.execSQL(
+                "CREATE INDEX IF NOT EXISTS idx_player_resources_character ON player_resources(campaign_id,character_uid)"
+            )
+            saveDb.execSQL(
+                "INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) " +
+                    "VALUES('RPGOS-4.0-DYNAMIC-STATS-RESOURCES',strftime('%s','now')," +
+                    "'Adds generic World Pack stat/resource definitions and campaign+character scoped values; legacy stat/resource tables remain untouched')"
+            )
+            saveDb.setTransactionSuccessful()
+        } finally {
+            saveDb.endTransaction()
+        }
+    }
 }

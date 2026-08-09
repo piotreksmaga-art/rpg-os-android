@@ -5,13 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import java.io.File
 import java.util.UUID
 
-/**
- * Canonical repository facade for the application layer.
- *
- * LocalGameStore remains the SQLite/file adapter. All application-facing
- * persistence access is consolidated here so future remote/sync/cache layers
- * can be introduced without coupling UI/ViewModels to storage details.
- */
+/** Canonical repository facade for the application layer. */
 class UnifiedGameRepository(context: Context) : CampaignRepository {
     private val context = context.applicationContext
     private val store = LocalGameStore(this.context)
@@ -23,6 +17,14 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun activePlayerRef(): ActivePlayerRef? = store.activePlayerRef()
     override fun setActivePlayer(playerUid: String): ActivePlayerRef = store.setActivePlayer(playerUid)
     override fun playerState(): PlayerStateSnapshot? = store.playerState()
+    override fun statDefinitions(): List<StatDefinition> = store.statDefinitions()
+    override fun resourceDefinitions(): List<ResourceDefinition> = store.resourceDefinitions()
+    override fun registerStatDefinitions(worldPackUid: String, definitions: List<StatDefinition>) =
+        store.registerStatDefinitions(worldPackUid, definitions)
+    override fun registerResourceDefinitions(worldPackUid: String, definitions: List<ResourceDefinition>) =
+        store.registerResourceDefinitions(worldPackUid, definitions)
+    override fun playerStats(): List<PlayerStat> = store.playerStats()
+    override fun playerResources(): List<PlayerResource> = store.playerResources()
     override fun activeCampaignDirName(): String = activeCampaignRef().directoryName
     override fun activeWorldPackDirName(): String = store.activeWorldPackDirName()
     override fun setActiveCampaign(dirName: String) = store.setActiveCampaign(dirName)
@@ -52,7 +54,7 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         truthUid: String?,
         supersedesTruthUid: String?
     ): CampaignTruthRecord = openSaveDb().use { db ->
-        MigrationManager().ensureV3(db, activeCampaignRef().campaignId)
+        MigrationManager().ensureV4(db, activeCampaignRef().campaignId)
         CampaignTruthStore(db, activeCampaignRef().campaignId).record(
             kind = kind,
             predicate = predicate,
@@ -72,7 +74,7 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         perspectiveUid: String?,
         limit: Int
     ): List<CampaignTruthRecord> = openSaveDb().use { db ->
-        MigrationManager().ensureV3(db, activeCampaignRef().campaignId)
+        MigrationManager().ensureV4(db, activeCampaignRef().campaignId)
         CampaignTruthStore(db, activeCampaignRef().campaignId).active(
             kind = kind,
             subjectUid = subjectUid,
