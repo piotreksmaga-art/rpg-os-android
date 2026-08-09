@@ -7,6 +7,8 @@ class ContextBuilder(
     private val worldDb: SQLiteDatabase
 ) {
     fun build(playerInput: String, chapter: Int): ContextBundle {
+        val campaignRef = ActiveCampaignRef.fromDatabasePath(saveDb.path)
+
         val campaign = safeQueryOne(
             saveDb,
             "SELECT campaign_name,schema_version,current_chapter,current_tome FROM campaign_meta WHERE id=1"
@@ -220,6 +222,8 @@ class ContextBuilder(
         val meta = linkedMapOf<String, Any?>(
             "engine" to "ContextBundle Engine v1",
             "schema" to 1,
+            "campaign_id" to campaignRef.campaignId,
+            "campaign_directory" to campaignRef.directoryName,
             "chapter" to chapter,
             "player_uid_resolved" to (playerUid != null),
             "threads" to threads.size,
