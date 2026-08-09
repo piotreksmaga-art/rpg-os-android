@@ -2,26 +2,19 @@ package com.rpgos.app
 
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
-import java.security.MessageDigest
 
 /**
  * Lossless Phase 4 compatibility projection for pre-dynamic-stat campaigns.
- *
- * Legacy rows remain authoritative in their original tables. This adapter exposes
- * them through the typed Phase 4 read model without copying or rewriting campaign
- * truth. The reserved namespace cannot be registered by a World Pack.
+ * Legacy rows remain authoritative in their original tables. Explicit aliases
+ * reconcile them to canonical typed identities without rewriting legacy bytes.
  */
 internal object LegacyStatResourceCompatibility {
-    const val WORLD_PACK_UID = "RPGOS-LEGACY-COMPAT"
-    private const val STAT_UID_PREFIX = "RPGOS-LEGACY-STAT-"
-    private const val RESOURCE_UID_PREFIX = "RPGOS-LEGACY-RESOURCE-"
+    const val WORLD_PACK_UID = LegacyCompatibilityIdentity.WORLD_PACK_UID
     private const val STATUS_TABLE = "character_status_snapshot"
     private const val STATS_TABLE = "character_stats"
 
-    fun isReservedWorldPack(uid: String): Boolean = uid == WORLD_PACK_UID
-
-    fun isReservedDefinitionUid(uid: String): Boolean =
-        uid.startsWith(STAT_UID_PREFIX) || uid.startsWith(RESOURCE_UID_PREFIX)
+    fun isReservedWorldPack(uid: String): Boolean = LegacyCompatibilityIdentity.isReservedWorldPack(uid)
+    fun isReservedDefinitionUid(uid: String): Boolean = LegacyCompatibilityIdentity.isReservedDefinitionUid(uid)
 
     fun statDefinitions(db: SQLiteDatabase): List<StatDefinition> {
         if (!tableExists(db, STATS_TABLE)) return emptyList()
@@ -58,7 +51,7 @@ internal object LegacyStatResourceCompatibility {
                 val stat = PlayerStat(
                     campaignId = campaignId,
                     characterUid = characterUid,
-                    statUid = legacyStatUid(key),
+                    statUid = LegacyCompatibilityIdentity.statUidForKey(key),
                     baseValue = value,
                     version = 1L
                 )
@@ -121,7 +114,7 @@ internal object LegacyStatResourceCompatibility {
                     val resource = PlayerResource(
                         campaignId = campaignId,
                         characterUid = characterUid,
-                        resourceUid = legacyResourceUid(column.resourceKey),
+                        resourceUid = LegacyCompatibilityIdentity.resourceUidForKey(column.resourceKey),
                         currentValue = value,
                         version = 1L
                     )
@@ -155,25 +148,11 @@ internal object LegacyStatResourceCompatibility {
         }
     }
 
-    /**
-     * A legacy status column is promoted into PlayerResource only when its shape
-     * says "current resource" without requiring a universe-specific name:
-     * - current_resource_<key> / resource_<key>_current are explicit;
-     * - current_<key> / <key>_current require a matching max column, unless
-     *   Phase 3 already classifies the current_* field as RUNTIME;
-     * - a bare <key> is accepted only when it has a max sibling and Phase 3
-     *   already classifies that bare field as RUNTIME.
-     *
-     * max/effective/regeneration columns themselves are never promoted. Their
-     * semantics remain DERIVED/legacy until a later rules layer can rebuild them.
-     */
     private fun safeCurrentResourceKey(column: String, allColumns: List<String>): String? {
         if (PlayerStatePolicy.classifyLegacyField(column) == PlayerStateClass.DERIVED) return null
         val lower = column.lowercase()
 
-        if (lower.startsWith("current_resource_")) {
-            return column.substring("current_resource_".length)
-        }
+        if (lower.startsWith("current_resource_")) return column.substring("current_resource_".length)
         if (lower.startsWith("resource_") && lower.endsWith("_current")) {
             return column.substring("resource_".length, column.length - "_current".length)
         }
@@ -200,29 +179,18 @@ internal object LegacyStatResourceCompatibility {
         }
 
     private fun legacyStatDefinition(key: String): StatDefinition = StatDefinition(
-        statUid = legacyStatUid(key),
+        statUid = LegacyCompatibilityIdentity.statUidForKey(key),
         key = key,
         category = "legacy_compat",
         worldPackUid = WORLD_PACK_UID
     )
 
     private fun legacyResourceDefinition(key: String): ResourceDefinition = ResourceDefinition(
-        resourceUid = legacyResourceUid(key),
+        resourceUid = LegacyCompatibilityIdentity.resourceUidForKey(key),
         key = key,
         category = "legacy_compat",
         worldPackUid = WORLD_PACK_UID
     )
-
-    private fun legacyStatUid(key: String): String = stableUid(STAT_UID_PREFIX, key)
-    private fun legacyResourceUid(key: String): String = stableUid(RESOURCE_UID_PREFIX, key)
-
-    private fun stableUid(prefix: String, identity: String): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(identity.toByteArray(Charsets.UTF_8))
-        val hex = digest.joinToString("") { byte ->
-            (byte.toInt() and 0xff).toString(16).padStart(2, '0')
-        }
-        return prefix + hex
-    }
 
     private fun requireStatShape(db: SQLiteDatabase) {
         listOf("entity_uid", "stat_key", "current_value").forEach { column ->

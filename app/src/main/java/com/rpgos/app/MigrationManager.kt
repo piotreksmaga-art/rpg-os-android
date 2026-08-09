@@ -54,27 +54,15 @@ class MigrationManager {
                 )
                 """.trimIndent()
             )
-            saveDb.execSQL(
-                "CREATE INDEX IF NOT EXISTS idx_truth_campaign_kind_active " +
-                    "ON campaign_truth_records(campaign_id,truth_kind,active,created_at DESC)"
-            )
-            saveDb.execSQL(
-                "CREATE INDEX IF NOT EXISTS idx_truth_subject " +
-                    "ON campaign_truth_records(campaign_id,subject_uid,active)"
-            )
-            saveDb.execSQL(
-                "CREATE INDEX IF NOT EXISTS idx_truth_perspective " +
-                    "ON campaign_truth_records(campaign_id,perspective_uid,truth_kind,active)"
-            )
+            saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_truth_campaign_kind_active ON campaign_truth_records(campaign_id,truth_kind,active,created_at DESC)")
+            saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_truth_subject ON campaign_truth_records(campaign_id,subject_uid,active)")
+            saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_truth_perspective ON campaign_truth_records(campaign_id,perspective_uid,truth_kind,active)")
             saveDb.execSQL(
                 "INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) " +
-                    "VALUES('RPGOS-2.0-TRUTH',strftime('%s','now')," +
-                    "'Adds FACT/BELIEF/NARRATIVE truth records with provenance; no legacy facts are invented')"
+                    "VALUES('RPGOS-2.0-TRUTH',strftime('%s','now'),'Adds FACT/BELIEF/NARRATIVE truth records with provenance; no legacy facts are invented')"
             )
             saveDb.setTransactionSuccessful()
-        } finally {
-            saveDb.endTransaction()
-        }
+        } finally { saveDb.endTransaction() }
     }
 
     fun ensureV3(saveDb: SQLiteDatabase, campaignId: String) {
@@ -92,13 +80,10 @@ class MigrationManager {
             )
             saveDb.execSQL(
                 "INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) " +
-                    "VALUES('RPGOS-3.0-PLAYER-STATE',strftime('%s','now')," +
-                    "'Adds authoritative active player identity; legacy player selection is seeded once and then persisted')"
+                    "VALUES('RPGOS-3.0-PLAYER-STATE',strftime('%s','now'),'Adds authoritative active player identity; legacy player selection is seeded once and then persisted')"
             )
             saveDb.setTransactionSuccessful()
-        } finally {
-            saveDb.endTransaction()
-        }
+        } finally { saveDb.endTransaction() }
         ActivePlayerStore(saveDb, campaignId).seedFromLegacyIfMissing()
     }
 
@@ -166,26 +151,50 @@ class MigrationManager {
                 )
                 """.trimIndent()
             )
-            saveDb.execSQL(
-                "CREATE INDEX IF NOT EXISTS idx_stat_definitions_world_pack ON stat_definitions(world_pack_uid,category,stat_key)"
-            )
-            saveDb.execSQL(
-                "CREATE INDEX IF NOT EXISTS idx_player_stats_character ON player_stats(campaign_id,character_uid)"
-            )
-            saveDb.execSQL(
-                "CREATE INDEX IF NOT EXISTS idx_resource_definitions_world_pack ON resource_definitions(world_pack_uid,category,resource_key)"
-            )
-            saveDb.execSQL(
-                "CREATE INDEX IF NOT EXISTS idx_player_resources_character ON player_resources(campaign_id,character_uid)"
-            )
+            saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_stat_definitions_world_pack ON stat_definitions(world_pack_uid,category,stat_key)")
+            saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_player_stats_character ON player_stats(campaign_id,character_uid)")
+            saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_resource_definitions_world_pack ON resource_definitions(world_pack_uid,category,resource_key)")
+            saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_player_resources_character ON player_resources(campaign_id,character_uid)")
             saveDb.execSQL(
                 "INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) " +
-                    "VALUES('RPGOS-4.0-DYNAMIC-STATS-RESOURCES',strftime('%s','now')," +
-                    "'Adds generic World Pack stat/resource definitions and campaign+character scoped values; legacy stat/resource tables remain untouched')"
+                    "VALUES('RPGOS-4.0-DYNAMIC-STATS-RESOURCES',strftime('%s','now'),'Adds generic World Pack stat/resource definitions and campaign+character scoped values; legacy stat/resource tables remain untouched')"
+            )
+
+            saveDb.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS legacy_stat_aliases(
+                    campaign_id TEXT NOT NULL,
+                    legacy_stat_uid TEXT NOT NULL,
+                    canonical_stat_uid TEXT NOT NULL,
+                    world_pack_uid TEXT NOT NULL,
+                    mapping_version INTEGER NOT NULL CHECK(mapping_version >= 1),
+                    provenance TEXT NOT NULL,
+                    PRIMARY KEY(campaign_id,legacy_stat_uid),
+                    FOREIGN KEY(canonical_stat_uid) REFERENCES stat_definitions(stat_uid)
+                )
+                """.trimIndent()
+            )
+            saveDb.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS legacy_resource_aliases(
+                    campaign_id TEXT NOT NULL,
+                    legacy_resource_uid TEXT NOT NULL,
+                    canonical_resource_uid TEXT NOT NULL,
+                    world_pack_uid TEXT NOT NULL,
+                    mapping_version INTEGER NOT NULL CHECK(mapping_version >= 1),
+                    provenance TEXT NOT NULL,
+                    PRIMARY KEY(campaign_id,legacy_resource_uid),
+                    FOREIGN KEY(canonical_resource_uid) REFERENCES resource_definitions(resource_uid)
+                )
+                """.trimIndent()
+            )
+            saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_legacy_stat_alias_target ON legacy_stat_aliases(campaign_id,canonical_stat_uid)")
+            saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_legacy_resource_alias_target ON legacy_resource_aliases(campaign_id,canonical_resource_uid)")
+            saveDb.execSQL(
+                "INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) " +
+                    "VALUES('RPGOS-4.1-LEGACY-RECONCILIATION',strftime('%s','now'),'Adds explicit versioned legacy-to-typed stat/resource alias mappings; no key-based auto-merge')"
             )
             saveDb.setTransactionSuccessful()
-        } finally {
-            saveDb.endTransaction()
-        }
+        } finally { saveDb.endTransaction() }
     }
 }
