@@ -9,8 +9,8 @@ import java.util.Locale
 class UpdateBackupManager(private val context: Context) {
     fun createPreUpdateBackup(): File {
         val base = File(context.filesDir, "rpgos")
-        val campaignName = CampaignSelectionManager(context).activeCampaignDirName()
-        val campaign = File(base, "saves/$campaignName")
+        val campaignRef = CampaignSelectionManager(context).activeCampaignRef()
+        val campaign = File(base, "saves/${campaignRef.directoryName}")
         val db = File(campaign, "campaign.db")
         require(db.exists()) { "campaign.db nie istnieje" }
 
