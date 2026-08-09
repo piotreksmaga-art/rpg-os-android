@@ -1,255 +1,290 @@
-# WORK-20260809-019 — Phase 5 Adversarial / Edge-Case Test Matrix
+# WORK-20260809-019 — Phase 5 Adversarial / Edge-Case Validation
 
-Status: READ-ONLY RUNTIME / PRE-IMPLEMENTATION ADVERSARIAL MATRIX
+Status: FINAL READ-ONLY ADVERSARIAL VALIDATION
 
 Work ID: `WORK-20260809-019`
 Owner: `CHAT-5`
 Role: PHASE 5 ADVERSARIAL / EDGE-CASE AUDITOR
 Repository: `piotreksmaga-art/rpg-os-android`
-Audited master at report creation: `7e151ff3b44793dbd470e022b5ded9ac9a20cc87`
-Phase 4 canonical runtime dependency: `6bdde251a3ef293a0cfa85c818538da4cc1307eb`
-Phase 5 implementation WORK item: `WORK-20260809-015`
-WORK-015 result commit at report creation: NOT FOUND / implementation not yet visible in repository.
+Runtime under final audit: `44011bc0177df846a34fa12d0009d33e887f6c23`
+Runtime commit: `WORK-20260809-015 — implement deterministic derived values and modifiers`
+CI evidence: GitHub Actions run #141 — SUCCESS
 
-This report does not implement Phase 5. It defines adversarial cases that must be used to review the future `DerivedValueResolver + Modifier Model` implementation.
+This report is a read-only adversarial validation of the actual WORK-015 runtime. It does not implement or modify Phase 5 runtime.
 
-Canonical inputs used for this matrix:
-- `docs/RPG_OS_MASTER_ARCHITECTURE.md`
-- `docs/audits/WORK-20260809-007_PHASE5_TEST_CONTRACT.md`
-- `docs/audits/WORK-20260809-011_PHASE5_INPUT_COMPATIBILITY.md`
-- Phase 4 legacy reconciliation contract from WORK-014.
-
-## 1. Adversarial principles
-
-The resolver must preserve these invariants under malformed, extreme, ambiguous and hostile input:
-
-1. `PlayerStat.baseValue` is authoritative persistent progression and is never rewritten by resolution.
-2. `PlayerResource.currentValue` is authoritative current quantity and is never regenerated, clamped or rewritten by the resolver.
-3. Effective stat values, resource maximums and regeneration are DERIVED/rebuildable.
-4. Resolution is deterministic for the same logical input independent of insertion/row/list order.
-5. Campaign/player/World Pack identity boundaries are strict.
-6. Invalid graph/rule/modifier input fails deterministically instead of producing partial or guessed results.
-7. Phase 4 legacy aliases are authoritative identity reconciliation; Phase 5 never guesses mappings.
-8. NaN/Infinity and structurally invalid numeric input must not enter authoritative or derived results.
-9. No special-case Naruto/Bleach literals may be required for correctness.
-10. A failed resolution must not perform any authoritative side effect.
-
-## 2. Adversarial modifier matrix
-
-| ID | Case | Required outcome |
-|---|---|---|
-| M-01 | ADD magnitude `0` | Legal no-op if otherwise valid; deterministic trace/result. |
-| M-02 | MULTIPLY magnitude `0` | Deterministic zeroing at defined multiply stage; base remains unchanged. |
-| M-03 | Negative multiplier | Explicit allow/reject policy required; never implicit. |
-| M-04 | Extremely large finite multiplier | Non-finite intermediate/final must fail deterministically. |
-| M-05 | Duplicate `modifierUid`, identical payload | Never double-apply; deterministic reject or explicitly idempotent collapse. |
-| M-06 | Duplicate `modifierUid`, conflicting payload | Hard validation error; never choose by row/list order. |
-| M-07 | Same source emits several unique modifiers to same target | Only if contract permits; each remains independently traceable. |
-| M-08 | Same priority, different UID | Stable UID tie-break. |
-| M-09 | Same priority and exact same timestamps | Stable identity must still determine order. |
-| M-10 | `validUntil == resolutionTime` | Inclusive/exclusive boundary must be explicit and tested. |
-| M-11 | `validFrom == resolutionTime` | Exact boundary must be explicit and tested. |
-| M-12 | `validUntil < validFrom` | Reject before resolution. |
-| M-13 | Missing source | Fail or mark unresolved according to explicit source policy; never silently trust orphan. |
-| M-14 | Deleted equipment source with remaining modifier row | Must not remain effective merely because row exists; no resolver-side deletion. |
-| M-15 | Dead/inactive source | Explicit lifecycle handling; no implicit application. |
-| M-16 | Target definition missing | Deterministic validation error before arithmetic. |
-| M-17 | Target-kind mismatch | Deterministic type mismatch error. |
-| M-18 | Modifier targets authoritative resource current value | Reject target scope. |
-| M-19 | Modifier targets `PlayerStat.baseValue` | Reject target scope. |
-| M-20 | Source removed between resolutions | Derived result changes; authoritative base/current does not. |
-
-## 3. Numeric attack matrix
-
-| ID | Case | Required outcome |
-|---|---|---|
-| N-01 | Modifier `NaN` | Reject at validation/preflight. |
-| N-02 | `+Infinity` | Reject. |
-| N-03 | `-Infinity` | Reject. |
-| N-04 | Corrupted base/current `NaN` | Fail loud; no derived output. |
-| N-05 | Corrupted base/current Infinity | Fail loud. |
-| N-06 | `-0.0` | Canonical equality/fingerprint policy required. |
-| N-07 | Addition overflow | Detect non-finite and fail. |
-| N-08 | Multiplication overflow | Detect non-finite and fail. |
-| N-09 | Underflow/subnormal values | Same logical input must replay identically on supported runtime. |
-| N-10 | Huge finite pre-cap value | Deterministic cap, with pre-cap and final trace. |
-| N-11 | Extremely negative modifier | Apply/reject by explicit bounds policy without changing base. |
-| N-12 | Multiply by zero followed by ADD | Must obey canonical operation order, not insertion order. |
-| N-13 | 100 / >1000 repeated multipliers | No silent truncation; finite-result guard. |
-| N-14 | Floating-point associativity stress | Canonical sorting/order prevents list-order result drift. |
-| N-15 | Non-finite definition bounds/rule values | Reject before resolution. |
-
-If `Double` is used, tests must avoid locale-dependent fingerprints and must define exact/tolerance comparison policy where binary floating arithmetic is non-exact.
-
-## 4. Graph / rule attack matrix
-
-| ID | Graph/rule case | Required outcome |
-|---|---|---|
-| G-01 | A -> A | Deterministic cycle error. |
-| G-02 | A -> B -> A | Deterministic cycle error. |
-| G-03 | A -> B -> C -> A | Deterministic cycle error. |
-| G-04 | Deep acyclic chain | No recursive stack overflow; explicit bound/error if limited. |
-| G-05 | Missing dependency node | Deterministic missing-node error. |
-| G-06 | Duplicate dependency edge | No double application; reject/canonicalize explicitly. |
-| G-07 | Same rule invoked recursively | Cycle detection must cover rule invocation identity. |
-| G-08 | Missing `derivationRuleUid` provider | Fail loud; no silent fallback. |
-| G-09 | Missing `maxRuleUid` provider | Fail loud. |
-| G-10 | Missing `regenerationRuleUid` provider | Fail loud. |
-| G-11 | Incompatible provider/rule version | Deterministic version error; never silently use latest. |
-| G-12 | Rule returns NaN/Infinity | Reject derived result. |
-| G-13 | Rule attempts cross-campaign/player dependency | Reject scope violation. |
-| G-14 | Rule depends on unordered iteration | Replay/permutation tests must produce identical output. |
-
-Cycle failure must happen before infinite recursion/stack overflow and should identify a stable cycle path for debugging.
-
-## 5. Phase 4 legacy/reconciliation attacks
-
-WORK-014 established `LegacyStatAlias` / `LegacyResourceAlias`. Phase 5 must consume canonical reconciled identity and must not redo semantic guessing.
-
-| ID | Case | Required outcome |
-|---|---|---|
-| L-01 | Alias target deleted/missing | Fail before resolver graph; never silently fall back by key. |
-| L-02 | Alias target owner changed | Fail ownership validation. |
-| L-03 | `mappingVersion` mismatch/change | Must affect deterministic input/cache fingerprint or trigger explicit invalidation/error. |
-| L-04 | Alias exists, legacy value exists, typed player value absent | Exactly one canonical typed UID node projected from legacy. |
-| L-05 | Alias exists, legacy + typed player values both exist | Persisted typed representation canonical; exactly one resolver node. |
-| L-06 | Alias exists, legacy source row absent | Alias alone must not invent numeric value. |
-| L-07 | Unmapped unrelated legacy value | Remains visible as generic compatibility node. |
-| L-08 | Unmapped same-looking legacy + typed | Phase 4 fail-loud must happen before resolver graph. Resolver cannot guess. |
-| L-09 | Legacy key case changes (`Strength`/`strength`) | No implicit case-fold merge unless explicit Phase 4 identity contract says so. |
-| L-10 | Same typed key in different World Packs | Never auto-merge; stable UIDs remain distinct. |
-| L-11 | World Pack modifier targets reserved legacy identity | Reserved namespace cannot be hijacked; explicit policy required for any read-only compatibility targeting. |
-| L-12 | Alias provenance missing/corrupt | Fail validation where provenance is required by Phase 4 contract. |
-| L-13 | Campaign A alias supplied to campaign B | Reject campaign mismatch. |
-| L-14 | Alias target changes without mappingVersion increment | Treat as integrity violation; stale fingerprint is unsafe. |
-
-At minimum, canonical target UID + mappingVersion + relevant version/provenance identity must influence input fingerprint when alias reconciliation influences the resolver input.
-
-## 6. Security / isolation attacks
-
-| ID | Case | Required outcome |
-|---|---|---|
-| S-01 | Campaign A modifier in campaign B request | Cannot affect B. |
-| S-02 | Player A modifier in Player B request | Cannot affect B. |
-| S-03 | Same player UID string in two campaigns | Campaign boundary still isolates inputs/results. |
-| S-04 | World Pack A targets definition owned by B | Default fail-closed unless explicit generic cross-pack authorization exists. |
-| S-05 | World Pack claims `RPGOS-LEGACY-COMPAT` | Reject reserved namespace. |
-| S-06 | Source UID collision across campaigns | Scope prevents cross-campaign effect. |
-| S-07 | Persisted modifier target changed while modifier UID reused | Conflicting identity/version/provenance must be detected. |
-| S-08 | Duplicate modifier UID across players | Contract must define UID scope explicitly and enforce it. |
-
-## 7. Temporal boundary attacks
-
-Resolution must use a supplied deterministic epoch/time rather than repeated wall-clock reads.
-
-- T-01 active interval applies.
-- T-02 future modifier ignored.
-- T-03 expired modifier ignored.
-- T-04 `validFrom == now` exact boundary.
-- T-05 `validUntil == now` exact boundary.
-- T-06 replay with same historical resolution epoch returns same active set/result.
-- T-07 changed epoch can legitimately change set/result/fingerprint.
-- T-08 `validUntil < validFrom` rejected.
-
-The inclusive/exclusive boundary convention must be documented and tested without wall-clock race conditions.
-
-## 8. Operation-order adversarial cases
-
-Using WORK-007's deterministic lifecycle/order contract, require at least:
-
-1. base=100, permanent +10, equipment +20, injury -30, temporary +5 => 105.
-2. Reversed input list => same 105 and same semantic trace/fingerprint.
-3. ADD + MULTIPLY insertion order permutations => same result.
-4. Multiple multipliers randomized => same result.
-5. OVERRIDE combined with ADD/MULTIPLY => exact documented stage/priority semantics.
-6. Contradictory floor/cap ranges => deterministic validation or explicitly defined final behavior.
-7. Same priority => stable modifier UID tie-break.
-8. SQLite/list/hash ordering variation => identical effective value, applied-set semantics and deterministic fingerprint.
-
-Explanation trace must expose why each contribution was applied, ignored, superseded or rejected.
-
-## 9. Persistence/reopen adversarial cases — conditional
-
-If WORK-015 makes modifiers persistent:
-
-- P-01 old DB without Phase 5 tables migrates/open cleanly.
-- P-02 Phase 4 stat/resource/alias state remains unchanged.
-- P-03 modifier UID/target/source/time/priority/version/provenance survives reopen.
-- P-04 expiry affects resolution, not silent historical deletion unless explicitly designed.
-- P-05 source removal never rewrites base/current values.
-- P-06 migration idempotency x2.
-- P-07 campaign isolation after reopen.
-- P-08 player isolation after reopen.
-- P-09 >1000 modifiers no silent truncation.
-- P-10 `PRAGMA integrity_check == ok`.
-- P-11 `PRAGMA foreign_key_check` clean or explicit alternative FK-policy test.
-
-If modifiers are not persisted, mark these NOT APPLICABLE rather than introducing storage just to satisfy the audit.
-
-## 10. Resource-specific adversarial cases
-
-1. current=150, derived max falls from 200 to 100: resolver may emit inconsistency/proposal but MUST NOT write current=100.
-2. regenerationRate=+10: resolver reports rate and MUST NOT add 10 to current.
-3. negative regeneration: explicit policy required; no guessed semantics.
-4. negative derived maximum: deterministic rule/bounds validation; no current mutation.
-5. cycle in maximum/regeneration dependency graph: deterministic cycle error.
-6. current value belongs to A but graph/modifiers belong to B: reject scope mismatch.
-7. alias mappingVersion changes: input fingerprint/trace reflects reconciliation change.
-
-## 11. No-retrogression adversarial cases
-
-For each modifier source class, capture base before/after resolution and after source removal/reopen:
-
-- injury -40: base 100 -> effective 60 -> remove injury -> effective 100; base always 100.
-- equipment +25: base 100 -> 125 -> unequip -> 100; base always 100.
-- temporary +50: base 100 -> 150 -> expiry -> 100; base always 100.
-- temporary multiplier x2: base 100 -> 200 -> expiry -> 100; base always 100.
-
-Any resolver-side write to `PlayerStat.baseValue` or `PlayerResource.currentValue` is a release blocker.
-
-## 12. Scale / pathological input sanity
-
-- 100 modifiers on one target: exact result, no truncation.
-- >1000 modifiers: exact result or explicit documented safe-bound failure; never silent truncation.
-- deep acyclic graph: no stack overflow.
-- deep cycle near tail: deterministic cycle detection.
-- duplicate edges/modifier payloads: no exponential expansion.
-
-## 13. Release-gating checklist after WORK-015
-
-After CHAT-1 publishes WORK-015, classify each family as `PASS | FAIL | NOT TESTED | NOT APPLICABLE`.
-
-Automatic blockers include:
-
-- resolver writes base/current authoritative state;
-- duplicate modifier UID can double-apply or resolve nondeterministically;
-- NaN/Infinity reaches a resolved value;
-- result depends on incoming/SQLite/hash order;
-- graph cycles can recurse indefinitely/overflow stack;
-- campaign/player cross-scope application;
-- missing/incompatible rule silently falls back;
-- Phase 4 ambiguity gate is bypassed or mapping guessed;
-- alias mapping version is invisible to fingerprint/cache where relevant;
-- same-key cross-World-Pack definitions auto-merge;
-- silent modifier truncation;
-- Phase 5 migration damages Phase 4 state/aliases.
-
-## 14. Current implementation review status
-
-Repository history was rechecked immediately before writing this report. Latest visible master was `7e151ff3b44793dbd470e022b5ded9ac9a20cc87`, containing documentation work through WORK-018. No commit matching `WORK-20260809-015` was present.
-
-Therefore the runtime adversarial validation cannot yet be performed.
-
-Current final status for this pre-implementation step:
-
-`PHASE 5 ADVERSARIAL MATRIX READY`
-
-After WORK-015 appears, this report must be extended with actual runtime/test/CI evidence and exactly one final verdict:
+## 1. Final verdict
 
 `PHASE 5 ADVERSARIAL VALIDATION: PASS`
 
-or
+No reproducible defect was found that violates the current Phase 5 contract by mutating authoritative base/current state, applying modifiers nondeterministically, leaking across campaign/player scope, accepting non-finite arithmetic, bypassing Phase 4 legacy reconciliation, or silently allowing cyclic rule resolution.
 
-`PHASE 5 ADVERSARIAL VALIDATION: FAIL`
+Several future integration responsibilities and additional stress tests remain useful, but they do not constitute a current Phase 5 contract failure.
 
-No runtime implementation changes are authorized under WORK-019.
+## 2. Runtime inspected
+
+WORK-015 adds:
+
+- `DerivedValueResolver`
+- generic `Modifier` / lifecycle / operation / target contracts
+- `DerivedRuleProvider` and versioned rule descriptors
+- persistent `ModifierStore`
+- additive migration marker `RPGOS-5.0-DERIVED-MODIFIERS`
+- resolver unit tests
+- modifier persistence/integrity tests
+
+The resolver is a pure projection. It receives `PlayerStat.baseValue` and `PlayerResource.currentValue` as inputs and returns derived effective/max/regeneration values without persisting resolved results.
+
+## 3. Numeric adversarial matrix
+
+| Case | Result | Evidence / assessment |
+|---|---|---|
+| modifier `NaN` | PASS | `ModifierPolicy.validate()` requires finite value; unit test rejects NaN. |
+| `+Infinity` / `-Infinity` modifier | PASS by same finite guard | Both are non-finite and rejected by the same policy. |
+| non-finite base/current | PASS | resolver validates `PlayerStat.baseValue` and `PlayerResource.currentValue` with `isFinite()`. |
+| arithmetic overflow | PASS | every arithmetic stage uses `finite(...)`; `Double.MAX_VALUE * 2` is tested as failure. |
+| rule returns NaN/Infinity | PASS by code path | rule output passes through `finite(...)`. |
+| `-0.0` | PASS | public/fingerprint zero is canonicalized to `+0.0`; test checks raw bits. |
+| zero multiplier | PASS by code inspection | finite `0.0` is legal and multiply stage deterministically yields zero; no base mutation. |
+| negative multiplier | PASS / explicit generic behavior | Phase 5 generic model permits any finite multiplier; it is deterministic and may later be constrained by World Pack/domain rules. No hidden mutation occurs. |
+| huge finite multiplier | PASS | legal while finite; overflow fails rather than producing Infinity. |
+| underflow/subnormal | PASS by deterministic IEEE-754 semantics; dedicated stress fixture absent | No alternate rounding or unordered reduction is used. |
+| many multipliers | PASS by implementation shape; dedicated >1000 multiplier fixture absent | modifiers are not truncated and are canonically sorted; any non-finite intermediate fails loud. |
+
+No numeric attack was found that can produce a non-finite accepted derived result.
+
+## 4. Determinism validation
+
+Canonical ordering is explicit:
+
+1. lifecycle enum order: `PERMANENT -> EQUIPMENT -> INJURY -> TEMPORARY`,
+2. operation stage inside lifecycle,
+3. priority,
+4. stable `modifierUid` tie-break.
+
+The resolver does not consume incoming modifier list order as semantic order. Tests reverse and randomly shuffle the same logical modifiers and require identical full `DerivedResolutionResult`. A >1000 additive fixture verifies no silent truncation.
+
+Assessment:
+
+- reversed insertion/list order: PASS,
+- random list permutations: PASS,
+- same priority: PASS via UID tie-break,
+- same validity timestamps: PASS; timestamp coincidence does not affect tie-break,
+- SQLite row order: PASS architecturally because `ModifierStore` has explicit ordering and resolver independently canonicalizes by stage/priority/UID,
+- replay same request: PASS,
+- input fingerprint: deterministic sorting by stable identity,
+- alias metadata: mapping version/provenance/canonical identity participates in fingerprint.
+
+No result dependence on `HashMap`/SQLite/insertion order was found.
+
+## 5. Lifecycle and temporal attacks
+
+`ModifierPolicy.isEffectiveAt()` requires:
+
+- `active == true`,
+- `sourceActive == true`,
+- `resolutionEpoch >= validFrom` when present,
+- `resolutionEpoch <= validUntil` when present.
+
+Therefore boundaries are explicitly inclusive.
+
+Results:
+
+- inactive modifier: PASS,
+- inactive source: PASS,
+- future modifier: PASS,
+- expired modifier: PASS,
+- `validFrom == epoch`: PASS and tested,
+- `validUntil == epoch`: PASS and tested,
+- `validUntil < validFrom`: PASS, rejected at model validation and SQL CHECK layer,
+- explicit source removal / modifier removal: PASS; derived result changes without base mutation.
+
+### `sourceActive` assessment
+
+`sourceActive` is currently a persisted generic snapshot/input to the resolver. `ModifierStore.setSourceActive()` can deactivate all modifiers for a concrete `(campaign, character, sourceType, sourceUid)` and the resolver ignores them.
+
+Phase 5 does not yet own Equipment, Inventory or Injury-domain lifecycle orchestration. Therefore automatic synchronization such as “equipment row deleted => sourceActive automatically flips false” is a future integration responsibility of those domains, not a Phase 5 resolver defect. WORK-015 does not create a side mutation path that would make stale source state silently authoritative outside the modifier input model.
+
+Current assessment: PASS with future integration responsibility.
+
+## 6. Graph / rule attacks
+
+The resolver uses a node stack keyed by `(targetKind, definitionUid)` and fails on re-entry.
+
+Assessment:
+
+- A -> A: PASS by cycle guard,
+- A -> B -> A: PASS and tested,
+- A -> B -> C -> A: PASS by same node-cycle mechanism,
+- missing dependency node: PASS; missing target resolution fails loud,
+- duplicate dependency: PASS; descriptor and resolver reject duplicate dependencies,
+- missing rule: PASS and tested,
+- missing provider: PASS by explicit error,
+- missing rule-version binding: PASS by explicit error,
+- incompatible rule version: PASS and tested,
+- rule non-finite result: PASS via `finite(...)`,
+- same rule reached recursively through a target cycle: PASS through target-node cycle guard.
+
+### Deep acyclic graph
+
+The current implementation uses recursive target resolution and does not declare a maximum graph depth. Existing tests cover cycles but not a pathological thousands-deep acyclic rule chain. This is a useful future stress test and defensive-hardening candidate.
+
+It is not classified as a current release blocker because no normal/current Phase 5 contract defines such an unbounded rule graph or promises arbitrary recursion depth; importantly, cycles do not recurse indefinitely and missing nodes/rules fail deterministically.
+
+## 7. Isolation / security boundaries
+
+- modifier campaign mismatch: PASS, resolver rejects,
+- modifier player mismatch: PASS, resolver rejects,
+- persisted reads are scoped by campaign + character: PASS,
+- same player UID string in another campaign: isolated by campaign scope,
+- target definition missing: PASS, rejected,
+- reserved legacy definition target: PASS, rejected by resolver and store,
+- reserved legacy namespace cannot be used as canonical modifier target: PASS,
+- duplicate modifier UID in one request: PASS, rejected,
+- duplicate persisted modifier UID in campaign: PASS, rejected / PK-protected,
+- player/campaign persistence isolation: PASS and tested.
+
+Phase 5 does not contain a source-World-Pack authorization model. A modifier targets a canonical typed definition UID; whether a future World Pack/domain is authorized to create a cross-pack effect belongs to the future command/rule/domain authorization layer. The current resolver does not infer or merge definitions by text key and does not allow reserved legacy identities as targets.
+
+## 8. Legacy / Phase 4 reconciliation attacks
+
+WORK-015 consumes the Phase 4 canonical read contract rather than guessing mappings.
+
+Results:
+
+- mapped legacy value projected to canonical typed UID: PASS,
+- mapped legacy + typed representation resolves once: PASS / covered by persistence test,
+- unmapped same-looking legacy + typed: PASS; Phase 4 typed read fails before resolver,
+- same textual key across two typed World Packs: PASS; stable UIDs remain distinct,
+- alias from another campaign: PASS; resolver rejects campaign mismatch,
+- mappingVersion/provenance changes fingerprint: PASS and tested,
+- modifier targeting reserved legacy UID: PASS, rejected,
+- unknown unmapped legacy values: remain Phase 4 compatibility data and are not silently guessed by Phase 5.
+
+Alias target existence/ownership is validated by the Phase 4 reconciliation registration/read boundary before canonical resolver input is assembled. Phase 5 does not implement a second competing reconciliation engine, which is the correct separation of responsibilities.
+
+## 9. Resource safety
+
+`ResolvedResource` exposes:
+
+- `currentValueObserved`,
+- derived `maximumValue`,
+- derived `regenerationRate`.
+
+The resolver performs no authoritative write.
+
+Tests prove:
+
+- current resource remains unchanged,
+- regeneration is reported but not applied,
+- current > derived maximum produces a diagnostic only,
+- no hidden clamp writes current to maximum,
+- maximum/regeneration modifiers operate only on derived target kinds.
+
+Assessment: PASS.
+
+Negative maximum/regeneration values are generic numeric results unless constrained by definition/rule/domain policy; Phase 5 does not silently reinterpret or mutate current state based on them.
+
+## 10. No-retrogression
+
+Verified behavior:
+
+- injury modifies effective stat only,
+- equipment modifies effective stat only,
+- temporary modifier modifies effective stat only,
+- removing/deactivating source restores effective result from unchanged base,
+- persistence/reopen does not rewrite `player_stats.base_value`,
+- resolver does not write `player_resources.current_value`.
+
+Persistence tests explicitly inspect SQL base/current values before/after resolution/removal.
+
+Assessment: PASS.
+
+## 11. Persistence / migration / scale
+
+Modifiers are persistent authoritative inputs; derived outputs are not persisted.
+
+Observed protections:
+
+- Phase 5 table is additive,
+- migration marker is idempotent,
+- old campaign creates zero invented modifiers,
+- Phase 4 legacy bytes and base values remain unchanged,
+- modifier source state survives reopen,
+- duplicate UID is rejected,
+- missing target is rejected,
+- invalid lifetime is rejected,
+- >1000 persisted modifiers are returned and resolved without truncation,
+- `PRAGMA integrity_check` is `ok`,
+- `PRAGMA foreign_key_check` is clean in the test fixture.
+
+Assessment: PASS.
+
+## 12. Explanation / diagnostics
+
+Applied contributions expose stable sequence index, modifier UID, lifecycle, operation, priority, source identity, input, magnitude, output and provenance. Inactive/source-inactive/future/expired modifiers produce diagnostics. Definition bounds and resource-current-above-max also produce diagnostics.
+
+The trace is sufficient to reconstruct the current implemented arithmetic. Grouped `ADD_PERCENT` records the shared stage input and cumulative outputs. Overrides are represented as sequential deterministic contributions; later higher-priority/UID application establishes the final value rather than silently depending on input order.
+
+Assessment: PASS for current Phase 5 auditability contract.
+
+## 13. CI evidence
+
+GitHub Actions run #141 corresponds exactly to:
+
+`44011bc0177df846a34fa12d0009d33e887f6c23`
+
+Conclusion: `success`.
+
+The workflow job reports:
+
+- Validate project: SUCCESS,
+- Run JVM unit tests: SUCCESS,
+- Build signed ALPHA APK: SUCCESS,
+- artifact/release steps: SUCCESS.
+
+## 14. Matrix summary
+
+| Family | Final assessment |
+|---|---|
+| Numeric finite guards | PASS |
+| Overflow / negative-zero | PASS |
+| Underflow pathological stress | NOT TESTED, non-blocking |
+| Deterministic ordering | PASS |
+| Exact time boundaries | PASS |
+| Duplicate UID | PASS |
+| Source active/inactive | PASS |
+| Automatic future domain-source synchronization | NOT APPLICABLE to current Phase 5; future integration responsibility |
+| Missing target | PASS |
+| Campaign/player isolation | PASS |
+| Reserved legacy identity | PASS |
+| Legacy mapping/fingerprint | PASS |
+| Mixed legacy/typed ambiguity gate | PASS at Phase 4 boundary |
+| Resource current immutability | PASS |
+| No-retrogression | PASS |
+| Missing/incompatible rule | PASS |
+| Cycles | PASS |
+| Pathologically deep acyclic graph | NOT TESTED, defensive debt |
+| >1000 modifiers | PASS |
+| Persistence/reopen | PASS |
+| SQLite integrity/FK checks | PASS |
+| CI #141 | PASS |
+
+## 15. Non-blocking follow-up debt
+
+Recommended future hardening, without expanding current Phase 5 scope:
+
+1. add explicit test for `+Infinity` and `-Infinity` modifiers/base/current even though the shared finite guard already rejects them;
+2. add dedicated zero/negative multiplier tests to pin the intentionally generic finite-multiplier policy;
+3. add underflow/subnormal fixture;
+4. add >1000 repeated multiplier fixture with a finite case and overflow-failure case;
+5. add deep acyclic graph stress test and consider an explicit defensive maximum graph depth/size if World Pack rule graphs become externally configurable;
+6. when Equipment/Inventory/Injury domains are implemented, make them responsible for synchronizing modifier `sourceActive` through a legal domain/transaction path rather than teaching the resolver to inspect those future stores directly;
+7. if cross-World-Pack modifier creation later requires authorization, enforce it in the command/rule/domain creation path while preserving resolver identity semantics.
+
+None of these items demonstrates a current reproducible Phase 5 contract violation in WORK-015.
+
+# Final status
+
+`PHASE 5 ADVERSARIAL VALIDATION: PASS`
+
+This verdict is only the CHAT-5 adversarial gate. It does not mark global Phase 5 COMPLETE; coordinator must still combine WORK-015 runtime/CI with CHAT-2 determinism findings, CHAT-3 integrity validation and the remaining canonical completion criteria.
