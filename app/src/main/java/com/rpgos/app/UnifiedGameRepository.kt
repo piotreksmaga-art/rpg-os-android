@@ -3,6 +3,7 @@ package com.rpgos.app
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import java.io.File
+import java.util.UUID
 
 /**
  * Canonical repository facade for the application layer.
@@ -16,12 +17,20 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     private val store = LocalGameStore(this.context)
     private val selection = CampaignSelectionManager(this.context)
 
-    override fun bootstrap() = store.bootstrap()
+    override fun bootstrap() {
+        store.bootstrap()
+        migrateActiveCampaign()
+    }
 
     override fun activeCampaignRef(): ActiveCampaignRef = selection.activeCampaignRef()
     override fun activeCampaignDirName(): String = activeCampaignRef().directoryName
     override fun activeWorldPackDirName(): String = store.activeWorldPackDirName()
-    override fun setActiveCampaign(dirName: String) = store.setActiveCampaign(dirName)
+
+    override fun setActiveCampaign(dirName: String) {
+        store.setActiveCampaign(dirName)
+        migrateActiveCampaign()
+    }
+
     override fun setActiveWorldPack(dirName: String) = store.setActiveWorldPack(dirName)
     override fun createCampaign(name: String): File = store.createCampaign(name)
 
@@ -29,13 +38,61 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun openWorldDb(): SQLiteDatabase = store.openWorldDb()
     override fun openCoreDb(): SQLiteDatabase = store.openCoreDb()
 
-    override fun buildContext(playerInput: String, chapter: Int): ContextBundle =
-        store.buildContext(playerInput, chapter)
+    override fun buildContext(playerInput: String, chapter: Int): ContextBundle {
+        val base = store.buildContext(playerInput, chapter)
+        val truth = openSaveDb().use { db ->
+            CampaignTruthStore(db, activeCampaignRef().campaignId).activeForContext(limit = 80)
+        }
+        return base.copy(
+            campaignTruth = truth,
+            contextMeta = base.contextMeta + mapOf("campaign_truth_records" to truth.size)
+        )
+    }
 
     override fun fullCharacterPanel(): CharacterPanelSnapshot = store.fullCharacterPanel()
     override fun status(): StatusSnapshot = store.status()
     override fun time(): TimeSnapshot = store.time()
     override fun chronicle(): List<ChronicleEntry> = store.chronicle()
+
+    override fun recordTruth(
+        kind: TruthKind,
+        predicate: String,
+        provenance: Provenance,
+        subjectUid: String?,
+        objectValue: String?,
+        perspectiveUid: String?,
+        narrativeText: String?,
+        truthUid: String?,
+        supersedesTruthUid: String?
+    ): CampaignTruthRecord = openSaveDb().use { db ->
+        MigrationManager().ensureV2(db)
+        CampaignTruthStore(db, activeCampaignRef().campaignId).record(
+            kind = kind,
+            predicate = predicate,
+            provenance = provenance,
+            subjectUid = subjectUid,
+            objectValue = objectValue,
+            perspectiveUid = perspectiveUid,
+            narrativeText = narrativeText,
+            truthUid = truthUid ?: "TRUTH-${UUID.randomUUID()}",
+            supersedesTruthUid = supersedesTruthUid
+        )
+    }
+
+    override fun truthRecords(
+        kind: TruthKind?,
+        subjectUid: String?,
+        perspectiveUid: String?,
+        limit: Int
+    ): List<CampaignTruthRecord> = openSaveDb().use { db ->
+        MigrationManager().ensureV2(db)
+        CampaignTruthStore(db, activeCampaignRef().campaignId).active(
+            kind = kind,
+            subjectUid = subjectUid,
+            perspectiveUid = perspectiveUid,
+            limit = limit
+        )
+    }
 
     override fun npcs(search: String): List<NpcListItem> = store.npcs(search)
     override fun npcDetail(uid: String): NpcDetail = store.npcDetail(uid)
@@ -82,9 +139,19 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
 
     override fun packageManager(): RpgPackageManager = store.packageManager()
     override fun backups(): List<String> = store.backups()
-    override fun restoreBackup(path: String): String = store.restoreBackup(path)
+
+    override fun restoreBackup(path: String): String {
+        val safety = store.restoreBackup(path)
+        migrateActiveCampaign()
+        return safety
+    }
+
     override fun finalizeChapter(chapter: Int, title: String): Pair<String, String> =
         store.finalizeChapter(chapter, title)
 
     override fun applyPatch(patch: StatePatch): PatchResult = store.applyPatch(patch)
+
+    private fun migrateActiveCampaign() {
+        openSaveDb().use { db -> MigrationManager().ensureV2(db) }
+    }
 }
