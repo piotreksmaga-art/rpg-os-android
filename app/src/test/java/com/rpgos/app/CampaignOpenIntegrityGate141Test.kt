@@ -45,12 +45,12 @@ class CampaignOpenIntegrityGate141Test {
     }
 
     @Test
-    fun activeGmSessionFailsClosedWhenCampaignIntegrityIsBroken() = runBlocking {
+    fun runtimeGmSessionFailsClosedWhenCampaignIntegrityIsBroken() = runBlocking {
         createHealthySupersession()
         corruptSupersessionDirectly()
 
         val failure = runCatching {
-            GameMasterRepositoryFactory(context, store).openActiveSession().use { }
+            GameMasterRepositoryFactory(context, store).openRuntimeSession().use { }
         }.exceptionOrNull()
 
         assertNotNull(failure)
@@ -58,6 +58,19 @@ class CampaignOpenIntegrityGate141Test {
         val gate = failure as GameMasterIntegrityGateException141
         assertEquals("CAMPAIGN_OPEN", gate.boundary)
         assertTrue("SUPERSESSION_PREVIOUS_WINDOW_MISMATCH" in gate.errorCodes)
+    }
+
+    @Test
+    fun diagnosticRepositoryAccessRemainsAvailableForInvalidCampaign() = runBlocking {
+        createHealthySupersession()
+        corruptSupersessionDirectly()
+
+        GameMasterRepositoryFactory(context, store).openActiveSession().use { session ->
+            assertNotNull(session.repository)
+            val report = store.openSaveDb().use { GameMasterIntegrityGate141(it).check() }
+            assertTrue(!report.ok)
+            assertTrue("SUPERSESSION_PREVIOUS_WINDOW_MISMATCH" in report.errorCodes)
+        }
     }
 
     @Test
