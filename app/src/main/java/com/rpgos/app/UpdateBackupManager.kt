@@ -14,10 +14,17 @@ class UpdateBackupManager(private val context: Context) {
         val db = File(campaign, "campaign.db")
         require(db.exists()) { "campaign.db nie istnieje" }
 
+        // Recover an interrupted restore before taking a pre-update checkpoint.
+        RestoreRecovery141.recoverIfNeeded(campaign)
+
         val backups = File(campaign, "backups").apply { mkdirs() }
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val out = File(backups, "${stamp}_pre_update.db")
-        db.copyTo(out, overwrite = true)
-        return out
+        return SQLitePersistenceCopy141.copyLiveDatabase(
+            source = db,
+            target = out,
+            sourceBoundary = "PRE_UPDATE_BACKUP_SOURCE",
+            artifactBoundary = "PRE_UPDATE_BACKUP_ARTIFACT"
+        )
     }
 }
