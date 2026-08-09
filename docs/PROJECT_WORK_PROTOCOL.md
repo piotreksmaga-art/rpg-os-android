@@ -2,19 +2,19 @@
 
 Status: ACTIVE / CANONICAL
 
-Purpose: this file is the operational memory for future RPG OS development sessions. Read it before making project changes. It defines how to recover context, choose the next task, avoid duplicate work, and preserve working functionality.
+Purpose: this file is the operational memory for future RPG OS development sessions. Read it before making project changes.
 
 ## 1. Session startup — mandatory
 
 At the beginning of every RPG OS development session:
 
-1. Read this file: `docs/PROJECT_WORK_PROTOCOL.md`.
-2. Read `docs/GM_ENGINE_TARGET_ARCHITECTURE.md` when work touches GM Engine, campaign data, memory, simulation, saves, worldpacks, retrieval, AI, or backend.
-3. Inspect the current `master` HEAD and recent commits. Repository state is authoritative for what is actually implemented.
+1. Read `docs/PROJECT_WORK_PROTOCOL.md`.
+2. Read `docs/GM_ENGINE_TARGET_ARCHITECTURE.md` for GM/data/backend work.
+3. Inspect current `master` HEAD and recent commits. Repository state is authoritative for what is actually implemented.
 4. Check the latest relevant GitHub Actions build before assuming the current version works.
-5. Recover the last unfinished task from project history/conversation context when available.
+5. Recover the last unfinished backend/GM task from project history/conversation context when available.
 6. Compare that task with current repository state. Never assume an old plan is still unimplemented.
-7. Continue the unfinished work before starting a new architectural feature unless the user explicitly changes priority.
+7. Continue the current backend/GM development track unless the user explicitly changes priority.
 
 ## 2. Sources of truth for development decisions
 
@@ -34,7 +34,7 @@ An old TODO is not proof that a feature is missing. Inspect code first.
 
 Before implementing any planned stage:
 
-- search the repository for existing classes, tables, migrations, tests, backend endpoints and UI;
+- search the repository for existing classes, tables, migrations, tests, backend endpoints and related infrastructure;
 - determine whether the feature is absent, partial, obsolete, or already complete;
 - extend/refactor the existing implementation instead of creating a parallel subsystem;
 - preserve stable UIDs, schemas and compatibility whenever possible.
@@ -51,43 +51,42 @@ RPG OS is a generic RPG operating system.
 - AI is Game Master, not database, memory, mechanics engine or source of truth.
 - Android is the primary client target.
 
-## 5. Main development tracks
+## 5. Frontend status — ACCEPTED AND FROZEN
 
-Treat these as separate but integrated tracks:
+The current frontend style shown by the user on 2026-08-09 is accepted.
 
-### A. Android product/UI
-Working application, navigation, presentation, interaction and update UX.
+Current accepted baseline includes the existing RPG OS home screen style and current visual language. Previous plans to continue Elemental visual refinements are superseded for now.
 
-### B. GM Engine/data integrity
+Until the user explicitly re-enables frontend work:
+
+- do not redesign screens;
+- do not continue five-elements visual polishing;
+- do not add proactive UI/visual features;
+- do not change the accepted style;
+- do not refactor working UI unless a backend/core change absolutely requires a minimal compatibility adjustment;
+- preserve the current frontend as-is as much as possible.
+
+The former Elemental visual task is DEFERRED, not active.
+
+## 6. Active development tracks
+
+### ACTIVE — GM Engine/data integrity
 CampaignRepository, Source of Truth, transactions, events, snapshots, knowledge, temporal state, retrieval, validation, memory, simulation and Director.
 
-### C. Content/World Packs
-Naruto, Bleach and future canon data. Do not aggressively expand these until GM foundations are reliable.
+### ACTIVE WHEN REQUIRED — Distribution/update infrastructure
+Builds, GitHub Actions, migrations, compatibility, content update plumbing and anything necessary to safely ship/test backend/core changes.
 
-### D. Distribution/update infrastructure
-Signed APK builds, GitHub Actions, application updates, content updates, migrations and compatibility.
+### LIMITED — Content/World Packs
+Only add content needed to validate the engine. Do not aggressively expand Naruto/Bleach databases until GM foundations are reliable.
 
-Do not silently jump from one track to another while a user-approved task in the current track remains unfinished.
-
-## 6. Current unfinished visual task
-
-The established Elemental UI task remains a tracked unfinished item unless the user confirms it is complete:
-
-- preserve the existing working five-element orbit and its movement;
-- preserve the rest of the working interface;
-- improve only the visual rendering/quality of the five elements according to the user's supplied reference;
-- elements/order: Wind -> Fire -> Water -> Earth -> Lightning;
-- do not reintroduce the removed dragon renderer;
-- do not rewrite working orbit mechanics merely to change appearance;
-- visually compare the result with the reference before declaring the task finished.
-
-Historical version numbers such as Elemental 129/130 are milestones, not permission to roll current `master` backwards. Apply the intended visual improvement to the current codebase.
+### FROZEN — Android frontend/UI
+No proactive visual/interface development until the user explicitly re-enables this track.
 
 ## 7. GM Engine target order
 
 The canonical target architecture is defined in `docs/GM_ENGINE_TARGET_ARCHITECTURE.md`.
 
-Target implementation order:
+Target dependency order:
 
 1. Unified Repository + stable UIDs
 2. Campaign Source of Truth
@@ -115,7 +114,7 @@ Target implementation order:
 24. Stress & Integrity Tests
 25. Performance / AI cost optimization
 
-IMPORTANT: this is a dependency order, not a blind checklist. Before each stage, audit existing implementation and mark what is already present/partial. Implement only the missing delta.
+IMPORTANT: this is a dependency order, not a blind checklist. Before each stage, audit the existing implementation and implement only the missing delta.
 
 ## 8. Snapshot and backup rule
 
@@ -138,6 +137,7 @@ For every change:
 5. Never destroy campaign data during content/app updates.
 6. Never reset GitHub authorization, repository state, signing configuration or user data unless explicitly requested.
 7. Do not revert `master` to an old milestone merely because a previous conversation ended there.
+8. Do not touch frozen frontend styling unless required for compatibility or explicitly requested.
 
 ## 10. Build and verification loop
 
@@ -148,10 +148,8 @@ After a code change:
 3. Check build status.
 4. If failed, inspect the failing job/log and fix the actual cause before continuing.
 5. If successful, treat that commit as the new technical baseline.
-6. For UI changes, a successful compile is not sufficient: obtain/inspect the resulting UI on device or user screenshot/reference before declaring visual acceptance.
-7. For data/GM changes, add or update integrity tests where practical.
-
-Do not stack many unrelated changes on top of a known failing build.
+6. For data/GM changes, add or update integrity tests where practical.
+7. Do not stack many unrelated changes on top of a known failing build.
 
 ## 11. Version/update discipline
 
@@ -159,7 +157,7 @@ Do not stack many unrelated changes on top of a known failing build.
 - Content Update must not overwrite campaign state.
 - World Pack version, campaign schema, event schema, memory schema and engine version must be migratable.
 - App binary updates and content updates are separate concerns.
-- A documentation-only change should not be treated as proof of functional completion.
+- A documentation-only change is not proof of functional completion.
 
 ## 12. GM implementation invariants
 
@@ -197,12 +195,12 @@ Therefore:
 
 At each milestone:
 
-1. Is there a user-approved unfinished task? Finish it first.
-2. Is the build broken? Fix it before feature work.
-3. Is there a data-loss/integrity risk? Fix it before cosmetic/new-content work unless the user explicitly prioritizes otherwise.
-4. Otherwise continue the current development track.
-5. For GM Engine, choose the earliest dependency in the target order whose missing portion blocks later work.
-6. Do not expand World Pack databases aggressively until the core foundations are reliable.
+1. Is the build broken? Fix it before feature work.
+2. Is there a data-loss/integrity risk? Fix it first.
+3. Continue the current GM/backend development track.
+4. For GM Engine, choose the earliest dependency in the target order whose missing portion blocks later work.
+5. Do not expand World Pack databases aggressively until the core foundations are reliable.
+6. Do not return to frontend work unless the user explicitly re-enables it.
 
 ## 15. Required end-of-session handoff
 
@@ -212,8 +210,8 @@ Before ending a meaningful development session, leave a concise handoff containi
 - last successful build or current failure;
 - what was completed;
 - what remains unfinished;
-- exact next recommended task;
-- any user decision/reference required for that task.
+- exact next recommended backend/GM task;
+- any user decision required for that task.
 
 If the handoff materially changes project direction, update this protocol or another canonical repo document rather than relying only on chat memory.
 
@@ -221,12 +219,12 @@ If the handoff materially changes project direction, update this protocol or ano
 
 Unless the user changes priority:
 
-1. Verify the current build after the recent GM/snapshot/documentation changes.
-2. Return to and finish the outstanding five-elements visual task on the current codebase, preserving orbit/movement/UI behavior.
-3. Verify the visual result against the user's reference and obtain acceptance.
-4. Audit current GM/data implementation against stages 1–5 before adding more GM features.
-5. Remove remaining hard-coded campaign assumptions (including backup/snapshot paths) as part of Unified Repository work.
-6. Continue GM Engine by missing dependency delta, not by recreating existing systems.
-7. Expand Naruto/Bleach content only after the relevant GM foundations are stable.
+1. Verify the current build after recent GM/snapshot/documentation changes.
+2. Keep the accepted frontend frozen.
+3. Audit current GM/data implementation against stages 1–5.
+4. Remove hard-coded campaign assumptions, especially backup/snapshot paths, as part of Unified Repository work.
+5. Complete the missing delta for Campaign Source of Truth, Turn Transaction, Event Store and Snapshot System in dependency order.
+6. Continue later GM Engine stages only after those foundations are verified.
+7. Expand Naruto/Bleach content only when needed for engine validation or after the relevant foundations are stable.
 
 This protocol remains active until explicitly superseded by the user or by a newer canonical protocol committed to the repository.
