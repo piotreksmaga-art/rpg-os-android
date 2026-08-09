@@ -13,13 +13,17 @@ class RestoreManager(private val context: Context) {
         require(backup.isFile) { "Backup nie istnieje." }
         require(backup.extension == "db") { "Nieprawidłowy typ backupu." }
 
+        // Never start a second restore on top of an unfinished one.
+        RestoreRecovery141.recoverIfNeeded(campaign)
+
         // Validate the incoming standalone database before touching the live campaign.
         GameMasterIntegrityGate141.requireHealthyFile(backup, "RESTORE_SOURCE")
 
         val now = System.currentTimeMillis()
+        val hadLiveDatabase = db.exists()
         val safety = File(campaign, "backups/pre_restore_$now.db")
         safety.parentFile?.mkdirs()
-        if (db.exists()) {
+        if (hadLiveDatabase) {
             SQLitePersistenceCopy141.copyLiveDatabase(
                 source = db,
                 target = safety,
@@ -35,12 +39,24 @@ class RestoreManager(private val context: Context) {
             artifactBoundary = "RESTORE_STAGED_ARTIFACT"
         )
 
+        // Durable point-of-no-return marker. It survives process death.
+        RestoreRecovery141.begin(
+            campaignDir = campaign,
+            safety = safety.takeIf { hadLiveDatabase },
+            hadLiveDatabase = hadLiveDatabase
+        )
+
         try {
             SQLitePersistenceCopy141.replaceDatabaseWithStaged(staged, db)
             GameMasterIntegrityGate141.requireHealthyFile(db, "RESTORE_TARGET")
+            RestoreRecovery141.complete(campaign)
             return safety
         } catch (t: Throwable) {
             runCatching { if (staged.exists()) staged.delete() }
+            val recoveryFailure = runCatching {
+                RestoreRecovery141.recoverIfNeeded(campaign)
+            }.exceptionOrNull()
+            recoveryFailure?.let(t::addSuppressed)
             throw t
         }
     }
