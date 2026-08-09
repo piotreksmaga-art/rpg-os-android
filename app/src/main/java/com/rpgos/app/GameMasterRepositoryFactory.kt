@@ -20,18 +20,25 @@ data class ActiveGameMasterRepository(
  * Bridges the legacy LocalGameStore to the GM Engine 141 repository boundary.
  * The same campaign.db used by the rest of RPG OS becomes the durable GM store.
  *
- * Structural/additive initialization is allowed before the open gate because an
- * older campaign may legitimately need schemas or stable identity materialized.
- * No GM runtime repository is exposed until the fully initialized campaign has
- * passed the read-only CAMPAIGN_OPEN integrity gate.
+ * openActiveSession() is intentionally the low-level repository/diagnostic path:
+ * integrity tests and repair tooling may need to inspect an already-invalid DB.
+ * Production GM execution must enter through openRuntimeSession(), which performs
+ * the fail-closed CAMPAIGN_OPEN gate after additive initialization and before the
+ * session is exposed to narration, simulation or turn processing.
  */
 class GameMasterRepositoryFactory(
     private val context: Context,
     private val store: LocalGameStore
 ) {
-    fun openActive(): SQLiteUnifiedCampaignRepository = openActiveSession().repository
+    fun openActive(): SQLiteUnifiedCampaignRepository = openRuntimeSession().repository
 
-    fun openActiveSession(): ActiveGameMasterRepository {
+    fun openActiveSession(): ActiveGameMasterRepository =
+        openSession(requireOpenIntegrity = false)
+
+    fun openRuntimeSession(): ActiveGameMasterRepository =
+        openSession(requireOpenIntegrity = true)
+
+    private fun openSession(requireOpenIntegrity: Boolean): ActiveGameMasterRepository {
         val db = store.openSaveDb()
         var repository: SQLiteUnifiedCampaignRepository? = null
         return try {
@@ -67,11 +74,12 @@ class GameMasterRepositoryFactory(
             )
             GameMasterLegacyBootstrap141.ensure(db, campaignUid)
 
-            // This is the durable runtime boundary. Recovery has already been
-            // attempted by LocalGameStore.openSaveDb(); migrations above may only
-            // materialize missing additive structure. From this point onward an
-            // inconsistent campaign must fail closed instead of entering GM logic.
-            GameMasterIntegrityGate141(db).requireHealthy("CAMPAIGN_OPEN")
+            if (requireOpenIntegrity) {
+                // Recovery has already been attempted by LocalGameStore.openSaveDb().
+                // From this point onward an inconsistent campaign must fail closed
+                // instead of entering production GM logic.
+                GameMasterIntegrityGate141(db).requireHealthy("CAMPAIGN_OPEN")
+            }
 
             ActiveGameMasterRepository(
                 campaignUid = campaignUid,
