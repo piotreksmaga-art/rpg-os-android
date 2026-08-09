@@ -1,0 +1,833 @@
+# WORK-20260809-009 — Phase 6 Test / Migration Contract
+
+Status: READ-ONLY TEST / MIGRATION DESIGN
+
+Work ID: `WORK-20260809-009`
+Worker: `CHAT-4`
+Role: PHASE 6 MIGRATION / INVARIANT TEST DESIGNER
+Repository: `piotreksmaga-art/rpg-os-android`
+Baseline: `10793f25511daabc874410c62c81a544e8a3bc2f`
+Source Phase 6 design: `10793f25511daabc874410c62c81a544e8a3bc2f`
+Phase 5 architecture dependency consumed: `735af8976082bae3f29affd0ab2ec9fce057bca9`
+
+This work item is architecture/test design only. It does not implement Talent/Potential, does not modify Kotlin runtime, schema, migrations, PlayerState, stat/resource models, CampaignRepository, MASTER, ROADMAP or coordination.
+
+---
+
+## 1. Canonical semantic contract under test
+
+Phase 6 must preserve four independent facts:
+
+- **Talent** = ease / efficiency / aptitude of learning and development in a domain.
+- **Potential** = long-term possible scale / growth envelope / ceiling-like property.
+- **Talent != Skill Level.**
+- **Potential != current stat.**
+- **Talent != Potential.**
+
+Talent and Potential are persistent profile inputs. They are not ordinary temporary modifiers, not derived stat values, and not skill mastery.
+
+Phase 6 must support all combinations without normalization toward a single axis:
+
+1. high Talent + low Potential,
+2. low Talent + high Potential,
+3. high Talent + high Potential,
+4. low Talent + low Potential.
+
+No test may assume that high Talent implies high Potential or vice versa.
+
+---
+
+## 2. Proposed test fixture vocabulary
+
+Tests should use neutral Core fixture identifiers rather than universe-specific literals.
+
+Example World Packs:
+
+- `WP-A`
+- `WP-B`
+- `WP-CUSTOM`
+
+Example domains:
+
+- `WP-A:DOMAIN:FOCUS`
+- `WP-B:DOMAIN:FOCUS`
+- `WP-CUSTOM:DOMAIN:UNUSUAL-LEARNING`
+
+The display name may be identical (`Focus`) while stable UIDs remain distinct.
+
+Example character:
+
+- campaign: `CAMPAIGN-A`
+- character: `PLAYER-A`
+
+Example normalized values for test readability only:
+
+- low = `0.25`
+- high = `0.85`
+
+These numbers are fixture values, not a mandatory production scale. Production implementation must declare its normalization/range contract explicitly.
+
+---
+
+## 3. Four-axis independence matrix
+
+### T6-001 — High Talent + Low Potential
+
+Given:
+
+- Talent(domain X) = high,
+- Potential(domain X, growth-scale) = low,
+- current skill mastery = fixed baseline,
+- current stat baseValue = fixed baseline.
+
+Expect:
+
+- profile loads exactly high Talent + low Potential,
+- current skill mastery is unchanged by profile read/write,
+- current stat/baseValue is unchanged by profile read/write,
+- progression rule may later consume high Talent as a learning-efficiency input,
+- progression rule may later consume low Potential as a long-horizon scaling input,
+- no code collapses the two into one average score.
+
+### T6-002 — Low Talent + High Potential
+
+Expect the inverse profile combination to persist exactly and independently.
+
+Required behavior:
+
+- lower immediate learning-efficiency parameter where a future rule uses Talent,
+- higher long-horizon scaling parameter where a future rule uses Potential,
+- no automatic stat or skill gain on profile creation/load.
+
+### T6-003 — High Talent + High Potential
+
+Expect both independent profile values to remain high.
+
+No implicit bonus may be created merely because both are high. Any progression effect requires a future causal ProgressionEngine action.
+
+### T6-004 — Low Talent + Low Potential
+
+Expect both independent values to remain low.
+
+No implementation may silently promote one value because the other is low/high.
+
+### T6-005 — Four combinations survive reopen
+
+Persist all four combinations across four characters, close/reopen storage, reload, and assert exact equality of both profile axes for every character.
+
+---
+
+## 4. Talent must not mutate Skill Level
+
+### T6-010 — Create Talent profile with existing skill
+
+Given skill mastery = 60 and Talent(domain X) changes from 0.40 to 0.90.
+
+Expect skill mastery remains exactly 60.
+
+### T6-011 — Update Talent only
+
+Given:
+
+- Talent X = 0.40,
+- Potential X = 0.70,
+- Skill X mastery = 60.
+
+Update Talent X -> 0.80.
+
+Expect:
+
+- Talent X = 0.80,
+- Potential X = 0.70,
+- Skill mastery = 60,
+- no XP/progression event unless a separate legal progression action exists.
+
+### T6-012 — Reading Talent cannot produce progress
+
+Repeated reads/resolution of Talent profile must never increment skill XP/mastery.
+
+### T6-013 — Skill change cannot back-write Talent
+
+A later legal skill progression from mastery 60 -> 61 must not automatically modify persistent Talent.
+
+---
+
+## 5. Potential must not mutate current/base stat
+
+### T6-020 — Create Potential with existing PlayerStat
+
+Given `PlayerStat.baseValue = 100`.
+
+Create Potential(domain X, growth-scale) = 0.90.
+
+Expect `baseValue` remains exactly 100.
+
+### T6-021 — Update Potential only
+
+Update Potential 0.30 -> 0.80.
+
+Expect:
+
+- stat baseValue unchanged,
+- current resource unchanged,
+- Talent unchanged,
+- no progression result generated by the profile update itself.
+
+### T6-022 — Stat growth cannot infer Potential
+
+A later legal base stat progression 100 -> 101 must not rewrite Potential.
+
+### T6-023 — High stat cannot seed Potential
+
+Migration or runtime must not infer high Potential from a high current/base stat value.
+
+---
+
+## 6. Talent and Potential update isolation
+
+### T6-030 — Talent update leaves Potential byte/semantic-equal
+
+Capture Potential profile before Talent update. Update one TalentEntry. Reload. Potential profile must be identical, including version/provenance except fields intentionally shared at an outer profile envelope if implementation chooses one.
+
+Preferred design: independent entry-level versions so unrelated axis changes do not masquerade as semantic Potential changes.
+
+### T6-031 — Potential update leaves Talent byte/semantic-equal
+
+Symmetric test.
+
+### T6-032 — Different domain update isolation
+
+Update Talent domain A. Talent domain B and all Potential domains remain unchanged.
+
+### T6-033 — Multi-character isolation
+
+Update profile of PLAYER-A. PLAYER-B profile remains unchanged.
+
+### T6-034 — Multi-campaign isolation
+
+Same character UID string in CAMPAIGN-A and CAMPAIGN-B must resolve to independent profiles.
+
+---
+
+## 7. Temporary effects must not overwrite persistent profiles
+
+Phase 5 contextual modifier/effect semantics may temporarily alter effective learning or breakthrough parameters. They must not rewrite persistent Talent/Potential.
+
+### T6-040 — Temporary learning bonus
+
+Given persistent Talent = 0.50 and an active temporary learning effect equivalent to +20% effective learning.
+
+Expect:
+
+- persistent Talent remains 0.50 before, during and after resolution,
+- effective progression parameter may be derived as modified according to Phase 5 rules,
+- expiry/removal returns effective result to the unmodified baseline,
+- no persistence write to TalentEntry occurs from the resolver.
+
+### T6-041 — Temporary breakthrough buff
+
+Given persistent Potential = 0.60 and a temporary breakthrough/evolution-context effect.
+
+Expect:
+
+- persistent Potential remains 0.60,
+- contextual derived input may change,
+- expiry removes only contextual contribution,
+- no base Potential rewrite.
+
+### T6-042 — Injury/debuff learning penalty
+
+Temporary penalty affects derived/effective progression parameters only. Persistent Talent/Potential remain unchanged.
+
+### T6-043 — Resolver replay purity
+
+Resolve same profile + same active effects + same provider version twice. Result must be deterministic and persistent profile state must remain unchanged.
+
+---
+
+## 8. Stable domain UID / World Pack ownership tests
+
+### T6-050 — Same display name across packs
+
+World Pack A defines:
+
+- UID `WP-A:DOMAIN:FOCUS`, display `Focus`.
+
+World Pack B defines:
+
+- UID `WP-B:DOMAIN:FOCUS`, display `Focus`.
+
+Expect:
+
+- both definitions coexist,
+- identity is by UID, not display name,
+- PLAYER profile entry targeting A never resolves as B,
+- mappings/rules remain pack-scoped.
+
+### T6-051 — UID hijack rejected
+
+World Pack A owns `WP-A:DOMAIN:FOCUS`.
+
+World Pack B attempts to register incompatible definition using the same exact UID.
+
+Expect deterministic rejection. No overwrite, no silent ownership transfer.
+
+### T6-052 — Same UID same owner compatible update
+
+A versioned same-owner update is allowed only under an explicit compatibility policy.
+
+Test must distinguish:
+
+- compatible presentation metadata change,
+- compatible rule-version upgrade with migration policy,
+- incompatible semantic reinterpretation.
+
+Incompatible reinterpretation must fail or require explicit versioned migration; it must never silently change the meaning of existing profile rows.
+
+### T6-053 — Same key within same pack collision
+
+If domain definitions adopt a Phase-4-like uniqueness rule `(worldPackUid,key)`, duplicate key registration must be rejected deterministically unless explicit version/update semantics apply.
+
+### T6-054 — Unknown domain UID
+
+Profile entry referring to a nonexistent domain must fail validation or remain quarantined migration evidence according to explicit migration policy. It must never synthesize a domain definition from display text.
+
+---
+
+## 9. Provenance and version invariants
+
+Every migrated or legally changed persistent Talent/Potential entry should carry enough provenance/version information to explain its origin.
+
+Required tests:
+
+### T6-060 — Migration provenance
+
+Migrated entry records source type/source identifier and migration version/policy identifier.
+
+### T6-061 — Update provenance
+
+A legal later persistent profile change creates new version/provenance rather than untraceable overwrite.
+
+### T6-062 — Idempotent migration
+
+Run migration twice. Same source evidence maps to the same canonical profile entry once; no duplicate rows or version inflation solely due to retry.
+
+### T6-063 — Rule/provider update does not rewrite base profile
+
+Changing Phase 5/provider version may invalidate derived cache/effective progression parameters but persistent profile values remain unchanged unless an explicit migration changes their representation.
+
+### T6-064 — Rebuildability
+
+Delete all derived/cache projections of effective Talent/Potential-related progression parameters. Rebuild from persistent profiles + effects + provider rules. Result must match prior resolution for same versions/context.
+
+---
+
+## 10. Legacy migration classification policy
+
+Classification categories:
+
+- **SAFE AUTO-MAP** — only when source schema/documentation unambiguously defines the semantic axis, domain/scope, scale/unit, owner World Pack, and target stable domain mapping. Label text alone is never enough.
+- **REQUIRES WORLD PACK MAPPING** — semantic family is plausible/mostly clear, but domain, scale, dimension or universe-specific meaning requires a pack-provided mapping.
+- **AMBIGUOUS — DO NOT AUTO-MIGRATE** — label can mean materially different concepts or cannot be distinguished from skill/stat/affinity/runtime context. Preserve source evidence without inventing authoritative profile semantics.
+
+### Required bare-label classification matrix
+
+| Legacy label | Default classification | Reason |
+|---|---|---|
+| `talent` | REQUIRES WORLD PACK MAPPING | Likely Talent semantics, but global vs domain-specific scope and scale are unknown. |
+| `gifted` | AMBIGUOUS — DO NOT AUTO-MIGRATE | Narrative descriptor may refer to Talent, current achievement, bloodline, reputation or general praise. |
+| `aptitude` | REQUIRES WORLD PACK MAPPING | Usually learning aptitude, but target domain and scale must be supplied explicitly. |
+| `growth_rate` | AMBIGUOUS — DO NOT AUTO-MIGRATE | May mean learning rate, stat growth multiplier, biological growth, resource regen, or long-horizon Potential. |
+| `learning_rate` | REQUIRES WORLD PACK MAPPING | Strong Talent-side signal, but domain/scope and normalization still require mapping. |
+| `maximum_potential` | REQUIRES WORLD PACK MAPPING | Strong Potential-side signal, but hard-cap vs normalized potential dimension and target domain require mapping. |
+| `affinity` | AMBIGUOUS — DO NOT AUTO-MIGRATE | May represent eligibility, elemental compatibility, cost modifier, output modifier or learning affinity. |
+| `adaptation` | AMBIGUOUS — DO NOT AUTO-MIGRATE | May be current adaptation state/history rather than adaptation Potential. |
+
+Important: none of these **bare labels** qualifies as SAFE AUTO-MAP by name alone.
+
+A field can become SAFE AUTO-MAP only when additional source metadata or a versioned World Pack migration contract proves its exact semantics.
+
+---
+
+## 11. SAFE AUTO-MAP positive cases
+
+The future migration suite must include positive SAFE AUTO-MAP cases so the category is executable rather than theoretical.
+
+### T6-070 — Explicit global learning talent field
+
+Source metadata states:
+
+- semantic type = TALENT,
+- scope = GLOBAL_LEARNING,
+- scale = normalized 0..1,
+- owner = WP-A,
+- mapping = `WP-A:DOMAIN:GENERAL-LEARNING`,
+- source version supported.
+
+Expect exact automatic migration with provenance.
+
+### T6-071 — Explicit domain potential field
+
+Source metadata states:
+
+- semantic type = POTENTIAL,
+- dimension = GROWTH_SCALE,
+- domain UID mapping explicit,
+- normalized scale explicit.
+
+Expect exact automatic migration.
+
+### T6-072 — Unsupported source version
+
+Same label/schema but source version unknown/incompatible.
+
+Expect no auto-migration; classification falls back to requires mapping/quarantine according to migration policy.
+
+---
+
+## 12. Legacy ambiguity preservation tests
+
+### T6-080 — Ambiguous field is not discarded
+
+For `gifted = "yes"` with no mapping:
+
+- do not create TalentEntry/PotentialEntry,
+- preserve original legacy data/evidence,
+- emit migration diagnostic explaining ambiguity.
+
+### T6-081 — Ambiguous field cannot influence ProgressionEngine
+
+Until mapped canonically, the ambiguous legacy value must not enter Talent/Potential inputs.
+
+### T6-082 — Later World Pack mapping
+
+After explicit compatible mapping becomes available, migration can convert preserved evidence exactly once with provenance referencing the original source and mapping version.
+
+### T6-083 — No inference from achievements
+
+High skill mastery, learned rare technique, rank, current stat, evolution stage, or combat outcome cannot be used as automatic replacement evidence for missing Talent/Potential.
+
+---
+
+## 13. Naruto-like migration fixture
+
+This is a World Pack fixture, not Core hardcoding.
+
+Create a test pack `WP-N-LIKE` with pack-owned domain definitions representing, for example:
+
+- illusion-learning domain,
+- elemental-nature learning domain,
+- energy-control learning domain,
+- medical learning domain,
+- bloodline-related evolution/adaptation domain.
+
+Tests:
+
+### T6-090 — Pack mapping of legacy aptitude
+
+Legacy `aptitude` plus explicit `WP-N-LIKE` migration map -> one Talent domain entry.
+
+### T6-091 — Legacy affinity remains separate unless mapping says learning Talent
+
+An elemental compatibility/affinity field must not automatically become Talent.
+
+### T6-092 — Bloodline state != Talent
+
+Presence/unlock/stage of a bloodline ability cannot be converted directly to Talent value.
+
+### T6-093 — Bloodline rule may supply profile effect legally
+
+A pack rule may define an explicit permanent or contextual effect on a profile/progression input, with stable source UID/provenance. Test this as a rule mapping, not heuristic inference.
+
+### T6-094 — Current skill does not seed Talent
+
+High illusion/medical/elemental skill mastery remains separate.
+
+Core test code should address neutral interfaces/UIDs; Naruto-like labels live only inside the fixture data.
+
+---
+
+## 14. Bleach-like migration fixture
+
+Create `WP-B-LIKE` with pack-owned domains representing, for example:
+
+- sword-learning,
+- spiritual-control learning,
+- movement learning,
+- spell-system learning,
+- environmental spiritual-particle manipulation,
+- racial/evolution adaptation.
+
+Tests:
+
+### T6-100 — Pack-specific domain migration
+
+Legacy field with explicit pack mapping migrates to a `WP-B-LIKE` domain without any Core branch for that concept.
+
+### T6-101 — Current spiritual stat/resource != Potential
+
+High current spiritual energy/density/resource values do not seed Potential.
+
+### T6-102 — Current race/evolution stage != evolution Potential
+
+Stage/eligibility is innate/evolution state, not Potential.
+
+### T6-103 — Same display domain name as another pack remains isolated
+
+Use a domain display name also present in WP-N-LIKE, but different stable UID. No collision/leak.
+
+Again, world-specific names exist only in fixture data/rules, not Core implementation branches.
+
+---
+
+## 15. Unknown/custom World Pack fixture
+
+Create `WP-CUSTOM` after Core test code is compiled/defined, with a novel domain name and mapping not referenced anywhere in Core.
+
+### T6-110 — Unknown custom domain registration
+
+Register `WP-CUSTOM:DOMAIN:UNUSUAL-LEARNING`. Persist Talent/Potential entries. Reload successfully.
+
+### T6-111 — Custom legacy mapping
+
+Provide explicit mapping from a fictional legacy field to that domain. Migration succeeds using generic APIs.
+
+### T6-112 — No Core source change required
+
+Test should prove the custom domain works through data/provider registration only.
+
+### T6-113 — Custom same display key as known pack
+
+Same display key, distinct pack UID and domain UID coexist.
+
+### T6-114 — Custom incompatible UID hijack
+
+Attempt to claim another pack's stable UID and assert rejection.
+
+---
+
+## 16. Migration identity and collision tests
+
+### T6-120 — Deterministic stable UID mapping
+
+For the same source World Pack, source schema version, semantic mapping and domain key, migration produces the same canonical target UID on repeated runs/reopen.
+
+Do not derive stable identity from localized display text.
+
+### T6-121 — Mapping version change
+
+A new migration map version must either preserve the existing stable target semantic identity or provide explicit migration/supersession behavior. Silent remap to a different semantic domain is forbidden.
+
+### T6-122 — Duplicate source rows
+
+Duplicate identical legacy evidence must not create duplicate canonical entries.
+
+### T6-123 — Conflicting source rows
+
+Two conflicting legacy values for one target domain require deterministic conflict handling/diagnostic. Do not arbitrarily pick first/last row based on SQLite order.
+
+### T6-124 — New-format value already exists
+
+If canonical Phase 6 profile entry already exists, legacy backfill must not overwrite it blindly. Explicit precedence policy required, normally canonical new-format authority wins while legacy evidence is retained/audited.
+
+---
+
+## 17. PERSISTENT / DERIVED / RUNTIME boundary tests
+
+### T6-130 — Talent/Potential are PERSISTENT
+
+Canonical base profile values appear in persistent player state/profile repository, not derived/runtime buckets.
+
+### T6-131 — Effective learning parameter is DERIVED
+
+Result of base Talent + temporary learning modifier is rebuildable derived calculation, not a persistent Talent rewrite.
+
+### T6-132 — Breakthrough context effect is RUNTIME source / DERIVED consequence
+
+Active temporary breakthrough effect is runtime/current source fact. Its numeric contribution is derived. Base Potential is persistent and unchanged.
+
+### T6-133 — Derived cache deletion
+
+Deleting all effective profile/progression calculations cannot delete persistent profile authority.
+
+### T6-134 — Legacy classification does not promote derived values
+
+Legacy fields representing calculated learning multipliers or observed achievement must not be migrated into persistent profile authority unless explicit source semantics prove they are base profile properties.
+
+---
+
+## 18. Interaction tests with Phase 4
+
+### T6-140 — Talent update leaves PlayerStat.baseValue unchanged
+
+Assert exact equality before/after.
+
+### T6-141 — Potential update leaves PlayerStat.baseValue unchanged
+
+Assert exact equality before/after.
+
+### T6-142 — Profile read leaves PlayerResource.currentValue unchanged
+
+No Talent/Potential read or effective progression resolution may spend/heal/regenerate resources.
+
+### T6-143 — Stat growth rule binding consumes profile by UID metadata
+
+A future test rule uses a stable domain dependency declared in provider/rule metadata. No `talentDomainUid` hardcoded field is required in Phase 4 definition.
+
+### T6-144 — Missing profile dependency
+
+If a rule requires a domain and profile entry is absent, behavior must follow explicit rule policy (error/default/optional), never infer from stat/skill values silently.
+
+---
+
+## 19. Interaction tests with Phase 5
+
+Phase 5 architecture declares a pure deterministic resolver with versioned rule bindings and stable modifier sources.
+
+Required Phase 6 integration tests after Phase 5 exists:
+
+### T6-150 — Base profile is resolver input, not Modifier row
+
+Talent/Potential profile entries enter progression/rule input as persistent base profile state.
+
+### T6-151 — Temporary effect is Modifier/context input
+
+Temporary learning/breakthrough effects enter through the Phase 5 effect/modifier mechanism, not by writing profile tables.
+
+### T6-152 — Source removal restores effective baseline
+
+Remove/expire temporary effect; effective parameter returns to profile baseline while base profile remains identical.
+
+### T6-153 — Rule/provider version included in deterministic result
+
+Same inputs + same provider version -> same result. Provider version change invalidates derived result/cache but does not mutate profiles.
+
+### T6-154 — Missing rule explicit error
+
+No silent fallback to arbitrary formula when a required rule binding is absent.
+
+### T6-155 — Circular dependency rejected
+
+If profile-related rule dependency A -> B -> A exists, resolution returns deterministic validation error; never recursion loop or partial state mutation.
+
+---
+
+## 20. Interaction tests with ProgressionEngine
+
+Once ProgressionEngine exists, Phase 6 acceptance must verify causal progression.
+
+### T6-160 — Talent alone causes no progress
+
+Load high Talent repeatedly with no training/practice/research/combat/etc. Skill/stat progression remains unchanged.
+
+### T6-161 — Potential alone causes no progress
+
+Same for high Potential.
+
+### T6-162 — Equal practice, different Talent
+
+Two otherwise equal characters perform the same valid learning action. Rule explicitly uses Talent. Result difference is explained by Talent contribution.
+
+### T6-163 — Equal high-level training, different Potential
+
+At a level where the World Pack rule uses long-horizon Potential/diminishing returns, different Potential produces a deterministic difference. No direct stat set from Potential.
+
+### T6-164 — Ledger explainability
+
+Progression ledger/result records:
+
+- source action/event,
+- Talent value/domain/version used,
+- Potential value/domain/dimension/version used,
+- provider/rule version,
+- temporary modifier contributions,
+- final result.
+
+### T6-165 — Replay
+
+Replay same authoritative inputs/action/rule versions -> identical progression result.
+
+---
+
+## 21. Hidden/visible profile tests
+
+Potential may be mechanically authoritative without being fully visible to the player.
+
+### T6-170 — Hidden presentation does not change mechanics
+
+Hide Potential in CharacterPanel/GM-visible projection according to policy; deterministic mechanics still use authoritative value where legally allowed.
+
+### T6-171 — Visibility update does not modify Potential value
+
+Changing discovery/visibility metadata cannot change base Potential.
+
+### T6-172 — AI cannot infer hidden profile as FACT
+
+Narrative/model output must not create a new authoritative revealed Potential value without legal discovery/domain change path.
+
+---
+
+## 22. Numeric validation tests
+
+Exact production scale is deferred, but the implementation must define and test it.
+
+Required cases:
+
+- finite lower bound,
+- finite upper bound,
+- valid boundary values,
+- below-min rejection,
+- above-max rejection,
+- NaN rejection,
+- positive Infinity rejection,
+- negative Infinity rejection,
+- deterministic normalization/rounding,
+- migration from known legacy scale with exact declared conversion,
+- unknown scale -> not auto-migrated.
+
+No migration should silently clamp ambiguous out-of-range legacy values into apparently valid authoritative profile values without diagnostics and explicit policy.
+
+---
+
+## 23. Scale / truncation / persistence tests
+
+### T6-180 — 100 domains/entries
+
+Persist/read 100 profile entries with no truncation.
+
+### T6-181 — >1000 entries across characters/domains
+
+Prefer at least 1000 records to detect hidden LIMIT assumptions.
+
+### T6-182 — Close/reopen equality
+
+Definitions + profile entries + provenance/version survive reopen exactly.
+
+### T6-183 — No silent SQL failure
+
+Existing expected table/schema/query failure must surface explicitly, not become an empty legal profile.
+
+### T6-184 — Empty profile vs failed load distinction
+
+A legitimately empty profile must be distinguishable from migration/load failure.
+
+---
+
+## 24. Migration transaction / integrity tests
+
+When Phase 6 persistence is implemented:
+
+- migration is additive,
+- legacy source bytes/data remain intact unless an independently approved cleanup phase exists,
+- migration marker is idempotent,
+- partial failure rolls back Phase 6 writes,
+- canonical preexisting profile rows are not destroyed,
+- all players are migrated where mapping is valid, not only ActivePlayerRef,
+- campaign isolation is preserved,
+- `PRAGMA integrity_check` passes,
+- adopted FK policy is explicitly tested with `PRAGMA foreign_key_check` where applicable,
+- no duplicate domain/profile identity rows after retry.
+
+Phase 6 migration correctness must not depend on whichever player happens to be active at migration time.
+
+---
+
+## 25. Core must remain universe-agnostic
+
+Future Core implementation/test source must not branch on literals such as:
+
+- `genjutsu`,
+- `raiton`,
+- `kido`,
+- `zanjutsu`,
+- `sonido`,
+- `reishi`,
+- `chakra`,
+- `reiatsu`,
+- specific bloodline/race names.
+
+World-specific examples belong in World Pack fixtures/data/provider rules only.
+
+A static/source test may search generic Core Phase 6 files for prohibited fixture/world literals while allowing them under test fixture or World Pack packages.
+
+---
+
+## 26. Required Phase 6 invariant checklist
+
+Implementation is not acceptable unless tests establish all of the following:
+
+1. Talent and Potential are independent axes.
+2. All four high/low combinations persist exactly.
+3. Talent update cannot modify Potential.
+4. Potential update cannot modify Talent.
+5. Talent cannot auto-change current Skill Level.
+6. Potential cannot auto-change PlayerStat.baseValue/current stat.
+7. Skill/stat changes cannot back-infer persistent Talent/Potential.
+8. Temporary learning bonus never rewrites persistent Talent.
+9. Temporary breakthrough effect never rewrites persistent Potential.
+10. Profile state is campaign + character scoped.
+11. Domain identity uses stable UID, not display label.
+12. Same display name across packs can coexist.
+13. World Pack cannot hijack another pack's domain UID.
+14. Domain semantic reinterpretation requires explicit version/migration policy.
+15. Profile changes/migrations carry provenance.
+16. Migration is idempotent.
+17. Existing new-format profile authority is not overwritten blindly by legacy backfill.
+18. Ambiguous legacy values are preserved but not promoted.
+19. No Talent inference from skill mastery/achievement.
+20. No Potential inference from stat magnitude/evolution stage.
+21. Affinity is not globally Talent.
+22. Current adaptation state is not automatically adaptation Potential.
+23. Base profiles are PERSISTENT.
+24. Effective contextual progression parameters are DERIVED.
+25. Temporary effects are source/runtime context, not base profiles.
+26. Derived/cache deletion loses no profile authority.
+27. Resolver/progression reads are pure with respect to profiles.
+28. Same inputs + versions => deterministic result.
+29. Missing rules/dependencies fail explicitly according to contract.
+30. Cycles fail deterministically.
+31. Numeric values are finite and in declared bounds.
+32. No silent truncation at 100/1000 records.
+33. No silent SQL/load failure represented as empty profile.
+34. Unknown/custom World Pack works without Core code changes.
+35. World-specific mechanics are not hardcoded into Core.
+
+---
+
+## 27. Recommended future implementation acceptance sequence
+
+Phase 6 implementation should not begin before Phase 5 is accepted.
+
+When authorized, recommended acceptance sequence:
+
+1. freeze Phase 5 resolver/modifier contract,
+2. inspect real legacy/bundled DB schemas,
+3. freeze Phase 6 domain UID + normalization + provenance contract,
+4. implement World-Pack-owned domain definitions,
+5. implement campaign/character scoped Talent/Potential profile persistence,
+6. implement conservative migration classifier/mapping registry,
+7. run pure profile independence tests,
+8. run migration ambiguity/idempotency/collision tests,
+9. integrate Phase 5 effective contextual parameter resolution without profile mutation,
+10. later integrate ProgressionEngine causal consumption,
+11. run Naruto-like, Bleach-like and unknown/custom World Pack fixtures through the same generic Core path,
+12. run scale/reopen/integrity tests,
+13. coordinator performs integration audit before any global COMPLETE status.
+
+---
+
+## 28. Blockers / dependency statement
+
+Phase 6 design/test contract itself is ready.
+
+Runtime implementation remains blocked by Phase 5 because Phase 6 requires the accepted deterministic rule/modifier/effective-value semantics to avoid inventing a parallel modifier/resolver engine.
+
+Phase 4 is also on the upstream critical path and is currently under separate hardening/revalidation work. This report does not judge or modify Phase 4.
+
+No runtime implementation is authorized by this work item.
+
+---
+
+# Final status
+
+**PHASE 6 TEST CONTRACT READY — IMPLEMENTATION BLOCKED BY PHASE 5**
