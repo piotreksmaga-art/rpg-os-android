@@ -246,6 +246,14 @@ class LocalGameStore(private val context: Context) {
     fun activeCampaignDirName(): String = selection.activeCampaignDirName()
     fun activeWorldPackDirName(): String = selection.activeWorldPackDirName()
 
+    /**
+     * Application-facing runtime readiness check. This deliberately delegates to
+     * the same production CAMPAIGN_OPEN path as the GM instead of duplicating
+     * integrity logic in UI/ViewModel code.
+     */
+    fun campaignHealth(): CampaignHealthReport141 =
+        CampaignHealthService141(context, this).inspectActiveCampaign()
+
     fun packageManager(): RpgPackageManager = RpgPackageManager(context)
 
     fun backups(): List<String> = BackupManager(context).listBackups().map { it.absolutePath }
