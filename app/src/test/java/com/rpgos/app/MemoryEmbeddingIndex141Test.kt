@@ -117,10 +117,10 @@ class MemoryEmbeddingIndex141Test {
     }
 
     private suspend fun createMemories(vararg memories: DurableMemoryRecord): Pair<EntityUid, List<DurableMemoryRecord>> {
-        lateinit var campaignUid: EntityUid
-        GameMasterRepositoryFactory(app, store).openActiveSession().use { active ->
-            campaignUid = active.campaignUid
-            memories.forEach { active.repository.writeMemory(it.copy(campaignUid = campaignUid)) }
+        val campaignUid = GameMasterRepositoryFactory(app, store).openActiveSession().use { active ->
+            val uid = active.campaignUid
+            memories.forEach { active.repository.writeMemory(it.copy(campaignUid = uid)) }
+            uid
         }
         return campaignUid to memories.map { it.copy(campaignUid = campaignUid) }
     }
