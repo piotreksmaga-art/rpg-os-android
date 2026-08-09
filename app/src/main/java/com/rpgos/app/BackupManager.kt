@@ -8,9 +8,10 @@ import java.util.Locale
 
 class BackupManager(private val context: Context) {
     private val base = File(context.filesDir, "rpgos")
-    private val campaign = File(base, "saves/Naruto_Default.campaign")
-    private val db = File(campaign, "campaign.db")
-    private val backups = File(campaign, "backups")
+    private val selection = CampaignSelectionManager(context)
+    private val campaign: File get() = File(base, "saves/${selection.activeCampaignDirName()}")
+    private val db: File get() = File(campaign, "campaign.db")
+    private val backups: File get() = File(campaign, "backups")
 
     fun createBackup(label: String): File {
         backups.mkdirs()
