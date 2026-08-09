@@ -13,7 +13,7 @@ internal class StatResourceStore(
     init { require(campaignId.isNotBlank()) { "campaignId must not be blank" } }
 
     fun statDefinitions(worldPackUid: String? = null): List<StatDefinition> {
-        val args = worldPackUid?.let { arrayOf(it) }
+        val args: Array<String>? = worldPackUid?.let { arrayOf(it) }
         val where = if (worldPackUid == null) "" else " WHERE world_pack_uid=?"
         val out = mutableListOf<StatDefinition>()
         db.rawQuery(
@@ -39,7 +39,7 @@ internal class StatResourceStore(
     }
 
     fun resourceDefinitions(worldPackUid: String? = null): List<ResourceDefinition> {
-        val args = worldPackUid?.let { arrayOf(it) }
+        val args: Array<String>? = worldPackUid?.let { arrayOf(it) }
         val where = if (worldPackUid == null) "" else " WHERE world_pack_uid=?"
         val out = mutableListOf<ResourceDefinition>()
         db.rawQuery(
@@ -72,27 +72,32 @@ internal class StatResourceStore(
         }
         inTransaction {
             definitions.forEach { definition ->
-                rejectUidHijack("stat_definitions", "stat_uid", definition.statUid, worldPackUid)
-                db.execSQL(
-                    """
-                    INSERT INTO stat_definitions(
-                        stat_uid,stat_key,category,unit,min_value,max_value,growth_rule_uid,derivation_rule_uid,world_pack_uid
-                    ) VALUES(?,?,?,?,?,?,?,?,?)
-                    ON CONFLICT(stat_uid) DO UPDATE SET
-                        stat_key=excluded.stat_key,
-                        category=excluded.category,
-                        unit=excluded.unit,
-                        min_value=excluded.min_value,
-                        max_value=excluded.max_value,
-                        growth_rule_uid=excluded.growth_rule_uid,
-                        derivation_rule_uid=excluded.derivation_rule_uid
-                    """.trimIndent(),
-                    arrayOf(
-                        definition.statUid, definition.key, definition.category, definition.unit,
-                        definition.minValue, definition.maxValue, definition.growthRuleUid,
-                        definition.derivationRuleUid, definition.worldPackUid
-                    )
+                val existing = existingStatDefinition(definition.statUid)
+                require(existing == null || existing == definition) {
+                    "Definition UID ${definition.statUid} already exists with incompatible metadata"
+                }
+                rejectKeyCollision(
+                    table = "stat_definitions",
+                    keyColumn = "stat_key",
+                    uidColumn = "stat_uid",
+                    worldPackUid = worldPackUid,
+                    key = definition.key,
+                    uid = definition.statUid
                 )
+                if (existing == null) {
+                    db.execSQL(
+                        """
+                        INSERT INTO stat_definitions(
+                            stat_uid,stat_key,category,unit,min_value,max_value,growth_rule_uid,derivation_rule_uid,world_pack_uid
+                        ) VALUES(?,?,?,?,?,?,?,?,?)
+                        """.trimIndent(),
+                        arrayOf<Any?>(
+                            definition.statUid, definition.key, definition.category, definition.unit,
+                            definition.minValue, definition.maxValue, definition.growthRuleUid,
+                            definition.derivationRuleUid, definition.worldPackUid
+                        )
+                    )
+                }
             }
         }
     }
@@ -105,27 +110,32 @@ internal class StatResourceStore(
         }
         inTransaction {
             definitions.forEach { definition ->
-                rejectUidHijack("resource_definitions", "resource_uid", definition.resourceUid, worldPackUid)
-                db.execSQL(
-                    """
-                    INSERT INTO resource_definitions(
-                        resource_uid,resource_key,category,unit,min_value,max_value,max_rule_uid,regeneration_rule_uid,world_pack_uid
-                    ) VALUES(?,?,?,?,?,?,?,?,?)
-                    ON CONFLICT(resource_uid) DO UPDATE SET
-                        resource_key=excluded.resource_key,
-                        category=excluded.category,
-                        unit=excluded.unit,
-                        min_value=excluded.min_value,
-                        max_value=excluded.max_value,
-                        max_rule_uid=excluded.max_rule_uid,
-                        regeneration_rule_uid=excluded.regeneration_rule_uid
-                    """.trimIndent(),
-                    arrayOf(
-                        definition.resourceUid, definition.key, definition.category, definition.unit,
-                        definition.minValue, definition.maxValue, definition.maxRuleUid,
-                        definition.regenerationRuleUid, definition.worldPackUid
-                    )
+                val existing = existingResourceDefinition(definition.resourceUid)
+                require(existing == null || existing == definition) {
+                    "Definition UID ${definition.resourceUid} already exists with incompatible metadata"
+                }
+                rejectKeyCollision(
+                    table = "resource_definitions",
+                    keyColumn = "resource_key",
+                    uidColumn = "resource_uid",
+                    worldPackUid = worldPackUid,
+                    key = definition.key,
+                    uid = definition.resourceUid
                 )
+                if (existing == null) {
+                    db.execSQL(
+                        """
+                        INSERT INTO resource_definitions(
+                            resource_uid,resource_key,category,unit,min_value,max_value,max_rule_uid,regeneration_rule_uid,world_pack_uid
+                        ) VALUES(?,?,?,?,?,?,?,?,?)
+                        """.trimIndent(),
+                        arrayOf<Any?>(
+                            definition.resourceUid, definition.key, definition.category, definition.unit,
+                            definition.minValue, definition.maxValue, definition.maxRuleUid,
+                            definition.regenerationRuleUid, definition.worldPackUid
+                        )
+                    )
+                }
             }
         }
     }
@@ -163,7 +173,7 @@ internal class StatResourceStore(
     internal fun savePlayerStat(stat: PlayerStat) {
         StatResourcePolicy.validate(stat)
         require(stat.campaignId == campaignId) { "PlayerStat belongs to another campaign" }
-        requireDefinition("stat_definitions", "stat_uid", stat.statUid)
+        requireValueWithinDefinition("stat_definitions", "stat_uid", stat.statUid, stat.baseValue)
         db.execSQL(
             """
             INSERT INTO player_stats(campaign_id,character_uid,stat_uid,base_value,version)
@@ -172,14 +182,14 @@ internal class StatResourceStore(
                 base_value=excluded.base_value,
                 version=excluded.version
             """.trimIndent(),
-            arrayOf(stat.campaignId, stat.characterUid, stat.statUid, stat.baseValue, stat.version)
+            arrayOf<Any?>(stat.campaignId, stat.characterUid, stat.statUid, stat.baseValue, stat.version)
         )
     }
 
     internal fun savePlayerResource(resource: PlayerResource) {
         StatResourcePolicy.validate(resource)
         require(resource.campaignId == campaignId) { "PlayerResource belongs to another campaign" }
-        requireDefinition("resource_definitions", "resource_uid", resource.resourceUid)
+        requireValueWithinDefinition("resource_definitions", "resource_uid", resource.resourceUid, resource.currentValue)
         db.execSQL(
             """
             INSERT INTO player_resources(campaign_id,character_uid,resource_uid,current_value,version)
@@ -188,29 +198,64 @@ internal class StatResourceStore(
                 current_value=excluded.current_value,
                 version=excluded.version
             """.trimIndent(),
-            arrayOf(
+            arrayOf<Any?>(
                 resource.campaignId, resource.characterUid, resource.resourceUid,
                 resource.currentValue, resource.version
             )
         )
     }
 
-    private fun requireDefinition(table: String, uidColumn: String, uid: String) {
-        val exists = db.rawQuery(
-            "SELECT 1 FROM $table WHERE $uidColumn=? LIMIT 1",
-            arrayOf(uid)
-        ).use { it.moveToFirst() }
-        require(exists) { "Unknown definition UID: $uid" }
+    private fun existingStatDefinition(uid: String): StatDefinition? = db.rawQuery(
+        "SELECT stat_uid,stat_key,category,unit,min_value,max_value,growth_rule_uid,derivation_rule_uid,world_pack_uid " +
+            "FROM stat_definitions WHERE stat_uid=?",
+        arrayOf(uid)
+    ).use { c ->
+        if (!c.moveToFirst()) null else StatDefinition(
+            statUid = c.getString(0), key = c.getString(1), category = c.getString(2), unit = c.stringOrNull(3),
+            minValue = c.doubleOrNull(4), maxValue = c.doubleOrNull(5), growthRuleUid = c.stringOrNull(6),
+            derivationRuleUid = c.stringOrNull(7), worldPackUid = c.getString(8)
+        )
     }
 
-    private fun rejectUidHijack(table: String, uidColumn: String, uid: String, worldPackUid: String) {
-        val existingOwner = db.rawQuery(
-            "SELECT world_pack_uid FROM $table WHERE $uidColumn=? LIMIT 1",
-            arrayOf(uid)
+    private fun existingResourceDefinition(uid: String): ResourceDefinition? = db.rawQuery(
+        "SELECT resource_uid,resource_key,category,unit,min_value,max_value,max_rule_uid,regeneration_rule_uid,world_pack_uid " +
+            "FROM resource_definitions WHERE resource_uid=?",
+        arrayOf(uid)
+    ).use { c ->
+        if (!c.moveToFirst()) null else ResourceDefinition(
+            resourceUid = c.getString(0), key = c.getString(1), category = c.getString(2), unit = c.stringOrNull(3),
+            minValue = c.doubleOrNull(4), maxValue = c.doubleOrNull(5), maxRuleUid = c.stringOrNull(6),
+            regenerationRuleUid = c.stringOrNull(7), worldPackUid = c.getString(8)
+        )
+    }
+
+    private fun rejectKeyCollision(
+        table: String,
+        keyColumn: String,
+        uidColumn: String,
+        worldPackUid: String,
+        key: String,
+        uid: String
+    ) {
+        val existingUid = db.rawQuery(
+            "SELECT $uidColumn FROM $table WHERE world_pack_uid=? AND $keyColumn=? LIMIT 1",
+            arrayOf(worldPackUid, key)
         ).use { c -> if (c.moveToFirst()) c.getString(0) else null }
-        require(existingOwner == null || existingOwner == worldPackUid) {
-            "Definition UID $uid is already owned by World Pack $existingOwner"
+        require(existingUid == null || existingUid == uid) {
+            "Definition key $key in World Pack $worldPackUid is already owned by UID $existingUid"
         }
+    }
+
+    private fun requireValueWithinDefinition(table: String, uidColumn: String, uid: String, value: Double) {
+        val bounds = db.rawQuery(
+            "SELECT min_value,max_value FROM $table WHERE $uidColumn=? LIMIT 1",
+            arrayOf(uid)
+        ).use { c ->
+            require(c.moveToFirst()) { "Unknown definition UID: $uid" }
+            c.doubleOrNull(0) to c.doubleOrNull(1)
+        }
+        bounds.first?.let { require(value >= it) { "Value $value is below definition minimum $it for $uid" } }
+        bounds.second?.let { require(value <= it) { "Value $value exceeds definition maximum $it for $uid" } }
     }
 
     private inline fun inTransaction(block: () -> Unit) {
