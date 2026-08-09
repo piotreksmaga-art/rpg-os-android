@@ -6,7 +6,7 @@ import android.content.Context
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFailsWith
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -107,9 +107,8 @@ class MemoryEmbeddingMaintenance141Test {
                 }
             )
 
-            assertFailsWith<IllegalArgumentException> {
-                maintenance.refresh(10L, 10)
-            }
+            val error = runCatching { maintenance.refresh(10L, 10) }.exceptionOrNull()
+            assertTrue(error is IllegalArgumentException)
             val count = db.rawQuery(
                 "SELECT COUNT(*) FROM gm_memory_embeddings WHERE campaign_id=?",
                 arrayOf(campaignUid.value)
