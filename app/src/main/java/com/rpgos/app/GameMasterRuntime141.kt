@@ -36,7 +36,10 @@ class GameMasterRuntime141(
         require(playerAction.isNotBlank()) { "Akcja gracza nie może być pusta." }
         require(currentChapter >= 0L) { "Numer rozdziału nie może być ujemny." }
 
-        repositoryFactory.openActiveSession().use { session ->
+        // Production GM entry point is fail-closed: recovery/additive bootstrap may
+        // happen first, but no narration, retrieval or simulation sees the campaign
+        // until CAMPAIGN_OPEN integrity succeeds.
+        repositoryFactory.openRuntimeSession().use { session ->
             val request = GameMasterTurnRequest(
                 campaignId = session.campaignUid.value,
                 worldPackId = session.worldPackUid.value,
