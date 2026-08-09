@@ -15,9 +15,10 @@ class LocalGameStore(private val context: Context) {
 
     fun bootstrap() {
         baseDir.mkdirs()
-        if (!File(saveDir, "campaign.db").exists()) {
+        if (!File(saveDir, "campaign.db").exists() && !RestoreRecovery141.hasPendingRecovery(saveDir)) {
             extractAssetZip("Naruto_Default.campaign.zip", saveDir)
         }
+        RestoreRecovery141.recoverIfNeeded(saveDir)
         if (!File(worldDir, "world.db").exists()) {
             extractAssetZip("Naruto.worldpack.zip", worldDir)
         }
@@ -52,7 +53,6 @@ class LocalGameStore(private val context: Context) {
         }
     }
 
-
     private fun copyAsset(assetName: String, target: File) {
         target.parentFile?.mkdirs()
         context.assets.open(assetName).use { input ->
@@ -79,18 +79,11 @@ class LocalGameStore(private val context: Context) {
         }
     }
 
-
-
     fun fullCharacterPanel(): CharacterPanelSnapshot {
         openSaveDb().use { db ->
             return CharacterPanelReader(db).load()
         }
     }
-
-
-
-
-
 
     fun npcs(search:String=""):List<NpcListItem>{
         openWorldDb().use{world->openSaveDb().use{save->return NpcWorldDashboardReader(world,save).npcs(search)}}
@@ -271,8 +264,14 @@ class LocalGameStore(private val context: Context) {
         }
     }
 
-    private fun openSave(): SQLiteDatabase =
-        SQLiteDatabase.openDatabase(File(saveDir, "campaign.db").absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
+    private fun openSave(): SQLiteDatabase {
+        RestoreRecovery141.recoverIfNeeded(saveDir)
+        return SQLiteDatabase.openDatabase(
+            File(saveDir, "campaign.db").absolutePath,
+            null,
+            SQLiteDatabase.OPEN_READWRITE
+        )
+    }
 
     fun status(): StatusSnapshot {
         if (!File(saveDir, "campaign.db").exists()) return StatusSnapshot()
