@@ -64,10 +64,8 @@ class CampaignSelectionManager(private val context: Context) {
 
         val original = runCatching { manifest.readText() }.getOrNull() ?: return
         val idRegex = Regex("(\\\"id\\\"\\s*:\\s*)\\\"[^\\\"]*\\\"")
-        val updated = if (idRegex.containsMatchIn(original)) {
-            original.replaceFirst(idRegex, "$1\"$campaignId\"")
-        } else {
-            original
+        val updated = idRegex.replaceFirst(original) { match ->
+            "${match.groupValues[1]}\"$campaignId\""
         }
         if (updated != original) manifest.writeText(updated)
     }
