@@ -46,13 +46,38 @@ class BackendClient(
             val body = response.body.string()
             val json = JSONObject(body)
             val narration = json.getString("narration")
+            val choicesJson = json.optJSONArray("choices")
+            val choices = buildList {
+                if (choicesJson != null) {
+                    for (index in 0 until choicesJson.length()) {
+                        choicesJson.optString(index)
+                            .takeIf { it.isNotBlank() }
+                            ?.let(::add)
+                    }
+                }
+            }.take(3)
+            val chapterEventsJson = json.optJSONArray("chapter_events")
+            val chapterEvents = buildList {
+                if (chapterEventsJson != null) {
+                    for (index in 0 until chapterEventsJson.length()) {
+                        chapterEventsJson.optJSONObject(index)?.toString()?.let(::add)
+                    }
+                }
+            }
             val patch = json.optJSONObject("state_patch")?.let(JsonCodec::parseStatePatch)
-            BackendTurnResult(narration, patch)
+            BackendTurnResult(
+                narration = narration,
+                patch = patch,
+                choices = choices,
+                chapterEvents = chapterEvents
+            )
         }
     }
 }
 
 data class BackendTurnResult(
     val narration: String,
-    val patch: StatePatch?
+    val patch: StatePatch?,
+    val choices: List<String> = emptyList(),
+    val chapterEvents: List<String> = emptyList()
 )
