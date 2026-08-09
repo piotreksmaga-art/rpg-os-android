@@ -11,7 +11,8 @@ data class ActiveGameMasterRepository(
     val knowledgeStore: KnowledgeTransmissionStore141,
     val npcKnowledgeStores: SQLiteNpcKnowledgeStores141? = null,
     val organizationAuthorizationStore: OrganizationKnowledgeAuthorizationStore141? = null,
-    val truthSupersessionStore: TruthSupersession141? = null
+    val truthSupersessionStore: TruthSupersession141? = null,
+    val semanticMemoryStore: SemanticMemoryStore141? = null
 ) : AutoCloseable {
     override fun close() = repository.close()
 }
@@ -58,12 +59,13 @@ class GameMasterRepositoryFactory(
                 ownsDatabase = true
             )
 
-            // Knowledge and truth-lifecycle persistence use additive migrations in the same
-            // campaign.db. No parallel source of truth is introduced.
+            // Knowledge, truth lifecycle and memory provenance use additive migrations
+            // in the same campaign.db. No parallel source of truth is introduced.
             KnowledgeTransmissionSchema141.ensure(db)
             NpcKnowledgePersistenceSchema141.ensure(db)
             OrganizationKnowledgeAuthorizationSchema141.ensure(db)
             TruthSupersessionSchema141.ensure(db)
+            SemanticMemoryProvenanceSchema141.ensure(db)
             val knowledgeStore = SQLiteKnowledgeTransmissionStore141(db, campaignUid)
             val npcKnowledgeStores = SQLiteNpcKnowledgeStores141(db, campaignUid)
             val organizationAuthorizationStore = SQLiteOrganizationKnowledgeAuthorizationStore141(db)
@@ -72,12 +74,14 @@ class GameMasterRepositoryFactory(
                 repository = repository,
                 campaignUid = campaignUid
             )
+            val semanticMemoryStore = SQLiteSemanticMemoryStore141(db, campaignUid)
             GameMasterLegacyBootstrap141.ensure(db, campaignUid)
 
             if (requireOpenIntegrity) {
                 // Recovery has already been attempted by LocalGameStore.openSaveDb().
-                // From this point onward an inconsistent campaign must fail closed
-                // instead of entering production GM logic.
+                // Semantic provenance is checked separately so a derived memory can
+                // never bypass the primary Source-of-Truth integrity boundary.
+                SemanticMemoryIntegrity141(db, campaignUid).requireHealthy("CAMPAIGN_OPEN")
                 GameMasterIntegrityGate141(db).requireHealthy("CAMPAIGN_OPEN")
             }
 
@@ -88,7 +92,8 @@ class GameMasterRepositoryFactory(
                 knowledgeStore = knowledgeStore,
                 npcKnowledgeStores = npcKnowledgeStores,
                 organizationAuthorizationStore = organizationAuthorizationStore,
-                truthSupersessionStore = truthSupersessionStore
+                truthSupersessionStore = truthSupersessionStore,
+                semanticMemoryStore = semanticMemoryStore
             )
         } catch (t: Throwable) {
             if (repository != null) repository.close() else db.close()
