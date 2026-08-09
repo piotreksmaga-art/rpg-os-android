@@ -16,13 +16,16 @@ class BackupManager(private val context: Context) {
     fun createBackup(label: String): File {
         backups.mkdirs()
         require(db.exists()) { "campaign.db nie istnieje" }
-        GameMasterIntegrityGate141.requireHealthyFile(db, "BACKUP_SOURCE")
 
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val safe = label.replace(Regex("[^A-Za-z0-9_-]"), "_")
         val out = File(backups, "${stamp}_${safe}.db")
-        db.copyTo(out, overwrite = true)
-        return out
+        return SQLitePersistenceCopy141.copyLiveDatabase(
+            source = db,
+            target = out,
+            sourceBoundary = "BACKUP_SOURCE",
+            artifactBoundary = "BACKUP_ARTIFACT"
+        )
     }
 
     fun listBackups(): List<File> =
