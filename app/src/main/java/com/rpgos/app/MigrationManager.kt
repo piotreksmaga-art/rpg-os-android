@@ -14,10 +14,7 @@ class MigrationManager {
             """.trimIndent()
         )
         VisualLibrary(saveDb).ensureSchema()
-        saveDb.execSQL(
-            "INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) " +
-                "VALUES('RPGOS-1.0',strftime('%s','now'),'Baseline migration')"
-        )
+        saveDb.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('RPGOS-1.0',strftime('%s','now'),'Baseline migration')")
     }
 
     fun ensureV2(saveDb: SQLiteDatabase) {
@@ -57,10 +54,7 @@ class MigrationManager {
             saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_truth_campaign_kind_active ON campaign_truth_records(campaign_id,truth_kind,active,created_at DESC)")
             saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_truth_subject ON campaign_truth_records(campaign_id,subject_uid,active)")
             saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_truth_perspective ON campaign_truth_records(campaign_id,perspective_uid,truth_kind,active)")
-            saveDb.execSQL(
-                "INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) " +
-                    "VALUES('RPGOS-2.0-TRUTH',strftime('%s','now'),'Adds FACT/BELIEF/NARRATIVE truth records with provenance; no legacy facts are invented')"
-            )
+            saveDb.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('RPGOS-2.0-TRUTH',strftime('%s','now'),'Adds FACT/BELIEF/NARRATIVE truth records with provenance; no legacy facts are invented')")
             saveDb.setTransactionSuccessful()
         } finally { saveDb.endTransaction() }
     }
@@ -69,19 +63,8 @@ class MigrationManager {
         ensureV2(saveDb)
         saveDb.beginTransaction()
         try {
-            saveDb.execSQL(
-                """
-                CREATE TABLE IF NOT EXISTS active_player_ref(
-                    campaign_id TEXT PRIMARY KEY,
-                    player_uid TEXT NOT NULL,
-                    updated_at INTEGER NOT NULL
-                )
-                """.trimIndent()
-            )
-            saveDb.execSQL(
-                "INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) " +
-                    "VALUES('RPGOS-3.0-PLAYER-STATE',strftime('%s','now'),'Adds authoritative active player identity; legacy player selection is seeded once and then persisted')"
-            )
+            saveDb.execSQL("CREATE TABLE IF NOT EXISTS active_player_ref(campaign_id TEXT PRIMARY KEY,player_uid TEXT NOT NULL,updated_at INTEGER NOT NULL)")
+            saveDb.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('RPGOS-3.0-PLAYER-STATE',strftime('%s','now'),'Adds authoritative active player identity; legacy player selection is seeded once and then persisted')")
             saveDb.setTransactionSuccessful()
         } finally { saveDb.endTransaction() }
         ActivePlayerStore(saveDb, campaignId).seedFromLegacyIfMissing()
@@ -91,110 +74,86 @@ class MigrationManager {
         ensureV3(saveDb, campaignId)
         saveDb.beginTransaction()
         try {
-            saveDb.execSQL(
-                """
+            saveDb.execSQL("""
                 CREATE TABLE IF NOT EXISTS stat_definitions(
-                    stat_uid TEXT PRIMARY KEY,
-                    stat_key TEXT NOT NULL,
-                    category TEXT NOT NULL,
-                    unit TEXT,
-                    min_value REAL,
-                    max_value REAL,
-                    growth_rule_uid TEXT,
-                    derivation_rule_uid TEXT,
-                    world_pack_uid TEXT NOT NULL,
-                    UNIQUE(world_pack_uid,stat_key),
-                    CHECK(min_value IS NULL OR max_value IS NULL OR min_value <= max_value)
-                )
-                """.trimIndent()
-            )
-            saveDb.execSQL(
-                """
+                    stat_uid TEXT PRIMARY KEY, stat_key TEXT NOT NULL, category TEXT NOT NULL, unit TEXT,
+                    min_value REAL, max_value REAL, growth_rule_uid TEXT, derivation_rule_uid TEXT,
+                    world_pack_uid TEXT NOT NULL, UNIQUE(world_pack_uid,stat_key),
+                    CHECK(min_value IS NULL OR max_value IS NULL OR min_value <= max_value))
+            """.trimIndent())
+            saveDb.execSQL("""
                 CREATE TABLE IF NOT EXISTS player_stats(
-                    campaign_id TEXT NOT NULL,
-                    character_uid TEXT NOT NULL,
-                    stat_uid TEXT NOT NULL,
-                    base_value REAL NOT NULL,
-                    version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
-                    PRIMARY KEY(campaign_id,character_uid,stat_uid),
-                    FOREIGN KEY(stat_uid) REFERENCES stat_definitions(stat_uid)
-                )
-                """.trimIndent()
-            )
-            saveDb.execSQL(
-                """
+                    campaign_id TEXT NOT NULL, character_uid TEXT NOT NULL, stat_uid TEXT NOT NULL,
+                    base_value REAL NOT NULL, version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+                    PRIMARY KEY(campaign_id,character_uid,stat_uid), FOREIGN KEY(stat_uid) REFERENCES stat_definitions(stat_uid))
+            """.trimIndent())
+            saveDb.execSQL("""
                 CREATE TABLE IF NOT EXISTS resource_definitions(
-                    resource_uid TEXT PRIMARY KEY,
-                    resource_key TEXT NOT NULL,
-                    category TEXT NOT NULL,
-                    unit TEXT,
-                    min_value REAL,
-                    max_value REAL,
-                    max_rule_uid TEXT,
-                    regeneration_rule_uid TEXT,
-                    world_pack_uid TEXT NOT NULL,
-                    UNIQUE(world_pack_uid,resource_key),
-                    CHECK(min_value IS NULL OR max_value IS NULL OR min_value <= max_value)
-                )
-                """.trimIndent()
-            )
-            saveDb.execSQL(
-                """
+                    resource_uid TEXT PRIMARY KEY, resource_key TEXT NOT NULL, category TEXT NOT NULL, unit TEXT,
+                    min_value REAL, max_value REAL, max_rule_uid TEXT, regeneration_rule_uid TEXT,
+                    world_pack_uid TEXT NOT NULL, UNIQUE(world_pack_uid,resource_key),
+                    CHECK(min_value IS NULL OR max_value IS NULL OR min_value <= max_value))
+            """.trimIndent())
+            saveDb.execSQL("""
                 CREATE TABLE IF NOT EXISTS player_resources(
-                    campaign_id TEXT NOT NULL,
-                    character_uid TEXT NOT NULL,
-                    resource_uid TEXT NOT NULL,
-                    current_value REAL NOT NULL,
-                    version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
-                    PRIMARY KEY(campaign_id,character_uid,resource_uid),
-                    FOREIGN KEY(resource_uid) REFERENCES resource_definitions(resource_uid)
-                )
-                """.trimIndent()
-            )
+                    campaign_id TEXT NOT NULL, character_uid TEXT NOT NULL, resource_uid TEXT NOT NULL,
+                    current_value REAL NOT NULL, version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+                    PRIMARY KEY(campaign_id,character_uid,resource_uid), FOREIGN KEY(resource_uid) REFERENCES resource_definitions(resource_uid))
+            """.trimIndent())
             saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_stat_definitions_world_pack ON stat_definitions(world_pack_uid,category,stat_key)")
             saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_player_stats_character ON player_stats(campaign_id,character_uid)")
             saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_resource_definitions_world_pack ON resource_definitions(world_pack_uid,category,resource_key)")
             saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_player_resources_character ON player_resources(campaign_id,character_uid)")
-            saveDb.execSQL(
-                "INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) " +
-                    "VALUES('RPGOS-4.0-DYNAMIC-STATS-RESOURCES',strftime('%s','now'),'Adds generic World Pack stat/resource definitions and campaign+character scoped values; legacy stat/resource tables remain untouched')"
-            )
+            saveDb.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('RPGOS-4.0-DYNAMIC-STATS-RESOURCES',strftime('%s','now'),'Adds generic World Pack stat/resource definitions and campaign+character scoped values; legacy stat/resource tables remain untouched')")
 
-            saveDb.execSQL(
-                """
+            saveDb.execSQL("""
                 CREATE TABLE IF NOT EXISTS legacy_stat_aliases(
-                    campaign_id TEXT NOT NULL,
-                    legacy_stat_uid TEXT NOT NULL,
-                    canonical_stat_uid TEXT NOT NULL,
-                    world_pack_uid TEXT NOT NULL,
-                    mapping_version INTEGER NOT NULL CHECK(mapping_version >= 1),
-                    provenance TEXT NOT NULL,
-                    PRIMARY KEY(campaign_id,legacy_stat_uid),
-                    FOREIGN KEY(canonical_stat_uid) REFERENCES stat_definitions(stat_uid)
-                )
-                """.trimIndent()
-            )
-            saveDb.execSQL(
-                """
+                    campaign_id TEXT NOT NULL, legacy_stat_uid TEXT NOT NULL, canonical_stat_uid TEXT NOT NULL,
+                    world_pack_uid TEXT NOT NULL, mapping_version INTEGER NOT NULL CHECK(mapping_version >= 1),
+                    provenance TEXT NOT NULL, PRIMARY KEY(campaign_id,legacy_stat_uid),
+                    FOREIGN KEY(canonical_stat_uid) REFERENCES stat_definitions(stat_uid))
+            """.trimIndent())
+            saveDb.execSQL("""
                 CREATE TABLE IF NOT EXISTS legacy_resource_aliases(
-                    campaign_id TEXT NOT NULL,
-                    legacy_resource_uid TEXT NOT NULL,
-                    canonical_resource_uid TEXT NOT NULL,
-                    world_pack_uid TEXT NOT NULL,
-                    mapping_version INTEGER NOT NULL CHECK(mapping_version >= 1),
-                    provenance TEXT NOT NULL,
-                    PRIMARY KEY(campaign_id,legacy_resource_uid),
-                    FOREIGN KEY(canonical_resource_uid) REFERENCES resource_definitions(resource_uid)
-                )
-                """.trimIndent()
-            )
+                    campaign_id TEXT NOT NULL, legacy_resource_uid TEXT NOT NULL, canonical_resource_uid TEXT NOT NULL,
+                    world_pack_uid TEXT NOT NULL, mapping_version INTEGER NOT NULL CHECK(mapping_version >= 1),
+                    provenance TEXT NOT NULL, PRIMARY KEY(campaign_id,legacy_resource_uid),
+                    FOREIGN KEY(canonical_resource_uid) REFERENCES resource_definitions(resource_uid))
+            """.trimIndent())
             saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_legacy_stat_alias_target ON legacy_stat_aliases(campaign_id,canonical_stat_uid)")
             saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_legacy_resource_alias_target ON legacy_resource_aliases(campaign_id,canonical_resource_uid)")
-            saveDb.execSQL(
-                "INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) " +
-                    "VALUES('RPGOS-4.1-LEGACY-RECONCILIATION',strftime('%s','now'),'Adds explicit versioned legacy-to-typed stat/resource alias mappings; no key-based auto-merge')"
-            )
+            saveDb.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('RPGOS-4.1-LEGACY-RECONCILIATION',strftime('%s','now'),'Adds explicit versioned legacy-to-typed stat/resource alias mappings; no key-based auto-merge')")
+
+            ensureV5Objects(saveDb)
+            saveDb.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('RPGOS-5.0-DERIVED-MODIFIERS',strftime('%s','now'),'Adds authoritative generic modifier inputs; resolved effective/max/regeneration values remain rebuildable and are not persisted')")
             saveDb.setTransactionSuccessful()
         } finally { saveDb.endTransaction() }
+    }
+
+    private fun ensureV5Objects(saveDb: SQLiteDatabase) {
+        saveDb.execSQL("""
+            CREATE TABLE IF NOT EXISTS modifiers(
+                modifier_uid TEXT NOT NULL,
+                campaign_id TEXT NOT NULL,
+                character_uid TEXT NOT NULL,
+                target_definition_uid TEXT NOT NULL,
+                target_kind TEXT NOT NULL CHECK(target_kind IN ('STAT_EFFECTIVE','RESOURCE_MAXIMUM','RESOURCE_REGENERATION')),
+                lifecycle TEXT NOT NULL CHECK(lifecycle IN ('PERMANENT','EQUIPMENT','INJURY','TEMPORARY')),
+                operation TEXT NOT NULL CHECK(operation IN ('ADD_FLAT','ADD_PERCENT','MULTIPLY','OVERRIDE','MIN_FLOOR','MAX_CAP')),
+                modifier_value REAL NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 0,
+                source_type TEXT NOT NULL,
+                source_uid TEXT NOT NULL,
+                source_active INTEGER NOT NULL DEFAULT 1 CHECK(source_active IN (0,1)),
+                valid_from INTEGER,
+                valid_until INTEGER,
+                active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+                provenance TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1 CHECK(version >= 1),
+                PRIMARY KEY(campaign_id,modifier_uid),
+                CHECK(valid_from IS NULL OR valid_until IS NULL OR valid_until >= valid_from))
+        """.trimIndent())
+        saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_modifiers_character_target ON modifiers(campaign_id,character_uid,target_kind,target_definition_uid,active,source_active)")
+        saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_modifiers_source ON modifiers(campaign_id,character_uid,source_type,source_uid)")
     }
 }
