@@ -78,6 +78,8 @@ A campaign_truth record with truth_kind=FACT is objective committed campaign rea
 A campaign_truth record with truth_kind=BELIEF is only what perspective_uid believes; never treat it as global reality.
 A campaign_truth record with truth_kind=NARRATIVE is presentation only; never treat it as factual history unless a supporting FACT or committed event exists.
 Never promote NARRATIVE to FACT automatically. If narrative and FACT conflict, FACT wins.
+Use player_state as the canonical Phase 3 player read contract. player_state.active_player identifies the controlled character for this campaign.
+Treat player_state.persistent as durable authoritative character data, player_state.runtime as current transient conditions/resources, and player_state.derived only as rebuildable/read-only values. Do not reinterpret a temporary runtime penalty as permanent regression.
 Never invent NPC knowledge that is absent from npc_knowledge, npc_memories, or a BELIEF owned by that NPC.
 Use player_skills and player_techniques as authoritative learned abilities.
 Use active_world_events, world_pressures and recent_chronicle to preserve causality.
@@ -178,107 +180,39 @@ def generate_image(req: ImageGenerateRequest):
 
 
 @app.post("/v1/images/edit", response_model=ImageGenerateResponse)
-async def edit_image(
-    title: str = Form(...),
-    instruction: str = Form(...),
-    image: UploadFile = File(...)
+def edit_image(
+    image: UploadFile = File(...),
+    prompt: str = Form(...),
+    title: str = Form("Edited image")
 ):
     if not os.environ.get("OPENAI_API_KEY"):
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
 
-    image_model = os.environ.get("RPGOS_IMAGE_MODEL", "gpt-image-1")
-    raw = await image.read()
+    suffix = os.path.splitext(image.filename or "image.png")[1] or ".png"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(image.file.read())
+        tmp_path = tmp.name
 
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=True) as temp:
-        temp.write(raw)
-        temp.flush()
-        with open(temp.name, "rb") as image_file:
+    try:
+        with open(tmp_path, "rb") as src:
             result = client.images.edit(
-                model=image_model,
-                image=image_file,
-                prompt=instruction,
+                model=os.environ.get("RPGOS_IMAGE_MODEL", "gpt-image-1"),
+                image=src,
+                prompt=prompt,
                 size="1024x1024"
             )
-
-    item = result.data[0]
-    b64 = getattr(item, "b64_json", None)
-    if not b64:
-        raise HTTPException(status_code=502, detail="Image edit returned no base64 data")
-
-    return ImageGenerateResponse(
-        title=title,
-        mime_type="image/png",
-        base64_data=b64,
-        revised_prompt=getattr(item, "revised_prompt", None)
-    )
-
-
-
-# ---- RPG OS Update System v1 ----
-import urllib.request
-from fastapi.responses import StreamingResponse
-
-def _update_github_headers(accept="application/vnd.github+json"):
-    token = os.environ.get("RPGOS_GITHUB_TOKEN", "").strip()
-    headers = {"Accept": accept, "User-Agent": "RPG-OS-Updater"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-def _latest_release():
-    repo = os.environ.get("RPGOS_GITHUB_REPO", "").strip()
-    if not repo:
-        raise HTTPException(status_code=503, detail="RPGOS_GITHUB_REPO is not configured")
-    req = urllib.request.Request(
-        f"https://api.github.com/repos/{repo}/releases/latest",
-        headers=_update_github_headers()
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return json.loads(r.read().decode("utf-8"))
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"GitHub release lookup failed: {e}")
-
-def _asset(release, name):
-    for asset in release.get("assets", []):
-        if asset.get("name") == name:
-            return asset
-    raise HTTPException(status_code=404, detail=f"Release asset not found: {name}")
-
-def _asset_bytes(asset):
-    req = urllib.request.Request(
-        asset["url"],
-        headers=_update_github_headers("application/octet-stream")
-    )
-    with urllib.request.urlopen(req, timeout=120) as r:
-        return r.read()
-
-@app.get("/v1/updates/latest")
-def latest_update():
-    release = _latest_release()
-    raw = _asset_bytes(_asset(release, "update_manifest.json"))
-    return json.loads(raw.decode("utf-8"))
-
-@app.get("/v1/updates/apk")
-def latest_update_apk():
-    release = _latest_release()
-    apk = _asset(release, "RPG-OS.apk")
-
-    def stream():
-        req = urllib.request.Request(
-            apk["url"],
-            headers=_update_github_headers("application/octet-stream")
+        item = result.data[0]
+        b64 = getattr(item, "b64_json", None)
+        if not b64:
+            raise HTTPException(status_code=502, detail="Image API returned no base64 image data")
+        return ImageGenerateResponse(
+            title=title,
+            mime_type="image/png",
+            base64_data=b64,
+            revised_prompt=getattr(item, "revised_prompt", None)
         )
-        with urllib.request.urlopen(req, timeout=180) as r:
-            while True:
-                chunk = r.read(262144)
-                if not chunk:
-                    break
-                yield chunk
-
-    return StreamingResponse(
-        stream(),
-        media_type="application/vnd.android.package-archive",
-        headers={"Content-Disposition": 'attachment; filename="RPG-OS.apk"'}
-    )
-
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
