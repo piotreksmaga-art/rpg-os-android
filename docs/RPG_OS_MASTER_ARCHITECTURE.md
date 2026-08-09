@@ -252,10 +252,24 @@ Po logicznej zmianie: implementation -> local validation -> tests -> commit -> G
 
 Kluczowe testy: save-close-load, snapshot-replay, migration-old-campaign, rollback, idempotency/double commit, crash recovery, no-retrogression, money conservation, ownership integrity, NPC knowledge isolation, temporal lookup.
 
-## 44. Frontend — FROZEN
-Aktualny frontend jest zaakceptowany. Bez jawnej decyzji użytkownika nie wykonujemy redesignu, zmian stylu, poprawek pięciu żywiołów, nowych animacji/efektów ani proaktywnego refaktoru UI. Dozwolone są minimalne zmiany kompatybilności wymagane przez backend.
+## 44. Frontend — ACTIVE DEVELOPMENT / STYLE PRESERVATION
+Frontend nie jest już zamrożony. Może być rozwijany i modyfikowany równolegle z kolejnymi fazami, gdy zmiana jest potrzebna do prawidłowego udostępnienia nowej funkcjonalności, poprawy użyteczności albo integracji nowych kontraktów danych.
 
-CharacterPanelSnapshot v2 jest kontraktem danych/mechaniki, nie projektem nowego ekranu.
+Obowiązuje jednak zachowanie aktualnego, zaakceptowanego stylu wizualnego aplikacji. Nowe ekrany, komponenty, panele, animacje i rozszerzenia istniejących widoków muszą być projektowane jako naturalna kontynuacja obecnego RPG OS, a nie jako niezależny redesign.
+
+Dozwolone są m.in.:
+- nowe ekrany i panele wymagane przez rozwijane systemy,
+- rozwój Character Panel wraz z CharacterPanelSnapshot,
+- rozszerzenia nawigacji i interakcji,
+- poprawki UX i czytelności,
+- animacje i efekty zgodne z istniejącym językiem wizualnym,
+- refaktor UI, jeżeli jest potrzebny do integracji funkcjonalności lub utrzymania spójności.
+
+Nie wykonujemy przypadkowej zmiany całej estetyki aplikacji ani globalnego redesignu bez osobnej jawnej decyzji użytkownika. Zachowujemy charakter obecnego interfejsu, jego kierunek artystyczny i spójność pomiędzy starymi i nowymi elementami.
+
+Frontend nadal podlega zasadom małych, kontrolowanych zmian, testowania oraz ochrony działających funkcji. Backendowa zmiana nie jest automatycznym uzasadnieniem do przebudowy niepowiązanych ekranów.
+
+CharacterPanelSnapshot v2 pozostaje kontraktem danych i mechaniki, ale jego rozwój może być teraz równolegle odzwierciedlany w rzeczywistym Character Panel UI przy zachowaniu aktualnego stylu aplikacji.
 
 ## 45. Priorytet projektowy
 1. Data integrity
@@ -288,7 +302,7 @@ Nie raportuj funkcji, której faktycznie nie zaimplementowano.
 7. Wykonaj najmniejszą bezpieczną zmianę.
 8. Test/build/integrity/commit/CI.
 9. Zaktualizuj roadmapę/checklistę tylko jeśli dowody potwierdzają status.
-10. Frontend pozostaje FROZEN.
+10. Frontend może być rozwijany, gdy służy aktualnej funkcjonalności; każda zmiana UI musi zachować zaakceptowany styl aplikacji i nie może wprowadzać niepowiązanego globalnego redesignu.
 
 ## 49. Ostateczny cel
 RPG OS nie jest dużym promptem. Jest trwałym systemem świata, nad którym AI pełni rolę GM.
