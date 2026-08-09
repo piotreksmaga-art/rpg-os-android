@@ -15,9 +15,11 @@ class DerivedValueResolver(private val ruleProvider: DerivedRuleProvider? = null
         val statDefs = uniqueBy(request.statDefinitions, { it.statUid }, "stat definition")
         val resourceDefs = uniqueBy(request.resourceDefinitions, { it.resourceUid }, "resource definition")
         val skillDefs = uniqueBy(request.skillDefinitions, { it.skillUid }, "skill definition")
+        val techniqueDefs = uniqueBy(request.techniqueDefinitions, { it.techniqueUid }, "technique definition")
         val stats = uniqueBy(request.playerStats, { it.statUid }, "player stat")
         uniqueBy(request.playerResources, { it.resourceUid }, "player resource")
         val skills = uniqueBy(request.playerSkills, { it.skillUid }, "player skill")
+        val techniques = uniqueBy(request.playerTechniques, { it.techniqueUid }, "player technique")
         uniqueBy(request.modifiers, { it.modifierUid }, "modifier")
 
         request.playerStats.forEach {
@@ -35,6 +37,11 @@ class DerivedValueResolver(private val ruleProvider: DerivedRuleProvider? = null
             require(it.campaignId == request.campaignId && it.characterUid == request.characterUid) { "PlayerSkill ${it.skillUid} belongs to another campaign/player" }
             require(skillDefs.containsKey(it.skillUid)) { "PlayerSkill targets missing definition ${it.skillUid}" }
         }
+        request.playerTechniques.forEach {
+            TechniquePolicy.validatePlayerTechnique(it)
+            require(it.campaignId == request.campaignId && it.characterUid == request.characterUid) { "PlayerTechnique ${it.techniqueUid} belongs to another campaign/player" }
+            require(techniqueDefs.containsKey(it.techniqueUid)) { "PlayerTechnique targets missing definition ${it.techniqueUid}" }
+        }
         request.modifiers.forEach { modifier ->
             ModifierPolicy.validate(modifier)
             require(modifier.campaignId == request.campaignId && modifier.characterUid == request.characterUid) { "Modifier ${modifier.modifierUid} belongs to another campaign/player" }
@@ -45,6 +52,10 @@ class DerivedValueResolver(private val ruleProvider: DerivedRuleProvider? = null
                 ModifierTargetKind.SKILL_EFFECTIVE -> {
                     require(skillDefs.containsKey(modifier.targetDefinitionUid)) { "Missing skill target ${modifier.targetDefinitionUid}" }
                     require(skills.containsKey(modifier.targetDefinitionUid)) { "Skill modifier targets unlearned skill ${modifier.targetDefinitionUid}" }
+                }
+                ModifierTargetKind.TECHNIQUE_EFFECTIVE -> {
+                    require(techniqueDefs.containsKey(modifier.targetDefinitionUid)) { "Missing Technique target ${modifier.targetDefinitionUid}" }
+                    require(techniques.containsKey(modifier.targetDefinitionUid)) { "Technique modifier targets unlearned Technique ${modifier.targetDefinitionUid}" }
                 }
             }
         }
@@ -63,6 +74,7 @@ class DerivedValueResolver(private val ruleProvider: DerivedRuleProvider? = null
         val activeModifiers = request.modifiers.filter { ModifierPolicy.isEffectiveAt(it, request.resolutionEpoch) }
         val statCache = linkedMapOf<String, ResolvedStat>()
         val skillCache = linkedMapOf<String, ResolvedSkill>()
+        val techniqueCache = linkedMapOf<String, ResolvedTechnique>()
         val maxCache = linkedMapOf<String, AppliedValue?>()
         val regenCache = linkedMapOf<String, AppliedValue?>()
         val usedRules = linkedMapOf<String, DerivedRuleDescriptor>()
@@ -145,6 +157,20 @@ class DerivedValueResolver(private val ruleProvider: DerivedRuleProvider? = null
             }
         }
 
+        fun resolveTechnique(uid: String): ResolvedTechnique {
+            techniqueCache[uid]?.let { return it }
+            val definition=techniqueDefs[uid] ?: error("Missing Technique definition $uid")
+            val player=techniques[uid] ?: error("Missing learned PlayerTechnique $uid")
+            return cycleGuard(NodeKey(ModifierTargetKind.TECHNIQUE_EFFECTIVE,uid)) {
+                val applied=applyModifiers(player.baseMastery,ModifierTargetKind.TECHNIQUE_EFFECTIVE,uid)
+                val preBounds=applied.value; var finalValue=preBounds
+                definition.minMastery?.let { finalValue=kotlin.math.max(finalValue,it) }; definition.maxMastery?.let { finalValue=kotlin.math.min(finalValue,it) }
+                finalValue=finite(finalValue,"Technique definition bounds $uid")
+                val local=if(finalValue!=preBounds) listOf(DerivedDiagnostic("TECHNIQUE_DEFINITION_BOUND_APPLIED",uid,"preBound=${canon(preBounds)} final=${canon(finalValue)}")) else emptyList()
+                ResolvedTechnique(uid,zero(player.baseMastery),zero(preBounds),zero(finalValue),applied.contributions,local).also{techniqueCache[uid]=it}
+            }
+        }
+
         fun resolveMaximum(uid:String):AppliedValue? {
             if(maxCache.containsKey(uid)) return maxCache[uid]
             val definition=resourceDefs[uid] ?: error("Missing resource definition $uid"); val node=NodeKey(ModifierTargetKind.RESOURCE_MAXIMUM,uid)
@@ -166,19 +192,27 @@ class DerivedValueResolver(private val ruleProvider: DerivedRuleProvider? = null
             ModifierTargetKind.RESOURCE_MAXIMUM->resolveMaximum(dependency.targetDefinitionUid)?.value?:error("Undefined maximum dependency ${dependency.targetDefinitionUid}")
             ModifierTargetKind.RESOURCE_REGENERATION->resolveRegeneration(dependency.targetDefinitionUid)?.value?:error("Undefined regeneration dependency ${dependency.targetDefinitionUid}")
             ModifierTargetKind.SKILL_EFFECTIVE->resolveSkill(dependency.targetDefinitionUid).effectiveMastery
+            ModifierTargetKind.TECHNIQUE_EFFECTIVE->resolveTechnique(dependency.targetDefinitionUid).effectiveMastery
         }}
 
         val statTargets=linkedSetOf<String>();request.playerStats.forEach{statTargets+=it.statUid};request.statDefinitions.filter{it.derivationRuleUid!=null}.forEach{statTargets+=it.statUid};activeModifiers.filter{it.targetKind==ModifierTargetKind.STAT_EFFECTIVE}.forEach{statTargets+=it.targetDefinitionUid};statTargets.sorted().forEach(::resolveStat)
         val skillTargets=linkedSetOf<String>();request.playerSkills.forEach{skillTargets+=it.skillUid};activeModifiers.filter{it.targetKind==ModifierTargetKind.SKILL_EFFECTIVE}.forEach{skillTargets+=it.targetDefinitionUid};skillTargets.sorted().forEach(::resolveSkill)
+        val techniqueTargets=linkedSetOf<String>();request.playerTechniques.forEach{techniqueTargets+=it.techniqueUid};activeModifiers.filter{it.targetKind==ModifierTargetKind.TECHNIQUE_EFFECTIVE}.forEach{techniqueTargets+=it.targetDefinitionUid};techniqueTargets.sorted().forEach(::resolveTechnique)
         val resolvedResources=request.playerResources.sortedBy{it.resourceUid}.map{player->
             val max=resolveMaximum(player.resourceUid);val regen=resolveRegeneration(player.resourceUid)
             val local=if(max!=null&&player.currentValue>max.value) listOf(DerivedDiagnostic("RESOURCE_CURRENT_ABOVE_DERIVED_MAX",player.resourceUid,"current=${canon(player.currentValue)} maximum=${canon(max.value)}; no authoritative mutation performed")) else emptyList()
             ResolvedResource(player.resourceUid,zero(player.currentValue),max?.value?.let(::zero),regen?.value?.let(::zero),max?.contributions?:emptyList(),regen?.contributions?:emptyList(),local)
         }
         val ruleFingerprint=ruleFingerprint(usedRules.values.toList())
-        return DerivedResolutionResult(statCache.values.sortedBy{it.statUid},resolvedResources,
-            diagnostics+statCache.values.flatMap{it.diagnostics}+resolvedResources.flatMap{it.diagnostics}+skillCache.values.flatMap{it.diagnostics},
-            inputFingerprint(request,ruleFingerprint),ruleFingerprint,skillCache.values.sortedBy{it.skillUid})
+        return DerivedResolutionResult(
+            statCache.values.sortedBy{it.statUid},
+            resolvedResources,
+            diagnostics+statCache.values.flatMap{it.diagnostics}+resolvedResources.flatMap{it.diagnostics}+skillCache.values.flatMap{it.diagnostics}+techniqueCache.values.flatMap{it.diagnostics},
+            inputFingerprint(request,ruleFingerprint),
+            ruleFingerprint,
+            skillCache.values.sortedBy{it.skillUid},
+            techniqueCache.values.sortedBy{it.techniqueUid}
+        )
     }
 
     private fun ruleFingerprint(descriptors:List<DerivedRuleDescriptor>):String {
@@ -192,9 +226,11 @@ class DerivedValueResolver(private val ruleProvider: DerivedRuleProvider? = null
         request.statDefinitions.sortedBy{it.statUid}.forEach{append("|SD:").append(it.statUid).append(':').append(it.key).append(':').append(it.category).append(':').append(it.unit?:"").append(':').append(it.minValue?.let(::canon)?:"").append(':').append(it.maxValue?.let(::canon)?:"").append(':').append(it.growthRuleUid?:"").append(':').append(it.derivationRuleUid?:"").append(':').append(it.worldPackUid)}
         request.resourceDefinitions.sortedBy{it.resourceUid}.forEach{append("|RD:").append(it.resourceUid).append(':').append(it.key).append(':').append(it.category).append(':').append(it.unit?:"").append(':').append(it.minValue?.let(::canon)?:"").append(':').append(it.maxValue?.let(::canon)?:"").append(':').append(it.maxRuleUid?:"").append(':').append(it.regenerationRuleUid?:"").append(':').append(it.worldPackUid)}
         request.skillDefinitions.sortedBy{it.skillUid}.forEach{append("|KD:").append(it.skillUid).append(':').append(it.worldPackUid).append(':').append(it.key).append(':').append(it.category).append(':').append(it.minMastery?.let(::canon)?:"").append(':').append(it.maxMastery?.let(::canon)?:"").append(':').append(it.status.name).append(':').append(it.definitionVersion);it.progressionDomainUids.sorted().forEach{d->append('>').append(d)}}
+        request.techniqueDefinitions.sortedBy{it.techniqueUid}.forEach{d->append("|TD:").append(d.techniqueUid).append(':').append(d.worldPackUid).append(':').append(d.key).append(':').append(d.category).append(':').append(d.minMastery?.let(::canon)?:"").append(':').append(d.maxMastery?.let(::canon)?:"").append(':').append(d.status.name).append(':').append(d.definitionVersion);d.skillRequirements.sortedBy{it.skillUid}.forEach{r->append(">S:").append(r.skillUid).append(':').append(r.masteryBasis.name).append(':').append(canon(r.minimumMastery)).append(':').append(r.requirementVersion)};d.resourceCosts.sortedBy{it.resourceUid}.forEach{c->append(">R:").append(c.resourceUid).append(':').append(canon(c.amount)).append(':').append(c.costVersion)}}
         request.playerStats.sortedBy{it.statUid}.forEach{append("|PS:").append(it.statUid).append(':').append(canon(it.baseValue)).append(':').append(it.version)}
         request.playerResources.sortedBy{it.resourceUid}.forEach{append("|PR:").append(it.resourceUid).append(':').append(canon(it.currentValue)).append(':').append(it.version)}
         request.playerSkills.sortedBy{it.skillUid}.forEach{append("|PK:").append(it.skillUid).append(':').append(canon(it.baseMastery)).append(':').append(it.progressValue?.let(::canon)?:"").append(':').append(it.progressSemanticsUid?:"").append(':').append(it.entryVersion)}
+        request.playerTechniques.sortedBy{it.techniqueUid}.forEach{append("|PT:").append(it.techniqueUid).append(':').append(canon(it.baseMastery)).append(':').append(it.progressValue?.let(::canon)?:"").append(':').append(it.progressSemanticsUid?:"").append(':').append(it.learnedChapter?:"").append(':').append(it.lastUsedChapter?:"").append(':').append(it.usageCount).append(':').append(it.successCount).append(':').append(it.failureCount).append(':').append(it.isEquipped).append(':').append(it.entryVersion)}
         request.modifiers.sortedBy{it.modifierUid}.forEach{append("|M:").append(it.modifierUid).append(':').append(it.targetKind.name).append(':').append(it.targetDefinitionUid).append(':').append(it.lifecycle.name).append(':').append(it.operation.name).append(':').append(canon(it.value)).append(':').append(it.priority).append(':').append(it.sourceType).append(':').append(it.sourceUid).append(':').append(it.sourceActive).append(':').append(it.validFrom?:"").append(':').append(it.validUntil?:"").append(':').append(it.active).append(':').append(it.provenance).append(':').append(it.version)}
         request.ruleVersions.toSortedMap().forEach{(uid,version)->append("|RV:").append(uid).append(':').append(version)}
         request.legacyStatAliases.sortedBy{it.legacyStatUid}.forEach{append("|SA:").append(it.legacyStatUid).append(':').append(it.canonicalStatUid).append(':').append(it.worldPackUid).append(':').append(it.mappingVersion).append(':').append(it.provenance)}

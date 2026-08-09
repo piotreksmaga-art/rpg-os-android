@@ -1,6 +1,6 @@
 package com.rpgos.app
 
-enum class ModifierTargetKind { STAT_EFFECTIVE, RESOURCE_MAXIMUM, RESOURCE_REGENERATION, SKILL_EFFECTIVE }
+enum class ModifierTargetKind { STAT_EFFECTIVE, RESOURCE_MAXIMUM, RESOURCE_REGENERATION, SKILL_EFFECTIVE, TECHNIQUE_EFFECTIVE }
 enum class ModifierLifecycle { PERMANENT, EQUIPMENT, INJURY, TEMPORARY }
 enum class ModifierOperation { ADD_FLAT, ADD_PERCENT, MULTIPLY, OVERRIDE, MIN_FLOOR, MAX_CAP }
 
@@ -110,7 +110,9 @@ data class DerivedResolutionRequest(
     val legacyStatAliases: List<LegacyStatAlias> = emptyList(),
     val legacyResourceAliases: List<LegacyResourceAlias> = emptyList(),
     val skillDefinitions: List<SkillDefinition> = emptyList(),
-    val playerSkills: List<PlayerSkill> = emptyList()
+    val playerSkills: List<PlayerSkill> = emptyList(),
+    val techniqueDefinitions: List<TechniqueDefinition> = emptyList(),
+    val playerTechniques: List<PlayerTechnique> = emptyList()
 )
 
 data class DerivedResolutionResult(
@@ -119,5 +121,6 @@ data class DerivedResolutionResult(
     val diagnostics: List<DerivedDiagnostic>,
     val inputFingerprint: String,
     val ruleFingerprint: String,
-    val resolvedSkills: List<ResolvedSkill> = emptyList()
+    val resolvedSkills: List<ResolvedSkill> = emptyList(),
+    val resolvedTechniques: List<ResolvedTechnique> = emptyList()
 )
