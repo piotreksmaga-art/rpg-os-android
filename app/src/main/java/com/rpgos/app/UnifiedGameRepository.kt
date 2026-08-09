@@ -20,6 +20,7 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun bootstrap() = store.bootstrap()
 
     override fun activeCampaignRef(): ActiveCampaignRef = selection.activeCampaignRef()
+    override fun activePlayerRef(): ActivePlayerRef? = store.activePlayerRef()
     override fun activeCampaignDirName(): String = activeCampaignRef().directoryName
     override fun activeWorldPackDirName(): String = store.activeWorldPackDirName()
     override fun setActiveCampaign(dirName: String) = store.setActiveCampaign(dirName)
@@ -49,7 +50,7 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         truthUid: String?,
         supersedesTruthUid: String?
     ): CampaignTruthRecord = openSaveDb().use { db ->
-        MigrationManager().ensureV2(db)
+        MigrationManager().ensureV3(db, activeCampaignRef().campaignId)
         CampaignTruthStore(db, activeCampaignRef().campaignId).record(
             kind = kind,
             predicate = predicate,
@@ -69,7 +70,7 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         perspectiveUid: String?,
         limit: Int
     ): List<CampaignTruthRecord> = openSaveDb().use { db ->
-        MigrationManager().ensureV2(db)
+        MigrationManager().ensureV3(db, activeCampaignRef().campaignId)
         CampaignTruthStore(db, activeCampaignRef().campaignId).active(
             kind = kind,
             subjectUid = subjectUid,
