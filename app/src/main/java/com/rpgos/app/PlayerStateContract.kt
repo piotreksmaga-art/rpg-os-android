@@ -42,28 +42,26 @@ object PlayerStatePolicy {
     fun classifyLegacyField(fieldName: String): PlayerStateClass {
         val key = fieldName.lowercase()
         return when {
-            key {
-                key.contains("current_hp") ||
-                    key == "hp" ||
-                    key.contains("current_chakra") ||
-                    key.contains("current_energy") ||
-                    key.contains("current_stamina") ||
-                    key.contains("fatigue") ||
-                    key.contains("cooldown") ||
-                    key.contains("bleeding") ||
-                    key.contains("pain") ||
-                    key.contains("temporary") ||
-                    key.contains("runtime") -> PlayerStateClass.RUNTIME
+            key.contains("current_hp") ||
+                key == "hp" ||
+                key.contains("current_chakra") ||
+                key.contains("current_energy") ||
+                key.contains("current_stamina") ||
+                key.contains("fatigue") ||
+                key.contains("cooldown") ||
+                key.contains("bleeding") ||
+                key.contains("pain") ||
+                key.contains("temporary") ||
+                key.contains("runtime") -> PlayerStateClass.RUNTIME
 
-                key.contains("effective_") ||
-                    key.contains("derived_") ||
-                    key.contains("max_") ||
-                    key.contains("regeneration") ||
-                    key.contains("net_worth") ||
-                    key.contains("combat_rating") -> PlayerStateClass.DERIVED
+            key.contains("effective_") ||
+                key.contains("derived_") ||
+                key.contains("max_") ||
+                key.contains("regeneration") ||
+                key.contains("net_worth") ||
+                key.contains("combat_rating") -> PlayerStateClass.DERIVED
 
-                else -> PlayerStateClass.PERSISTENT
-            }
+            else -> PlayerStateClass.PERSISTENT
         }
     }
 }
