@@ -192,13 +192,41 @@ class ContextBuilder(
                LIMIT 40"""
         )
 
-        val skills = if (playerUid != null) safeQueryMany(
-            saveDb,
-            """SELECT entity_uid,skill_uid,mastery,xp,updated_chapter
-               FROM character_skills WHERE entity_uid=?
-               ORDER BY mastery DESC,xp DESC LIMIT 50""",
-            arrayOf(playerUid)
-        ) else emptyList()
+        val skills = if (playerUid != null) {
+            val read = SkillStore(saveDb, campaignRef.campaignId).reconciled(playerUid)
+            val canonical = read.skills.map { item ->
+                val skill = item.playerSkill
+                linkedMapOf<String, Any?>(
+                    "entity_uid" to skill.characterUid,
+                    "skill_uid" to skill.skillUid,
+                    "mastery" to skill.baseMastery,
+                    "base_mastery" to skill.baseMastery,
+                    "progress_value" to skill.progressValue,
+                    "progress_semantics_uid" to skill.progressSemanticsUid,
+                    "entry_version" to skill.entryVersion,
+                    "provenance" to skill.provenance,
+                    "learned_chapter" to skill.learnedChapter,
+                    "authority_source" to item.authoritySource.name,
+                    "legacy_xp_raw" to item.legacyXpRaw,
+                    "legacy_updated_chapter_raw" to item.legacyUpdatedChapterRaw,
+                    "canonical" to true
+                )
+            }
+            val unresolved = read.unresolvedLegacy.map { legacy ->
+                linkedMapOf<String, Any?>(
+                    "entity_uid" to legacy.characterUid,
+                    "skill_uid" to legacy.legacySkillUid,
+                    "mastery_raw" to legacy.masteryRaw,
+                    "xp_raw" to legacy.xpRaw,
+                    "updated_chapter_raw" to legacy.updatedChapterRaw,
+                    "display_name" to legacy.displayName,
+                    "category" to legacy.category,
+                    "authority_source" to "LEGACY_UNRESOLVED",
+                    "canonical" to false
+                )
+            }
+            canonical + unresolved
+        } else emptyList()
 
         val techniques = if (playerUid != null) safeQueryMany(
             saveDb,
@@ -262,29 +290,13 @@ class ContextBuilder(
         )
     }
 
-    private fun safeQueryOne(
-        db: SQLiteDatabase,
-        sql: String,
-        args: Array<String>? = null
-    ): Map<String, Any?> =
+    private fun safeQueryOne(db: SQLiteDatabase, sql: String, args: Array<String>? = null): Map<String, Any?> =
         safeQueryMany(db, sql, args).firstOrNull() ?: emptyMap()
 
-    private fun safeQueryMany(
-        db: SQLiteDatabase,
-        sql: String,
-        args: Array<String>? = null
-    ): List<Map<String, Any?>> =
-        try {
-            queryMany(db, sql, args)
-        } catch (_: Throwable) {
-            emptyList()
-        }
+    private fun safeQueryMany(db: SQLiteDatabase, sql: String, args: Array<String>? = null): List<Map<String, Any?>> =
+        try { queryMany(db, sql, args) } catch (_: Throwable) { emptyList() }
 
-    private fun queryMany(
-        db: SQLiteDatabase,
-        sql: String,
-        args: Array<String>? = null
-    ): List<Map<String, Any?>> {
+    private fun queryMany(db: SQLiteDatabase, sql: String, args: Array<String>? = null): List<Map<String, Any?>> {
         val out = mutableListOf<Map<String, Any?>>()
         db.rawQuery(sql, args).use { c ->
             val names = c.columnNames
@@ -295,8 +307,7 @@ class ContextBuilder(
                         android.database.Cursor.FIELD_TYPE_NULL -> null
                         android.database.Cursor.FIELD_TYPE_INTEGER -> c.getLong(i)
                         android.database.Cursor.FIELD_TYPE_FLOAT -> c.getDouble(i)
-                        android.database.Cursor.FIELD_TYPE_BLOB ->
-                            "[BLOB ${c.getBlob(i).size} bytes]"
+                        android.database.Cursor.FIELD_TYPE_BLOB -> "[BLOB ${c.getBlob(i).size} bytes]"
                         else -> c.getString(i)
                     }
                 }
