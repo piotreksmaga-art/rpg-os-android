@@ -670,3 +670,84 @@ No Phase 5 work is required to fix these issues; all six items are Phase 4 migra
 **PHASE 4 VALIDATION: FAIL**
 
 Primary blocker: existing campaigns are not actually integrated into the new typed stat/resource model. The implementation creates valid new empty stores next to legacy authoritative data and preserves the old data, but the new public read path can return an empty model for an old campaign that still has real stats/resources. Until legacy authoritative equality is provided by backfill or a documented lossless compatibility bridge and the corresponding tests pass, Phase 4 must not be declared COMPLETE.
+
+---
+
+# FOLLOW-UP — WORK-20260809-008 Final Phase 4 Revalidation
+
+Revalidation baseline/result under audit: `91763b733d9ed3eaa3d804c77394fb7f87b7be3b` (`WORK-20260809-006 — add lossless Phase 4 legacy read-through`).  
+Previous validation result: `6f97d495cb03759f35ce128dfea1ea5498a1d67a` — FAIL.  
+CI evidence: GitHub Actions run #128 for `91763b733d9ed3eaa3d804c77394fb7f87b7be3b` completed SUCCESS.
+
+## What WORK-006 fixed
+
+The previous empty-read blocker for pure legacy campaigns is fixed. `LegacyStatResourceCompatibility` projects every valid `character_stats` row by source `entity_uid`, derives deterministic SHA-256 based reserved legacy definition UIDs, preserves unknown/custom keys, fails loudly on conflicting duplicate legacy rows, and leaves legacy bytes authoritative in their original tables. `StatResourceStore.playerStats()` and definition reads now merge that projection into typed Phase 4 reads. Tests cover active/non-active players, unknown stat keys, reopen stability, repeated `ensureV4()`, >1000 legacy stats, physical campaign isolation, and fail-loud duplicate rows.
+
+Resource compatibility is generic rather than Naruto/Bleach specific. Only columns whose structural naming can safely mean current resource are projected. `max`, `effective`, and regeneration-classified fields are excluded. A snapshot without `entity_uid` is accepted only when exactly one row exists and only for the persisted active player; it does not pick a first row or mutate `ActivePlayerRef`. Tests cover custom resource names, multiple players, reopen stability, exclusion of derived fields, and ambiguous/unscoped behavior.
+
+WORK-006 also closes several prior hardening gaps: the reserved `RPGOS-LEGACY-COMPAT` namespace and legacy UID prefixes cannot be registered by World Packs; same UID with incompatible metadata is rejected; pack-local duplicate key ownership is rejected; static min/max bounds are enforced on saves; >1000 typed definitions/values are tested; SQL errors propagate; and `PRAGMA integrity_check` / `foreign_key_check` are exercised on mixed state.
+
+## Revalidation matrix
+
+| Gate | Result | Evidence / assessment |
+|---|---|---|
+| Old campaign -> ensureV4 -> typed legacy stats equality | PASS | Typed read-through now exposes original `character_stats` values without copying truth. |
+| All legacy `entity_uid` values preserved | PASS | Projection queries by requested source entity UID; no active-player rebinding for stat rows. |
+| Active/non-active player stat isolation | PASS | Explicit tests cover PLAYER-A and PLAYER-B independently. |
+| Unknown/custom legacy stat key | PASS | Deterministic compatibility definition generated from any valid nonblank key. |
+| Deterministic legacy stat/resource UIDs | PASS | SHA-256 of the legacy key under reserved stat/resource prefixes; reopen tests prove stability. |
+| Duplicate conflicting legacy rows | PASS | Fail-loud instead of arbitrary selection. |
+| ensureV4 repeated | PASS | Read-through is non-copying and tests confirm no duplicate conversion/state. |
+| Close/reopen | PASS | Legacy definitions and values compare equal after reopen. |
+| >1000 records / no truncation | PASS | Tests cover 1005 typed values and 1005 legacy stats. |
+| Legacy resource genericity | PASS | Structural current-resource recognition contains no Naruto/Bleach literals. |
+| Max/effective/regeneration not promoted | PASS | Compatibility filter excludes Phase-3 DERIVED fields and explicit tests verify exclusion. |
+| Ambiguous resource fields remain unresolved | PASS | Only structurally safe current-resource shapes are promoted. |
+| Snapshot without `entity_uid` avoids first-row selection | PASS | Multi-row is rejected; single-row projection is gated by persisted active player identity. |
+| Reserved legacy namespace hijack | PASS | World Pack registration rejects reserved world-pack UID and reserved legacy definition prefixes. |
+| Campaign isolation | PASS | Separate physical DB fixture proves same player/key can hold different values without leakage. |
+| Player isolation | PASS | Both typed and legacy paths are character scoped. |
+| Bounds | PASS | Save path checks definition min/max and rejects out-of-bounds values. |
+| Immutable identity-critical definition metadata | PASS | Identical re-registration is idempotent; same UID with changed metadata fails. |
+| Duplicate `(world_pack_uid,key)` | PASS | Explicit pack-local key collision checks and tests reject ownership changes. |
+| SQL fail-loud | PASS | No broad catch-and-empty in compatibility/store read paths. |
+| SQLite integrity/FK check | PASS | Mixed-state test asserts `integrity_check = ok` and empty `foreign_key_check`. |
+| CI #128 | PASS | Workflow for the audited runtime commit completed successfully. |
+| Mixed legacy + new same semantic stat key | **BLOCKER** | Merge identity is UID only. Legacy `strength` receives `RPGOS-LEGACY-STAT-<sha256(strength)>`; a normal World Pack may register a different UID with key `strength`. `statDefinitions()` and `playerStats()` return both because their UIDs differ. There is no semantic-key reconciliation or typed-preferred rule. |
+| Mixed legacy + new same semantic resource key | **BLOCKER** | Same mechanism: a legacy current resource such as `flux` has a synthetic compatibility UID while a typed `flux` can have another UID. Both definitions/values survive UID-only merge. |
+
+## Reproducible blockers
+
+### B-01 — mixed legacy + typed stat duplicates one logical fact
+
+Fixture:
+1. `character_stats('PLAYER-A','strength',10.0)`.
+2. `ensureV4('campaign-a')`.
+3. Register `StatDefinition(statUid='WORLD-STAT-STRENGTH', key='strength', worldPackUid='WORLD-A', ...)`.
+4. Save `PlayerStat('campaign-a','PLAYER-A','WORLD-STAT-STRENGTH',20.0)`.
+5. Call `statDefinitions()` and `playerStats('PLAYER-A')`.
+
+Observed by code contract: the legacy row uses deterministic reserved UID `RPGOS-LEGACY-STAT-<sha256('strength')>` while the new row uses `WORLD-STAT-STRENGTH`. `mergeDefinitionsByUid()` / `mergeValuesByUid()` see no UID collision, so both are returned. The caller now has two entries with semantic key `strength` and no authoritative precedence rule.
+
+Expected Phase 4 behavior: exactly one logical authoritative representation must be surfaced for a semantic stat, with an explicit reconciliation policy. A safe policy could prefer a matching typed definition/value and suppress only the equivalent compatibility projection, or require an explicit mapping before coexistence; the validator does not prescribe implementation.
+
+### B-02 — mixed legacy + typed resource duplicates one logical fact
+
+Fixture:
+1. `character_status_snapshot(entity_uid='PLAYER-A', current_resource_flux=7.0)`.
+2. `ensureV4('campaign-a')`.
+3. Register typed `ResourceDefinition(resourceUid='WORLD-RES-FLUX', key='flux', worldPackUid='WORLD-A', ...)`.
+4. Save typed `PlayerResource(... resourceUid='WORLD-RES-FLUX', currentValue=9.0)`.
+5. Call `resourceDefinitions()` and `playerResources('PLAYER-A')`.
+
+Observed by code contract: legacy and typed entries use distinct UIDs, therefore both survive UID-only merge and represent the same semantic resource key `flux` with potentially different current values.
+
+Expected Phase 4 behavior: no two simultaneous authoritative current values for one logical resource. The compatibility bridge must have an explicit non-lossy reconciliation/precedence rule.
+
+These blockers are independent of Phase 5. A resolver must not be asked to guess which of two Phase 4 inputs is authoritative.
+
+# Final follow-up verdict
+
+**PHASE 4 REVALIDATION: FAIL**
+
+WORK-006 successfully fixes the original old-campaign empty-read failure and most migration/integrity hardening requirements, but mixed old+new campaigns can still expose duplicate semantic stats/resources because reconciliation is UID-only. Phase 4 cannot be declared COMPLETE until this mixed-state ambiguity is resolved and covered by explicit stat and resource tests.
