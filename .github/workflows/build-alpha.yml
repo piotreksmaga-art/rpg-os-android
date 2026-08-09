@@ -77,6 +77,9 @@ jobs:
       - name: Validate project
         run: gradle --no-daemon :app:tasks --stacktrace
 
+      - name: Run JVM unit tests
+        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+
       - name: Build signed ALPHA APK
         run: gradle --no-daemon :app:assembleRelease --stacktrace
 
