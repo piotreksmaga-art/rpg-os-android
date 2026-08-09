@@ -6,7 +6,25 @@ import java.io.File
 data class GameMasterIntegrityGateReport141(
     val ok: Boolean,
     val issues: List<GameMasterIntegrityIssue141>
-)
+) {
+    val errorCodes: List<String>
+        get() = issues
+            .asSequence()
+            .filter { it.severity == ValidationSeverity.ERROR }
+            .map { it.code }
+            .distinct()
+            .sorted()
+            .toList()
+}
+
+class GameMasterIntegrityGateException141(
+    val boundary: String,
+    val report: GameMasterIntegrityGateReport141
+) : IllegalStateException(
+    "GM141_INTEGRITY_GATE_FAILED[$boundary]:${report.errorCodes.joinToString(",")}"
+) {
+    val errorCodes: List<String> get() = report.errorCodes
+}
 
 /**
  * Read-only integrity gate for durable persistence boundaries.
@@ -32,18 +50,7 @@ class GameMasterIntegrityGate141(private val db: SQLiteDatabase) {
         val normalizedBoundary = boundary.trim().uppercase().ifBlank { "PERSISTENCE" }
         val report = check()
         if (report.ok) return
-
-        val codes = report.issues
-            .asSequence()
-            .filter { it.severity == ValidationSeverity.ERROR }
-            .map { it.code }
-            .distinct()
-            .sorted()
-            .joinToString(",")
-
-        throw IllegalStateException(
-            "GM141_INTEGRITY_GATE_FAILED[$normalizedBoundary]:$codes"
-        )
+        throw GameMasterIntegrityGateException141(normalizedBoundary, report)
     }
 
     companion object {
