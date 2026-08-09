@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     private val store = LocalGameStore(app)
     private val appSettings = AppSettings(app)
+    private val refreshLoader = CampaignRefreshSnapshotLoader141(store)
 
     private val _settings = MutableStateFlow(appSettings.load())
     val settings: StateFlow<RpgOsSettings> = _settings
@@ -116,6 +117,9 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     private val _activeWorldPack = MutableStateFlow("")
     val activeWorldPack: StateFlow<String> = _activeWorldPack
 
+    private val _campaignAccess = MutableStateFlow<CampaignApplicationAccess141?>(null)
+    val campaignAccess: StateFlow<CampaignApplicationAccess141?> = _campaignAccess
+
     private val _updateStatus = MutableStateFlow("Nie sprawdzano aktualizacji.")
     val updateStatus: StateFlow<String> = _updateStatus
 
@@ -212,6 +216,9 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val app = getApplication<Application>()
             runCatching {
+                val access = CampaignApplicationGate141(store).inspect()
+                _campaignAccess.value = access
+                require(access.canEnterGameMaster) { access.statusMessage }
                 val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1
                 val context = store.buildContext("STARTUP_CONTEXT", chapter)
                 _lastContextSummary.value =
@@ -228,31 +235,37 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refresh() {
-        _status.value = store.status()
-        _characterPanel.value = store.fullCharacterPanel()
-        _time.value = store.time()
-        _chronicle.value = store.chronicle()
-        _worldPacks.value = store.packageManager().listWorldPacks()
-        _campaigns.value = store.packageManager().listCampaigns()
-        _backups.value = store.backups()
-        _npcs.value = store.npcs()
-        _relationEdges.value = store.relationEdges()
-        _economies.value = store.economies()
-        _wars.value = store.wars()
-        _sync.value = store.syncCheck()
-        _dbTables.value = store.dbTables()
-        _visualLibrary.value = store.visualLibrary()
-        _relationships.value = store.relationships()
-        _organizations.value = store.organizations()
-        _politics.value = store.politics()
-        _diagnostics.value = store.diagnostics(_lastContextSummary.value)
-        _regions.value = store.worldRegions()
-        _locations.value = store.worldLocations()
-        _worldEvents.value = store.activeWorldEvents()
-        _techniques.value = store.techniqueBrowser()
-        _missions.value = store.missionBrowser()
-        _activeCampaign.value = store.activeCampaignDirName()
-        _activeWorldPack.value = store.activeWorldPackDirName()
+        val snapshot = refreshLoader.load(_lastContextSummary.value)
+        _campaignAccess.value = snapshot.access
+        _status.value = snapshot.status
+        _characterPanel.value = snapshot.characterPanel
+        _time.value = snapshot.time
+        _chronicle.value = snapshot.chronicle
+        _worldPacks.value = snapshot.worldPacks
+        _campaigns.value = snapshot.campaigns
+        _backups.value = snapshot.backups
+        _npcs.value = snapshot.npcs
+        _relationEdges.value = snapshot.relationEdges
+        _economies.value = snapshot.economies
+        _wars.value = snapshot.wars
+        _sync.value = snapshot.sync
+        _dbTables.value = snapshot.dbTables
+        _visualLibrary.value = snapshot.visualLibrary
+        _relationships.value = snapshot.relationships
+        _organizations.value = snapshot.organizations
+        _politics.value = snapshot.politics
+        _diagnostics.value = snapshot.diagnostics
+        _regions.value = snapshot.regions
+        _locations.value = snapshot.locations
+        _worldEvents.value = snapshot.worldEvents
+        _techniques.value = snapshot.techniques
+        _missions.value = snapshot.missions
+        _activeCampaign.value = snapshot.activeCampaign
+        _activeWorldPack.value = snapshot.activeWorldPack
+        if (!snapshot.access.canReadCampaignData) {
+            _selectedNpc.value = null
+            _visualSuggestions.value = emptyList()
+        }
     }
 
     fun saveSettings(newSettings: RpgOsSettings) {
@@ -596,10 +609,23 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun send(text: String) {
         if (text.isBlank()) return
-        _messages.value = _messages.value + ChatMessage("player", text)
 
         viewModelScope.launch {
             val app = getApplication<Application>()
+            val access = CampaignApplicationGate141(store).inspect()
+            _campaignAccess.value = access
+            if (!access.canEnterGameMaster) {
+                DiagnosticLogger.log(
+                    app,
+                    "CAMPAIGN_SEND_BLOCKED",
+                    message = access.statusMessage
+                )
+                _messages.value = _messages.value + ChatMessage("system", access.statusMessage)
+                _lastContextSummary.value = "GM zablokowany: ${access.statusMessage}"
+                return@launch
+            }
+
+            _messages.value = _messages.value + ChatMessage("player", text)
             val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1
 
             if (_settings.value.gm141Enabled) {
