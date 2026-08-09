@@ -11,7 +11,7 @@ import java.io.File
  * persistence access is consolidated here so future remote/sync/cache layers
  * can be introduced without coupling UI/ViewModels to storage details.
  */
-class UnifiedGameRepository(context: Context) : GameRepository {
+class UnifiedGameRepository(context: Context) : CampaignRepository {
     private val context = context.applicationContext
     private val store = LocalGameStore(this.context)
     private val selection = CampaignSelectionManager(this.context)
