@@ -15,7 +15,20 @@ data class CharacterPanelSnapshot(
     val equipment: List<String>,
     val relationships: List<String>,
     val goals: List<String>
-)
+) {
+    companion object {
+        fun unresolved(): CharacterPanelSnapshot = CharacterPanelSnapshot(
+            identity = listOf(StatLine("status", "PLAYER_NOT_RESOLVED")),
+            stats = emptyList(),
+            resources = emptyList(),
+            skills = emptyList(),
+            techniques = emptyList(),
+            equipment = emptyList(),
+            relationships = emptyList(),
+            goals = emptyList()
+        )
+    }
+}
 
 class CharacterPanelReader(
     private val db: SQLiteDatabase,
@@ -23,6 +36,9 @@ class CharacterPanelReader(
 ) {
 
     fun load(): CharacterPanelSnapshot {
+        val uid = playerUid?.trim().orEmpty()
+        if (uid.isBlank()) return CharacterPanelSnapshot.unresolved()
+
         val identity = mutableListOf<StatLine>()
         val stats = mutableListOf<StatLine>()
         val resources = mutableListOf<StatLine>()
@@ -32,120 +48,134 @@ class CharacterPanelReader(
         val relationships = mutableListOf<String>()
         val goals = mutableListOf<String>()
 
-        try {
-            val hasEntityUid = hasColumn("character_status_snapshot", "entity_uid")
-            val sql = if (playerUid != null && hasEntityUid)
-                "SELECT * FROM character_status_snapshot WHERE entity_uid=? LIMIT 1"
-            else
-                "SELECT * FROM character_status_snapshot LIMIT 1"
-            val args = if (playerUid != null && hasEntityUid) arrayOf(playerUid) else null
-            db.rawQuery(sql, args).use { c ->
-                if (c.moveToFirst()) {
-                    for (i in c.columnNames.indices) {
-                        val name = c.columnNames[i]
-                        val value = if (c.isNull(i)) "—" else c.getString(i)
-                        if (name.contains("chakra", true) || name.contains("stamina", true) || name.contains("energy", true))
-                            resources += StatLine(name, value)
-                        else
-                            identity += StatLine(name, value)
-                    }
-                }
-            }
-        } catch (_: Exception) {}
+        readLegacyStatus(uid, identity, resources)
 
-        try {
-            val hasEntityUid = hasColumn("character_stats", "entity_uid")
-            val sql = if (playerUid != null && hasEntityUid)
-                "SELECT stat_key,current_value FROM character_stats WHERE entity_uid=? ORDER BY stat_key"
-            else
-                "SELECT stat_key,current_value FROM character_stats ORDER BY stat_key"
-            val args = if (playerUid != null && hasEntityUid) arrayOf(playerUid) else null
-            db.rawQuery(sql, args).use { c ->
-                while (c.moveToNext()) stats += StatLine(c.getString(0), c.getString(1))
-            }
-        } catch (_: Exception) {}
+        readEntityRows(
+            table = "character_stats",
+            entityColumn = "entity_uid",
+            playerUid = uid,
+            sql = "SELECT stat_key,current_value FROM character_stats WHERE entity_uid=? ORDER BY stat_key"
+        ) { c ->
+            while (c.moveToNext()) stats += StatLine(c.getString(0), c.getString(1))
+        }
 
-        try {
-            val where = if (playerUid != null) "WHERE cs.entity_uid=?" else ""
-            val args = if (playerUid != null) arrayOf(playerUid) else null
-            db.rawQuery(
-                """SELECT s.name,cs.mastery,s.category
-                   FROM character_skills cs
-                   JOIN skill_definitions s ON s.skill_uid=cs.skill_uid
-                   $where
-                   ORDER BY s.category,s.name""",
-                args
-            ).use { c ->
-                while (c.moveToNext()) {
-                    skills += SkillLine(c.getString(0), c.getString(1), c.getString(2))
-                }
-            }
-        } catch (_: Exception) {}
+        readEntityRows(
+            table = "character_skills",
+            entityColumn = "entity_uid",
+            playerUid = uid,
+            sql = """SELECT s.name,cs.mastery,s.category
+                     FROM character_skills cs
+                     JOIN skill_definitions s ON s.skill_uid=cs.skill_uid
+                     WHERE cs.entity_uid=?
+                     ORDER BY s.category,s.name"""
+        ) { c ->
+            while (c.moveToNext()) skills += SkillLine(c.getString(0), c.getString(1), c.getString(2))
+        }
 
-        try {
-            val where = if (playerUid != null) "WHERE ct.entity_uid=?" else ""
-            val args = if (playerUid != null) arrayOf(playerUid) else null
-            db.rawQuery(
-                """SELECT t.name,ct.mastery,COALESCE(ct.chakra_cost_override,t.base_chakra_cost),t.category
-                   FROM character_techniques ct
-                   JOIN technique_definitions t ON t.technique_uid=ct.technique_uid
-                   $where
-                   ORDER BY t.category,t.name""",
-                args
-            ).use { c ->
-                while (c.moveToNext()) {
-                    techniques += TechniqueLine(
-                        c.getString(0),
-                        c.getString(1),
-                        if (c.isNull(2)) "—" else c.getString(2),
-                        c.getString(3)
-                    )
-                }
+        readEntityRows(
+            table = "character_techniques",
+            entityColumn = "entity_uid",
+            playerUid = uid,
+            sql = """SELECT t.name,ct.mastery,COALESCE(ct.chakra_cost_override,t.base_chakra_cost),t.category
+                     FROM character_techniques ct
+                     JOIN technique_definitions t ON t.technique_uid=ct.technique_uid
+                     WHERE ct.entity_uid=?
+                     ORDER BY t.category,t.name"""
+        ) { c ->
+            while (c.moveToNext()) {
+                techniques += TechniqueLine(
+                    c.getString(0),
+                    c.getString(1),
+                    if (c.isNull(2)) "—" else c.getString(2),
+                    c.getString(3)
+                )
             }
-        } catch (_: Exception) {}
+        }
 
-        try {
-            val hasEntityUid = hasColumn("character_inventory", "entity_uid")
-            val sql = if (playerUid != null && hasEntityUid)
-                "SELECT item_name FROM character_inventory WHERE entity_uid=? ORDER BY item_name"
-            else
-                "SELECT item_name FROM character_inventory ORDER BY item_name"
-            val args = if (playerUid != null && hasEntityUid) arrayOf(playerUid) else null
-            db.rawQuery(sql, args).use { c ->
-                while (c.moveToNext()) equipment += c.getString(0)
-            }
-        } catch (_: Exception) {}
+        readEntityRows(
+            table = "character_inventory",
+            entityColumn = "entity_uid",
+            playerUid = uid,
+            sql = "SELECT item_name FROM character_inventory WHERE entity_uid=? ORDER BY item_name"
+        ) { c ->
+            while (c.moveToNext()) equipment += c.getString(0)
+        }
 
-        try {
-            val hasEntityUid = hasColumn("relationships_v2", "entity_uid")
-            val sql = if (playerUid != null && hasEntityUid)
-                "SELECT other_entity_uid,relationship_type,relationship_score FROM relationships_v2 WHERE entity_uid=? ORDER BY ABS(relationship_score) DESC LIMIT 30"
-            else
-                "SELECT other_entity_uid,relationship_type,relationship_score FROM relationships_v2 ORDER BY ABS(relationship_score) DESC LIMIT 30"
-            val args = if (playerUid != null && hasEntityUid) arrayOf(playerUid) else null
-            db.rawQuery(sql, args).use { c ->
-                while (c.moveToNext()) {
-                    relationships += "${c.getString(0)} • ${c.getString(1)} • ${c.getString(2)}"
-                }
+        readEntityRows(
+            table = "relationships_v2",
+            entityColumn = "entity_uid",
+            playerUid = uid,
+            sql = "SELECT other_entity_uid,relationship_type,relationship_score FROM relationships_v2 WHERE entity_uid=? ORDER BY ABS(relationship_score) DESC LIMIT 30"
+        ) { c ->
+            while (c.moveToNext()) {
+                relationships += "${c.getString(0)} • ${c.getString(1)} • ${c.getString(2)}"
             }
-        } catch (_: Exception) {}
+        }
 
-        try {
-            val hasEntityUid = hasColumn("character_goals", "entity_uid")
-            val sql = if (playerUid != null && hasEntityUid)
-                "SELECT title FROM character_goals WHERE entity_uid=? AND status='active' ORDER BY priority DESC"
-            else
-                "SELECT title FROM character_goals WHERE status='active' ORDER BY priority DESC"
-            val args = if (playerUid != null && hasEntityUid) arrayOf(playerUid) else null
-            db.rawQuery(sql, args).use { c ->
-                while (c.moveToNext()) goals += c.getString(0)
-            }
-        } catch (_: Exception) {}
+        readEntityRows(
+            table = "character_goals",
+            entityColumn = "entity_uid",
+            playerUid = uid,
+            sql = "SELECT title FROM character_goals WHERE entity_uid=? AND status='active' ORDER BY priority DESC"
+        ) { c ->
+            while (c.moveToNext()) goals += c.getString(0)
+        }
 
         return CharacterPanelSnapshot(identity, stats, resources, skills, techniques, equipment, relationships, goals)
     }
 
-    private fun hasColumn(table: String, column: String): Boolean = try {
+    private fun readLegacyStatus(
+        uid: String,
+        identity: MutableList<StatLine>,
+        resources: MutableList<StatLine>
+    ) {
+        if (!tableExists("character_status_snapshot")) return
+        val hasEntityUid = hasColumn("character_status_snapshot", "entity_uid")
+        if (!hasEntityUid) {
+            val count = db.rawQuery("SELECT COUNT(*) FROM character_status_snapshot", null).use {
+                if (it.moveToFirst()) it.getLong(0) else 0L
+            }
+            if (count != 1L) return
+        }
+
+        val sql = if (hasEntityUid)
+            "SELECT * FROM character_status_snapshot WHERE entity_uid=? LIMIT 1"
+        else
+            "SELECT * FROM character_status_snapshot LIMIT 1"
+        val args = if (hasEntityUid) arrayOf(uid) else null
+
+        db.rawQuery(sql, args).use { c ->
+            if (c.moveToFirst()) {
+                for (i in c.columnNames.indices) {
+                    val name = c.columnNames[i]
+                    val value = if (c.isNull(i)) "—" else c.getString(i)
+                    if (name.contains("chakra", true) || name.contains("stamina", true) || name.contains("energy", true))
+                        resources += StatLine(name, value)
+                    else
+                        identity += StatLine(name, value)
+                }
+            }
+        }
+    }
+
+    private inline fun readEntityRows(
+        table: String,
+        entityColumn: String,
+        playerUid: String,
+        sql: String,
+        block: (android.database.Cursor) -> Unit
+    ) {
+        if (!tableExists(table) || !hasColumn(table, entityColumn)) return
+        db.rawQuery(sql, arrayOf(playerUid)).use(block)
+    }
+
+    private fun tableExists(table: String): Boolean =
+        db.rawQuery(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+            arrayOf(table)
+        ).use { it.moveToFirst() }
+
+    private fun hasColumn(table: String, column: String): Boolean =
         db.rawQuery("PRAGMA table_info($table)", null).use { c ->
             val nameIndex = c.getColumnIndex("name")
             while (c.moveToNext()) {
@@ -153,7 +183,4 @@ class CharacterPanelReader(
             }
             false
         }
-    } catch (_: Throwable) {
-        false
-    }
 }
