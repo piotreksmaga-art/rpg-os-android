@@ -30,6 +30,9 @@ class SourceOfTruthRegistry(private val coreDb: SQLiteDatabase) {
     }
 
     fun canWrite(table: String): Boolean {
+        // Campaign truth has a dedicated typed/provenance-aware repository path.
+        // Generic StatePatch operations must never bypass that contract.
+        if (table == "campaign_truth_records") return false
         if (table in readOnlyTables) return false
         return table in activeTables || isExplicitRuntimeTable(table)
     }
