@@ -579,3 +579,94 @@ It is safe only if Phase 4 follows these conditions:
 - destructive legacy cleanup is deferred to a later, separately audited migration after production evidence proves compatibility.
 
 Until MH-01 through MH-27 pass on the result commit of `WORK-20260809-001`, Phase 4 should remain PARTIAL/under review rather than COMPLETE.
+
+---
+
+# ADDENDUM — Independent validation of Phase 4 implementation
+
+Validation role: CHAT-3 — READ-ONLY PHASE 4 INTEGRITY VALIDATOR  
+Implementation commit under audit: `a33514524ccdf8a51ee672f1fbf79616600b8d82` (`Implement Phase 4 dynamic stats and resources`)  
+Fresh validation baseline: `cbadc98dad55360d3bcecfa3c99a998168c48261`  
+Commits after implementation at validation start: one documentation-only Phase 3 audit commit; no runtime delta after `a3351452`.  
+CI on validation baseline: GitHub Actions run #119, `Build & Release RPG OS ALPHA`, SUCCESS; project validation, JVM unit tests, signed ALPHA APK and artifact steps passed.
+
+## Validation summary
+
+The Phase 4 implementation creates a coherent generic schema and typed persistence surface for new dynamic data, but it does **not yet integrate authoritative legacy stat/resource data into that new read model**. `ensureV4()` creates `stat_definitions`, `player_stats`, `resource_definitions`, and `player_resources`, records `RPGOS-4.0-DYNAMIC-STATS-RESOURCES`, and deliberately leaves legacy tables untouched. That is additive and non-destructive, but only half of the compatibility contract.
+
+The blocking behavior is concrete: `PlayerStateStore` still exposes existing `character_stats`, while `LocalGameStore.playerStats()` resolves the active Player UID and then reads only `player_stats`. `ensureV4()` performs no backfill and `StatResourceStore.playerStats()` has no legacy read-through. Therefore an old campaign can contain authoritative legacy stats while the new Phase 4 API returns an empty list. Resource-like legacy state has the same unresolved integration problem and is even less completely inventoried.
+
+This produces two parallel representations with no authoritative reconciliation rule: legacy Player State can say “stat exists”, while Phase 4 typed read path can say “no stat”. Preserving legacy bytes is necessary but is not sufficient to satisfy old campaign -> migration -> valid authoritative equality.
+
+## PASS / FAIL / NOT TESTED / BLOCKER matrix
+
+| Area | Result | Evidence / assessment |
+|---|---|---|
+| Four Phase 4 tables exist | PASS | `ensureV4()` creates `stat_definitions`, `player_stats`, `resource_definitions`, `player_resources`. |
+| Definition primary keys | PASS | `stat_uid` / `resource_uid` are PKs. |
+| `(world_pack_uid,key)` uniqueness | PASS | UNIQUE constraints exist for stat/resource keys within a World Pack. |
+| Player value uniqueness | PASS | Composite PK `(campaign_id,character_uid,definition_uid)` prevents duplicate dynamic rows. |
+| Required indexes | PASS | World Pack lookup and campaign+character indexes are created. |
+| Migration marker | PASS | `RPGOS-4.0-DYNAMIC-STATS-RESOURCES` is written in the V4 transaction. |
+| `ensureV4()` calls `ensureV3()` | PASS | Phase 3 identity/schema path remains prerequisite. |
+| DDL idempotency | PASS | `CREATE TABLE/INDEX IF NOT EXISTS` plus migration ledger PK; existing test calls `ensureV4()` twice. |
+| Migration idempotency of legacy conversion | BLOCKER | There is no legacy conversion/backfill to validate. |
+| Transaction safety of V4 DDL + marker | PASS | V4 table/index creation and marker are inside one SQLite transaction. |
+| Transaction safety of authoritative legacy migration | BLOCKER | No authoritative stat/resource migration exists. |
+| Legacy `character_stats` physically preserved | PASS | Existing test proves table row remains unchanged. |
+| Legacy `character_stats` represented by Phase 4 typed API | BLOCKER | `playerStats()` reads only `player_stats`; no backfill/read-through exists. |
+| Legacy resource-like data physically preserved | PASS / LIMITED | V4 is additive and drops nothing, but no exhaustive resource fixture/inventory exists. |
+| Legacy resource-like data represented by Phase 4 typed API | BLOCKER | No backfill/read-through/mapping exists for legacy resource-like state. |
+| Old DB -> `ensureV4()` -> authoritative equality | FAIL | Existing test asserts only that a legacy row remains in `character_stats`, not that new typed read returns it. |
+| ActivePlayerRef remains authoritative | PASS | `LocalGameStore.playerStats/playerResources()` obtain the player UID from `ActivePlayerStore` after `ensureV4()`. |
+| Player isolation in dynamic tables | PASS | Store queries require campaign + character; persistence test covers PLAYER-A vs PLAYER-B. |
+| Campaign isolation in dynamic tables | PASS / LIMITED | Same physical DB test covers different `campaign_id`; separate save-directory lifecycle is not tested. |
+| World Pack genericity | PASS | Contract contains generic keys/categories/UIDs; no Naruto/Bleach-specific stat/resource hardcoding found in Phase 4 core. |
+| Same key across different World Packs | PASS | Test covers same key with different UIDs in WORLD-A/WORLD-B. |
+| UID hijacking across World Packs | PASS | `rejectUidHijack()` rejects same UID owned by another World Pack; test exists for stat definitions. |
+| UID semantic replacement inside same World Pack | NOT TESTED | Registration uses UPSERT by UID and can change key/category/unit/bounds/rule UIDs for an existing same-owner definition; no compatibility/version policy test proves when such replacement is legal. |
+| Duplicate `(world_pack_uid,key)` collision | PASS / NOT TESTED | DB UNIQUE constraint should fail transactionally, but no explicit production test was found. |
+| Definition min/max ordering | PASS | Kotlin policy rejects non-finite bounds and `min > max`; SQL CHECK also covers ordering. |
+| NaN / Infinity definition bounds | PASS | `isFinite()` validation rejects them before registration. |
+| NaN / Infinity player values | PASS | `isFinite()` validation rejects them before save. |
+| Player value respects static definition min/max | FAIL | `savePlayerStat/savePlayerResource` check finite value and definition existence but do not compare value with definition bounds. |
+| FK declared in schema | PASS | `player_stats.stat_uid` and `player_resources.resource_uid` reference definition tables. |
+| FK runtime enforcement | NOT TESTED | No evidence that `PRAGMA foreign_keys=ON` is guaranteed on opened campaign DBs; explicit store-side `requireDefinition()` protects inserts but delete/update orphan behavior is unproven. |
+| Definition deletion behavior | NOT TESTED | No public Phase 4 delete API; FK delete behavior is not exercised. |
+| Definition update behavior | PASS / RISK | Same-owner UID is mutable by UPSERT; player binding remains on UID, but semantic replacement safeguards are incomplete. |
+| Close -> reopen persistence | PASS | Existing persistence test reopens SQLite DB and checks stat/resource values and versions. |
+| Definitions persist after reopen | NOT TESTED DIRECTLY | Values reopen; test does not assert full definition metadata equality after reopen. |
+| Unknown/custom World Pack definition registration | PASS STATIC | Arbitrary WORLD-A/WORLD-B definitions work without Core enum. Full package lifecycle is not tested. |
+| Unknown legacy stat | BLOCKER | Legacy row survives physically but is not surfaced by Phase 4 typed API. |
+| Unknown legacy resource | BLOCKER | No generic preservation/read-through proof exists. |
+| No silent truncation in store query | PASS STATIC | `StatResourceStore` queries contain no `LIMIT`. |
+| >100 / >1000 values | NOT TESTED | Required stress-style persistence test is absent. |
+| No silent SQL failure in Phase 4 store | PASS | Store methods do not wrap SQL in broad catch-and-empty behavior; SQL failures propagate. |
+| Restore pre-Phase-4 backup -> V4 equality | NOT TESTED | Existing restore architecture will call current schema, but equality fixture is absent and current legacy integration gap would fail typed equality. |
+| Backup post-Phase-4 custom data | NOT TESTED | Full DB copy is structurally favorable, but lifecycle test is absent. |
+| `PRAGMA integrity_check` / `foreign_key_check` fixtures | NOT TESTED | Not present in Phase 4 production tests reviewed. |
+| CharacterPanel/Context semantic equality | BLOCKER | CharacterPanel/Player State still rely on legacy representation while typed Phase 4 API relies on new tables; no reconciliation/equality layer exists. |
+| CI/build | PASS | Run #119 completed successfully including JVM tests and signed ALPHA APK build. |
+
+## Test-plan gate status
+
+The current implementation satisfies important portions of MH-10/MH-14/MH-17/MH-18 and generic World Pack behavior, but the release-gating set is not complete. Most importantly, MH-01 through MH-07 and MH-27 are not satisfied because preserving legacy storage is not the same as migrating or compatibly exposing it through the new authoritative typed model. MH-21 through MH-25 are also not covered by current Phase 4 tests.
+
+The existing `migrationPreservesLegacyCharacterStatsUnchanged()` test is valuable regression protection, but it proves only non-destruction. It does **not** prove the key invariant from this report: every legacy authoritative fact must have a semantically equivalent Phase 4 authoritative representation or compatibility read path.
+
+## Minimal fixes required from CHAT-1
+
+1. **Integrate legacy stats into Phase 4 typed reads.** Choose one explicit lossless strategy: transactional deterministic backfill from every `character_stats` row into a legacy/generic `StatDefinition + PlayerStat`, or a compatibility read-through that merges legacy rows into `playerStats()` without duplication until a later audited migration. Preserve source `entity_uid`; do not bind all rows to only the currently active player.
+2. **Integrate legacy resource-like data equivalently.** First enumerate actual authoritative legacy resource locations/fields, then provide lossless backfill or compatibility read-through. Unknown keys must survive without Naruto/Bleach hardcoding.
+3. **Add authoritative equality tests, not only physical-preservation tests.** At minimum: old DB -> `ensureV4()` -> typed equality, unknown legacy stat/resource, active/non-active players, two campaigns, restore of old backup, and no duplicate effects on rerun.
+4. **Enforce or explicitly define static bounds semantics on saves.** If `minValue/maxValue` are legal bounds, reject a `PlayerStat.baseValue` / `PlayerResource.currentValue` outside them. If they are metadata only and may be exceeded, document that contract and add tests proving the intended semantics; do not leave it ambiguous.
+5. **Harden definition replacement semantics.** Same World Pack + same UID currently permits semantic metadata replacement. Define which fields are mutable versus identity-critical and reject incompatible same-UID changes that could silently reinterpret existing player values.
+6. **Add integrity/FK/no-truncation tests.** Cover duplicate `(world_pack_uid,key)`, `PRAGMA integrity_check`, `foreign_key_check` or explicit FK-enforcement assumptions, and >100 definitions/values.
+
+No Phase 5 work is required to fix these issues; all six items are Phase 4 migration/persistence hardening.
+
+# Final validation verdict
+
+**PHASE 4 VALIDATION: FAIL**
+
+Primary blocker: existing campaigns are not actually integrated into the new typed stat/resource model. The implementation creates valid new empty stores next to legacy authoritative data and preserves the old data, but the new public read path can return an empty model for an old campaign that still has real stats/resources. Until legacy authoritative equality is provided by backfill or a documented lossless compatibility bridge and the corresponding tests pass, Phase 4 must not be declared COMPLETE.
