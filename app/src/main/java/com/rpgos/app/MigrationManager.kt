@@ -76,4 +76,29 @@ class MigrationManager {
             saveDb.endTransaction()
         }
     }
+
+    fun ensureV3(saveDb: SQLiteDatabase, campaignId: String) {
+        ensureV2(saveDb)
+        saveDb.beginTransaction()
+        try {
+            saveDb.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS active_player_ref(
+                    campaign_id TEXT PRIMARY KEY,
+                    player_uid TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+            saveDb.execSQL(
+                "INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) " +
+                    "VALUES('RPGOS-3.0-PLAYER-STATE',strftime('%s','now')," +
+                    "'Adds authoritative active player identity; legacy player selection is seeded once and then persisted')"
+            )
+            saveDb.setTransactionSuccessful()
+        } finally {
+            saveDb.endTransaction()
+        }
+        ActivePlayerStore(saveDb, campaignId).seedFromLegacyIfMissing()
+    }
 }
