@@ -22,6 +22,7 @@ object JsonCodec {
         put("active_world_events", JSONArray(context.activeWorldEvents.map(::JSONObject)))
         put("npc_memories", JSONArray(context.npcMemories.map(::JSONObject)))
         put("campaign_truth", JSONArray(context.campaignTruth.map(::JSONObject)))
+        put("player_state", JSONObject(context.playerState))
         put("context_meta", JSONObject(context.contextMeta))
     }
 
