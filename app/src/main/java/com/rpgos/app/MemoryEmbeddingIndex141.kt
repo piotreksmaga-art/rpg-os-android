@@ -25,6 +25,20 @@ fun interface QueryEmbeddingProvider141 {
     suspend fun embed(text: String): EmbeddingVector141
 }
 
+internal object MemoryEmbeddingFingerprint141 {
+    fun hash(memory: DurableMemoryRecord): String {
+        val canonical = buildString {
+            append(memory.kind.name).append('|')
+            append(memory.subjectUid?.value.orEmpty()).append('|')
+            append(memory.text).append('|')
+            append(memory.tags.sorted().joinToString("\u001f"))
+        }
+        return MessageDigest.getInstance("SHA-256")
+            .digest(canonical.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+    }
+}
+
 object MemoryEmbeddingIndexSchema141 {
     const val MIGRATION_ID = "GM-141-MEMORY-EMBEDDING-INDEX-V1"
 
@@ -102,24 +116,12 @@ class SQLiteMemoryEmbeddingIndex141(
                 put("provider", vector.provider)
                 put("model", vector.model)
                 put("dimensions", vector.dimensions)
-                put("content_hash", contentHash(memory))
+                put("content_hash", MemoryEmbeddingFingerprint141.hash(memory))
                 put("vector_json", JSONArray(vector.values).toString())
                 put("indexed_at", System.currentTimeMillis())
             },
             SQLiteDatabase.CONFLICT_REPLACE
         )
-    }
-
-    fun contentHash(memory: DurableMemoryRecord): String {
-        val canonical = buildString {
-            append(memory.kind.name).append('|')
-            append(memory.subjectUid?.value.orEmpty()).append('|')
-            append(memory.text).append('|')
-            append(memory.tags.sorted().joinToString("\u001f"))
-        }
-        return MessageDigest.getInstance("SHA-256")
-            .digest(canonical.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
     }
 
     private fun memoryExists(memoryUid: EntityUid): Boolean = db.rawQuery(
@@ -193,7 +195,7 @@ class SQLiteExactCosineMemoryCandidateProvider141(
                     tags = parseTags(c.getString(8))
                 )
                 // Stale embeddings never become candidates after memory content changes.
-                if (c.getString(1) != contentHash(memory)) continue
+                if (c.getString(1) != MemoryEmbeddingFingerprint141.hash(memory)) continue
                 val values = parseVector(c.getString(2))
                 if (values.size != queryVector.dimensions) continue
                 val similarity = ((cosine(queryVector.values, values) + 1.0) / 2.0).coerceIn(0.0, 1.0)
@@ -205,9 +207,6 @@ class SQLiteExactCosineMemoryCandidateProvider141(
             .sortedByDescending { it.similarity }
             .take(limit)
     }
-
-    private fun contentHash(memory: DurableMemoryRecord): String =
-        SQLiteMemoryEmbeddingIndex141(db, campaignUid).contentHash(memory)
 
     private fun parseVector(raw: String): List<Double> = runCatching {
         val array = JSONArray(raw)
