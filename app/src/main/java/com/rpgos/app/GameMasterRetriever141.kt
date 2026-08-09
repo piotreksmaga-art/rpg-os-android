@@ -12,11 +12,15 @@ import kotlin.math.max
  * holders. All returned data is constrained to [atTurnId]. SEMANTIC memory is
  * derivative and therefore fails closed unless a temporal eligibility provider
  * confirms that its exact source FACT provenance is still valid at [atTurnId].
+ *
+ * Hybrid/vector providers are candidate generators only. Their rows are merged
+ * with the deterministic lexical pool and then re-validated here before ranking.
  */
 class GameMasterRetriever141(
     private val repository: UnifiedCampaignRepository,
     private val campaignUid: EntityUid,
-    private val semanticEligibility: SemanticMemoryTemporalEligibility141? = null
+    private val semanticEligibility: SemanticMemoryTemporalEligibility141? = null,
+    private val hybridMemoryProvider: HybridMemoryCandidateProvider141 = NoOpHybridMemoryCandidateProvider141
 ) {
     data class Result(
         val events: List<DurableCampaignEvent>,
@@ -43,26 +47,56 @@ class GameMasterRetriever141(
             limit = max(eventLimit * 5, eventLimit)
         )
             .asSequence()
-            .filter { it.turnId <= atTurnId }
+            .filter { it.campaignUid == campaignUid && it.turnId <= atTurnId }
             .sortedByDescending { eventScore(it, queryTerms, atTurnId) }
             .take(eventLimit)
             .toList()
 
-        val memories = repository.memories(
+        val lexicalMemories = repository.memories(
             campaignUid = campaignUid,
             limit = max(memoryLimit * 6, memoryLimit)
         )
+
+        // A remote/local semantic index is an optimization only. Any failure must
+        // degrade to deterministic lexical retrieval instead of blocking the turn.
+        val hybridCandidates = if (memoryLimit == 0 || playerAction.isBlank()) emptyList() else {
+            runCatching {
+                hybridMemoryProvider.candidates(
+                    campaignUid = campaignUid,
+                    query = playerAction,
+                    atTurnId = atTurnId,
+                    limit = max(memoryLimit * 8, 64)
+                )
+            }.getOrDefault(emptyList())
+        }
+
+        val mergedMemories = linkedMapOf<EntityUid, Pair<DurableMemoryRecord, Double>>()
+        lexicalMemories.forEach { memory ->
+            mergedMemories[memory.memoryUid] = memory to 0.0
+        }
+        hybridCandidates.forEach { candidate ->
+            val existing = mergedMemories[candidate.memory.memoryUid]
+            val similarity = max(existing?.second ?: 0.0, candidate.similarity)
+            mergedMemories[candidate.memory.memoryUid] = candidate.memory to similarity
+        }
+
+        val memories = mergedMemories.values
             .asSequence()
-            .filter { it.createdTurn <= atTurnId }
-            .filter { memory ->
+            .filter { (memory, _) ->
+                memory.campaignUid == campaignUid && memory.createdTurn <= atTurnId
+            }
+            .filter { (memory, _) ->
                 when (memory.kind) {
                     DurableMemoryKind.EPISODIC -> true
                     DurableMemoryKind.SEMANTIC ->
                         semanticEligibility?.isEligible(memory.memoryUid, atTurnId) == true
                 }
             }
-            .sortedByDescending { memoryScore(it, queryTerms, atTurnId) }
+            .sortedByDescending { (memory, similarity) ->
+                memoryScore(memory, queryTerms, atTurnId, similarity)
+            }
             .take(memoryLimit)
+            .map { it.first }
             .toList()
 
         val beliefs = linkedMapOf<EntityUid, List<CampaignTruth>>()
@@ -106,12 +140,14 @@ class GameMasterRetriever141(
     private fun memoryScore(
         memory: DurableMemoryRecord,
         queryTerms: Set<String>,
-        atTurnId: Long
+        atTurnId: Long,
+        hybridSimilarity: Double
     ): Double =
         lexicalScore(
             memory.text + " " + memory.tags.joinToString(" ") + " " + memory.subjectUid?.value.orEmpty(),
             queryTerms
-        ) * 8.0 + memory.importance * 5.0 + recencyScore(memory.createdTurn, atTurnId) * 2.0
+        ) * 8.0 + memory.importance * 5.0 + recencyScore(memory.createdTurn, atTurnId) * 2.0 +
+            hybridSimilarity.coerceIn(0.0, 1.0) * 6.0
 
     private fun beliefScore(
         truth: CampaignTruth,
