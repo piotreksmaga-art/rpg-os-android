@@ -43,6 +43,7 @@ class GameMasterIntegrityGate141Test {
     @After
     fun tearDown() {
         runCatching { campaignDir.deleteRecursively() }
+        runCatching { File(context.filesDir, "rpgos/saves/Integrity_Custom.campaign").deleteRecursively() }
         context.getSharedPreferences("rpgos_selection", Context.MODE_PRIVATE).edit().clear().commit()
     }
 
@@ -57,6 +58,19 @@ class GameMasterIntegrityGate141Test {
 
         val backup = BackupManager(context).createBackup("integrity_gate_ok")
         assertTrue(backup.isFile)
+        assertTrue(GameMasterIntegrityGate141.checkFile(backup).ok)
+    }
+
+    @Test
+    fun backupManagerFollowsActiveCampaignInsteadOfDefaultSave() = runBlocking {
+        createHealthySupersession(withCommittedTurn = false)
+        val custom = store.createCampaign("Integrity_Custom")
+        assertEquals("Integrity_Custom.campaign", store.activeCampaignDirName())
+
+        val backup = BackupManager(context).createBackup("active_campaign")
+
+        assertTrue(backup.isFile)
+        assertEquals(File(custom, "backups").canonicalPath, backup.parentFile?.canonicalPath)
         assertTrue(GameMasterIntegrityGate141.checkFile(backup).ok)
     }
 
