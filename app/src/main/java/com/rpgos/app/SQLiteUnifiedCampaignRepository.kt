@@ -529,14 +529,16 @@ class SQLiteUnifiedCampaignRepository(
         val current = currentTurnId(campaignUid)
         require(throughTurnId in 0..current) { "Niepoprawny zakres snapshotu: $throughTurnId / $current" }
 
-        db.rawQuery("PRAGMA wal_checkpoint(FULL)", null).use { it.moveToFirst() }
-        GameMasterIntegrityGate141(db).requireHealthy("SNAPSHOT_SOURCE")
-
         val snapshotUid = EntityUid("SNAP-${UUID.randomUUID()}")
         val campaignFile = File(db.path)
         val dir = File(campaignFile.parentFile, "snapshots").apply { mkdirs() }
         val target = File(dir, "${snapshotUid.value}.db")
-        campaignFile.copyTo(target, overwrite = true)
+        SQLitePersistenceCopy141.copyLiveDatabase(
+            source = campaignFile,
+            target = target,
+            sourceBoundary = "SNAPSHOT_SOURCE",
+            artifactBoundary = "SNAPSHOT_ARTIFACT"
+        )
         val hash = sha256(target)
         val eventSequence = eventCountThrough(throughTurnId)
         val now = System.currentTimeMillis()
