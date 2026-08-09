@@ -13,6 +13,7 @@ object GameMasterSnapshotPolicy141 {
     suspend fun maintain(
         repository: UnifiedCampaignRepository,
         campaignUid: EntityUid,
+        integrityGate: suspend () -> Unit = {},
         onFailure: (Throwable) -> Unit = {}
     ): CampaignSnapshotRef? {
         val currentTurn = repository.currentTurnId(campaignUid)
@@ -26,6 +27,12 @@ object GameMasterSnapshotPolicy141 {
 
         val due = latest == null || currentTurn - latest.throughTurnId >= TURN_INTERVAL
         if (!due) return null
+
+        runCatching { integrityGate() }
+            .getOrElse {
+                onFailure(it)
+                return null
+            }
 
         val created = runCatching {
             repository.createSnapshot(campaignUid, currentTurn)
