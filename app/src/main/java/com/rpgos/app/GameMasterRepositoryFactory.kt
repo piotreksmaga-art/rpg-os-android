@@ -13,7 +13,8 @@ data class ActiveGameMasterRepository(
     val organizationAuthorizationStore: OrganizationKnowledgeAuthorizationStore141? = null,
     val truthSupersessionStore: TruthSupersession141? = null,
     val semanticMemoryStore: SemanticMemoryStore141? = null,
-    val semanticMemoryEligibility: SemanticMemoryTemporalEligibility141? = null
+    val semanticMemoryEligibility: SemanticMemoryTemporalEligibility141? = null,
+    val semanticMemoryConsolidator: SemanticMemoryConsolidator141? = null
 ) : AutoCloseable {
     override fun close() = repository.close()
 }
@@ -77,6 +78,11 @@ class GameMasterRepositoryFactory(
             )
             val semanticMemoryStore = SQLiteSemanticMemoryStore141(db, campaignUid)
             val semanticMemoryEligibility = SQLiteSemanticMemoryTemporalEligibility141(db, campaignUid)
+            val semanticMemoryConsolidator = SemanticMemoryConsolidator141(
+                db = db,
+                campaignUid = campaignUid,
+                semanticStore = semanticMemoryStore
+            )
             GameMasterLegacyBootstrap141.ensure(db, campaignUid)
 
             if (requireOpenIntegrity) {
@@ -96,7 +102,8 @@ class GameMasterRepositoryFactory(
                 organizationAuthorizationStore = organizationAuthorizationStore,
                 truthSupersessionStore = truthSupersessionStore,
                 semanticMemoryStore = semanticMemoryStore,
-                semanticMemoryEligibility = semanticMemoryEligibility
+                semanticMemoryEligibility = semanticMemoryEligibility,
+                semanticMemoryConsolidator = semanticMemoryConsolidator
             )
         } catch (t: Throwable) {
             if (repository != null) repository.close() else db.close()
