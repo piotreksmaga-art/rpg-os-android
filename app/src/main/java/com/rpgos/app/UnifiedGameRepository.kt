@@ -21,6 +21,7 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
 
     override fun activeCampaignRef(): ActiveCampaignRef = selection.activeCampaignRef()
     override fun activePlayerRef(): ActivePlayerRef? = store.activePlayerRef()
+    override fun playerState(): PlayerStateSnapshot? = store.playerState()
     override fun activeCampaignDirName(): String = activeCampaignRef().directoryName
     override fun activeWorldPackDirName(): String = store.activeWorldPackDirName()
     override fun setActiveCampaign(dirName: String) = store.setActiveCampaign(dirName)
