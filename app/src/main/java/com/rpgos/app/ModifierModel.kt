@@ -1,6 +1,6 @@
 package com.rpgos.app
 
-enum class ModifierTargetKind { STAT_EFFECTIVE, RESOURCE_MAXIMUM, RESOURCE_REGENERATION }
+enum class ModifierTargetKind { STAT_EFFECTIVE, RESOURCE_MAXIMUM, RESOURCE_REGENERATION, SKILL_EFFECTIVE }
 enum class ModifierLifecycle { PERMANENT, EQUIPMENT, INJURY, TEMPORARY }
 enum class ModifierOperation { ADD_FLAT, ADD_PERCENT, MULTIPLY, OVERRIDE, MIN_FLOOR, MAX_CAP }
 
@@ -37,29 +37,18 @@ object ModifierPolicy {
         require(modifier.sourceUid.isNotBlank()) { "sourceUid must not be blank" }
         require(modifier.provenance.isNotBlank()) { "modifier provenance must not be blank" }
         require(modifier.version >= 1L) { "modifier version must be at least 1" }
-        if (modifier.validFrom != null && modifier.validUntil != null) {
-            require(modifier.validUntil >= modifier.validFrom) { "validUntil must not be before validFrom" }
-        }
+        if (modifier.validFrom != null && modifier.validUntil != null) require(modifier.validUntil >= modifier.validFrom) { "validUntil must not be before validFrom" }
     }
 
-    fun isEffectiveAt(modifier: Modifier, epoch: Long): Boolean =
-        modifier.active && modifier.sourceActive &&
-            (modifier.validFrom == null || epoch >= modifier.validFrom) &&
-            (modifier.validUntil == null || epoch <= modifier.validUntil)
+    fun isEffectiveAt(modifier: Modifier, epoch: Long): Boolean = modifier.active && modifier.sourceActive &&
+        (modifier.validFrom == null || epoch >= modifier.validFrom) && (modifier.validUntil == null || epoch <= modifier.validUntil)
 }
 
-data class DerivedDependency(
-    val targetKind: ModifierTargetKind,
-    val targetDefinitionUid: String
-) {
+data class DerivedDependency(val targetKind: ModifierTargetKind, val targetDefinitionUid: String) {
     init { require(targetDefinitionUid.isNotBlank()) { "dependency targetDefinitionUid must not be blank" } }
 }
 
-data class DerivedRuleDescriptor(
-    val ruleUid: String,
-    val version: Long,
-    val dependencies: List<DerivedDependency> = emptyList()
-) {
+data class DerivedRuleDescriptor(val ruleUid: String, val version: Long, val dependencies: List<DerivedDependency> = emptyList()) {
     init {
         require(ruleUid.isNotBlank()) { "ruleUid must not be blank" }
         require(version >= 1L) { "rule version must be at least 1" }
@@ -99,23 +88,13 @@ data class ModifierContribution(
 data class DerivedDiagnostic(val code: String, val targetDefinitionUid: String, val message: String)
 
 data class ResolvedStat(
-    val statUid: String,
-    val baseValue: Double?,
-    val ruleDerivedValue: Double?,
-    val preCapValue: Double,
-    val effectiveValue: Double,
-    val contributions: List<ModifierContribution>,
-    val diagnostics: List<DerivedDiagnostic>
+    val statUid: String, val baseValue: Double?, val ruleDerivedValue: Double?, val preCapValue: Double,
+    val effectiveValue: Double, val contributions: List<ModifierContribution>, val diagnostics: List<DerivedDiagnostic>
 )
 
 data class ResolvedResource(
-    val resourceUid: String,
-    val currentValueObserved: Double,
-    val maximumValue: Double?,
-    val regenerationRate: Double?,
-    val maximumContributions: List<ModifierContribution>,
-    val regenerationContributions: List<ModifierContribution>,
-    val diagnostics: List<DerivedDiagnostic>
+    val resourceUid: String, val currentValueObserved: Double, val maximumValue: Double?, val regenerationRate: Double?,
+    val maximumContributions: List<ModifierContribution>, val regenerationContributions: List<ModifierContribution>, val diagnostics: List<DerivedDiagnostic>
 )
 
 data class DerivedResolutionRequest(
@@ -129,7 +108,9 @@ data class DerivedResolutionRequest(
     val modifiers: List<Modifier>,
     val ruleVersions: Map<String, Long> = emptyMap(),
     val legacyStatAliases: List<LegacyStatAlias> = emptyList(),
-    val legacyResourceAliases: List<LegacyResourceAlias> = emptyList()
+    val legacyResourceAliases: List<LegacyResourceAlias> = emptyList(),
+    val skillDefinitions: List<SkillDefinition> = emptyList(),
+    val playerSkills: List<PlayerSkill> = emptyList()
 )
 
 data class DerivedResolutionResult(
@@ -137,5 +118,6 @@ data class DerivedResolutionResult(
     val resolvedResources: List<ResolvedResource>,
     val diagnostics: List<DerivedDiagnostic>,
     val inputFingerprint: String,
-    val ruleFingerprint: String
+    val ruleFingerprint: String,
+    val resolvedSkills: List<ResolvedSkill> = emptyList()
 )
