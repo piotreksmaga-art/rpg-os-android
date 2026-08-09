@@ -19,6 +19,11 @@ data class ActiveGameMasterRepository(
 /**
  * Bridges the legacy LocalGameStore to the GM Engine 141 repository boundary.
  * The same campaign.db used by the rest of RPG OS becomes the durable GM store.
+ *
+ * Structural/additive initialization is allowed before the open gate because an
+ * older campaign may legitimately need schemas or stable identity materialized.
+ * No GM runtime repository is exposed until the fully initialized campaign has
+ * passed the read-only CAMPAIGN_OPEN integrity gate.
  */
 class GameMasterRepositoryFactory(
     private val context: Context,
@@ -61,6 +66,12 @@ class GameMasterRepositoryFactory(
                 campaignUid = campaignUid
             )
             GameMasterLegacyBootstrap141.ensure(db, campaignUid)
+
+            // This is the durable runtime boundary. Recovery has already been
+            // attempted by LocalGameStore.openSaveDb(); migrations above may only
+            // materialize missing additive structure. From this point onward an
+            // inconsistent campaign must fail closed instead of entering GM logic.
+            GameMasterIntegrityGate141(db).requireHealthy("CAMPAIGN_OPEN")
 
             ActiveGameMasterRepository(
                 campaignUid = campaignUid,
