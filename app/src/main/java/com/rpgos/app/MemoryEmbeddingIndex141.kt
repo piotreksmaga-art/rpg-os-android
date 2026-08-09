@@ -77,6 +77,17 @@ object MemoryEmbeddingIndexSchema141 {
                 ON gm_memory_embeddings(campaign_id, provider, model, dimensions)
                 """.trimIndent()
             )
+            // Embeddings are a disposable derived index. If durable memory content changes,
+            // all model-space rows for that memory become stale and must be rebuilt.
+            db.execSQL(
+                """
+                CREATE TRIGGER IF NOT EXISTS trg_gm_memory_embedding_invalidate
+                AFTER UPDATE OF memory_kind, subject_id, text, tags_json ON gm_memories
+                BEGIN
+                    DELETE FROM gm_memory_embeddings WHERE memory_id=NEW.memory_id;
+                END
+                """.trimIndent()
+            )
             db.execSQL(
                 """
                 INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes)
@@ -194,7 +205,7 @@ class SQLiteExactCosineMemoryCandidateProvider141(
                     sourceEventUids = emptySet(),
                     tags = parseTags(c.getString(8))
                 )
-                // Stale embeddings never become candidates after memory content changes.
+                // Stale embeddings never become candidates even if a trigger was bypassed.
                 if (c.getString(1) != MemoryEmbeddingFingerprint141.hash(memory)) continue
                 val values = parseVector(c.getString(2))
                 if (values.size != queryVector.dimensions) continue
