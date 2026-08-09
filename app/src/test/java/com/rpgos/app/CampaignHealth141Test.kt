@@ -42,8 +42,8 @@ class CampaignHealth141Test {
     }
 
     @Test
-    fun healthyCampaignReportsHealthy() {
-        val report = CampaignHealthService141(context, store).inspectActiveCampaign()
+    fun healthyCampaignReportsHealthyThroughApplicationStore() {
+        val report = store.campaignHealth()
 
         assertEquals(CampaignHealthState141.HEALTHY, report.state)
         assertTrue(report.canEnterRuntime)
@@ -52,7 +52,7 @@ class CampaignHealth141Test {
     }
 
     @Test
-    fun invalidCampaignReportsBlockedWithIntegrityCodes() = runBlocking {
+    fun invalidCampaignReportsBlockedWithIntegrityCodesThroughApplicationStore() = runBlocking {
         val subject = EntityUid("SUBJECT-health-blocked")
         val oldUid = EntityUid("FACT-health-old")
         val newUid = EntityUid("FACT-health-new")
@@ -107,7 +107,7 @@ class CampaignHealth141Test {
             )
         }
 
-        val report = CampaignHealthService141(context, store).inspectActiveCampaign()
+        val report = store.campaignHealth()
 
         assertEquals(CampaignHealthState141.BLOCKED, report.state)
         assertFalse(report.canEnterRuntime)
@@ -116,7 +116,7 @@ class CampaignHealth141Test {
     }
 
     @Test
-    fun pendingRestoreThatRecoversAndPassesIntegrityReportsRecovered() {
+    fun pendingRestoreThatRecoversAndPassesIntegrityReportsRecoveredThroughApplicationStore() {
         val live = File(campaignDir, "campaign.db")
         store.openSaveDb().use { db ->
             db.execSQL("CREATE TABLE IF NOT EXISTS gm_health_probe(value TEXT NOT NULL)")
@@ -156,7 +156,7 @@ class CampaignHealth141Test {
         SQLitePersistenceCopy141.replaceDatabaseWithStaged(staged, live)
         assertTrue(RestoreRecovery141.hasPendingRecovery(campaignDir))
 
-        val report = CampaignHealthService141(context, store).inspectActiveCampaign()
+        val report = store.campaignHealth()
 
         assertEquals(CampaignHealthState141.RECOVERED, report.state)
         assertTrue(report.canEnterRuntime)
