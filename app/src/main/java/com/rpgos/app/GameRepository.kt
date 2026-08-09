@@ -4,12 +4,12 @@ import android.database.sqlite.SQLiteDatabase
 import java.io.File
 
 /**
- * Single application-facing gateway to RPG OS campaign/world persistence.
+ * Single logical CampaignRepository required by the MASTER architecture.
  *
- * UI/ViewModels must depend on this contract instead of opening databases or
- * coordinating selection, backups and package managers independently.
+ * UI/application code should depend on this contract instead of coordinating
+ * storage, campaign selection, backups and package managers independently.
  */
-interface GameRepository {
+interface CampaignRepository {
     fun bootstrap()
 
     fun activeCampaignRef(): ActiveCampaignRef
