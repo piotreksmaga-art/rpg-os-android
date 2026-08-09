@@ -1,6 +1,7 @@
 package com.rpgos.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -47,5 +48,14 @@ class ActiveCampaignRefTest {
 
         assertEquals("Campaign_X.campaign", ref.directoryName)
         assertEquals("campaign-x", ref.campaignId)
+    }
+
+    @Test
+    fun directoryTraversalCannotBecomeCampaignIdentity() {
+        val saves = Files.createTempDirectory("rpgos-traversal").toFile()
+
+        assertThrows(IllegalArgumentException::class.java) {
+            ActiveCampaignRef.resolve(saves, "../Other.campaign")
+        }
     }
 }
