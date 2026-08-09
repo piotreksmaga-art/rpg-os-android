@@ -3,6 +3,8 @@ package com.rpgos.app
 import android.app.Application
 
 class RpgOsApplication : Application() {
+    val repository: GameRepository by lazy { UnifiedGameRepository(this) }
+
     override fun onCreate() {
         super.onCreate()
         val previous = Thread.getDefaultUncaughtExceptionHandler()
