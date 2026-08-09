@@ -193,6 +193,35 @@ class GameMasterIntegrityGate141Test {
         }
     }
 
+    @Test
+    fun corruptedCampaignCannotBypassGateThroughDirectRepositorySnapshot() = runBlocking {
+        createHealthySupersession(withCommittedTurn = true)
+        corruptEffectiveTurn()
+
+        val failure = GameMasterRepositoryFactory(context, store).openActiveSession().use { active ->
+            runCatching {
+                active.repository.createSnapshot(active.campaignUid, 1L)
+            }.exceptionOrNull()
+        }
+
+        assertNotNull(failure)
+        assertTrue(failure is GameMasterIntegrityGateException141)
+        val gateFailure = failure as GameMasterIntegrityGateException141
+        assertEquals("SNAPSHOT_SOURCE", gateFailure.boundary)
+        assertTrue("SUPERSESSION_PREVIOUS_WINDOW_MISMATCH" in gateFailure.errorCodes)
+
+        store.openSaveDb().use { db ->
+            val snapshotCount = db.rawQuery(
+                "SELECT COUNT(*) FROM gm_snapshots",
+                null
+            ).use { c -> c.moveToFirst(); c.getLong(0) }
+            assertEquals(0L, snapshotCount)
+        }
+        assertTrue(
+            File(campaignDir, "snapshots").listFiles()?.none { it.extension == "db" } != false
+        )
+    }
+
     private suspend fun createHealthySupersession(withCommittedTurn: Boolean): EntityUid =
         GameMasterRepositoryFactory(context, store).openActiveSession().use { active ->
             if (withCommittedTurn) {
