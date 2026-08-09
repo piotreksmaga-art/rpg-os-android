@@ -102,6 +102,13 @@ class LocalGameStore(private val context: Context) {
         }
     }
 
+    fun setActivePlayer(playerUid: String): ActivePlayerRef {
+        openSaveDb().use { db ->
+            ensureCurrentSchema(db)
+            return ActivePlayerStore(db, selection.activeCampaignRef().campaignId).set(playerUid)
+        }
+    }
+
     fun playerState(): PlayerStateSnapshot? {
         openSaveDb().use { db ->
             ensureCurrentSchema(db)
