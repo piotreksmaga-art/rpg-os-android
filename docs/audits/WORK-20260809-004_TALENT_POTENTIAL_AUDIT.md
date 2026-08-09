@@ -4,592 +4,368 @@ Status: READ-ONLY DOMAIN AUDIT / PHASE 6 PREPARATION
 
 Work ID: `WORK-20260809-004`
 Worker: `CHAT-4`
-Role: READ-ONLY DOMAIN AUDITOR
+Role: READ-ONLY PHASE 6 DOMAIN ARCHITECTURE AUDITOR
 Repository: `piotreksmaga-art/rpg-os-android`
-Audited master at start: `ace51fa7cb635a4dcd6801865c300bc8c34f52cf`
-Registered baseline in coordination file: `82b030271e5b7d653da457a2e9b2522e21234457`
-Implementation status: **BLOCKED** until Phase 4 Dynamic Stats & Resources and Phase 5 DerivedValueResolver + Modifier Model are complete and stable.
+Original audit commit: `4d93e9cbe06e4cd1b12708aa6c1e699e0d8fc45c`
+Fresh delta baseline: `cbadc98dad55360d3bcecfa3c99a998168c48261`
+Phase 4 implementation audited: `a33514524ccdf8a51ee672f1fbf79616600b8d82`
 
-This report is architecture/audit only. It does not implement models, tables, migrations, PlayerState changes, stat definitions, repository APIs, MASTER/ROADMAP/coordination changes, or runtime logic.
+This remains an architecture/audit document only. It does not implement Phase 6, alter runtime Kotlin, schema, migrations, PlayerState, stat/resource definitions, CampaignRepository, MASTER, ROADMAP or coordination.
+
+The original full audit is preserved in Git history at commit `4d93e9cbe06e4cd1b12708aa6c1e699e0d8fc45c`. This revision retains its canonical conclusions and adds the required delta against the real Phase 4 implementation and the latest Phase 5 architecture report currently present on master.
 
 ## Executive conclusion
 
-The current runtime contains no integrated `TalentProfile`, `PotentialProfile`, `TalentEngine`, `PotentialEngine`, or equivalent domain abstraction. Legacy player data is currently projected mainly through `character_status_snapshot`, `character_stats`, `character_skills`, `character_techniques`, finances, organizations, goals and runtime conditions. `PlayerStateStore` classifies unknown legacy status fields as generic `PERSISTENT` data, therefore talent/potential-like columns can survive as `legacy_status.*` but are not semantically separated or validated.
+The real Phase 4 implementation is compatible with the proposed Phase 6 direction. It establishes a generic stable-UID definition/value pattern that Phase 6 should mirror conceptually without reusing stat/resource tables or semantics:
 
-The canonical Phase 6 design must preserve the strict distinction:
+- `StatDefinition` is World-Pack-owned and keyed by stable `statUid`.
+- `PlayerStat` is campaign + character scoped and stores authoritative persistent `baseValue`.
+- `ResourceDefinition` is World-Pack-owned and keyed by stable `resourceUid`.
+- `PlayerResource` is campaign + character scoped and stores current persisted `currentValue`.
+- definitions expose generic rule references such as `growthRuleUid`, `derivationRuleUid`, `maxRuleUid`, `regenerationRuleUid`.
+- Core does not hardcode Naruto/Bleach stat/resource names.
+
+Phase 6 should follow the same identity and ownership principles, but Talent and Potential are not stats/resources and must not be represented as `PlayerStat` or `PlayerResource`.
+
+Canonical separation remains mandatory:
 
 - **Talent** = ease / efficiency / aptitude of learning and developing in a domain.
-- **Potential** = long-term possible scale, growth envelope or ceiling-like property in a domain or globally.
+- **Potential** = long-term possible growth scale / growth envelope / ceiling-like property.
+- **Talent != Skill Level.**
+- **Potential != current stat.**
+- **Talent != Potential.**
 
-They are independent axes. The system must support all four combinations: high Talent + low Potential, low Talent + high Potential, high + high, low + low.
-
-`Talent != current Skill Level` and `Potential != current stat value` are mandatory invariants.
-
-The recommended Core contract is a generic, UID-addressed profile system using World Pack-defined domains. Core must not hardcode `genjutsu`, `raiton`, `zanjutsu`, `sonido`, `kido`, `reishi`, chakra-specific, Hollow-specific, bloodline-specific or other universe vocabulary. World Packs should register domain definitions and optional mappings/rules, while Core owns stable identity, profile semantics, provenance, validation and progression integration.
+All four combinations must remain valid: high Talent + low Potential, low Talent + high Potential, high/high, low/low.
 
 ---
 
 # 1. Existing legacy data
 
-## 1.1 Current Android runtime
+Current Android runtime still has no integrated `TalentProfile`, `PotentialProfile`, `TalentEngine` or equivalent Phase 6 model.
 
-Confirmed relevant files:
+Relevant existing state remains:
 
-- `app/src/main/java/com/rpgos/app/PlayerStateContract.kt`
-- `app/src/main/java/com/rpgos/app/PlayerStateStore.kt`
-- `app/src/main/java/com/rpgos/app/CharacterPanel.kt`
-- `app/src/main/java/com/rpgos/app/LocalGameStore.kt`
-- `app/src/main/java/com/rpgos/app/ContextBuilder.kt`
-- `app/src/main/java/com/rpgos/app/MigrationManager.kt`
-- `backend/app.py`
-- `docs/PHASE_0_PLAYER_STATE_AUDIT.md`
-- `docs/GM_ENGINE_TARGET_ARCHITECTURE.md`
-- `docs/RPG_OS_MASTER_ARCHITECTURE.md`
+- Phase 3 `PlayerStateSnapshot` with PERSISTENT / DERIVED / RUNTIME separation,
+- legacy `character_status_snapshot`,
+- legacy `character_stats`,
+- `character_skills`,
+- `character_techniques`,
+- Phase 4 `stat_definitions`, `player_stats`, `resource_definitions`, `player_resources`.
 
-No dedicated Kotlin file implementing target Talent/Potential concepts exists in the audited tree.
+`PlayerStatePolicy.classifyLegacyField()` still places unknown status names into PERSISTENT. Therefore legacy fields named like `talent`, `aptitude`, `potential`, `growth_rate`, etc. can survive as opaque `legacy_status.*` values, but are not semantically modeled.
 
-## 1.2 Legacy CharacterPanel
+The CharacterPanel v1 still has no Talent/Potential sections.
 
-`CharacterPanelSnapshot` v1 contains:
-
-- identity,
-- stats,
-- resources,
-- skills,
-- techniques,
-- equipment,
-- relationships,
-- goals.
-
-There are no `talents` or `potential` sections.
-
-`CharacterPanelReader.readLegacyStatus()` reads every column of `character_status_snapshot` and classifies only fields whose names contain `chakra`, `stamina` or `energy` as resources. Every other legacy status column is rendered under `identity`. Therefore any legacy columns such as `talent`, `potential`, `growth_rate` etc. would currently be presentation-level identity lines, not a domain model.
-
-## 1.3 Phase 3 PlayerState legacy preservation
-
-`PlayerStateStore.splitLegacyStatus()` reads the whole legacy `character_status_snapshot` row and sends every field through `PlayerStatePolicy.classifyLegacyField()`.
-
-The policy recognizes runtime-like names (`current_hp`, current resource names, fatigue, cooldown, temporary etc.) and derived-like names (`effective_`, `derived_`, `max_`, regeneration, net worth, combat rating). Everything else becomes `PERSISTENT` as `legacy_status.<field>`.
-
-Implication: talent/potential-like legacy fields are likely preserved, but only as opaque persistent key/value data. Their meaning, unit, scope, provenance, visibility, domain and relation to progression are not defined.
-
-This preservation behavior is valuable for migration safety and should not be replaced by destructive reinterpretation.
-
-## 1.4 Stats and skills are not substitutes
-
-Existing:
-
-- `character_stats(stat_key,current_value)` read path,
-- `character_skills` with mastery/xp,
-- `character_techniques` with mastery/xp and other state.
-
-None of those should be repurposed as the canonical storage for Talent or Potential.
-
-A value such as Genjutsu mastery 80 is learned competence, not talent. Strength 90 is current/base stat state, not potential. Technique mastery is not aptitude. A rank, class or bloodline is not itself a Talent score.
-
-## 1.5 Bundled data and World Packs
-
-The audited master tree contains:
-
-- `app/src/main/assets/Naruto.worldpack.zip`
-- `content/packages/Naruto-v2.zip`
-- `app/src/main/assets/Naruto_Default.campaign.zip`
-- `app/src/main/assets/rpg_core.db`
-
-No Bleach World Pack artifact is present in the audited repository tree.
-
-The packaged SQLite/ZIP artifacts are binary. The available repository text tooling exposes their existence but does not provide safe schema/content text inspection of those binary files in this audit session. Therefore this report does **not** claim absence of talent-like columns inside the bundled Naruto DBs. Before Phase 6 migration implementation, the implementing worker must perform a schema-level dump of `campaign.db`, `world.db` and relevant core/reference DBs and search for all terminology listed in this work item.
-
-This limitation is intentionally recorded instead of guessing at binary contents.
-
-## 1.6 Backend/system prompt state
-
-`backend/app.py` currently describes `player_state.persistent`, `.runtime`, `.derived`, plus skills/techniques. It has no canonical Talent/Potential behavior. The AI therefore has no validated semantic contract preventing it from confusing aptitude, mastery, stats and long-term potential unless later domain mechanics enforce the distinction.
+Bundled Naruto World Pack/campaign artifacts are binary and require schema-level inspection before Phase 6 migration. No Bleach World Pack artifact was present in the audited repository tree.
 
 ---
 
 # 2. Terminology conflicts
 
-The repository architecture documents already use some terminology that can collide if Phase 6 is implemented naively.
+The following must not be collapsed into one concept:
 
-## 2.1 `growthRatePotential`
+- `talent` / `aptitude` / `gifted` — usually learning efficiency, but legacy labels may be ambiguous.
+- `growth rate` — ambiguous between immediate learning efficiency and long-horizon scaling.
+- `learning rate` — normally Talent-side behavior.
+- `maximum potential` — Potential-side property; not necessarily a hard numeric cap.
+- `adaptation` — current adaptation state is progression context; adaptation potential is long-horizon capability.
+- `evolution potential` — not current evolution stage or eligibility flag.
+- `innovation` / `creativity` — may be domain-specific Talent or Potential dimensions depending on the World Pack rule.
+- `affinity` — compatibility/eligibility/modifier input; not globally synonymous with Talent.
+- bloodline/racial talent or potential — profile inputs/definitions associated with innate systems, not the innate ability itself.
 
-The target architecture sketch lists `growthRatePotential` under Potential while Talent is defined as modifying learning rate/effective practice.
-
-Risk: both could be interpreted as the same multiplier.
-
-Resolution:
-
-- Talent modifies **efficiency of acquiring progress from a concrete learning/development attempt** in a domain.
-- Potential modifies **long-horizon growth response/envelope**, especially as current level rises, adaptation accumulates, soft caps are approached, breakthroughs/evolutions occur or high-end scaling is resolved.
-
-A character may learn fundamentals quickly due to Talent but stop scaling early because Potential is low.
-
-## 2.2 `aptitude`, `gifted`, `talent`
-
-Treat these as migration vocabulary requiring explicit mapping, not as separate Core concepts by default.
-
-Suggested semantic mapping candidates:
-
-- aptitude -> usually Talent if explicitly learning/affinity related,
-- gifted -> ambiguous label, requires context/manual mapping,
-- prodigy -> usually narrative/presentation descriptor derived from observed Talent + achievement, not an authoritative numeric type,
-- genius -> ambiguous; may mean learning efficiency, creativity/innovation or simply high current skill.
-
-Never auto-map ambiguous narrative labels to numeric authoritative values without evidence.
-
-## 2.3 `affinity`
-
-Affinity is not universally the same as Talent.
-
-Examples:
-
-- elemental affinity can mean eligibility/compatibility,
-- biological affinity can reduce cost/risk,
-- spiritual affinity can modify output,
-- affinity can influence learning efficiency.
-
-Core should allow World Pack rules to *use* affinity as an input/modifier to Talent or progression, but should not globally equate affinity with Talent.
-
-## 2.4 `creativity` / `innovation`
-
-These can be Talent domains, Potential dimensions or ordinary stats depending on game rules.
-
-Canonical recommendation:
-
-- `creativity` as a Talent domain only when it measures effectiveness of creative/problem-solving learning/development actions,
-- `innovationPotential` as long-horizon ability to create novel methods/break paradigms,
-- actual created techniques/projects remain historical achievements, not profile values.
-
-## 2.5 `adaptation`
-
-Current MASTER progression vocabulary includes adaptation as a factor and target Potential architecture mentions adaptation potential.
-
-Distinguish:
-
-- current adaptation state/history = mutable progression context (how adapted the character already is to a stimulus),
-- adaptation potential = long-term trait governing how much/how well the character can continue adapting.
-
-## 2.6 `evolution potential`
-
-Must not mean current evolution stage or eligibility flag.
-
-- current stage = innate/evolution state,
-- eligibility = World Pack rule result,
-- evolution potential = long-term capacity/quality/scaling related to evolution pathways.
-
-## 2.7 `maximum potential`
-
-Avoid interpreting as a universal hard numeric cap unless a World Pack explicitly defines one. MASTER already allows soft caps, breakthroughs and evolutions.
-
-Core should support a normalized/relative descriptor or parameter consumed by the progression/evolution rule rather than globally enforce `current <= maximumPotential`.
+No migration should convert ambiguous descriptive labels into authoritative numeric profile entries without explicit evidence or World Pack mapping.
 
 ---
 
 # 3. Canonical Talent definition
 
-**Talent is the character's domain-specific or general efficiency/ease of learning, practicing, understanding or developing capability, given a valid cause and activity.**
+Talent is a persistent character property describing how efficiently a valid learning/development activity produces useful learning in a domain.
 
-Talent answers questions such as:
+Talent may influence:
 
-- How quickly does this character understand a new concept?
-- How much useful progress is extracted from equivalent training quality/time?
-- How difficult is it for this character to learn within a domain?
-- How efficiently does feedback translate into improvement?
+- effective practice gained from the same duration/quality,
+- learning difficulty,
+- comprehension speed,
+- conversion of feedback into improvement,
+- efficiency of training/research/mentorship in a domain.
 
-Talent does **not**:
+Talent must not:
 
-- grant a learned skill automatically,
-- grant XP without a causal action,
-- imply a high current mastery,
+- grant a skill or technique automatically,
+- generate progression without a causal source,
+- equal current mastery,
+- equal a stat value,
 - guarantee high end-game scale,
-- override prerequisites/eligibility unless a World Pack rule explicitly says so,
-- overwrite stats,
-- replace affinities, bloodlines or racial capabilities.
+- bypass prerequisites unless a World Pack rule explicitly defines such behavior.
 
-Recommended ProgressionEngine role:
-
-`effectiveLearning = basePracticeEffect * talentFactor * methodQuality * mentorFactor * environmentFactor * novelty * otherModifiers`
-
-This is illustrative semantics, not a Phase 6 implementation formula.
-
-Talent should generally be PERSISTENT authoritative state, with temporary changes represented by modifiers resolved through Phase 5 rather than destructive rewrites.
+Canonical authority class: **PERSISTENT authoritative profile state**. Temporary conditions affecting learning should be separate contextual modifiers/effects, not destructive changes to the base Talent profile.
 
 ---
 
 # 4. Canonical Potential definition
 
-**Potential is the character's long-term growth envelope: the possible scale, sustainability, adaptive capacity and/or ceiling-like properties of future development.**
+Potential is a persistent character property describing long-term growth capacity, sustainable scale, adaptation headroom and ceiling-like characteristics.
 
-Potential answers questions such as:
+Potential may influence:
 
-- How far can this character plausibly continue developing?
-- How strongly do diminishing returns tighten at high levels?
-- Can the character continue adapting to harder stimuli?
-- What scale of breakthrough/evolution can be supported?
-- How much high-end growth remains plausible after extensive training?
+- high-level diminishing returns,
+- remaining growth headroom,
+- response to increasingly difficult stimuli,
+- breakthrough probability/eligibility inputs,
+- evolution scaling,
+- innovation/adaptation ceilings where rules support them.
 
-Potential does **not**:
+Potential must not:
 
-- equal current Strength/Chakra/Reiatsu/etc.,
+- equal Strength/Chakra/Reiatsu/etc.,
 - equal current skill mastery,
-- directly grant progress,
-- always define a visible hard cap,
-- imply fast learning.
+- directly create stat growth,
+- imply fast learning,
+- always be exposed as a visible hard cap.
 
-Potential is normally consumed by ProgressionEngine and evolution/innate rule providers at long-horizon/high-level decisions.
+A low-Talent/high-Potential character may learn slowly but eventually surpass a high-Talent/low-Potential character after enough valid development.
 
-A low-Talent/high-Potential character may progress slowly but eventually exceed a high-Talent/low-Potential character after enough valid development.
+Canonical authority class: **PERSISTENT authoritative profile state**.
 
 ---
 
 # 5. Proposed Core model
 
-This is a conceptual contract only. Exact Kotlin/data/schema design is deferred until Phases 4 and 5 stabilize.
+Conceptual contract only; no runtime/schema implementation is authorized in this work item.
 
-## 5.1 Core entities
+Recommended Core concepts:
 
-Recommended conceptual objects:
-
-### `TalentProfile`
-
+`TalentProfile`
+- `campaignId`
 - `characterUid`
-- `entries: Map<domainUid, TalentEntry>`
-- optional general/default entry
-- profile version
+- `entries: domainUid -> TalentEntry`
+- `version`
 - provenance/version metadata
 
-### `TalentEntry`
-
+`TalentEntry`
 - `domainUid`
-- `value` or normalized rating
-- optional confidence/visibility metadata if game design requires hidden values
-- source/provenance
-- created/updated event references
-- optional metadata owned by World Pack rules
-
-### `PotentialProfile`
-
-- `characterUid`
-- global dimensions and/or domain-scoped entries
-- profile version
-- provenance/version metadata
-
-### `PotentialEntry`
-
-- `domainUid` or global scope
-- `dimensionUid`
-- `value`
-- source/provenance
+- base talent rating/value in a normalized contract
+- optional visibility policy
+- provenance/source event
+- version
 - optional World Pack metadata
 
-## 5.2 Recommended Potential dimensions
+`PotentialProfile`
+- `campaignId`
+- `characterUid`
+- domain/global entries
+- `version`
+- provenance/version metadata
 
-Core may define stable semantic dimensions, provided they are universe-neutral:
+`PotentialEntry`
+- `domainUid` or global scope
+- `dimensionUid`
+- base potential rating/value
+- provenance/source event
+- version
+- optional World Pack metadata
 
-- `growth_scale`
-- `adaptation`
-- `innovation`
-- `evolution`
+The exact persistence schema must be designed only when Phase 5 is stable and Phase 6 implementation is authorized.
 
-`maximumPotential` should be treated carefully. If retained, define it as a generic high-end scaling parameter rather than a mandatory hard cap.
-
-An alternative safer model is to keep all dimensions themselves UID-defined and provide standard Core definitions through seed/reference data. That avoids forcing every universe to implement irrelevant dimensions.
-
-## 5.3 Stable UID rules
-
-Use stable UIDs, not display labels.
-
-Examples of generic IDs:
-
-- `DOMAIN-GENERAL-LEARNING`
-- `DOMAIN-PHYSICAL-DEVELOPMENT`
-- `DOMAIN-ENERGY-CONTROL`
-- `DOMAIN-CREATIVE-DEVELOPMENT`
-
-World Pack-owned IDs should be namespaced/stably owned, for example conceptually:
-
-- `naruto:domain:genjutsu`
-- `naruto:domain:lightning-nature`
-- `bleach:domain:zanjutsu`
-- `bleach:domain:reishi-control`
-
-Exact UID syntax should follow whatever stable UID convention becomes canonical for definitions after Phase 4/WorldRuleProvider work.
-
-## 5.4 Values and scaling
-
-Do not hardcode `1–5 stars`, `0–100`, letter grades or multipliers into the domain meaning without a normalization contract.
-
-Recommended separation:
-
-- storage value / rating,
-- normalization/interpretation rule,
-- presentation label.
-
-World Packs may present 5 stars while Core consumes a normalized factor.
+Important: the Phase 4 `version` pattern is useful precedent. Phase 6 profiles/entries should be versionable to support deterministic cache invalidation, rule upgrades, migration and replay diagnostics.
 
 ---
 
 # 6. Domain model
 
-Talent/Potential domains must be independent of Skills and Stats while allowing explicit relations.
+Phase 6 needs stable generic domains independent of stats/skills/techniques.
 
-## 6.1 DomainDefinition concept
+Recommended conceptual definition:
 
-Conceptual fields:
-
+`ProgressionDomainDefinition`
 - `domainUid`
 - `key`
 - `displayName`
 - `category`
-- `worldPackUid` or Core ownership
-- `parentDomainUid` optional
+- `worldPackUid`
+- optional `parentDomainUid`
 - `appliesToTalent`
 - `appliesToPotential`
-- `tags/metadata`
-- optional resolver/rule references
+- tags/metadata
+- optional rule binding UIDs
+- definition version
 
-## 6.2 Hierarchy
+The name is illustrative; implementation may choose another neutral type name.
 
-A hierarchy can support general -> specific domains:
+Domains must be keyed by stable UID, never by display name. World Pack ownership should follow the same rule demonstrated by Phase 4 definitions: a definition UID is owned by one World Pack and cannot be silently hijacked by another.
 
-`general_learning`
--> `combat_learning`
--> world-specific domain
-
-However inheritance behavior must be deterministic and explicit. Do not automatically multiply every ancestor because that can cause runaway stacking.
-
-Phase 5 modifier semantics should define whether domain factors are selected, combined, overridden, capped or weighted.
-
-## 6.3 Skill relation
-
-A SkillDefinition may optionally reference one or more Talent/Potential domains used during progression.
-
-Example conceptual mapping:
-
-`SkillDefinition.skillUid -> progressionDomainRefs[]`
-
-This avoids matching by string labels such as `skill.category == "Genjutsu"`.
-
-## 6.4 Stat relation
-
-Stat growth may similarly reference domains through stat/growth definitions established in Phase 4.
-
-Potential must not be stored inside `PlayerStat.baseValue`.
+Hierarchy is optional. If parent/child domains exist, inheritance/combination semantics must be explicit and deterministic; Core must not automatically multiply every ancestor factor.
 
 ---
 
 # 7. World Pack extension model
 
-World Pack responsibilities:
+World Packs should define domain definitions and explicit associations. Core owns generic profile semantics, stable identity, provenance, versioning and integration points.
 
-- register domain definitions,
-- map world skills/stat growth/evolution routes to those domains,
-- define optional default/generated profile policies for newly created characters,
-- define eligibility prerequisites,
-- define visibility/presentation,
-- define domain-specific progression/evolution hooks,
-- define how affinity/bloodline/race affects Talent/Potential, if applicable.
+World Pack may define:
 
-Core responsibilities:
+- domain definitions,
+- labels/presentation scales,
+- mappings from a skill definition to one or more progression domains,
+- mappings from stat growth rules to progression domains,
+- technique-learning domain references,
+- innate/bloodline/racial effects that create or modify profile entries through legal domain changes,
+- evolution rules that consume Potential dimensions,
+- visibility rules for hidden/known potential,
+- normalization/rule references.
 
-- stable profile ownership by characterUid,
-- canonical Talent vs Potential semantics,
-- validation,
-- provenance/history integration,
-- generic resolution inputs/outputs,
-- generic persistence contract,
-- migration safety,
-- ProgressionEngine integration points.
+Core must not contain literals/branches for `genjutsu`, `raiton`, `kido`, `zanjutsu`, `sonido`, `reishi`, `chakra`, `reiatsu`, etc.
 
-World Pack must **not** create `NarutoTalentEngine` and `BleachTalentEngine` as full duplicated player engines. It should provide definitions/rules through the future `WorldRuleProvider` boundary.
+Phase 4 proves that generic World-Pack-owned definition UIDs are viable. Phase 6 should use the same ownership principle without sharing the stat/resource definition tables.
 
 ---
 
 # 8. Naruto examples
 
-These are examples of extension capability, not hardcoded Core fields and not claims about current bundled DB contents.
+Examples are World Pack data/rules only, never Core enums.
 
-## 8.1 Generic Talent domains a Naruto pack could define
+Possible Naruto World Pack domains:
 
-- genjutsu learning
-- ninjutsu learning
-- taijutsu learning
-- medical ninjutsu learning
-- chakra control learning
-- elemental nature domains (e.g. lightning nature)
-- sealing/fuinjutsu learning
-- sensory learning
-- creative technique development
+- illusion learning,
+- lightning-nature development,
+- medical technique learning,
+- chakra-control development,
+- physical conditioning,
+- sensory development,
+- creative technique development.
 
-## 8.2 Potential dimensions/domains
+A bloodline can influence Talent/Potential entries or progression rules without being represented as a Talent itself.
 
-- chakra growth scale
-- physical growth scale
-- chakra-control high-end potential
-- adaptation potential
-- technique innovation potential
-- bloodline/evolution-related potential where canon/rules support it
+Example valid combinations:
 
-## 8.3 Bloodline separation
+- high learning efficiency for illusion arts + low long-term growth scale,
+- slow elemental learning + extremely high long-term potential,
+- high talent and high potential for energy control,
+- low talent and low potential for a domain.
 
-Kekkei Genkai/bloodline ability is an innate eligibility/state system, not Talent itself.
-
-A bloodline may provide modifiers/defaults to Talent/Potential or unlock domains, but ownership of the bloodline and Talent profile should remain distinct.
-
-Example:
-
-A character can possess Ketsuryugan but have mediocre general learning Talent. Another can have exceptional genjutsu Talent without possessing a particular bloodline.
-
-## 8.4 Element affinity
-
-Lightning affinity should not automatically equal lightning-learning Talent. A Naruto World Pack may choose to relate them through a modifier or rule.
+Current skill mastery and current chakra-related stats remain independent.
 
 ---
 
 # 9. Bleach examples
 
-No Bleach World Pack artifact is present in the audited master tree. These are architecture examples only, based on the required generic capability.
+Examples are World Pack data/rules only.
 
-A future Bleach pack could define Talent domains such as:
+Possible Bleach domains:
 
-- zanjutsu learning
-- hakuda learning
-- hoho/sonido movement learning
-- kido learning
-- reishi control learning
-- reiatsu control learning
-- racial technique learning
-- research/innovation if mechanically supported
+- sword-combat learning,
+- spiritual-control learning,
+- movement learning,
+- spell-system learning,
+- reishi manipulation,
+- Hollow adaptation/evolution,
+- innovative technique development.
 
-Potential domains/dimensions could include:
+Evolution potential is an input to future evolution rules, not current race/stage and not an automatic evolution trigger.
 
-- reiryoku growth scale
-- reiatsu density/high-end scaling
-- adaptation potential
-- evolution potential for Hollow paths
-- innovation potential
-
-Racial state, Hollow stage, Zanpakuto state, awakening and evolution state must remain separate innate/evolution state. They may consume Potential or modify progression but must not be represented as Talent values.
+Reiryoku/reiatsu/reishi-related stats/resources remain Phase 4/5 domain values, not Potential itself.
 
 ---
 
 # 10. Legacy migration strategy
 
-Phase 6 migration must be conservative and provenance-preserving.
+Phase 6 migration must be additive, conservative and evidence-based.
 
-## 10.1 First rule: never infer destructive semantics
+Recommended sequence:
 
-Do not delete, overwrite or reinterpret old fields merely because their names look similar to `talent` or `potential`.
+1. inventory all legacy talent/potential/aptitude/growth/affinity/evolution fields from actual campaign/world databases;
+2. classify each source as clearly Talent, clearly Potential, unrelated, or ambiguous;
+3. create stable domain mappings only where semantics are supported by data or World Pack rules;
+4. preserve ambiguous source values as legacy data rather than inventing profile meaning;
+5. never infer Talent from high current skill mastery;
+6. never infer Potential from high current stat value;
+7. never invent default potential for old campaigns without explicit migration policy;
+8. record provenance from legacy source/path and migration version;
+9. validate World Pack UID/domain ownership collisions;
+10. verify reopen equality and cross-campaign/player isolation.
 
-Migration categories:
-
-1. **Exact semantic match** — safe automatic mapping.
-2. **Context-qualified match** — automatic mapping only if schema/table/column contract proves the meaning.
-3. **Ambiguous label** — preserve legacy field and require explicit mapping/default policy.
-4. **Narrative descriptor** — preserve as narrative/fact metadata; do not fabricate numeric Talent/Potential.
-
-## 10.2 Search terms for implementation-time schema audit
-
-Search tables, columns, JSON/text payloads and manifests for:
-
-- talent
-- aptitude
-- gifted
-- growth rate
-- learning rate
-- potential
-- maximum potential
-- adaptation
-- evolution potential
-- innovation
-- creativity
-- affinity
-- bloodline talent
-- racial talent/potential
-
-Also inspect legacy CharacterPanel/status fields and World Pack definitions.
-
-## 10.3 Migration provenance
-
-Every migrated entry should record at minimum:
-
-- original table/source,
-- original column/key,
-- original value,
-- migration version,
-- mapping rule ID,
-- whether mapping was exact or manual/default,
-- source campaign/world pack version if available.
-
-## 10.4 No invented defaults for existing campaigns
-
-If an old campaign has no Talent/Potential data, migration should not invent exceptional or average values silently.
-
-Valid strategies include:
-
-- explicit UNKNOWN/uninitialized state,
-- deterministic World Pack backfill policy with provenance and version,
-- player/GM-approved character-generation migration command,
-- rules-derived defaults only where canon/world data clearly provides them.
-
-The exact strategy must be selected after WorldRuleProvider and Player Domain mutation path exist.
+Legacy `character_stats` and Phase 4 `player_stats` must not be repurposed to store Talent/Potential.
 
 ---
 
 # 11. Interaction with Phase 4
 
-Phase 6 depends on Phase 4 but must not collapse into it.
+Real Phase 4 contract audited at `a33514524ccdf8a51ee672f1fbf79616600b8d82`:
 
-Required contracts from Phase 4:
+`StatDefinition`
+- `statUid`
+- `key`
+- `category`
+- `unit`
+- `minValue`
+- `maxValue`
+- `growthRuleUid`
+- `derivationRuleUid`
+- `worldPackUid`
 
-- stable dynamic `StatDefinition` identity,
-- stable `PlayerStat` identity/state,
-- clear base vs current/runtime/resource semantics,
-- World Pack ownership/definition mechanism,
-- migration-safe definition lookup.
+`PlayerStat`
+- `campaignId`
+- `characterUid`
+- `statUid`
+- `baseValue`
+- `version`
 
-Talent/Potential may affect **growth of stats**, but must never become hidden stat columns or be inferred from a current stat value.
+`ResourceDefinition`
+- `resourceUid`
+- `key`
+- `category`
+- `unit`
+- `minValue`
+- `maxValue`
+- `maxRuleUid`
+- `regenerationRuleUid`
+- `worldPackUid`
 
-A Phase 4 growth definition should be able to reference a progression/domain UID later without knowing Naruto/Bleach concepts.
+`PlayerResource`
+- `campaignId`
+- `characterUid`
+- `resourceUid`
+- `currentValue`
+- `version`
 
-Critical Phase 4 dependency question before implementation:
+Phase 6 compatibility decisions:
 
-> What is the canonical definition UID/world-pack namespace pattern and how are definition references validated across campaign/world-pack versions?
+- use `campaignId + characterUid` scoping for character profile state;
+- use stable World-Pack-owned definition/domain UIDs;
+- use explicit versioning;
+- use finite normalized numeric values under a declared contract;
+- do not encode Talent/Potential as `StatDefinition`/`PlayerStat`;
+- allow stat `growthRuleUid` to reference a progression rule that in turn declares which Talent/Potential domains it consumes;
+- allow derived/stat/resource formulas to consume profile inputs only through explicit rule dependencies, never by hardcoded key names;
+- keep `PlayerResource.currentValue` unrelated to Potential/Talent semantics.
 
-Phase 6 should reuse that pattern rather than invent a second definition identity system.
+The Phase 4 fields `growthRuleUid`, `derivationRuleUid`, `maxRuleUid`, `regenerationRuleUid` are sufficient as **opaque rule binding identifiers** for Phase 6 integration. They do not need Phase 6-specific fields embedded into Phase 4 definitions. The later rule registry/provider can describe dependencies on Talent/Potential domains.
+
+This avoids polluting Phase 4 with future-domain knowledge.
 
 ---
 
 # 12. Interaction with Phase 5
 
-Phase 5 is a direct semantic dependency.
+The latest Phase 5 report currently present on master is `docs/audits/WORK-20260809-002_DERIVED_VALUE_AUDIT.md` from commit `053efb44989ac82fb9720e0449a40f4b43616911`. At this delta-audit moment, CHAT-2's newly requested post-Phase-4 addendum has not yet landed on master, so this report consumes the latest repository-visible Phase 5 design plus the real Phase 4 implementation directly.
 
-Talent/Potential need modifier behavior for:
+Phase 5 design establishes a pure deterministic resolver over authoritative inputs and typed modifier sources. Phase 6 must integrate as follows:
 
-- permanent innate modifiers,
-- equipment/world effects where allowed,
-- temporary seals/injuries/buffs affecting learning efficiency,
-- environment effects,
-- evolution-stage effects,
-- affinity/bloodline/racial effects.
+- Talent/Potential base profiles are **authoritative PERSISTENT inputs**.
+- They are not ordinary `TEMPORARY` modifier records.
+- A resolver/rule evaluation may read profile entries when deriving effective progression parameters or other values.
+- Temporary conditions can modify effective learning/progression context through the Phase 5 modifier system without rewriting base Talent/Potential.
+- Permanent acquired changes to Talent/Potential require an explicit future legal domain change/event/provenance path; they are not resolver side effects.
+- Derived effective learning factors are rebuildable outputs, not persisted back as profile base values.
 
-Do not destructively mutate canonical Talent because the character is temporarily injured, exhausted or sealed.
+Phase 5 ordering such as BASE -> PERMANENT -> EQUIPMENT -> INJURY -> TEMPORARY -> bounds should not be blindly reused as the semantic meaning of Talent/Potential. Instead:
 
-Recommended separation:
+`base Talent/Potential profile + explicit contextual modifier sources + rule context -> effective progression parameters`
 
-- authoritative/base Talent/Potential profile,
-- modifier inputs from Phase 5,
-- effective Talent/Potential used by ProgressionEngine,
-- presentation of base vs effective where needed.
+The profile is an input domain, while modifier instances are contextual effects on the calculation.
 
-Phase 5 must define stacking/priority rules before Phase 6 can safely decide how multiple domain modifiers combine.
-
-Critical dependency question:
-
-> Does `DerivedValueResolver` support generic keyed/domain-scoped targets beyond Stats/Resources, or will Phase 6 require a reusable modifier-resolution primitive?
-
-Do not answer this by bypassing Phase 5 with a custom Talent-only modifier engine.
+No second modifier/resolver engine should be created inside Phase 6.
 
 ---
 
@@ -597,277 +373,198 @@ Do not answer this by bypassing Phase 5 with a custom Talent-only modifier engin
 
 ProgressionEngine is the primary consumer of Talent/Potential.
 
-Recommended conceptual inputs for each progression attempt:
+Conceptual flow:
 
-- action/source type,
-- target stat/skill/technique/project domain,
-- current level/mastery,
-- duration,
-- intensity,
-- difficulty,
-- mentor,
-- environment,
-- method,
-- effective Talent for relevant domain,
-- effective Potential parameters,
-- fatigue/injury,
-- novelty,
-- adaptation state,
-- diminishing returns,
-- World Pack modifiers.
+`training/combat/research/practice/evolution cause`
+`+ current skill/stat level`
+`+ duration/intensity/difficulty/quality/novelty`
+`+ mentor/environment/method`
+`+ fatigue/injury/adaptation state`
+`+ TalentProfile domain entries`
+`+ PotentialProfile domain/dimension entries`
+`+ Phase 5 resolved contextual modifiers`
+`-> deterministic progression result`
 
-Recommended semantic ordering:
+Talent should mainly affect learning efficiency/difficulty/effective practice.
 
-1. validate cause/action/prerequisites,
-2. resolve relevant domain(s),
-3. resolve effective Talent,
-4. resolve training/practice quality,
-5. resolve current adaptation/diminishing returns,
-6. resolve Potential/high-end scaling response,
-7. compute proposed gain,
-8. validate no illegal regression/overflow/world-rule violation,
-9. emit Progression Ledger entry and ChangeSet,
-10. commit through canonical mutation path.
+Potential should mainly affect long-horizon scaling, diminishing returns, adaptation headroom, breakthrough/evolution scaling where applicable.
 
-Talent and Potential must never be used by AI as permission to directly assign gains.
+Neither profile generates progress alone.
+
+Progression ledger should record which profile values/rule versions were used for explainability/replay, without turning derived multipliers into authoritative profile values.
 
 ---
 
 # 14. Required invariants
 
-Mandatory invariants for future implementation:
-
-1. `Talent != Skill mastery`.
-2. `Talent != Technique mastery`.
-3. `Talent != current stat value`.
-4. `Potential != current stat value`.
-5. `Potential != current resource maximum`.
-6. `Potential != current evolution stage`.
-7. High Talent does not imply high Potential.
-8. High Potential does not imply high Talent.
-9. No progress is created solely because Talent/Potential exists; a valid progression cause is required.
-10. Temporary modifiers do not overwrite authoritative base Talent/Potential.
-11. Every authoritative profile entry is scoped to one player/campaign identity.
-12. Domain references use stable UID, not display-name matching.
-13. World-specific domains cannot be hardcoded into Core enums/columns.
-14. Unknown legacy values are preserved, not silently discarded.
-15. Ambiguous legacy terms are not auto-converted to numeric authoritative values.
-16. Profile changes require a legal domain/change path and provenance.
-17. CharacterPanel/GM context are projections, never source of truth for profile mutation.
-18. World Pack update cannot silently remap a domain UID to different semantics.
-19. Removing a World Pack domain must not orphan/destroy historical profile data without compatibility handling.
-20. Effective profile resolution must be deterministic for the same authoritative state + modifiers + world rules.
-21. Potential hard caps are World Pack/rule decisions, not a universal Core assumption.
-22. Bloodline/race/evolution ownership remains a separate innate domain.
-23. Affinity is separate unless explicitly linked by World Pack rules.
-24. Talent/Potential visibility to player is presentation policy and cannot alter authoritative values.
-25. Cross-campaign player UID leakage is forbidden.
+1. Talent != Skill Level.
+2. Potential != current stat.
+3. Talent != Potential.
+4. High/low combinations remain independent and valid.
+5. Profile identity is campaign + character scoped.
+6. Domain identity uses stable UID, not display names.
+7. World Pack owns its domain definitions; UID hijacking is invalid.
+8. Core contains no Naruto/Bleach domain-name branching.
+9. Talent/Potential are persistent authoritative inputs.
+10. Resolver output never overwrites profile base values.
+11. Temporary effects are separate modifier/effect facts.
+12. No progress occurs without a causal progression source.
+13. Ambiguous legacy labels are not auto-promoted to numeric profiles.
+14. Current mastery cannot seed Talent automatically.
+15. Current stat magnitude cannot seed Potential automatically.
+16. Affinity is not globally equal to Talent.
+17. Evolution stage is not evolution potential.
+18. Profile/domain values are finite and satisfy their normalization bounds.
+19. Same input + rules/version gives deterministic effective progression parameters.
+20. Provenance exists for profile creation/change/migration.
+21. Profile entries are versionable.
+22. Definition changes across World Pack versions cannot silently reinterpret existing values.
+23. Cross-campaign/player profile leakage is impossible.
+24. Derived/cache deletion loses no Talent/Potential authority.
+25. Rule dependency cycles involving profile/stat/resource derived values are rejected or explicitly resolved by a future declared solver policy.
+26. A Phase 4 stat/resource rule may reference profile domains only through stable rule metadata/provider contracts.
+27. No duplicate profile application due to parent/child domain overlap unless combination policy explicitly allows it.
+28. Hidden Potential presentation policy does not change authoritative mechanics.
 
 ---
 
 # 15. Required tests
 
-## 15.1 Core semantic tests
+Future Phase 6 tests should include:
 
-- high Talent + low Potential remains representable and distinct,
-- low Talent + high Potential remains representable and distinct,
-- high + high,
-- low + low,
-- same skill mastery with different Talent profiles,
-- same current stat with different Potential profiles,
-- same Talent with different Potential produces different high-end progression behavior when ProgressionEngine exists,
-- no learning attempt => no progress despite high Talent,
-- no domain definition => fail loud or explicit unresolved result, never string fallback.
-
-## 15.2 Domain tests
-
-- Core domain + World Pack domain coexist,
-- parent/general + specific domain resolution deterministic,
-- same display name with different UIDs does not collide,
-- renamed display label preserves UID identity,
-- removed/deprecated domain remains migration-readable,
-- invalid foreign World Pack domain reference is rejected or handled by explicit compatibility rule.
-
-## 15.3 Modifier/Phase 5 tests
-
-- temporary learning debuff changes effective Talent but not base Talent,
-- permanent modifier stacking follows Phase 5 rules,
-- injury/condition effect rollback restores effective value without rewriting profile,
-- duplicate modifier application is prevented by stable source/transaction identity where applicable.
-
-## 15.4 Migration tests
-
-- exact legacy `talent_*` mapping preserves numeric value and provenance,
-- exact legacy `potential_*` mapping preserves value and provenance,
-- ambiguous `gifted` label is not fabricated into a numeric value,
-- `affinity` is not auto-mapped to Talent without World Pack mapping,
-- `growth_rate` ambiguous source is retained until classified,
-- unknown custom World Pack talent domain survives migration,
-- migration rerun is idempotent,
-- partial migration failure rolls back,
-- old campaign save -> migrate -> load preserves all unrelated Player State,
-- no legacy PlayerStat/Skill/Technique value changes during Talent/Potential migration.
-
-## 15.5 Progression integration tests
-
-When Phase 20 exists:
-
-- equal training inputs + higher domain Talent yields higher effective learning under rules,
-- low Potential can tighten high-level diminishing returns without lowering current skill/stat,
-- high Potential does not skip prerequisites,
-- evolution Potential affects only explicitly connected evolution rule paths,
-- innovation Potential can affect DevelopmentProject/creation progression without auto-creating a technique,
-- ledger records resolved Talent/Potential inputs or normalized factors for auditability.
-
-## 15.6 World Pack examples
-
-Naruto pack tests should eventually cover at least:
-
-- general learning vs genjutsu-specific Talent,
-- elemental affinity separate from Talent,
-- bloodline ownership separate from Talent/Potential,
-- chakra-stat growth consumes potential through explicit mapping.
-
-Bleach pack tests should eventually cover at least:
-
-- zanjutsu vs reishi-control domains,
-- racial/evolution state separate from evolution Potential,
-- reiryoku/reitsu growth mapping through explicit definitions,
-- no Naruto-specific Core assumptions.
-
-## 15.7 Snapshot/context tests
-
-- CharacterPanelSnapshot v2 can show Talent/Potential without becoming authoritative,
-- GM_CONTEXT profile includes only policy-allowed profile detail,
-- hidden Potential remains hidden in narrative while mechanics can still consume it,
-- deleting/rebuilding presentation snapshot does not lose profile state.
+- high Talent + low Potential;
+- low Talent + high Potential;
+- high/high;
+- low/low;
+- same skill level with different Talent -> different learning efficiency;
+- same current stat with different Potential -> different long-horizon scaling where rule applies;
+- Talent changes do not rewrite Skill mastery;
+- Potential changes do not rewrite stat base values;
+- temporary learning debuff changes effective progression input but not base Talent;
+- permanent profile change requires provenance/version increment;
+- unknown custom World Pack domain works without Core code change;
+- Naruto and Bleach test packs use the same generic Core contract;
+- duplicate domain UID across World Packs is rejected;
+- duplicate key within one World Pack follows explicit collision policy;
+- reopen persistence equality;
+- player A != player B;
+- campaign A != campaign B;
+- 100+ profile/domain entries are returned without silent truncation;
+- NaN/Infinity rejected;
+- legacy ambiguous labels preserved without invented mapping;
+- legacy explicit talent/potential source migrates once and idempotently;
+- Phase 5 cache deletion/rebuild produces identical effective progression inputs;
+- changing a Phase 4 stat base value affects only rules that declare that dependency;
+- changing Talent/Potential affects only rules/domains that declare those dependencies;
+- World Pack update with stable domain UID preserves meaning/version migration;
+- World Pack update attempting UID semantic hijack fails.
 
 ---
 
 # 16. Blockers before implementation
 
-Phase 6 implementation is **BLOCKED** until the following are satisfied.
+Phase 6 implementation remains blocked by dependency order.
 
-## Blocker A — Phase 4 contract stable
+Current blockers:
 
-Need final stable contracts for:
+1. Phase 4 exists but is still under validation/hardening by CHAT-1/CHAT-3 and has not been globally marked COMPLETE by the coordinator.
+2. Phase 5 `DerivedValueResolver + Modifier Model` is not implemented.
+3. CHAT-2's requested post-Phase-4 delta audit is not yet repository-visible at this exact baseline; any later accepted Phase 5 contract must supersede assumptions here where necessary.
+4. Actual legacy Talent/Potential schema/content inside binary packaged campaign/world DBs still requires implementation-time inspection.
+5. Full ProgressionEngine and WorldRuleProvider are later roadmap dependencies; Phase 6 should define narrow stable contracts without pulling their complete implementation forward.
 
-- `StatDefinition` / `PlayerStat`,
-- `ResourceDefinition` / `PlayerResource`,
-- World Pack definition identity/namespace,
-- persistence/migration pattern,
-- repository access boundary.
-
-The Phase 6 implementation must be rebased/audited against the actual result of `WORK-20260809-001`, not against this preparatory sketch.
-
-## Blocker B — Phase 5 contract stable
-
-Need final:
-
-- `DerivedValueResolver` semantics,
-- modifier target/addressing model,
-- stacking/priority behavior,
-- permanent vs temporary modifier representation,
-- deterministic resolution contract.
-
-Without this, Phase 6 risks creating an incompatible second modifier engine.
-
-## Blocker C — binary schema audit
-
-Before migration code, inspect actual bundled/current campaign and world databases, including Naruto packages, for all legacy terminology. Record exact tables, columns, types, constraints and representative values.
-
-## Blocker D — WorldRuleProvider direction
-
-Roadmap Phase 19 is later than Phase 6, so Phase 6 must avoid implementing world-rule orchestration prematurely. The profile/domain contract should be compatible with a later `WorldRuleProvider`, but Phase 6 should not create full universe-specific player engines.
-
-If implementation requires rule-provider behavior to be authoritative immediately, coordinator should split/sequence the work rather than hardcode Naruto.
-
-## Blocker E — canonical mutation path maturity
-
-MASTER requires all authoritative changes to go through proposal -> resolution -> ChangeSet -> validation -> transaction -> commit. Current Phase 3 runtime still exposes lower-level legacy state patterns and the full PlayerDomainEngine/PlayerChangeSet path is later in roadmap.
-
-Phase 6 should therefore focus on safe authoritative representation/read semantics and avoid granting broad direct mutation shortcuts that would later violate the global invariant.
+None of these is an architectural defect in the proposed Phase 6 model. They are dependency/validation blockers.
 
 ---
 
-# Proposed contract summary
+# ADDENDUM — Delta against real Phase 4 and Phase 5 design
 
-The future contract should satisfy:
+## A. Is Phase 4 an adequate structural predecessor for Phase 6?
 
-`Character -> TalentProfile(domainUid -> base aptitude/learning efficiency)`
+**YES, at the contract level.**
 
-`Character -> PotentialProfile(domain/dimension -> long-horizon growth property)`
+Phase 4 demonstrates the exact generic principles Phase 6 needs:
 
-`World Pack -> DomainDefinitions + mappings + optional rules/default policy`
+- stable UID definitions,
+- World Pack ownership,
+- campaign/player scoped values,
+- explicit base vs current semantics,
+- versionable values,
+- opaque rule-binding UIDs,
+- no Naruto/Bleach hardcoding.
 
-`Phase 5 -> effective profile modifier resolution`
+Phase 6 should not extend `StatDefinition` with `talentDomainUid`/`potentialDomainUid` fields by default. The cleaner architecture is for the referenced growth/derivation/progression rule metadata to declare domain dependencies. This keeps stats/resources generic and prevents future coupling.
 
-`ProgressionEngine -> consumes effective Talent + Potential together with cause, current level, difficulty, adaptation, novelty, environment, fatigue/injury and diminishing returns`
+## B. Should Talent/Potential be World Pack definitions?
 
-`Innate/Bloodline/Racial/Evolution -> separate state; may provide modifiers/eligibility/mappings but is not the profile itself`
+**Domains and rule mappings: YES. Character values: NO — they are per-character profile state.**
 
-`CharacterPanel/GM Context -> read-only projection`
+World Pack defines what domains exist and how its mechanics consume them. A character owns profile entries for those domains.
 
-Core remains universe-agnostic.
+## C. Should profiles be per character?
 
----
+**YES.** They should be campaign + character scoped, matching Phase 4 isolation principles.
 
-# Coordinator handoff
+## D. Should domains use stable UID?
 
-## Work ID
+**YES, mandatory.** Display keys/names are labels. Stable UID is identity.
 
-`WORK-20260809-004`
+## E. Optional association targets
 
-## baselineCommit
+A World Pack/rule definition may associate a progression domain with:
 
-Fresh audit baseline used for this report: `ace51fa7cb635a4dcd6801865c300bc8c34f52cf`
+- a stat growth rule UID,
+- a skill definition UID,
+- a technique definition/category UID,
+- an innate/evolution rule UID,
+- another domain/category UID.
 
-Coordination-record baseline at assignment: `82b030271e5b7d653da457a2e9b2522e21234457`.
+The association must be explicit metadata/rule configuration, not inferred from matching strings.
 
-The difference consists of coordination/work-item registration commits, not Phase 4 implementation.
+## F. Resolver relationship
 
-## findings
+Talent/Potential are authoritative inputs to resolution/progression. They are **not** ordinary temporary modifiers.
 
-- no integrated Talent/Potential runtime model exists,
-- Phase 3 preserves unknown legacy status fields but cannot assign Talent/Potential semantics,
-- CharacterPanel v1 has no Talent/Potential sections,
-- current stat/skill/technique data must not be reused as Talent/Potential,
-- Naruto binary World Pack artifacts exist; Bleach pack is absent from master tree,
-- binary DB/ZIP schema still requires implementation-time inspection,
-- canonical Talent/Potential separation is compatible with MASTER and target architecture,
-- generic `domainUid` extension model is required to avoid hardcoding universes.
+A Phase 5 resolver may produce an effective learning factor or resolved progression parameter from:
 
-## proposed contract
+`profile base + permanent contextual sources + injury/environment/temporary sources + rule semantics`.
 
-- `TalentProfile`: domain-scoped learning efficiency/aptitude state,
-- `PotentialProfile`: long-horizon scale/adaptation/innovation/evolution properties,
-- stable UID-based domains defined by Core/World Packs,
-- explicit mappings from skills/stat growth/evolution rules to domains,
-- Phase 5 resolves effective profile modifiers,
-- ProgressionEngine consumes profiles but profiles never self-generate progress.
+The base profile remains intact.
 
-## migration risks
+## G. Provenance
 
-- ambiguous legacy vocabulary (`gifted`, `aptitude`, `growth_rate`, `affinity`),
-- hidden talent/potential-like fields inside binary packaged DBs,
-- accidental conversion of current skill/stat to profile value,
-- invented defaults for old campaigns,
-- domain UID changes across World Pack updates,
-- double modifier engines if Phase 6 bypasses Phase 5,
-- hardcoded Naruto/Bleach concepts leaking into Core.
+Every authoritative profile entry/change should carry enough provenance to explain:
 
-## blockers
+- source type,
+- source UID/event,
+- migration source if legacy,
+- actor/method if relevant,
+- created turn/time,
+- rule/engine version,
+- previous version/supersession if changed.
 
-- Phase 4 result not yet available at audit baseline,
-- Phase 5 not implemented,
-- binary schema inspection pending,
-- final modifier target/stacking contract pending,
-- final World Pack definition UID pattern pending.
+This follows MASTER's provenance requirement and future progression ledger needs.
 
-## dependencies on Phases 4 and 5
+## H. Versionability
 
-Phase 4 supplies definition identity, dynamic stat/resource growth attachment points and migration conventions.
+Profile entries and domain definitions must be versionable. This is necessary for:
 
-Phase 5 supplies reusable deterministic modifier/effective-value semantics. Phase 6 must reuse those semantics and must not implement a parallel resolver.
+- World Pack updates,
+- cache invalidation,
+- deterministic replay,
+- migration,
+- preventing semantic reinterpretation of old values.
 
-Implementation should begin only after the coordinator accepts Phase 4 and Phase 5 contracts as stable enough for Phase 6 integration.
+## I. Phase 4 rule UID sufficiency
+
+`growthRuleUid`, `derivationRuleUid`, `maxRuleUid`, `regenerationRuleUid` are sufficient as opaque attachment points. Phase 6 does not require adding hardcoded Talent/Potential fields to Phase 4 definitions.
+
+If a later Phase 5/Progression rule schema needs richer dependencies, extend the rule metadata/provider contract, not the Phase 4 base value objects unless a concrete accepted requirement proves otherwise.
+
+## J. Final delta verdict
+
+The real Phase 4 implementation removes the major uncertainty from the original audit: there is now a generic, stable-UID, World-Pack-owned definition pattern and explicit player base/current value semantics that Phase 6 can integrate with cleanly.
+
+The repository-visible Phase 5 architecture is compatible with this design because it requires pure deterministic resolution, provenance-bearing modifier sources, rebuildable derived outputs, and protection of base progression. Phase 6 can therefore remain a separate authoritative profile domain consumed by later ProgressionEngine/resolution rules rather than becoming a special kind of stat or temporary modifier.
+
+# PHASE 6 DESIGN READY, IMPLEMENTATION BLOCKED BY PHASE 5
