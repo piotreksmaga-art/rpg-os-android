@@ -13,13 +13,15 @@ class GameMasterDiagnosticsService141(
             val integrity = GameMasterIntegrity141(db).check()
             val knowledgeIntegrity = KnowledgeTransmissionIntegrity141(db).check()
             val npcLifecycleIntegrity = NpcKnowledgeIntegrity141(db).check()
+            val truthSupersessionIntegrity = TruthSupersessionIntegrity141(db).check()
 
             if (session == null) {
                 return buildString {
                     appendLine("GM141: niezainicjalizowany")
                     appendLine("Integralność: ${if (integrity.ok) "OK" else "BŁĄD"}")
                     appendLine("Ledger wiedzy: ${if (knowledgeIntegrity.ok) "OK" else "BŁĄD"}")
-                    append("Lifecycle wiedzy NPC: ${if (npcLifecycleIntegrity.ok) "OK" else "BŁĄD"}")
+                    appendLine("Lifecycle wiedzy NPC: ${if (npcLifecycleIntegrity.ok) "OK" else "BŁĄD"}")
+                    append("Supersession FACT: ${if (truthSupersessionIntegrity.ok) "OK" else "BŁĄD"}")
                 }
             }
 
@@ -49,6 +51,7 @@ class GameMasterDiagnosticsService141(
                 appendLine("integrity=${if (integrity.ok) "OK" else "ERROR"}")
                 appendLine("knowledgeIntegrity=${if (knowledgeIntegrity.ok) "OK" else "ERROR"}")
                 appendLine("npcLifecycleIntegrity=${if (npcLifecycleIntegrity.ok) "OK" else "ERROR"}")
+                appendLine("truthSupersessionIntegrity=${if (truthSupersessionIntegrity.ok) "OK" else "ERROR"}")
                 appendLine(
                     "npcKnowledgePersistence=" +
                         if (repositoryDiagnostics?.durableNpcKnowledge == true) "READY" else "UNAVAILABLE"
@@ -77,6 +80,13 @@ class GameMasterDiagnosticsService141(
                 if (npcLifecycleIntegrity.issues.isNotEmpty()) {
                     appendLine("npcLifecycleIntegrityIssues=${npcLifecycleIntegrity.issues.size}")
                     npcLifecycleIntegrity.issues.forEach {
+                        appendLine("- ${it.severity} ${it.code} x${it.count}: ${it.message}")
+                    }
+                }
+
+                if (truthSupersessionIntegrity.issues.isNotEmpty()) {
+                    appendLine("truthSupersessionIntegrityIssues=${truthSupersessionIntegrity.issues.size}")
+                    truthSupersessionIntegrity.issues.forEach {
                         appendLine("- ${it.severity} ${it.code} x${it.count}: ${it.message}")
                     }
                 }
