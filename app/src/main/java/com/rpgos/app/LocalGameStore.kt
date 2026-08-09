@@ -27,7 +27,7 @@ class LocalGameStore(private val context: Context) {
 
         runCatching {
             openSaveDb().use { save ->
-                MigrationManager().ensureV2(save)
+                ensureCurrentSchema(save)
                 AutoRepairEngine().repair(save)
             }
         }.onFailure {
@@ -73,7 +73,7 @@ class LocalGameStore(private val context: Context) {
     fun buildContext(playerInput: String, chapter: Int): ContextBundle {
         openSaveDb().use { save ->
             runCatching {
-                MigrationManager().ensureV2(save)
+                ensureCurrentSchema(save)
                 AutoRepairEngine().repair(save)
             }.onFailure { DiagnosticLogger.log(context, "AUTO_REPAIR_SEND_FAILED", it) }
 
@@ -89,9 +89,18 @@ class LocalGameStore(private val context: Context) {
         }
     }
 
+    fun activePlayerRef(): ActivePlayerRef? {
+        openSaveDb().use { db ->
+            ensureCurrentSchema(db)
+            return ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active()
+        }
+    }
+
     fun fullCharacterPanel(): CharacterPanelSnapshot {
         openSaveDb().use { db ->
-            return CharacterPanelReader(db).load()
+            ensureCurrentSchema(db)
+            val playerUid = ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active()?.playerUid
+            return CharacterPanelReader(db, playerUid).load()
         }
     }
 
@@ -112,7 +121,7 @@ class LocalGameStore(private val context: Context) {
     }
     fun syncCheck():SyncCheckResult{
         openCoreDb().use{core->openWorldDb().use{world->openSaveDb().use{save->
-            MigrationManager().ensureV2(save)
+            ensureCurrentSchema(save)
             return SyncManager().check(core,world,save)
         }}}
     }
@@ -222,7 +231,7 @@ class LocalGameStore(private val context: Context) {
 
     fun restoreBackup(path: String): String {
         val safety = RestoreManager(context).restoreBackup(selection.activeCampaignDirName(), path)
-        openSaveDb().use { MigrationManager().ensureV2(it) }
+        openSaveDb().use { ensureCurrentSchema(it) }
         return safety.absolutePath
     }
 
@@ -244,7 +253,7 @@ class LocalGameStore(private val context: Context) {
 
     fun setActiveCampaign(dirName: String) {
         selection.setActiveCampaign(dirName)
-        openSaveDb().use { MigrationManager().ensureV2(it) }
+        openSaveDb().use { ensureCurrentSchema(it) }
     }
 
     fun setActiveWorldPack(dirName: String) {
@@ -279,13 +288,23 @@ class LocalGameStore(private val context: Context) {
     private fun openSave(): SQLiteDatabase =
         SQLiteDatabase.openDatabase(File(saveDir, "campaign.db").absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
 
+    private fun ensureCurrentSchema(saveDb: SQLiteDatabase) {
+        MigrationManager().ensureV3(saveDb, selection.activeCampaignRef().campaignId)
+    }
+
     fun status(): StatusSnapshot {
         if (!File(saveDir, "campaign.db").exists()) return StatusSnapshot()
         return openSave().use { db ->
+            val playerUid = runCatching {
+                ensureCurrentSchema(db)
+                ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active()?.playerUid
+            }.getOrNull()
             var location = "—"
             try {
-                db.rawQuery("SELECT location_uid FROM entity_positions LIMIT 1", null).use {
-                    if (it.moveToFirst()) location = it.getString(0) ?: "—"
+                if (playerUid != null) {
+                    db.rawQuery("SELECT location_uid FROM entity_positions WHERE entity_uid=? LIMIT 1", arrayOf(playerUid)).use {
+                        if (it.moveToFirst()) location = it.getString(0) ?: "—"
+                    }
                 }
             } catch (_: Exception) {}
             StatusSnapshot(location = location)
