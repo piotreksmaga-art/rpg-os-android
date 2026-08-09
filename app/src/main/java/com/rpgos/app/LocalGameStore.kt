@@ -70,8 +70,10 @@ class LocalGameStore(private val context: Context) {
 
     fun buildContext(playerInput: String, chapter: Int): ContextBundle {
         openSaveDb().use { save ->
-            runCatching { AutoRepairEngine().repair(save) }
-                .onFailure { DiagnosticLogger.log(context, "AUTO_REPAIR_SEND_FAILED", it) }
+            // Legacy context construction is still a GM entry point. Bootstrap may
+            // repair additive structure, but runtime context must never be built
+            // from a campaign that fails the same durable open gate as GM141.
+            GameMasterIntegrityGate141(save).requireHealthy("CAMPAIGN_OPEN")
 
             openWorldDb().use { world ->
                 return ContextBuilder(save, world).build(playerInput, chapter)
