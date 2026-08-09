@@ -80,6 +80,13 @@ jobs:
       - name: Run JVM unit tests
         run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
 
+      - name: Show JVM test failures
+        if: failure()
+        shell: bash
+        run: |
+          echo "=== JVM test failure reports ==="
+          find app/build/test-results/testDebugUnitTest -type f -name '*.xml' -print -exec cat {} \; 2>/dev/null || true
+
       - name: Build signed ALPHA APK
         run: gradle --no-daemon :app:assembleRelease --stacktrace
 
