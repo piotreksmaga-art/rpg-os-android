@@ -31,7 +31,17 @@ data class PlayerStateSnapshot(
     val persistent: Map<String, Any?>,
     val derived: Map<String, Any?>,
     val runtime: Map<String, Any?>
-)
+) {
+    fun toContextMap(): Map<String, Any?> = linkedMapOf(
+        "active_player" to linkedMapOf(
+            "campaign_id" to activePlayer.campaignId,
+            "player_uid" to activePlayer.playerUid
+        ),
+        "persistent" to persistent,
+        "derived" to derived,
+        "runtime" to runtime
+    )
+}
 
 object PlayerStatePolicy {
     fun validate(ref: ActivePlayerRef) {
