@@ -3,6 +3,7 @@
 Status: ACTIVE / CANONICAL ROADMAP
 Architecture: `docs/RPG_OS_MASTER_ARCHITECTURE.md`
 Phase 0 evidence: `docs/PHASE_0_AUDIT.md`, `docs/PHASE_0_MUTATION_PATH_AUDIT.md`, `docs/PHASE_0_PLAYER_STATE_AUDIT.md`.
+Phase 1 evidence: `docs/PHASE_1_UNIFIED_REPOSITORY.md`.
 
 ## Statusy
 - `[x] COMPLETE` — wdrożone, zintegrowane, persisted, bezpieczne migracyjnie, przetestowane i build/CI przechodzą.
@@ -25,11 +26,11 @@ Evidence:
 - mutation path GM, Player read model, ContextBuilder, backup/snapshot, restore, package/update i główne read/write components są zmapowane;
 - pełny column-level dump konkretnej tabeli jest wykonywany ponownie przed jej migracją i nie jest potrzebny do dalszego wyboru najwcześniejszej zależności;
 - CI run #40 dla audytowanego baseline zakończył się SUCCESS;
-- brak standardowego `app/src/test` oraz `app/src/androidTest` został potwierdzony.
+- brak standardowego `app/src/test` oraz `app/src/androidTest` został potwierdzony dla baseline Phase 0.
 
 # FAZA A — FUNDAMENT DANYCH I GRACZA
-- [-] 1. Unified Repository + stable UID
-  Evidence: `LocalGameStore` jest proto-fasadą i active campaign selection działa; nadal istnieją direct SQL readers, `BackupManager` hardcoduje `Naruto_Default.campaign`, a `BackendClient` wysyła hardcoded `naruto-default`.
+- [x] 1. Unified Repository + stable UID
+  Evidence: `ActiveCampaignRef`, `CampaignRepository`, `UnifiedGameRepository` i application-level repository boundary istnieją; `LocalGameStore`, backup/snapshot, restore, ContextBuilder/backend campaign_id i settings używają jednej aktywnej tożsamości kampanii. Legacy Naruto mapping jest zachowany jako jawny default/migration constant. Repository identity tests oraz CI/build przechodzą. Szczegóły: `docs/PHASE_1_UNIFIED_REPOSITORY.md`.
 - [-] 2. Campaign Source of Truth + FACT/BELIEF/NARRATIVE + provenance
   Evidence: `SourceOfTruthRegistry`, table registry i knowledge tables istnieją; brak jednolitego truth/provenance contract.
 - [-] 3. Player State Contract: Persistent / Derived / Runtime
@@ -80,7 +81,7 @@ Evidence:
 - [-] 33. Snapshot System
   Evidence: chapter manifests i full DB copy backups istnieją; brak snapshot + event replay architecture.
 - [-] 34. Automatic snapshot retention max 6
-  Evidence: pruning `chapter_*` do 6 działa; `BackupManager` nie używa active campaign. Manual/pre-restore nie są pruningowane.
+  Evidence: pruning `chapter_*` do 6 działa dla aktywnej kampanii przez wspólną campaign identity; manual/pre-restore nie są pruningowane.
 - [-] 35. Canon Divergence
   Evidence: `timeline_divergences` jest runtime-writable i prompt uwzględnia divergence; brak dedicated validator/resolution semantics.
 - [-] 36. Schema Versioning + migration safety + legacy provenance
@@ -152,12 +153,12 @@ Evidence:
   Evidence: campaign selection, DB backups, restore i chapter manifests istnieją; brak event-pointer save/load model.
 - [ ] 72. Branching without full database duplication
 - [-] 73. Backup System
-  Evidence: chapter backups, pre-restore i active-campaign pre-update backup istnieją; zwykły `BackupManager` ma hardcoded campaign, brak pre-migration/cloud boundary.
+  Evidence: chapter backups, pre-restore i active-campaign pre-update backup są spięte z active campaign identity; brak pre-migration/cloud boundary i pełnego backup policy contract.
 - [-] 74. Observability metrics
   Evidence: DiagnosticLogger/DiagnosticsSnapshot i dev self-test istnieją; brak canonical per-turn latency/count/transaction metrics.
 - [ ] 75. Replay Debugger
 - [-] 76. Integrity Test Suite
-  Evidence: brak standardowych Android unit/instrumentation tests; istnieją ad-hoc static/stress/package integrity checks.
+  Evidence: standardowe JVM unit tests istnieją od Phase 1 i są uruchamiane przez CI przed release build; coverage jest nadal wąskie, brak pełnych integration/instrumentation/invariant tests.
 - [-] 77. Long Campaign Stress Tests
   Evidence: configurable script domyślnie 10k chapter manifests + SQLite integrity_check; brak 100k/1M events/5M words i canonical fact/knowledge/causal/economy checks.
 - [-] 78. Android performance profiling/optimization
@@ -176,7 +177,7 @@ Evidence:
 - [x] FROZEN BY PROJECT DECISION
   Aktualny styl jest zaakceptowany. Brak proaktywnego rozwoju wizualnego do jawnej decyzji użytkownika.
 
-# CROSS-CUTTING TEST GAPS POTWIERDZONE W FAZIE 0
+# CROSS-CUTTING TEST GAPS
 - [ ] save -> close -> load authoritative equality
 - [ ] snapshot -> replay -> same authoritative state
 - [ ] old campaign -> migration -> valid load
@@ -192,14 +193,10 @@ Evidence:
 - [ ] CharacterPanelSnapshot delete/rebuild -> no data loss
 - [ ] cache/index delete/rebuild -> no data loss
 
-# PIERWSZA ZALEŻNOŚĆ PO FAZIE 0
-Najwcześniejszym rzeczywistym zadaniem nie jest tworzenie nowego Player Engine. Najpierw należy domknąć granicę **1. Unified Repository + active campaign identity**, ponieważ późniejsze Player State, backup, GM request i persistence muszą operować na tej samej jawnej kampanii.
+# FAZA 1 — WYNIK
+Unified Repository + active campaign identity jest COMPLETE. Spełniono pięć kryteriów delta Phase 1; dowód implementacyjny i CI znajduje się w `docs/PHASE_1_UNIFIED_REPOSITORY.md`.
 
-Pierwszy delta implementacyjny:
-1. wprowadzić jeden authoritative `ActiveCampaignRef`/odpowiednik w warstwie repository,
-2. skierować `LocalGameStore`, backup/snapshot/restore i backend campaign_id przez ten sam identyfikator,
-3. usunąć hardcoded `Naruto_Default.campaign` i `naruto-default` z runtime mutation/save paths,
-4. zachować zgodność z istniejącą kampanią Naruto jako wartością migracyjną/default,
-5. dodać pierwsze repository/persistence tests zanim oznaczymy etap 1 COMPLETE.
+# NASTĘPNA ZALEŻNOŚĆ PO FAZIE 1
+Następnym najwcześniejszym zadaniem jest **2. Campaign Source of Truth + FACT/BELIEF/NARRATIVE + provenance**. Nie należy jeszcze skakać do Player Engine, dopóki jednolity truth/provenance contract nie określi, co jest faktem kampanii, przekonaniem aktora i narracją oraz skąd pochodzi każda istotna trwała zmiana.
 
 Po każdym wdrożeniu zmieniaj status wyłącznie z dowodem: pliki + migracja (jeśli potrzebna) + test + build/CI.
