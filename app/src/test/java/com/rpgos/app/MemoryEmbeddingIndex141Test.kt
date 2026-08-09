@@ -116,7 +116,7 @@ class MemoryEmbeddingIndex141Test {
         }
     }
 
-    private fun createMemories(vararg memories: DurableMemoryRecord): Pair<EntityUid, List<DurableMemoryRecord>> {
+    private suspend fun createMemories(vararg memories: DurableMemoryRecord): Pair<EntityUid, List<DurableMemoryRecord>> {
         lateinit var campaignUid: EntityUid
         GameMasterRepositoryFactory(app, store).openActiveSession().use { active ->
             campaignUid = active.campaignUid
