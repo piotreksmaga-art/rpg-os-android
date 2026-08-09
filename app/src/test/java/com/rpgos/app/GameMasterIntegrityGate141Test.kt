@@ -96,6 +96,52 @@ class GameMasterIntegrityGate141Test {
     }
 
     @Test
+    fun snapshotIncludesCommittedFramesStillInWalAndRegistersHealthyArtifact() = runBlocking {
+        createHealthySupersession(withCommittedTurn = true)
+
+        store.openSaveDb().use { db ->
+            db.rawQuery("PRAGMA journal_mode=WAL", null).use { c ->
+                assertTrue(c.moveToFirst())
+            }
+            db.rawQuery("PRAGMA wal_autocheckpoint=0", null).use { c ->
+                assertTrue(c.moveToFirst())
+            }
+            db.execSQL("CREATE TABLE IF NOT EXISTS gm_integrity_wal_probe(value TEXT NOT NULL)")
+            db.execSQL("DELETE FROM gm_integrity_wal_probe")
+            db.execSQL("INSERT INTO gm_integrity_wal_probe(value) VALUES(?)", arrayOf("snapshot-from-wal"))
+
+            val wal = File(db.path + "-wal")
+            assertTrue("Test musi faktycznie pozostawić ramki WAL.", wal.isFile && wal.length() > 0L)
+
+            val snapshot = GameMasterRepositoryFactory(context, store).openActiveSession().use { active ->
+                active.repository.createSnapshot(active.campaignUid, 1L)
+            }
+
+            val snapshotPath = db.rawQuery(
+                "SELECT storage_path FROM gm_snapshots WHERE snapshot_id=? LIMIT 1",
+                arrayOf(snapshot.snapshotUid.value)
+            ).use { c ->
+                assertTrue(c.moveToFirst())
+                c.getString(0)
+            }
+            val artifact = File(snapshotPath)
+            assertTrue(artifact.isFile)
+            assertTrue(GameMasterIntegrityGate141.checkFile(artifact).ok)
+
+            SQLiteDatabase.openDatabase(
+                artifact.absolutePath,
+                null,
+                SQLiteDatabase.OPEN_READONLY
+            ).use { copied ->
+                copied.rawQuery("SELECT value FROM gm_integrity_wal_probe LIMIT 1", null).use { c ->
+                    assertTrue(c.moveToFirst())
+                    assertEquals("snapshot-from-wal", c.getString(0))
+                }
+            }
+        }
+    }
+
+    @Test
     fun backupManagerFollowsActiveCampaignInsteadOfDefaultSave() = runBlocking {
         createHealthySupersession(withCommittedTurn = false)
         val custom = store.createCampaign("Integrity_Custom")
