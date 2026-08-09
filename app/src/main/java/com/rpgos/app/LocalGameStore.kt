@@ -26,7 +26,10 @@ class LocalGameStore(private val context: Context) {
         }
 
         runCatching {
-            openSaveDb().use { AutoRepairEngine().repair(it) }
+            openSaveDb().use { save ->
+                MigrationManager().ensureV2(save)
+                AutoRepairEngine().repair(save)
+            }
         }.onFailure {
             DiagnosticLogger.log(context, "AUTO_REPAIR_BOOT_FAILED", it)
         }
@@ -52,7 +55,6 @@ class LocalGameStore(private val context: Context) {
         }
     }
 
-
     private fun copyAsset(assetName: String, target: File) {
         target.parentFile?.mkdirs()
         context.assets.open(assetName).use { input ->
@@ -70,27 +72,28 @@ class LocalGameStore(private val context: Context) {
 
     fun buildContext(playerInput: String, chapter: Int): ContextBundle {
         openSaveDb().use { save ->
-            runCatching { AutoRepairEngine().repair(save) }
-                .onFailure { DiagnosticLogger.log(context, "AUTO_REPAIR_SEND_FAILED", it) }
+            runCatching {
+                MigrationManager().ensureV2(save)
+                AutoRepairEngine().repair(save)
+            }.onFailure { DiagnosticLogger.log(context, "AUTO_REPAIR_SEND_FAILED", it) }
 
             openWorldDb().use { world ->
-                return ContextBuilder(save, world).build(playerInput, chapter)
+                val base = ContextBuilder(save, world).build(playerInput, chapter)
+                val truth = CampaignTruthStore(save, selection.activeCampaignRef().campaignId)
+                    .activeForContext(limit = 80)
+                return base.copy(
+                    campaignTruth = truth,
+                    contextMeta = base.contextMeta + mapOf("campaign_truth_records" to truth.size)
+                )
             }
         }
     }
-
-
 
     fun fullCharacterPanel(): CharacterPanelSnapshot {
         openSaveDb().use { db ->
             return CharacterPanelReader(db).load()
         }
     }
-
-
-
-
-
 
     fun npcs(search:String=""):List<NpcListItem>{
         openWorldDb().use{world->openSaveDb().use{save->return NpcWorldDashboardReader(world,save).npcs(search)}}
@@ -109,7 +112,7 @@ class LocalGameStore(private val context: Context) {
     }
     fun syncCheck():SyncCheckResult{
         openCoreDb().use{core->openWorldDb().use{world->openSaveDb().use{save->
-            MigrationManager().ensureV1(save)
+            MigrationManager().ensureV2(save)
             return SyncManager().check(core,world,save)
         }}}
     }
@@ -219,6 +222,7 @@ class LocalGameStore(private val context: Context) {
 
     fun restoreBackup(path: String): String {
         val safety = RestoreManager(context).restoreBackup(selection.activeCampaignDirName(), path)
+        openSaveDb().use { MigrationManager().ensureV2(it) }
         return safety.absolutePath
     }
 
@@ -240,6 +244,7 @@ class LocalGameStore(private val context: Context) {
 
     fun setActiveCampaign(dirName: String) {
         selection.setActiveCampaign(dirName)
+        openSaveDb().use { MigrationManager().ensureV2(it) }
     }
 
     fun setActiveWorldPack(dirName: String) {
