@@ -13,14 +13,35 @@ class RestoreManager(private val context: Context) {
         require(backup.isFile) { "Backup nie istnieje." }
         require(backup.extension == "db") { "Nieprawidłowy typ backupu." }
 
-        // Validate the incoming database before touching the live campaign.
+        // Validate the incoming standalone database before touching the live campaign.
         GameMasterIntegrityGate141.requireHealthyFile(backup, "RESTORE_SOURCE")
 
-        val safety = File(campaign, "backups/pre_restore_${System.currentTimeMillis()}.db")
+        val now = System.currentTimeMillis()
+        val safety = File(campaign, "backups/pre_restore_$now.db")
         safety.parentFile?.mkdirs()
-        if (db.exists()) db.copyTo(safety, overwrite = true)
+        if (db.exists()) {
+            SQLitePersistenceCopy141.copyLiveDatabase(
+                source = db,
+                target = safety,
+                sourceBoundary = "RESTORE_LIVE_SOURCE",
+                artifactBoundary = "RESTORE_SAFETY_ARTIFACT"
+            )
+        }
 
-        backup.copyTo(db, overwrite = true)
-        return safety
+        val staged = File(campaign, ".restore_staged_$now.db")
+        SQLitePersistenceCopy141.stageStandaloneDatabase(
+            source = backup,
+            staged = staged,
+            artifactBoundary = "RESTORE_STAGED_ARTIFACT"
+        )
+
+        try {
+            SQLitePersistenceCopy141.replaceDatabaseWithStaged(staged, db)
+            GameMasterIntegrityGate141.requireHealthyFile(db, "RESTORE_TARGET")
+            return safety
+        } catch (t: Throwable) {
+            runCatching { if (staged.exists()) staged.delete() }
+            throw t
+        }
     }
 }
