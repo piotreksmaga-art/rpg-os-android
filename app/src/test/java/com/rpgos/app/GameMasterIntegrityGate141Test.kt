@@ -62,6 +62,38 @@ class GameMasterIntegrityGate141Test {
     }
 
     @Test
+    fun backupIncludesCommittedFramesStillInWal() = runBlocking {
+        createHealthySupersession(withCommittedTurn = false)
+
+        store.openSaveDb().use { db ->
+            db.rawQuery("PRAGMA journal_mode=WAL", null).use { c ->
+                assertTrue(c.moveToFirst())
+            }
+            db.execSQL("PRAGMA wal_autocheckpoint=0")
+            db.execSQL("CREATE TABLE IF NOT EXISTS gm_integrity_wal_probe(value TEXT NOT NULL)")
+            db.execSQL("DELETE FROM gm_integrity_wal_probe")
+            db.execSQL("INSERT INTO gm_integrity_wal_probe(value) VALUES(?)", arrayOf("from-wal"))
+
+            val wal = File(db.path + "-wal")
+            assertTrue("Test musi faktycznie pozostawić ramki WAL.", wal.isFile && wal.length() > 0L)
+
+            val backup = BackupManager(context).createBackup("wal_probe")
+            assertTrue(backup.isFile)
+            SQLiteDatabase.openDatabase(
+                backup.absolutePath,
+                null,
+                SQLiteDatabase.OPEN_READONLY
+            ).use { copied ->
+                copied.rawQuery("SELECT value FROM gm_integrity_wal_probe LIMIT 1", null).use { c ->
+                    assertTrue(c.moveToFirst())
+                    assertEquals("from-wal", c.getString(0))
+                }
+            }
+            assertTrue(GameMasterIntegrityGate141.checkFile(backup).ok)
+        }
+    }
+
+    @Test
     fun backupManagerFollowsActiveCampaignInsteadOfDefaultSave() = runBlocking {
         createHealthySupersession(withCommittedTurn = false)
         val custom = store.createCampaign("Integrity_Custom")
@@ -103,7 +135,12 @@ class GameMasterIntegrityGate141Test {
         val campaignUid = createHealthySupersession(withCommittedTurn = false)
         val liveDb = File(campaignDir, "campaign.db")
         val incoming = File(campaignDir, "incoming_corrupted.db")
-        liveDb.copyTo(incoming, overwrite = true)
+        SQLitePersistenceCopy141.copyLiveDatabase(
+            source = liveDb,
+            target = incoming,
+            sourceBoundary = "TEST_LIVE_SOURCE",
+            artifactBoundary = "TEST_INCOMING_ARTIFACT"
+        )
 
         SQLiteDatabase.openDatabase(
             incoming.absolutePath,
