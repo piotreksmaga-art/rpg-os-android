@@ -85,6 +85,11 @@ class GameMasterRuntime141(
             GameMasterSnapshotPolicy141.maintain(
                 repository = session.repository,
                 campaignUid = session.campaignUid,
+                integrityGate = {
+                    store.openSaveDb().use { db ->
+                        GameMasterIntegrityGate141(db).requireHealthy("SNAPSHOT_SOURCE")
+                    }
+                },
                 onFailure = { error ->
                     DiagnosticLogger.log(context, "GM141_SNAPSHOT_MAINTENANCE_FAILED", error)
                 }
