@@ -2,6 +2,7 @@ package com.rpgos.app
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -51,7 +52,7 @@ class CampaignHealth141Test {
     }
 
     @Test
-    fun invalidCampaignReportsBlockedWithIntegrityCodes() {
+    fun invalidCampaignReportsBlockedWithIntegrityCodes() = runBlocking {
         val subject = EntityUid("SUBJECT-health-blocked")
         val oldUid = EntityUid("FACT-health-old")
         val newUid = EntityUid("FACT-health-new")
