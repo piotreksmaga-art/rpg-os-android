@@ -543,23 +543,43 @@ class SQLiteUnifiedCampaignRepository(
         val eventSequence = eventCountThrough(throughTurnId)
         val now = System.currentTimeMillis()
 
-        db.insertOrThrow(
-            "gm_snapshots",
-            null,
-            ContentValues().apply {
-                put("snapshot_id", snapshotUid.value)
-                put("campaign_id", campaignUid.value)
-                put("turn_number", throughTurnId)
-                put("event_sequence", eventSequence)
-                put("state_hash", hash)
-                put("storage_path", target.absolutePath)
-                put("created_at", now)
+        try {
+            db.beginTransaction()
+            try {
+                db.insertOrThrow(
+                    "gm_snapshots",
+                    null,
+                    ContentValues().apply {
+                        put("snapshot_id", snapshotUid.value)
+                        put("campaign_id", campaignUid.value)
+                        put("turn_number", throughTurnId)
+                        put("event_sequence", eventSequence)
+                        put("state_hash", hash)
+                        put("storage_path", target.absolutePath)
+                        put("created_at", now)
+                    }
+                )
+                val updated = db.update(
+                    "gm_campaign_meta",
+                    ContentValues().apply {
+                        put("current_snapshot_id", snapshotUid.value)
+                        put("updated_at", now)
+                    },
+                    "campaign_id=?",
+                    arrayOf(campaignUid.value)
+                )
+                check(updated == 1) {
+                    "Nie można ustawić current_snapshot_id dla kampanii ${campaignUid.value}."
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
             }
-        )
-        db.execSQL(
-            "UPDATE gm_campaign_meta SET current_snapshot_id=?, updated_at=? WHERE campaign_id=?",
-            arrayOf(snapshotUid.value, now, campaignUid.value)
-        )
+        } catch (t: Throwable) {
+            runCatching { if (target.exists()) target.delete() }
+            throw t
+        }
+
         return CampaignSnapshotRef(snapshotUid, campaignUid, throughTurnId, eventSequence, now)
     }
 
