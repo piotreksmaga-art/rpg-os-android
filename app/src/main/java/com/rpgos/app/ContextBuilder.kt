@@ -19,7 +19,7 @@ class ContextBuilder(
             "SELECT year_label,era_name,season,hour,minute,absolute_day FROM campaign_calendar WHERE id=1"
         )
 
-        val playerUid = resolvePlayerUid()
+        val playerUid = ActivePlayerStore(saveDb, campaignRef.campaignId).active()?.playerUid
 
         val position = if (playerUid != null) safeQueryOne(
             saveDb,
@@ -225,6 +225,8 @@ class ContextBuilder(
             "campaign_id" to campaignRef.campaignId,
             "campaign_directory" to campaignRef.directoryName,
             "chapter" to chapter,
+            "player_uid" to playerUid,
+            "player_uid_source" to "active_player_ref",
             "player_uid_resolved" to (playerUid != null),
             "threads" to threads.size,
             "missions" to missions.size,
@@ -258,20 +260,6 @@ class ContextBuilder(
             npcMemories = npcMemoryRows,
             contextMeta = meta
         )
-    }
-
-    private fun resolvePlayerUid(): String? {
-        val candidates = listOf(
-            "SELECT entity_uid FROM character_skills GROUP BY entity_uid ORDER BY COUNT(*) DESC LIMIT 1",
-            "SELECT entity_uid FROM character_techniques GROUP BY entity_uid ORDER BY COUNT(*) DESC LIMIT 1",
-            "SELECT entity_uid FROM character_finances LIMIT 1",
-            "SELECT entity_uid FROM entity_positions ORDER BY updated_chapter DESC LIMIT 1"
-        )
-        for (sql in candidates) {
-            val value = safeQueryOne(saveDb, sql)["entity_uid"] as? String
-            if (!value.isNullOrBlank()) return value
-        }
-        return null
     }
 
     private fun safeQueryOne(
