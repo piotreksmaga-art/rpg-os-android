@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -41,21 +42,8 @@ class RestoreRecovery141Test {
 
     @Test
     fun nextOpenRecoversSafetyCopyAfterProcessDiesBetweenSwapAndCompletion() {
-        val live = File(campaignDir, "campaign.db")
-        store.openSaveDb().use { db ->
-            db.execSQL("CREATE TABLE IF NOT EXISTS gm_restore_probe(value TEXT NOT NULL)")
-            db.execSQL("DELETE FROM gm_restore_probe")
-            db.execSQL("INSERT INTO gm_restore_probe(value) VALUES('ORIGINAL')")
-        }
-
-        val safety = File(campaignDir, "backups/recovery_safety.db")
-        SQLitePersistenceCopy141.copyLiveDatabase(
-            source = live,
-            target = safety,
-            sourceBoundary = "TEST_RECOVERY_LIVE",
-            artifactBoundary = "TEST_RECOVERY_SAFETY"
-        )
-
+        val live = prepareLiveProbe("ORIGINAL")
+        val safety = createSafety(live, "recovery_safety.db")
         val incoming = File(campaignDir, "incoming_recovery.db")
         SQLitePersistenceCopy141.stageStandaloneDatabase(
             source = safety,
@@ -95,6 +83,81 @@ class RestoreRecovery141Test {
 
         assertFalse(RestoreRecovery141.hasPendingRecovery(campaignDir))
         assertTrue(GameMasterIntegrityGate141.checkFile(live).ok)
+    }
+
+    @Test
+    fun recoveryMarkerRejectsSafetyOutsideCampaignBackups() {
+        val live = prepareLiveProbe("ORIGINAL")
+        val externalSafety = File(campaignDir.parentFile, "outside_safety.db")
+        SQLitePersistenceCopy141.copyLiveDatabase(
+            source = live,
+            target = externalSafety,
+            sourceBoundary = "TEST_RECOVERY_EXTERNAL_SOURCE",
+            artifactBoundary = "TEST_RECOVERY_EXTERNAL_ARTIFACT"
+        )
+
+        val failure = runCatching {
+            RestoreRecovery141.begin(campaignDir, externalSafety, hadLiveDatabase = true)
+        }.exceptionOrNull()
+
+        assertNotNull(failure)
+        assertTrue(
+            failure?.message.orEmpty(),
+            failure?.message.orEmpty().contains("RESTORE_RECOVERY_SAFETY_OUTSIDE_BACKUPS")
+        )
+        assertFalse(RestoreRecovery141.hasPendingRecovery(campaignDir))
+        externalSafety.delete()
+    }
+
+    @Test
+    fun recoveryRefusesSafetyArtifactChangedAfterMarkerWasPersisted() {
+        val live = prepareLiveProbe("ORIGINAL")
+        val safety = createSafety(live, "hash_bound_safety.db")
+        RestoreRecovery141.begin(campaignDir, safety, hadLiveDatabase = true)
+
+        // This custom table is not part of logical GM141 audits, so the DB remains
+        // structurally healthy. The recovery hash must still detect byte-content change.
+        SQLiteDatabase.openDatabase(
+            safety.absolutePath,
+            null,
+            SQLiteDatabase.OPEN_READWRITE
+        ).use { db ->
+            db.execSQL("UPDATE gm_restore_probe SET value='TAMPERED'")
+        }
+        assertTrue(GameMasterIntegrityGate141.checkFile(safety).ok)
+
+        val failure = runCatching {
+            RestoreRecovery141.recoverIfNeeded(campaignDir)
+        }.exceptionOrNull()
+
+        assertNotNull(failure)
+        assertTrue(
+            failure?.message.orEmpty(),
+            failure?.message.orEmpty().contains("RESTORE_RECOVERY_SAFETY_HASH_MISMATCH")
+        )
+        assertTrue(RestoreRecovery141.hasPendingRecovery(campaignDir))
+        assertEquals("ORIGINAL", readProbeDirect(live))
+    }
+
+    private fun prepareLiveProbe(value: String): File {
+        val live = File(campaignDir, "campaign.db")
+        store.openSaveDb().use { db ->
+            db.execSQL("CREATE TABLE IF NOT EXISTS gm_restore_probe(value TEXT NOT NULL)")
+            db.execSQL("DELETE FROM gm_restore_probe")
+            db.execSQL("INSERT INTO gm_restore_probe(value) VALUES(?)", arrayOf(value))
+        }
+        return live
+    }
+
+    private fun createSafety(live: File, fileName: String): File {
+        val safety = File(campaignDir, "backups/$fileName")
+        SQLitePersistenceCopy141.copyLiveDatabase(
+            source = live,
+            target = safety,
+            sourceBoundary = "TEST_RECOVERY_LIVE",
+            artifactBoundary = "TEST_RECOVERY_SAFETY"
+        )
+        return safety
     }
 
     private fun readProbeDirect(database: File): String =
