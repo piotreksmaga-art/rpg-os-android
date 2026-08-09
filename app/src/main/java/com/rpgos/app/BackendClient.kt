@@ -29,8 +29,14 @@ class BackendClient(
             )
         }
 
+        val campaignId = context.contextMeta["campaign_id"]
+            ?.toString()
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: ActiveCampaignRef.DEFAULT_CAMPAIGN_ID
+
         val payload = JSONObject().apply {
-            put("campaign_id", "naruto-default")
+            put("campaign_id", campaignId)
             put("chapter", chapter)
             put("player_input", playerInput)
             put("context_bundle", JsonCodec.contextToJson(context))
