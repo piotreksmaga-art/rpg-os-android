@@ -29,6 +29,25 @@ interface CampaignRepository {
     fun time(): TimeSnapshot
     fun chronicle(): List<ChronicleEntry>
 
+    fun recordTruth(
+        kind: TruthKind,
+        predicate: String,
+        provenance: Provenance,
+        subjectUid: String? = null,
+        objectValue: String? = null,
+        perspectiveUid: String? = null,
+        narrativeText: String? = null,
+        truthUid: String? = null,
+        supersedesTruthUid: String? = null
+    ): CampaignTruthRecord
+
+    fun truthRecords(
+        kind: TruthKind? = null,
+        subjectUid: String? = null,
+        perspectiveUid: String? = null,
+        limit: Int = 100
+    ): List<CampaignTruthRecord>
+
     fun npcs(search: String = ""): List<NpcListItem>
     fun npcDetail(uid: String): NpcDetail
     fun relationEdges(): List<RelationEdge>
