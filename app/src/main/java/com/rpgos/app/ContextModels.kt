@@ -17,6 +17,7 @@ data class ContextBundle(
     val playerOrganizations: List<Map<String, Any?>> = emptyList(),
     val activeWorldEvents: List<Map<String, Any?>> = emptyList(),
     val npcMemories: List<Map<String, Any?>> = emptyList(),
+    val campaignTruth: List<Map<String, Any?>> = emptyList(),
     val contextMeta: Map<String, Any?> = emptyMap()
 )
 
