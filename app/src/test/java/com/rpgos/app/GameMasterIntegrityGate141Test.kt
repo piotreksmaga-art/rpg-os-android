@@ -69,7 +69,9 @@ class GameMasterIntegrityGate141Test {
             db.rawQuery("PRAGMA journal_mode=WAL", null).use { c ->
                 assertTrue(c.moveToFirst())
             }
-            db.execSQL("PRAGMA wal_autocheckpoint=0")
+            db.rawQuery("PRAGMA wal_autocheckpoint=0", null).use { c ->
+                assertTrue(c.moveToFirst())
+            }
             db.execSQL("CREATE TABLE IF NOT EXISTS gm_integrity_wal_probe(value TEXT NOT NULL)")
             db.execSQL("DELETE FROM gm_integrity_wal_probe")
             db.execSQL("INSERT INTO gm_integrity_wal_probe(value) VALUES(?)", arrayOf("from-wal"))
