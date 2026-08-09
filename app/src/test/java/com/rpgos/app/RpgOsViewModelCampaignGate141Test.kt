@@ -111,8 +111,8 @@ class RpgOsViewModelCampaignGate141Test {
         val access = requireNotNull(viewModel.campaignAccess.value)
         assertFalse(access.canEnterGameMaster)
         assertEquals(CampaignHealthState141.BLOCKED, access.health.state)
-        assertFalse(viewModel.messages.value.any { it.role == "player" && it.content == playerText })
+        assertFalse(viewModel.messages.value.any { it.role == "player" && it.text == playerText })
         assertTrue(viewModel.messages.value.size >= before + 1)
-        assertTrue(viewModel.messages.value.last().content.contains("Kampania zablokowana"))
+        assertTrue(viewModel.messages.value.last().text.contains("Kampania zablokowana"))
     }
 }
