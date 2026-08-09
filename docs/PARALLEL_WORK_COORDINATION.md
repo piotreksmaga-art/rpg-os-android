@@ -5,231 +5,144 @@ Status: CANONICAL OPERATIONAL PROTOCOL
 Ten dokument definiuje sposób równoległej pracy wielu sesji/chatów nad jednym repozytorium RPG OS.
 
 ## 1. Model pracy
-
 Jedna sesja pełni rolę COORDINATOR. Pozostałe sesje są WORKERS realizującymi jawnie przydzielone, możliwie rozłączne zadania.
-
 Repozytorium `master` pozostaje wspólnym technicznym źródłem prawdy. Dokument MASTER i roadmapa definiują architekturę i kolejność zależności.
-
 Koordynator nie zakłada, że posiada bieżący stan innych sesji. Stan pracy potwierdza przez repozytorium, commity, CI oraz jawne raporty.
 
 ## 2. Role
-
 ### COORDINATOR
-Odpowiada za:
-- odczyt MASTER, roadmapy i tego dokumentu,
-- sprawdzanie aktualnego master i CI,
-- dzielenie pracy na niezależne WORK ITEMS,
-- kontrolę zależności,
-- przydzielanie zakresów i ownership plików/subsystemów,
-- wykrywanie konfliktów pomiędzy workerami,
-- kontrolę statusów i dowodów DONE,
-- decyzję, które zadanie może rozpocząć się następne,
-- audyt wyników przed uznaniem fazy za COMPLETE,
-- aktualizację roadmapy i rejestru koordynacji.
+Odpowiada za odczyt MASTER/roadmapy/protokołu, kontrolę master i CI, podział pracy, zależności, ownership zakresów, konflikty, statusy, audyt wyników oraz globalne aktualizacje roadmapy.
 
 ### WORKER
-Odpowiada za:
-- pracę wyłącznie w przydzielonym zakresie,
-- ponowne sprawdzenie master przed rozpoczęciem implementacji,
-- niewchodzenie w pliki/subsystemy zarezerwowane dla innego aktywnego WORK ITEM,
-- małe, kontrolowane zmiany,
-- testy, build i CI odpowiednie do zakresu,
-- raport zawierający commit SHA, zmienione pliki, testy, CI i otwarte problemy,
-- zatrzymanie pracy i zgłoszenie konfliktu, jeśli zadanie wymaga naruszenia cudzej rezerwacji.
+Pracuje wyłącznie w przydzielonym zakresie, sprawdza master przed rozpoczęciem i przed zapisem, nie wchodzi w rezerwacje innych workerów, wykonuje testy/build/CI i raportuje commit SHA, pliki, testy oraz problemy. Konflikt zakresu oznacza STOP/BLOCKED.
 
 ## 3. Work Item
-
-Każde równoległe zadanie otrzymuje stabilny identyfikator:
-
-`WORK-YYYYMMDD-NNN`
-
-Minimalny rekord:
-
-- workId
-- title
-- ownerRole / worker label
-- phase
-- status
-- objective
-- allowedScope
-- reservedFilesOrSubsystems
-- forbiddenScope
-- dependencies
-- baselineCommit
-- resultCommit
-- ciStatus
-- startedAt
-- completedAt
-- notes / blockers
-
-Dozwolone statusy:
-
-`PLANNED | READY | ACTIVE | BLOCKED | REVIEW | COMPLETE | CANCELLED`
+Identyfikator: `WORK-YYYYMMDD-NNN`.
+Minimalny rekord: workId, title, ownerRole/worker label, phase, status, objective, allowedScope, reservedFilesOrSubsystems, forbiddenScope, dependencies, baselineCommit, resultCommit, ciStatus, startedAt, completedAt, notes/blockers.
+Statusy: `PLANNED | READY | ACTIVE | BLOCKED | REVIEW | COMPLETE | CANCELLED`.
 
 ## 4. Zasada rezerwacji zakresu
-
-Dwa aktywne WORK ITEMS nie mogą równocześnie modyfikować tego samego authoritative subsystemu lub tych samych plików bez jawnej zgody koordynatora.
-
-Rezerwacja może dotyczyć:
-- konkretnych plików,
-- katalogu,
-- migracji/schema,
-- repository API,
-- subsystemu domenowego,
-- dokumentu kanonicznego.
-
-Jeżeli zakresy zaczynają się nakładać, drugi worker zatrzymuje implementację i zgłasza konflikt.
+Dwa aktywne WORK ITEMS nie mogą równocześnie modyfikować tego samego authoritative subsystemu lub tych samych plików bez jawnej zgody koordynatora. Rezerwacja może dotyczyć pliku, katalogu, migracji/schema, repository API, subsystemu domenowego lub dokumentu kanonicznego. Nakładanie zakresów => drugi worker zatrzymuje implementację i zgłasza konflikt.
 
 ## 5. Baseline freshness
-
-Przed rozpoczęciem kodowania worker musi sprawdzić aktualny `master`.
-
-Jeżeli `master` zmienił się od `baselineCommit`:
-1. sprawdź nowe commity,
-2. oceń wpływ na przydzielony zakres,
-3. zaktualizuj baseline,
-4. dopiero potem kontynuuj.
-
-Nie implementujemy na założeniu, że stan sprzed kilku commitów nadal jest aktualny.
+Przed rozpoczęciem kodowania worker sprawdza aktualny `master`. Jeżeli master zmienił się od `baselineCommit`, analizuje nowe commity, wpływ na zakres i aktualizuje baseline przed kontynuacją.
 
 ## 6. Zależności i równoległość
-
-Równolegle wolno wykonywać tylko zadania, których zależności na to pozwalają.
-
-Przykład poprawny:
-- Worker A: hardening istniejącego Player State,
-- Worker B: read-only audyt przyszłej Fazy 4,
-- Worker C: niezależny zestaw testów/integrity, o ile nie edytuje plików A.
-
-Przykład zabroniony bez koordynacji:
-- Worker A zmienia `CampaignRepository`,
-- Worker B równocześnie zmienia ten sam kontrakt dla innej fazy.
-
-Najwcześniejsza brakująca zależność nadal ma pierwszeństwo nad numerem roadmapy.
+Równolegle wykonujemy tylko zadania, których zależności na to pozwalają. Najwcześniejsza brakująca zależność ma pierwszeństwo. Audyty read-only mogą przygotowywać przyszłe prace bez implementowania ich przed zależnościami.
 
 ## 7. Zasady zapisu do master
-
-- Nie resetuj master.
-- Nie force-pushuj historii bez jawnego polecenia użytkownika.
-- Nie usuwaj cudzych poprawnych zmian.
-- Nie rozwiązuj konfliktu przez ślepe nadpisanie całego pliku.
-- Przed zapisem ponownie sprawdź aktualną wersję modyfikowanego pliku.
-- Jeżeli plik zmienił się od czasu odczytu, wykonaj ponowną analizę/merge zamiast nadpisania.
-- Każdy commit powinien odpowiadać jednemu logicznemu zakresowi.
+Nie resetuj master, nie force-pushuj bez jawnego polecenia, nie usuwaj cudzych poprawnych zmian, nie rozwiązuj konfliktu ślepym nadpisaniem. Przed zapisem ponownie odczytaj aktualną wersję modyfikowanego pliku. Jeden commit powinien odpowiadać jednemu logicznemu zakresowi.
 
 ## 8. Dokumenty kanoniczne
-
-`RPG_OS_MASTER_ARCHITECTURE.md`, `RPG_OS_IMPLEMENTATION_ROADMAP.md` oraz `PARALLEL_WORK_COORDINATION.md` są obszarem koordynowanym.
-
-Worker nie zmienia statusu całej fazy na COMPLETE bez dowodów i bez sprawdzenia, czy inne WORK ITEMS tej fazy są zakończone.
-
-Koordynator jest preferowanym właścicielem aktualizacji globalnych statusów roadmapy podczas pracy równoległej.
+`RPG_OS_MASTER_ARCHITECTURE.md`, `RPG_OS_IMPLEMENTATION_ROADMAP.md` i `PARALLEL_WORK_COORDINATION.md` są obszarem koordynowanym. Worker nie zmienia globalnego statusu fazy na COMPLETE. Globalne statusy aktualizuje koordynator po audycie integracyjnym.
 
 ## 9. Definition of Done dla Work Item
-
-WORK ITEM może otrzymać COMPLETE tylko gdy:
-- przydzielony zakres został faktycznie wykonany,
-- integracja działa,
-- wymagane testy przeszły,
-- build/CI jest zielony lub jawnie udokumentowano niezależną awarię baseline,
-- nie pozostał nierozwiązany konflikt z równoległą pracą,
-- resultCommit jest znany,
-- raport końcowy został przekazany koordynatorowi.
-
-COMPLETE pojedynczego WORK ITEM nie oznacza automatycznie COMPLETE całej fazy.
+COMPLETE wymaga: wykonania zakresu, działającej integracji, testów, zielonego build/CI lub udokumentowanej niezależnej awarii baseline, braku nierozwiązanego konfliktu, znanego resultCommit i raportu końcowego. COMPLETE work itemu != COMPLETE fazy.
 
 ## 10. Raport Workera
-
-Każdy worker raportuje:
-1. workId,
-2. baselineCommit,
-3. resultCommit,
-4. co istniało przed zmianą,
-5. co zmieniono,
-6. listę zmienionych plików,
-7. migracje/schema changes,
-8. testy,
-9. build/CI,
-10. wpływ na istniejące kampanie,
-11. wykryte konflikty lub ryzyka,
-12. otwarte TODO,
-13. czy zakres wymaga kolejnego WORK ITEM.
+Raport zawiera: workId, baselineCommit, resultCommit, stan przed zmianą, zmiany, pliki, migracje/schema, testy, build/CI, wpływ na kampanie, konflikty/ryzyka, TODO i potrzebę kolejnego WORK ITEM.
 
 ## 11. Konflikt i blokada
-
-Jeżeli worker wykryje:
-- równoległą zmianę tego samego pliku,
-- zmianę kontraktu zależności,
-- nową migrację kolidującą z jego migracją,
-- zmianę master unieważniającą jego założenia,
-- konieczność wejścia w forbiddenScope,
-
-to ustawia zadanie jako BLOCKED i nie wykonuje agresywnego merge/resetu.
-
-Koordynator wybiera kolejność integracji albo redefiniuje zakres.
+Konflikt pliku, kontraktu, migracji, baseline albo konieczność wejścia w forbiddenScope => BLOCKED. Bez agresywnego merge/resetu. Koordynator redefiniuje zakres lub kolejność integracji.
 
 ## 12. Audyty read-only
-
-Koordynator może przydzielać równoległe audyty przyszłych faz. Audyt read-only:
-- może czytać cały repozytorium,
-- nie może implementować przyszłej fazy,
-- nie rezerwuje plików do zapisu, chyba że tworzy wyłącznie własny raport audytowy,
-- nie może zmienić authoritative state ani statusu fazy bez koordynacji.
-
-Pozwala to przygotować kolejne zadania bez łamania zależności roadmapy.
+Audyt może czytać całe repozytorium, ale nie implementuje przyszłej fazy, nie rezerwuje plików do zapisu poza własnym raportem audytowym i nie zmienia authoritative state/globalnego statusu fazy.
 
 ## 13. Rejestr aktywnej pracy
-
-Bieżący rejestr znajduje się w sekcji `ACTIVE WORK REGISTER` tego dokumentu. Koordynator aktualizuje go przy rozpoczęciu, blokadzie, review i zakończeniu zadania.
 
 ### ACTIVE WORK REGISTER
 
 | Work ID | Owner | Phase | Status | Scope | Reserved subsystem/files | Baseline | Result | CI |
 |---|---|---:|---|---|---|---|---|---|
-| — | — | — | — | Brak zarejestrowanych zadań po utworzeniu protokołu | — | — | — | — |
+| WORK-20260809-001 | CHAT-1 | 4 | READY | Implementacja Dynamic Stat/Resource Definitions — pierwszy authoritative krok Fazy 4 | stat/resource definition + persistence; wyłącznie nowe/bezpośrednio wymagane testy; bez globalnych docs | 82b030271e5b7d653da457a2e9b2522e21234457 | — | pending |
+| WORK-20260809-002 | CHAT-2 | 4/5 prep | READY | Read-only audyt obecnych stat/resource/modifier paths i projekt kontraktu DerivedValueResolver | zapis tylko do `docs/audits/WORK-20260809-002_DERIVED_VALUE_AUDIT.md`; runtime read-only | 82b030271e5b7d653da457a2e9b2522e21234457 | — | n/a until report commit |
+| WORK-20260809-003 | CHAT-3 | 4 validation | READY | Niezależny audyt/test-plan kompatybilności migracyjnej dla Dynamic Stats/Resources i starych kampanii | zapis tylko do `docs/audits/WORK-20260809-003_MIGRATION_TEST_PLAN.md`; schema/runtime read-only | 82b030271e5b7d653da457a2e9b2522e21234457 | — | n/a until report commit |
+| WORK-20260809-004 | CHAT-4 | 6 prep | READY | Read-only audyt Talent/Potential legacy data i World Pack requirements | zapis tylko do `docs/audits/WORK-20260809-004_TALENT_POTENTIAL_AUDIT.md`; runtime read-only | 82b030271e5b7d653da457a2e9b2522e21234457 | — | n/a until report commit |
+
+### Szczegółowe przydziały
+
+#### WORK-20260809-001 — CHAT-1 — Dynamic Stats/Resources implementation
+Objective: rozpocząć najwcześniejszą brakującą zależność roadmapy, punkt 4: `StatDefinition/PlayerStat + ResourceDefinition/PlayerResource`.
+
+AllowedScope:
+- audyt dokładnych istniejących tabel/klas statystyk i zasobów,
+- zaprojektowanie generic definitions niezależnych od Naruto/Bleach,
+- addytywna, migration-safe persistence jeśli wymagana,
+- typed repository/domain access potrzebny wyłącznie dla punktu 4,
+- testy kontraktu i persistence punktu 4,
+- build/CI.
+
+ForbiddenScope:
+- DerivedValueResolver/modifier engine (punkt 5),
+- Talent/Potential (6),
+- Skill/Technique refactor (7/8),
+- globalna aktualizacja roadmapy/MASTER/coordination,
+- niepowiązany frontend redesign.
+
+Dependencies: Phase 1–3 COMPLETE. Jeżeli implementacja wymaga modyfikacji współdzielonego `CampaignRepository` lub centralnego schema/migration entrypoint, CHAT-1 ma pierwszeństwo zapisu w tym zakresie; inne chaty pozostają read-only.
+
+#### WORK-20260809-002 — CHAT-2 — DerivedValueResolver audit/design
+Objective: przygotować punkt 5 bez implementowania go przed ukończeniem punktu 4.
+
+AllowedScope:
+- read-only inspekcja wszystkich obecnych obliczeń effective/base/max/current, modifierów, equipment/injury/temporary effects,
+- wykrycie hardcoded world-specific logic,
+- zaprojektowanie wejść/wyjść `DerivedValueResolver` i modifier model,
+- mapa plików i zależności,
+- propozycja testów i kolejności wdrożenia,
+- utworzenie wyłącznie własnego raportu audytowego.
+
+ForbiddenScope: runtime Kotlin/schema/migrations/repository API, MASTER, roadmap, coordination file, implementacja punktu 5.
+
+Dependency: wynik WORK-001 będzie później wejściem do implementacji. Raport może powstać równolegle.
+
+#### WORK-20260809-003 — CHAT-3 — Migration compatibility/test audit
+Objective: zabezpieczyć Fazę 4 przed utratą danych starych kampanii.
+
+AllowedScope:
+- read-only audyt `character_stats`, resource-like state, obecnych migracji i test harness,
+- zdefiniowanie scenariuszy old campaign -> migration -> authoritative equality,
+- test cases dla unknown/custom World Pack stat/resource definitions,
+- rollback/failure cases i collision/duplicate UID cases,
+- utworzenie wyłącznie własnego raportu testowego.
+
+ForbiddenScope: modyfikacja schema/runtime/migracji/testów produkcyjnych, MASTER, roadmap, coordination file.
+
+Dependency: brak do audytu; implementacja testów zostanie przydzielona po ustabilizowaniu kontraktu WORK-001.
+
+#### WORK-20260809-004 — CHAT-4 — Talent/Potential preparatory audit
+Objective: przygotować punkt 6 bez wyprzedzania punktów 4–5.
+
+AllowedScope:
+- read-only wyszukanie istniejących talent/potential/aptitude/growth/evolution danych i logiki,
+- rozdzielenie `Talent` (learning efficiency) od `Potential` (long-term ceiling/scale),
+- analiza wymagań Naruto/Bleach bez hardcodowania ich do Core,
+- projekt generic contract i World Pack extension points,
+- mapa migracji legacy danych,
+- utworzenie wyłącznie własnego raportu audytowego.
+
+ForbiddenScope: implementacja runtime punktu 6, schema/migrations, PlayerState/Stat definitions, MASTER, roadmap, coordination file.
+
+Dependency: implementacja BLOCKED do czasu ukończenia 4 i 5; sam audyt jest READY.
 
 ## 14. Protokół startu workera
-
 Każda nowa sesja wykonawcza:
-1. przeczytaj `docs/RPG_OS_MASTER_ARCHITECTURE.md`,
-2. przeczytaj `docs/RPG_OS_IMPLEMENTATION_ROADMAP.md`,
-3. przeczytaj `docs/PARALLEL_WORK_COORDINATION.md`,
+1. przeczytaj MASTER,
+2. przeczytaj ROADMAP,
+3. przeczytaj ten dokument,
 4. odczytaj swój WORK ITEM,
 5. sprawdź aktualny master i baseline,
-6. sprawdź rezerwacje innych aktywnych zadań,
-7. sprawdź ostatnie commity i CI,
+6. sprawdź rezerwacje,
+7. sprawdź recent commits/CI,
 8. potwierdź zależności,
 9. pracuj tylko w allowedScope,
 10. przed zapisem ponownie sprawdź master/plik,
 11. testuj i raportuj wynik.
 
 ## 15. Protokół koordynatora
-
-Przed przydzieleniem pracy:
-1. sprawdź master i CI,
-2. sprawdź roadmapę i otwarte audyty,
-3. znajdź najwcześniejszą brakującą zależność,
-4. rozbij ją na możliwie niezależne zadania,
-5. wykryj nakładające się pliki/subsystemy,
-6. nadaj WORK IDs,
-7. określ allowed/forbidden scope,
-8. zapisz baseline,
-9. dopiero wtedy uruchom równoległą pracę.
-
-Po wynikach workerów:
-1. sprawdź result commits,
-2. sprawdź diffy i CI,
-3. sprawdź konflikty między wynikami,
-4. wykonaj audyt integracyjny,
-5. zaktualizuj statusy,
-6. dopiero po spełnieniu globalnej Definition of Done oznacz fazę COMPLETE.
+Przed przydzieleniem pracy: master/CI -> roadmap/audyty -> najwcześniejsza zależność -> niezależne zadania -> overlap check -> WORK IDs -> allowed/forbidden scope -> baseline -> start.
+Po wynikach: result commits -> diff/CI -> konflikty -> audyt integracyjny -> statusy -> dopiero potem globalne COMPLETE.
 
 ## 16. Zasada nadrzędna
-
-Równoległość służy skróceniu czasu pracy, ale nigdy kosztem integralności kampanii lub repozytorium.
-
-W razie konfliktu priorytet jest następujący:
-
 `DATA INTEGRITY > CAMPAIGN CONTINUITY > CORRECT ARCHITECTURE > SAFE INTEGRATION > PARALLEL SPEED`.
-
 Jeżeli bezpieczna równoległość nie jest możliwa, zadania wykonujemy sekwencyjnie.
