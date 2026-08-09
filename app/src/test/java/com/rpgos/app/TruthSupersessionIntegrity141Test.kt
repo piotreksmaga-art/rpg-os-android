@@ -129,6 +129,31 @@ class TruthSupersessionIntegrity141Test {
         }
     }
 
+    @Test
+    fun offlineDiagnosticsSurfaceHealthyAndCorruptedSupersessionState() = runBlocking {
+        val campaignUid = createValidChain()
+        val diagnostics = GameMasterDiagnosticsService141(context, LocalGameStore(context))
+
+        val healthy = diagnostics.report()
+        assertTrue(healthy, healthy.contains("truthSupersessionIntegrity=OK"))
+
+        LocalGameStore(context).openSaveDb().use { db ->
+            db.execSQL(
+                """
+                UPDATE gm_truth_supersessions
+                SET effective_turn=6
+                WHERE campaign_id=? AND previous_truth_id=?
+                """.trimIndent(),
+                arrayOf(campaignUid.value, a.value)
+            )
+        }
+
+        val corrupted = diagnostics.report()
+        assertTrue(corrupted, corrupted.contains("truthSupersessionIntegrity=ERROR"))
+        assertTrue(corrupted, corrupted.contains("SUPERSESSION_PREVIOUS_WINDOW_MISMATCH"))
+        assertTrue(corrupted, corrupted.contains("SUPERSESSION_REPLACEMENT_WINDOW_MISMATCH"))
+    }
+
     private suspend fun createValidChain(): EntityUid =
         GameMasterRepositoryFactory(context, store).openActiveSession().use { active ->
             active.repository.writeTruth(fact(a, "OWNER-A", validFrom = 0L, sourceTurn = 0L))
