@@ -530,6 +530,8 @@ class SQLiteUnifiedCampaignRepository(
         require(throughTurnId in 0..current) { "Niepoprawny zakres snapshotu: $throughTurnId / $current" }
 
         db.rawQuery("PRAGMA wal_checkpoint(FULL)", null).use { it.moveToFirst() }
+        GameMasterIntegrityGate141(db).requireHealthy("SNAPSHOT_SOURCE")
+
         val snapshotUid = EntityUid("SNAP-${UUID.randomUUID()}")
         val campaignFile = File(db.path)
         val dir = File(campaignFile.parentFile, "snapshots").apply { mkdirs() }
