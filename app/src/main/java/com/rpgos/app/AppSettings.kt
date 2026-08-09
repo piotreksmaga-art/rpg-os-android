@@ -30,13 +30,15 @@ class AppSettings(private val context: Context) {
                 BuildConfig.RPGOS_BACKEND_URL
             } else storedBackend
 
+        val activeCampaignId = CampaignSelectionManager(context).activeCampaignId()
+
         return RpgOsSettings(
             backendUrl = migratedBackend,
             updateFeedUrl =
                 prefs.getString("update_feed_url", BuildConfig.RPGOS_UPDATE_FEED_URL)
                     ?: BuildConfig.RPGOS_UPDATE_FEED_URL,
             worldPackId = prefs.getString("worldpack_id", "naruto") ?: "naruto",
-            campaignId = prefs.getString("campaign_id", "naruto-default") ?: "naruto-default",
+            campaignId = activeCampaignId,
             showGmDiagnostics = prefs.getBoolean("show_gm_diagnostics", true),
             autoBackup = prefs.getBoolean("auto_backup", true)
         )
@@ -47,7 +49,9 @@ class AppSettings(private val context: Context) {
             .putString("backend_url", settings.backendUrl)
             .putString("update_feed_url", settings.updateFeedUrl)
             .putString("worldpack_id", settings.worldPackId)
-            .putString("campaign_id", settings.campaignId)
+            // Kept only as a compatibility mirror for older builds. Runtime identity
+            // is resolved exclusively through CampaignSelectionManager/ActiveCampaignRef.
+            .putString("campaign_id", CampaignSelectionManager(context).activeCampaignId())
             .putBoolean("show_gm_diagnostics", settings.showGmDiagnostics)
             .putBoolean("auto_backup", settings.autoBackup)
             .apply()
