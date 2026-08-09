@@ -84,6 +84,16 @@ class GameMasterRuntime141(
 
             val result = engine.play(request)
 
+            // Memory consolidation is derived maintenance over already committed
+            // immutable events. It must never make a canonical turn appear rolled
+            // back if the derived memory index cannot be refreshed.
+            try {
+                MemoryConsolidator141(session.repository, session.campaignUid)
+                    .consolidateEpisodic()
+            } catch (error: Throwable) {
+                DiagnosticLogger.log(context, "GM141_MEMORY_CONSOLIDATION_FAILED", error)
+            }
+
             // Checkpoint maintenance intentionally happens only after the turn
             // transaction has committed. Failure is diagnostic-only: it must
             // never make a canonical turn appear rolled back or uncommitted.
