@@ -5,6 +5,7 @@ Architecture: `docs/RPG_OS_MASTER_ARCHITECTURE.md`
 Phase 0 evidence: `docs/PHASE_0_AUDIT.md`, `docs/PHASE_0_MUTATION_PATH_AUDIT.md`, `docs/PHASE_0_PLAYER_STATE_AUDIT.md`.
 Phase 1 evidence: `docs/PHASE_1_UNIFIED_REPOSITORY.md`.
 Phase 2 evidence: `docs/PHASE_2_SOURCE_OF_TRUTH.md`.
+Phase 3 evidence: `docs/PHASE_3_PLAYER_STATE_CONTRACT.md`.
 
 ## Statusy
 - `[x] COMPLETE` — wdrożone, zintegrowane, persisted, bezpieczne migracyjnie, przetestowane i build/CI przechodzą.
@@ -34,8 +35,8 @@ Evidence:
   Evidence: `ActiveCampaignRef`, `CampaignRepository`, `UnifiedGameRepository` i application-level repository boundary istnieją; `LocalGameStore`, backup/snapshot, restore, ContextBuilder/backend campaign_id i settings używają jednej aktywnej tożsamości kampanii. Legacy Naruto mapping jest zachowany jako jawny default/migration constant. Repository identity tests oraz CI/build przechodzą. Szczegóły: `docs/PHASE_1_UNIFIED_REPOSITORY.md`.
 - [x] 2. Campaign Source of Truth + FACT/BELIEF/NARRATIVE + provenance
   Evidence: `CampaignTruthModels`, `CampaignTruthStore`, migracja `RPGOS-2.0-TRUTH`, typed `CampaignRepository.recordTruth/truthRecords`, runtime `campaign_truth` w ContextBundle, jawne provenance oraz semantyka backendu są zintegrowane. BELIEF wymaga perspektywy, NARRATIVE nie może automatycznie stać się FACT, a generic StatePatch nie może pisać bezpośrednio do `campaign_truth_records`. Existing campaigns są chronione addytywną migracją bez wymyślania legacy provenance. JVM tests i signed build przechodzą. Szczegóły: `docs/PHASE_2_SOURCE_OF_TRUTH.md`.
-- [-] 3. Player State Contract: Persistent / Derived / Runtime
-  Evidence: wiele player tables istnieje; brak authoritative contract i jawnego activePlayerUid.
+- [x] 3. Player State Contract: Persistent / Derived / Runtime
+  Evidence: `ActivePlayerRef`, `ActivePlayerStore`, migracja `RPGOS-3.0-PLAYER-STATE`, `PlayerStateSnapshot`, `PlayerStatePolicy` i `PlayerStateStore` istnieją. `CampaignRepository` udostępnia `activePlayerRef`, `setActivePlayer` i `playerState`. Legacy heurystyka służy wyłącznie jednorazowemu seedowi starej kampanii; normalny runtime używa persisted Player UID. CharacterPanel/Status/Context korzystają z tego samego UID, `ContextBundle.player_state` zachowuje osobne PERSISTENT/DERIVED/RUNTIME, a backend rozumie ich semantykę. JVM tests i signed APK przeszły w Build #98 i końcowym Build #103. Szczegóły: `docs/PHASE_3_PLAYER_STATE_CONTRACT.md`.
 - [-] 4. Dynamic StatDefinition/PlayerStat + ResourceDefinition/PlayerResource
   Evidence: `character_stats` i resource-like state istnieją; brak potwierdzonego generic definition/resolver architecture.
 - [ ] 5. DerivedValueResolver + modifier model
@@ -63,7 +64,7 @@ Evidence:
 - [ ] 22. Player Invariant Validator + No-Retrogression
 - [ ] 23. Unified Player ledgers + provenance integration
 - [-] 24. CharacterPanelSnapshot v2
-  Evidence: legacy v1 istnieje jako 8 płaskich sekcji; brak version/characterUid/nested domain snapshots/talent/economy/assets/conditions.
+  Evidence: legacy v1 istnieje jako 8 płaskich sekcji i jest już filtrowane przez activePlayerUid; brak version/characterUid/nested domain snapshots/talent/economy/assets/conditions.
 - [ ] 25. PlayerSnapshotBuilder + FULL/COMBAT/PROGRESSION/ECONOMY/SOCIAL/GM_CONTEXT profiles
 
 # FAZA B — INTEGRALNOŚĆ KAMPANII
@@ -86,7 +87,7 @@ Evidence:
 - [-] 35. Canon Divergence
   Evidence: `timeline_divergences` jest runtime-writable i prompt uwzględnia divergence; brak dedicated validator/resolution semantics.
 - [-] 36. Schema Versioning + migration safety + legacy provenance
-  Evidence: `rpgos_schema_migrations`, `RPGOS-1.0` i addytywna `RPGOS-2.0-TRUTH` istnieją; ogólny migration framework nadal jest minimalny.
+  Evidence: `rpgos_schema_migrations`, `RPGOS-1.0`, addytywna `RPGOS-2.0-TRUTH` i `RPGOS-3.0-PLAYER-STATE` istnieją; ogólny migration framework nadal jest minimalny.
 
 # FAZA C — CZAS, WIEDZA I RETRIEVAL
 - [-] 37. NPC Knowledge model + acquisition provenance
@@ -104,7 +105,7 @@ Evidence:
 - [ ] 43. Intent Parser
 - [ ] 44. Turn Planner
 - [-] 45. Context Builder
-  Evidence: `ContextBuilder v1` działa realnie i ContextBundle przenosi już `campaign_truth`; nadal używa direct SQL, heuristic player UID i statycznych LIMIT-ów.
+  Evidence: `ContextBuilder v1` działa realnie, korzysta z persisted ActivePlayerRef zamiast per-turn player heuristic, a ContextBundle przenosi `campaign_truth` i canonical `player_state`; nadal używa direct SQL i statycznych LIMIT-ów.
 - [ ] 46. Context Budget Manager
 - [ ] 47. Iterative Retrieval + missing-context loop
 
@@ -159,7 +160,7 @@ Evidence:
   Evidence: DiagnosticLogger/DiagnosticsSnapshot i dev self-test istnieją; brak canonical per-turn latency/count/transaction metrics.
 - [ ] 75. Replay Debugger
 - [-] 76. Integrity Test Suite
-  Evidence: standardowe JVM unit tests istnieją od Phase 1 i są uruchamiane przez CI przed release build; Phase 2 dodaje truth/provenance invariants, ale coverage nadal jest wąskie i brak pełnych integration/instrumentation/invariant tests.
+  Evidence: standardowe JVM unit tests istnieją od Phase 1 i są uruchamiane przez CI przed release build; Phase 2 dodaje truth/provenance invariants, Phase 3 dodaje Player State contract/classification tests, ale coverage nadal jest wąskie i brak pełnych integration/instrumentation/invariant tests.
 - [-] 77. Long Campaign Stress Tests
   Evidence: configurable script domyślnie 10k chapter manifests + SQLite integrity_check; brak 100k/1M events/5M words i canonical fact/knowledge/causal/economy checks.
 - [-] 78. Android performance profiling/optimization
@@ -175,8 +176,8 @@ Evidence:
 - [ ] 84. World Pack update compatibility automated tests
 
 # FRONTEND
-- [x] FROZEN BY PROJECT DECISION
-  Aktualny styl jest zaakceptowany. Brak proaktywnego rozwoju wizualnego do jawnej decyzji użytkownika.
+- [x] ACTIVE DEVELOPMENT / STYLE PRESERVATION BY PROJECT DECISION
+  Frontend może być rozwijany wraz z funkcjonalnością. Należy zachować aktualny zaakceptowany styl wizualny i traktować zmiany UI jako integrację funkcji, a nie niepowiązany redesign.
 
 # CROSS-CUTTING TEST GAPS
 - [ ] save -> close -> load authoritative equality
@@ -200,7 +201,10 @@ Unified Repository + active campaign identity jest COMPLETE. Spełniono pięć k
 # FAZA 2 — WYNIK
 Campaign Source of Truth + FACT/BELIEF/NARRATIVE + provenance jest COMPLETE. Typowana prawda kampanii jest persisted, odseparowana per campaign, przekazywana do ContextBundle i interpretowana przez backend zgodnie z kontraktem. Generic StatePatch nie może ominąć truth API. Migracja istniejących kampanii jest addytywna i nie fabrykuje historycznego provenance. Dowody: `docs/PHASE_2_SOURCE_OF_TRUTH.md`.
 
-# NASTĘPNA ZALEŻNOŚĆ PO FAZIE 2
-Następnym najwcześniejszym zadaniem jest **3. Player State Contract: Persistent / Derived / Runtime**. Nie należy jeszcze skakać do dynamicznych statystyk, talentów ani PlayerDomainEngine, dopóki nie istnieje jawny authoritative player identity/state contract określający, które dane są trwałe, derived i runtime.
+# FAZA 3 — WYNIK
+Player State Contract: Persistent / Derived / Runtime jest COMPLETE. ActivePlayerRef jest persisted per campaign, legacy player resolution jest wykonywany jednorazowo przy migracji, a następnie wszystkie główne read paths używają jednego Player UID. PlayerStateStore i CampaignRepository udostępniają canonical player read contract, ContextBundle przekazuje oddzielne warstwy stanu do GM, a legacy CharacterPanel pozostaje tylko presentation adapterem. Dowody: `docs/PHASE_3_PLAYER_STATE_CONTRACT.md`.
+
+# NASTĘPNA ZALEŻNOŚĆ PO FAZIE 3
+Następnym najwcześniejszym zadaniem jest **4. Dynamic StatDefinition/PlayerStat + ResourceDefinition/PlayerResource**. Należy wykorzystać istniejące `character_stats` i resource-like legacy state, nie tworzyć równoległej bazy. Najpierw trzeba ustalić generic definitions, wartości bazowe oraz bezpieczną migrację/adaptację obecnych danych; `DerivedValueResolver` pozostaje osobnym późniejszym etapem 5.
 
 Po każdym wdrożeniu zmieniaj status wyłącznie z dowodem: pliki + migracja (jeśli potrzebna) + test + build/CI.
