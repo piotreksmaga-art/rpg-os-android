@@ -4,12 +4,12 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 
 /**
- * Read-only Phase 3 adapter that assembles the currently authoritative player
- * state from existing campaign tables.
+ * Canonical read-only Player State adapter.
  *
- * It intentionally performs no derived calculations. Phase 5 will own those.
- * Existing fields that are already explicitly derived are merely classified
- * into the DERIVED section so presentation/context no longer mixes layers.
+ * Unlike bounded GM-context retrieval, this repository read must never silently
+ * truncate authoritative player collections or mask schema/query failures as an
+ * empty legal state. Missing optional legacy tables are tolerated explicitly;
+ * failures in tables that do exist are surfaced to the caller.
  */
 class PlayerStateStore(
     private val db: SQLiteDatabase,
@@ -98,8 +98,15 @@ class PlayerStateStore(
                 arrayOf(playerUid)
             )
         } else {
-            // Legacy schema can contain a single player snapshot without UID.
-            queryOne("SELECT * FROM character_status_snapshot LIMIT 1", null)
+            // A no-UID legacy status table is accepted only when it is provably
+            // a single-row player snapshot. Multi-row ambiguity is an integrity
+            // error, never "first row wins".
+            val count = scalarLong("SELECT COUNT(*) FROM character_status_snapshot")
+            when (count) {
+                0L -> emptyMap()
+                1L -> queryOne("SELECT * FROM character_status_snapshot LIMIT 1", null)
+                else -> error("Ambiguous legacy character_status_snapshot: $count rows without entity_uid")
+            }
         }
 
         row.forEach { (key, value) ->
@@ -116,17 +123,19 @@ class PlayerStateStore(
         entityColumn: String,
         entityUid: String,
         whereSuffix: String? = null,
-        orderBy: String? = null,
-        limit: Int = 100
+        orderBy: String? = null
     ): List<Map<String, Any?>> {
-        if (!tableExists(table) || !hasColumn(table, entityColumn)) return emptyList()
+        if (!tableExists(table)) return emptyList()
+        require(hasColumn(table, entityColumn)) {
+            "Existing table $table is missing required player identity column $entityColumn"
+        }
         val where = buildString {
             append("$entityColumn=?")
             if (!whereSuffix.isNullOrBlank()) append(" AND ($whereSuffix)")
         }
         val order = if (orderBy.isNullOrBlank()) "" else " ORDER BY $orderBy"
         return queryMany(
-            "SELECT * FROM $table WHERE $where$order LIMIT $limit",
+            "SELECT * FROM $table WHERE $where$order",
             arrayOf(entityUid)
         )
     }
@@ -135,23 +144,24 @@ class PlayerStateStore(
         table: String,
         entityColumn: String,
         entityUid: String
-    ): Map<String, Any?> = rowsForEntity(
-        table = table,
-        entityColumn = entityColumn,
-        entityUid = entityUid,
-        limit = 1
-    ).firstOrNull() ?: emptyMap()
+    ): Map<String, Any?> {
+        if (!tableExists(table)) return emptyMap()
+        require(hasColumn(table, entityColumn)) {
+            "Existing table $table is missing required player identity column $entityColumn"
+        }
+        return queryOne(
+            "SELECT * FROM $table WHERE $entityColumn=? LIMIT 1",
+            arrayOf(entityUid)
+        )
+    }
 
-    private fun tableExists(table: String): Boolean = try {
+    private fun tableExists(table: String): Boolean =
         db.rawQuery(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
             arrayOf(table)
         ).use { it.moveToFirst() }
-    } catch (_: Throwable) {
-        false
-    }
 
-    private fun hasColumn(table: String, column: String): Boolean = try {
+    private fun hasColumn(table: String, column: String): Boolean =
         db.rawQuery("PRAGMA table_info($table)", null).use { cursor ->
             val nameIndex = cursor.getColumnIndex("name")
             while (cursor.moveToNext()) {
@@ -161,21 +171,21 @@ class PlayerStateStore(
             }
             false
         }
-    } catch (_: Throwable) {
-        false
-    }
+
+    private fun scalarLong(sql: String): Long =
+        db.rawQuery(sql, null).use { cursor ->
+            if (!cursor.moveToFirst()) 0L else cursor.getLong(0)
+        }
 
     private fun queryOne(sql: String, args: Array<String>?): Map<String, Any?> =
         queryMany(sql, args).firstOrNull() ?: emptyMap()
 
-    private fun queryMany(sql: String, args: Array<String>?): List<Map<String, Any?>> = try {
+    private fun queryMany(sql: String, args: Array<String>?): List<Map<String, Any?>> {
         val out = mutableListOf<Map<String, Any?>>()
         db.rawQuery(sql, args).use { cursor ->
             while (cursor.moveToNext()) out += cursor.toRow()
         }
-        out
-    } catch (_: Throwable) {
-        emptyList()
+        return out
     }
 
     private fun Cursor.toRow(): Map<String, Any?> {
