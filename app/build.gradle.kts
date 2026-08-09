@@ -50,6 +50,10 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
@@ -69,6 +73,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:5.3.2")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling:1.11.4")
 }
