@@ -295,29 +295,44 @@ Nie raportuj funkcji, której faktycznie nie zaimplementowano.
 ## 48. Protokół nowej sesji
 1. Przeczytaj `docs/RPG_OS_MASTER_ARCHITECTURE.md`.
 2. Przeczytaj `docs/RPG_OS_IMPLEMENTATION_ROADMAP.md`.
-3. Sprawdź master/recent commits/build/CI/migrations/tests.
-4. Audytuj istniejącą implementację.
-5. Aktualizuj checklistę COMPLETE/PARTIAL/MISSING/BLOCKED na podstawie kodu i testów, nie pamięci.
-6. Znajdź najwcześniejszą brakującą zależność.
-7. Wykonaj najmniejszą bezpieczną zmianę.
-8. Test/build/integrity/commit/CI.
-9. Zaktualizuj roadmapę/checklistę tylko jeśli dowody potwierdzają status.
-10. Frontend może być rozwijany, gdy służy aktualnej funkcjonalności; każda zmiana UI musi zachować zaakceptowany styl aplikacji i nie może wprowadzać niepowiązanego globalnego redesignu.
+3. Przeczytaj `docs/PARALLEL_WORK_COORDINATION.md` i sprawdź ACTIVE WORK REGISTER.
+4. Sprawdź master/recent commits/build/CI/migrations/tests.
+5. Audytuj istniejącą implementację.
+6. Aktualizuj checklistę COMPLETE/PARTIAL/MISSING/BLOCKED na podstawie kodu i testów, nie pamięci.
+7. Znajdź najwcześniejszą brakującą zależność.
+8. Jeżeli sesja jest workerem, potwierdź własny WORK ITEM, allowedScope, forbiddenScope, rezerwacje oraz baseline przed zmianą kodu.
+9. Wykonaj najmniejszą bezpieczną zmianę.
+10. Przed zapisem ponownie sprawdź aktualny master i wersję modyfikowanego pliku.
+11. Test/build/integrity/commit/CI.
+12. Zaktualizuj roadmapę/checklistę tylko jeśli dowody potwierdzają status i nie istnieje otwarty równoległy WORK ITEM wymagany dla tej samej fazy.
+13. Frontend może być rozwijany, gdy służy aktualnej funkcjonalności; każda zmiana UI musi zachować zaakceptowany styl aplikacji i nie może wprowadzać niepowiązanego globalnego redesignu.
 
-## 49. Ostateczny cel
-RPG OS nie jest dużym promptem. Jest trwałym systemem świata, nad którym AI pełni rolę GM.
+## 49. Równoległa praca wielu sesji — CANONICAL
+RPG OS dopuszcza równoległą pracę wielu chatów/sesji, ale wyłącznie w modelu kontrolowanym.
 
-DATABASES/STATE/EVENTS -> REALITY
-RULE ENGINE -> WHAT CAN HAPPEN
-KNOWLEDGE/TEMPORAL -> WHO KNOWS WHAT AND WHEN
-MEMORY/RETRIEVAL -> WHAT MATTERS NOW
-DIRECTOR -> WHAT RECEIVES ATTENTION
-AI GM -> HOW IT IS INTERPRETED/PRESENTED
-VALIDATORS/TRANSACTION -> WHAT ACTUALLY BECOMES TRUE
+Jedna sesja pełni rolę COORDINATOR, a pozostałe są WORKERS realizującymi jawnie przydzielone WORK ITEMS. Każde zadanie posiada stabilny identyfikator, zakres, baseline, zależności, rezerwację plików/subsystemów, status, wynikowy commit i status CI.
 
-Po milionach słów system musi bez czytania całej kampanii odpowiedzieć co/kiedy/gdzie/kto/dlaczego/co zmieniło/kto wie/czy nadal prawda/skąd to wiemy oraz wyjaśnić progresję, techniki, inventory, pieniądze, własność, relacje, wojny i divergence.
+Dwa aktywne zadania nie mogą jednocześnie modyfikować tego samego authoritative subsystemu lub tych samych plików bez jawnej decyzji koordynatora. Worker, który wykryje konflikt zakresu, zmianę kontraktu zależności albo konieczność wejścia w forbiddenScope, zatrzymuje implementację i oznacza zadanie BLOCKED zamiast wykonywać agresywny merge/reset.
 
-## 50. Kanoniczna zasada dalszego rozwoju
-Najpierw prawda. Potem integralność stanu. Potem mechanika. Potem pamięć i retrieval. Potem inteligencja świata. Na końcu narracyjna finezja i content.
+`master` pozostaje wspólnym technicznym źródłem prawdy. Każdy worker sprawdza jego aktualność przed rozpoczęciem pracy oraz ponownie przed zapisem. COMPLETE pojedynczego WORK ITEM nie oznacza automatycznie COMPLETE całej fazy.
 
-Wszystko może proponować zmianę świata, ale tylko zwalidowany COMMIT może uczynić ją prawdą kampanii.
+Globalne statusy roadmapy są podczas pracy równoległej aktualizowane dopiero po audycie integracyjnym i sprawdzeniu wszystkich wymaganych WORK ITEMS.
+
+Szczegółowy obowiązujący protokół, role, format WORK ITEM, rezerwacje, raportowanie, blokady oraz ACTIVE WORK REGISTER definiuje `docs/PARALLEL_WORK_COORDINATION.md`.
+
+Priorytet przy konflikcie: DATA INTEGRITY > CAMPAIGN CONTINUITY > CORRECT ARCHITECTURE > SAFE INTEGRATION > PARALLEL SPEED.
+
+## 50. Ostateczny cel
+RPG OS ma działać jak trwały system świata, nie chatbot z długim promptem.
+
+DATABASE/STATE/EVENTS = REALITY
+RULE ENGINE = WHAT CAN HAPPEN
+KNOWLEDGE+TEMPORAL = WHO KNOWS WHAT AND WHEN
+MEMORY+RETRIEVAL = WHAT MATTERS NOW
+DIRECTOR = WHAT DESERVES ATTENTION
+AI GM = HOW IT IS INTERPRETED/PRESENTED
+VALIDATORS+TRANSACTION = WHAT BECOMES TRUE
+
+Po milionach słów system ma odpowiadać: co/kiedy/gdzie/kto/dlaczego/co zmieniło/kto wie/czy nadal prawda/skąd to wiemy; oraz wyjaśniać statystyki, umiejętności, techniki, przedmioty, pieniądze, własność, relacje, wojny i altered canon bez czytania całej kampanii od początku.
+
+Najpierw prawda. Potem integralność stanu. Potem mechanika. Potem pamięć/retrieval. Potem inteligencja świata. Na końcu narracyjna finezja i content.
