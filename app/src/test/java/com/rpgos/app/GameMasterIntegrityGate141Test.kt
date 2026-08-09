@@ -142,6 +142,50 @@ class GameMasterIntegrityGate141Test {
     }
 
     @Test
+    fun failedSnapshotRegistrationRollsBackMetadataAndDeletesArtifact() = runBlocking {
+        createHealthySupersession(withCommittedTurn = true)
+
+        store.openSaveDb().use { db ->
+            db.execSQL(
+                """
+                CREATE TRIGGER gm_test_block_snapshot_insert
+                BEFORE INSERT ON gm_snapshots
+                BEGIN
+                    SELECT RAISE(ABORT, 'blocked snapshot registration');
+                END
+                """.trimIndent()
+            )
+        }
+
+        val failure = GameMasterRepositoryFactory(context, store).openActiveSession().use { active ->
+            runCatching {
+                active.repository.createSnapshot(active.campaignUid, 1L)
+            }.exceptionOrNull()
+        }
+        assertNotNull(failure)
+
+        store.openSaveDb().use { db ->
+            val snapshotCount = db.rawQuery("SELECT COUNT(*) FROM gm_snapshots", null).use { c ->
+                c.moveToFirst()
+                c.getLong(0)
+            }
+            val currentSnapshotId = db.rawQuery(
+                "SELECT current_snapshot_id FROM gm_campaign_meta LIMIT 1",
+                null
+            ).use { c ->
+                assertTrue(c.moveToFirst())
+                if (c.isNull(0)) null else c.getString(0)
+            }
+            assertEquals(0L, snapshotCount)
+            assertNull(currentSnapshotId)
+        }
+
+        assertTrue(
+            File(campaignDir, "snapshots").listFiles()?.none { it.extension == "db" } != false
+        )
+    }
+
+    @Test
     fun backupManagerFollowsActiveCampaignInsteadOfDefaultSave() = runBlocking {
         createHealthySupersession(withCommittedTurn = false)
         val custom = store.createCampaign("Integrity_Custom")
