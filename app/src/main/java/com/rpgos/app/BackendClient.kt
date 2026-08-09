@@ -22,6 +22,10 @@ class BackendClient(
         chapter: Int,
         context: ContextBundle
     ): BackendTurnResult = withContext(Dispatchers.IO) {
+        require(context.playerStatus["fallback"] != true) {
+            "LEGACY_FALLBACK_CONTEXT_REJECTED: backend nie może generować narracji bez autorytatywnego ContextBundle."
+        }
+
         if (baseUrl.isBlank() || baseUrl.contains("YOUR-BACKEND")) {
             return@withContext BackendTurnResult(
                 narration = "Backend nie jest skonfigurowany. Ustaw RPGOS_BACKEND_URL w build.gradle.",
