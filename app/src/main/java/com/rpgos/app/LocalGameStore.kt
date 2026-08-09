@@ -79,11 +79,17 @@ class LocalGameStore(private val context: Context) {
 
             openWorldDb().use { world ->
                 val base = ContextBuilder(save, world).build(playerInput, chapter)
-                val truth = CampaignTruthStore(save, selection.activeCampaignRef().campaignId)
-                    .activeForContext(limit = 80)
+                val campaignId = selection.activeCampaignRef().campaignId
+                val truth = CampaignTruthStore(save, campaignId).activeForContext(limit = 80)
+                val state = PlayerStateStore(save, campaignId).load()
                 return base.copy(
                     campaignTruth = truth,
-                    contextMeta = base.contextMeta + mapOf("campaign_truth_records" to truth.size)
+                    playerState = state?.toContextMap() ?: emptyMap(),
+                    contextMeta = base.contextMeta + mapOf(
+                        "campaign_truth_records" to truth.size,
+                        "player_state_contract" to (state != null),
+                        "active_player_uid" to state?.activePlayer?.playerUid
+                    )
                 )
             }
         }
@@ -93,6 +99,13 @@ class LocalGameStore(private val context: Context) {
         openSaveDb().use { db ->
             ensureCurrentSchema(db)
             return ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active()
+        }
+    }
+
+    fun playerState(): PlayerStateSnapshot? {
+        openSaveDb().use { db ->
+            ensureCurrentSchema(db)
+            return PlayerStateStore(db, selection.activeCampaignRef().campaignId).load()
         }
     }
 
