@@ -13,6 +13,7 @@ interface CampaignRepository {
     fun bootstrap()
 
     fun activeCampaignRef(): ActiveCampaignRef
+    fun activePlayerRef(): ActivePlayerRef?
     fun activeCampaignDirName(): String
     fun activeWorldPackDirName(): String
     fun setActiveCampaign(dirName: String)
