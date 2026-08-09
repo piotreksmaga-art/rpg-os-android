@@ -15,6 +15,8 @@ class BackupManager(private val context: Context) {
     fun createBackup(label: String): File {
         backups.mkdirs()
         require(db.exists()) { "campaign.db nie istnieje" }
+        GameMasterIntegrityGate141.requireHealthyFile(db, "BACKUP_SOURCE")
+
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val safe = label.replace(Regex("[^A-Za-z0-9_-]"), "_")
         val out = File(backups, "${stamp}_${safe}.db")
