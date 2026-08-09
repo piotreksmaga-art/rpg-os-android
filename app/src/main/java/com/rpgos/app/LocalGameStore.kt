@@ -357,7 +357,7 @@ class LocalGameStore(private val context: Context) {
         SQLiteDatabase.openDatabase(File(saveDir, "campaign.db").absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
 
     private fun ensureCurrentSchema(saveDb: SQLiteDatabase) {
-        MigrationManager().ensureV4(saveDb, selection.activeCampaignRef().campaignId)
+        MigrationManager().ensureV6(saveDb, selection.activeCampaignRef().campaignId)
     }
 
     fun status(): StatusSnapshot {
