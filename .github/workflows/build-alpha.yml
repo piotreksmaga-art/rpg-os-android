@@ -85,7 +85,28 @@ jobs:
         shell: bash
         run: |
           echo "=== JVM test failure reports ==="
-          find app/build/test-results/testDebugUnitTest -type f -name '*.xml' -print -exec cat {} \; 2>/dev/null || true
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+          for path in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
+              try:
+                  root = ET.parse(path).getroot()
+              except Exception as exc:
+                  print(f'::error::Unable to parse {path}: {exc}')
+                  continue
+              for case in root.iter('testcase'):
+                  failure = case.find('failure')
+                  error = case.find('error')
+                  node = failure if failure is not None else error
+                  if node is not None:
+                      cls = case.attrib.get('classname', '?')
+                      name = case.attrib.get('name', '?')
+                      message = node.attrib.get('message', '')
+                      body = (node.text or '').splitlines()
+                      detail = body[0] if body else ''
+                      text = f'{cls}.{name}: {message} {detail}'.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                      print(f'::error title=JUnit failure::{text}')
+          PY
 
       - name: Build signed ALPHA APK
         run: gradle --no-daemon :app:assembleRelease --stacktrace
