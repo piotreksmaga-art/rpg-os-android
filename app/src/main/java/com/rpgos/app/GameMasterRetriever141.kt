@@ -9,11 +9,14 @@ import kotlin.math.max
  *
  * Retrieval is performed only from accepted durable state. It never treats
  * narrative prose as objective truth and never mixes BELIEF records between
- * holders. All returned data is constrained to [atTurnId].
+ * holders. All returned data is constrained to [atTurnId]. SEMANTIC memory is
+ * derivative and therefore fails closed unless a temporal eligibility provider
+ * confirms that its exact source FACT provenance is still valid at [atTurnId].
  */
 class GameMasterRetriever141(
     private val repository: UnifiedCampaignRepository,
-    private val campaignUid: EntityUid
+    private val campaignUid: EntityUid,
+    private val semanticEligibility: SemanticMemoryTemporalEligibility141? = null
 ) {
     data class Result(
         val events: List<DurableCampaignEvent>,
@@ -51,6 +54,13 @@ class GameMasterRetriever141(
         )
             .asSequence()
             .filter { it.createdTurn <= atTurnId }
+            .filter { memory ->
+                when (memory.kind) {
+                    DurableMemoryKind.EPISODIC -> true
+                    DurableMemoryKind.SEMANTIC ->
+                        semanticEligibility?.isEligible(memory.memoryUid, atTurnId) == true
+                }
+            }
             .sortedByDescending { memoryScore(it, queryTerms, atTurnId) }
             .take(memoryLimit)
             .toList()
