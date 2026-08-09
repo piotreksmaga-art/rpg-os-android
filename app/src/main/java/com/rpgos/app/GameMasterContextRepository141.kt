@@ -46,7 +46,11 @@ class GameMasterContextRepository141(
                 (row["holder_uid"] as? String)?.takeIf { it.isNotBlank() }?.let { relevantNpcUids += EntityUid(it) }
             }
 
-            val retrieved = GameMasterRetriever141(repo, session.campaignUid).retrieve(
+            val retrieved = GameMasterRetriever141(
+                repository = repo,
+                campaignUid = session.campaignUid,
+                semanticEligibility = session.semanticMemoryEligibility
+            ).retrieve(
                 playerAction = request.playerAction,
                 atTurnId = turn,
                 relevantNpcUids = relevantNpcUids,
