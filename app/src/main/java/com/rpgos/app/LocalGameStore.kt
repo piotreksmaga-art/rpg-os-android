@@ -130,6 +130,7 @@ class LocalGameStore(private val context: Context) {
         sourceVisualUid: String? = null
     ): String {
         openSaveDb().use { db ->
+            requireCampaignWritable(db, "CAMPAIGN_WRITE_VISUAL")
             return VisualLibrary(db).add(
                 title, kind, uri, chapter, relatedEntityUid, relatedLocationUid,
                 prompt, revisedPrompt, sourceVisualUid
@@ -260,6 +261,7 @@ class LocalGameStore(private val context: Context) {
 
     fun finalizeChapter(chapter: Int, title: String): Pair<String, String> {
         openSaveDb().use { save ->
+            requireCampaignWritable(save, "CAMPAIGN_WRITE_SAVE")
             val hash = ChapterSaveManager(save).finalizeChapter(chapter, title)
             val backup = BackupManager(context).createBackup("chapter_$chapter")
             return hash to backup.absolutePath
@@ -268,10 +270,15 @@ class LocalGameStore(private val context: Context) {
 
     fun applyPatch(patch: StatePatch): PatchResult {
         openSaveDb().use { save ->
+            requireCampaignWritable(save, "CAMPAIGN_WRITE_PATCH")
             openCoreDb().use { core ->
                 return StatePatchEngine(save, SourceOfTruthRegistry(core)).apply(patch)
             }
         }
+    }
+
+    private fun requireCampaignWritable(db: SQLiteDatabase, boundary: String) {
+        GameMasterIntegrityGate141(db).requireHealthy(boundary)
     }
 
     private fun openSave(): SQLiteDatabase {
