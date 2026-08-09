@@ -13,6 +13,9 @@ class RestoreManager(private val context: Context) {
         require(backup.isFile) { "Backup nie istnieje." }
         require(backup.extension == "db") { "Nieprawidłowy typ backupu." }
 
+        // Validate the incoming database before touching the live campaign.
+        GameMasterIntegrityGate141.requireHealthyFile(backup, "RESTORE_SOURCE")
+
         val safety = File(campaign, "backups/pre_restore_${System.currentTimeMillis()}.db")
         safety.parentFile?.mkdirs()
         if (db.exists()) db.copyTo(safety, overwrite = true)
