@@ -45,7 +45,7 @@ class BackendClient(
             if (!response.isSuccessful) error("Backend HTTP ${response.code}")
             val body = response.body.string()
             val json = JSONObject(body)
-            val narration = json.getString("narration")
+            val rawNarration = json.getString("narration")
             val choicesJson = json.optJSONArray("choices")
             val choices = buildList {
                 if (choicesJson != null) {
@@ -63,6 +63,12 @@ class BackendClient(
                         chapterEventsJson.optJSONObject(index)?.toString()?.let(::add)
                     }
                 }
+            }
+            val narration = if (choices.isEmpty()) {
+                rawNarration
+            } else {
+                rawNarration + "\n\nMożliwe działania:\n" +
+                    choices.mapIndexed { index, choice -> "${index + 1}. $choice" }.joinToString("\n")
             }
             val patch = json.optJSONObject("state_patch")?.let(JsonCodec::parseStatePatch)
             BackendTurnResult(
