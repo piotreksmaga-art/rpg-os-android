@@ -831,3 +831,229 @@ No runtime implementation is authorized by this work item.
 # Final status
 
 **PHASE 6 TEST CONTRACT READY — IMPLEMENTATION BLOCKED BY PHASE 5**
+
+---
+
+# Addendum — WORK-20260809-012 — Phase 6 Dependency Consistency Audit
+
+Status: READ-ONLY / DEPENDENCY CONSISTENCY CHECK
+
+Baseline runtime audited: `91763b733d9ed3eaa3d804c77394fb7f87b7be3b` (`WORK-20260809-006 — add lossless Phase 4 legacy read-through`)
+Phase 5 contract checked: `docs/audits/WORK-20260809-007_PHASE5_TEST_CONTRACT.md`
+Scope: only the effect of Phase 4 compatibility precedents and Phase 5 authority rules on this Phase 6 test/migration contract.
+
+## A1. Executive finding
+
+The Phase 4 compatibility implementation does **not** invalidate the Phase 6 design or test contract, but it sharpens one important rule:
+
+**Phase 6 must not copy the Phase 4 `LEGACY-COMPAT` read-through mechanically.**
+
+Phase 4 can safely synthesize a deterministic compatibility UID from a legacy stat key because `character_stats.stat_key + current_value` already represents a typed numeric statistic, and it can safely expose only resource columns whose structural shape proves current-resource semantics. Phase 6 legacy labels do not generally provide equivalent semantic certainty: a label such as `talent`, `gifted`, `aptitude`, `growth_rate`, `maximum_potential`, `affinity` or `adaptation` does not by itself prove axis, domain, dimension, normalization scale, World Pack ownership or whether the value is base profile state rather than a derived observation.
+
+Therefore the existing WORK-009 classification policy remains correct and becomes a release invariant for any future compatibility bridge.
+
+## A2. Phase 4 precedent that Phase 6 SHOULD reuse
+
+The following Phase 4 ideas are good precedents:
+
+1. **Deterministic identity for compatibility evidence.** Same proven legacy source identity must produce the same compatibility/source UID across rereads and reopen.
+2. **Reserved namespace.** Compatibility-only identity must live in a reserved RPG OS namespace that a normal World Pack cannot register or hijack.
+3. **Fail-loud collisions.** Same synthetic/source UID with incompatible source meaning must not silently merge.
+4. **No destructive backfill required for read compatibility.** Legacy source bytes can remain untouched while a typed projection is exposed.
+5. **No truncation.** Compatibility reads must expose all valid entries.
+6. **Campaign/player isolation.** Compatibility evidence must remain scoped to the source character/campaign where applicable.
+7. **Derived/runtime boundary discipline.** A compatibility classifier may expose only data whose authority class is proven; ambiguous or derived values remain outside base authority.
+
+These are infrastructure precedents, not permission to infer Talent/Potential semantics from a label.
+
+## A3. Phase 4 precedent that Phase 6 MUST NOT reuse directly
+
+Phase 4 creates compatibility definition UIDs such as deterministic `RPGOS-LEGACY-STAT-*` and `RPGOS-LEGACY-RESOURCE-*` from semantically typed legacy keys. For Phase 6, creating `RPGOS-LEGACY-TALENT-<hash(label)>` or `RPGOS-LEGACY-POTENTIAL-<hash(label)>` and exposing it immediately as a canonical profile domain would be unsafe.
+
+Reason: stable identity does not create stable meaning.
+
+A deterministic hash of `growth_rate` would still leave unresolved whether the source means:
+
+- learning efficiency (Talent),
+- stat growth multiplier,
+- long-horizon Potential,
+- age/biological growth,
+- regeneration,
+- another World Pack-specific concept.
+
+Likewise a deterministic hash of `affinity` would not tell Core whether the field is learning aptitude, eligibility, compatibility, output efficiency or cost modification.
+
+Therefore **synthetic compatibility identity may identify source evidence, but must not manufacture a canonical Phase 6 domain semantic.**
+
+## A4. Can Phase 6 use a `LEGACY-COMPAT` read-through?
+
+Answer: **YES, but only in a narrower two-layer form.**
+
+### Layer 1 — OPAQUE LEGACY EVIDENCE (safe for all preserved source data)
+
+Core may expose preserved legacy Talent/Potential-like source records through a reserved compatibility evidence namespace for diagnostics/migration tooling.
+
+Such evidence may include:
+
+- source table/field/key,
+- original value,
+- source character/campaign identity,
+- source schema/version if known,
+- deterministic source-evidence UID,
+- classification status,
+- mapping status,
+- provenance.
+
+Opaque evidence is **not** `TalentEntry`, **not** `PotentialEntry`, **not** a progression input, and **not** a Phase 5 modifier.
+
+### Layer 2 — TYPED PROFILE COMPATIBILITY PROJECTION (allowed only after semantics are proven)
+
+A legacy value may be exposed as typed Talent/Potential compatibility only when all required semantics are known:
+
+- axis = TALENT or POTENTIAL,
+- target World Pack/domain stable UID,
+- Potential dimension when applicable,
+- normalization/source scale and exact conversion,
+- character/campaign ownership,
+- source version compatibility,
+- base-profile authority (not derived/current observation),
+- explicit mapping/policy version.
+
+When those conditions are satisfied, the compatibility read may project the legacy value under the **canonical mapped domain UID**, rather than inventing an unrelated synthetic logical domain.
+
+This distinction prevents compatibility mechanics from creating a permanent second domain vocabulary.
+
+## A5. Legacy field safety classification after WORK-006
+
+The prior matrix remains valid. The new Phase 4 precedent does not upgrade any bare Phase 6 label to SAFE AUTO-MAP.
+
+| Legacy source shape | Phase 6 compatibility policy |
+|---|---|
+| `talent` bare label | `REQUIRES WORLD PACK MAPPING` |
+| `aptitude` bare label | `REQUIRES WORLD PACK MAPPING` |
+| `learning_rate` bare label | `REQUIRES WORLD PACK MAPPING` |
+| `maximum_potential` bare label | `REQUIRES WORLD PACK MAPPING` |
+| `gifted` | `AMBIGUOUS — OPAQUE/UNRESOLVED` |
+| `growth_rate` | `AMBIGUOUS — OPAQUE/UNRESOLVED` |
+| `affinity` | `AMBIGUOUS — OPAQUE/UNRESOLVED` |
+| `adaptation` | `AMBIGUOUS — OPAQUE/UNRESOLVED` |
+| explicit source metadata proving Talent axis + domain + scale + version | eligible for SAFE typed read-through |
+| explicit source metadata proving Potential axis + dimension + domain + scale + version | eligible for SAFE typed read-through |
+
+No bare label is safe merely because Phase 4 now has a deterministic-hash compatibility precedent.
+
+## A6. Reserved namespace policy for Phase 6
+
+Phase 6 should reserve compatibility identity separately from World Pack-owned canonical domain identity.
+
+Conceptual separation:
+
+```text
+RPGOS-LEGACY-PROFILE-EVIDENCE-*
+= source evidence identity only
+
+WP-X:DOMAIN:...
+= canonical progression-domain identity
+```
+
+Exact syntax is implementation-time policy, but invariants are required:
+
+- no World Pack may register the RPG OS compatibility namespace;
+- compatibility evidence UID may never be accepted as a normal canonical domain UID unless an explicit migration maps/supersedes it;
+- a World Pack mapping points from source evidence -> canonical World Pack domain UID;
+- mapping version and provenance are recorded;
+- changing display labels does not change canonical domain identity.
+
+This is stricter than Phase 4 because the legacy Phase 6 source name is not itself sufficient domain identity.
+
+## A7. Same semantic key across legacy and new representations
+
+WORK-006 highlights a general risk: merging by synthetic UID alone cannot reconcile a legacy representation and a new representation that are semantically the same but use different UIDs.
+
+For Phase 6 this is a **release-blocking test requirement**, not a reason to change the design today.
+
+Future typed compatibility rules must define semantic reconciliation:
+
+1. If a canonical new-format Talent/Potential entry exists for mapped `(character, domainUid, axis[, dimension])`, it is the authoritative typed representation.
+2. Mapped legacy evidence for the same semantic target must **not** be returned as a second logical profile entry.
+3. Legacy evidence remains available for provenance/audit but is suppressed from typed profile output once canonical authority exists.
+4. If canonical and mapped legacy values disagree, do not average, choose by row order, or expose both. Return canonical value plus an explicit reconciliation/migration diagnostic.
+5. If the legacy value has no mapping, it remains opaque and therefore cannot duplicate a canonical logical profile entry.
+
+This strengthens existing T6-124 (`New-format value already exists`).
+
+## A8. New mandatory mixed-state tests
+
+Add the following future acceptance cases:
+
+### T6-125 — Mapped legacy Talent + canonical Talent same domain
+
+Given:
+
+- legacy evidence explicitly maps to `WP-A:DOMAIN:FOCUS`,
+- canonical TalentEntry already exists for that character/domain.
+
+Expected:
+
+- typed Talent profile returns exactly one logical entry,
+- canonical new-format value wins,
+- legacy source is retained only as evidence/provenance,
+- disagreement produces diagnostic, not duplicate profile state.
+
+### T6-126 — Mapped legacy Potential + canonical Potential same domain/dimension
+
+Same rule for Potential `(domainUid, dimensionUid)` identity.
+
+### T6-127 — Unmapped legacy label + canonical entry with similar display name
+
+Legacy `aptitude` or `gifted` is not guessed to match the canonical domain by display text. It remains opaque/unresolved and does not enter typed profile output.
+
+### T6-128 — Mapping introduced after canonical entry exists
+
+When a World Pack later provides a mapping for preserved legacy evidence, reconciliation must detect the preexisting canonical target and avoid creating a duplicate.
+
+### T6-129 — Same display/domain key across World Packs
+
+A legacy mapping must include World Pack/domain stable identity. It must not reconcile `WP-A:DOMAIN:FOCUS` with `WP-B:DOMAIN:FOCUS` merely because key/display text matches.
+
+## A9. Deterministic UID rule after Phase 4 precedent
+
+The WORK-009 test T6-120 remains correct with one clarification:
+
+- deterministic UID is required for **source evidence identity** from the same source record/key/version;
+- canonical Talent/Potential identity remains the mapped stable World Pack `domainUid` plus axis/dimension and character/campaign scope;
+- do not use a hash of ambiguous display text as canonical profile identity.
+
+Thus deterministic hashing is an idempotency tool, not a semantic classifier.
+
+## A10. Interaction with Phase 5 contract
+
+The Phase 5 authority contract remains unchanged:
+
+- base Talent/Potential, once canonical, are persistent authoritative profile inputs;
+- effective learning/breakthrough parameters are derived;
+- temporary effects are modifier/context sources;
+- resolver/progression logic must never consume opaque unresolved legacy profile evidence;
+- resolver must not see both canonical entry and mapped legacy compatibility copy as two modifier/base inputs.
+
+Therefore a future Phase 6 loader must perform compatibility classification/reconciliation **before** constructing the immutable Phase 5/ProgressionEngine input snapshot.
+
+## A11. Contract verdict
+
+No true architectural blocker was found.
+
+WORK-006 provides useful precedents for deterministic compatibility identity, reserved namespaces, fail-loud collision handling, and lossless read-through. Phase 6 can reuse those infrastructure ideas only after adding a stricter semantic gate and canonical-domain reconciliation layer.
+
+The existing WORK-009 migration policy already contains the necessary conservative foundation. This addendum tightens it by explicitly separating:
+
+```text
+legacy source evidence identity
+!=
+canonical Talent/Potential domain identity
+```
+
+and by requiring deduplication/reconciliation for mixed legacy + canonical profile state before any resolver/progression consumer sees the data.
+
+# Final status after WORK-20260809-012
+
+**PHASE 6 TEST CONTRACT READY — IMPLEMENTATION BLOCKED BY PHASE 5**
