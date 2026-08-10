@@ -23,22 +23,6 @@ data class ContextBundle(
     val contextMeta: Map<String, Any?> = emptyMap()
 )
 
-data class PatchOperation(
-    val op: String,
-    val table: String,
-    val key: Map<String, Any?>,
-    val values: Map<String, Any?>
-)
-
-data class StatePatch(
-    val transactionId: String,
-    val operations: List<PatchOperation>,
-    val chapterManifest: Map<String, Any?> = emptyMap(),
-    val requiresValidation: Boolean = true
-)
-
-data class PatchResult(
-    val success: Boolean,
-    val appliedOperations: Int,
-    val message: String
-)
+data class PatchOperation(val op:String,val table:String,val key:Map<String,Any?>,val values:Map<String,Any?>)
+data class StatePatch(val transactionId:String,val operations:List<PatchOperation>,val chapterManifest:Map<String,Any?> = emptyMap(),val requiresValidation:Boolean = true)
+data class PatchResult(val success:Boolean,val appliedOperations:Int,val message:String)
