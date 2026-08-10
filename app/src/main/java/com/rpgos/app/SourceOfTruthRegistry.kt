@@ -32,7 +32,7 @@ class SourceOfTruthRegistry(private val coreDb: SQLiteDatabase) {
     fun canWrite(table: String): Boolean {
         // Typed authorities cannot be bypassed by generic AI StatePatch writes.
         if (table == "campaign_truth_records") return false
-        if (table in FINANCE_TYPED_ONLY_TABLES) return false
+        if (table in TYPED_ONLY_TABLES) return false
         if (table in readOnlyTables) return false
         return table in activeTables || isExplicitRuntimeTable(table)
     }
@@ -59,14 +59,22 @@ class SourceOfTruthRegistry(private val coreDb: SQLiteDatabase) {
     }
 
     companion object {
-        private val FINANCE_TYPED_ONLY_TABLES = setOf(
+        private val TYPED_ONLY_TABLES = setOf(
             "financial_transactions",
             "financial_ledger_transactions",
             "financial_accounts",
             "financial_account_balances",
             "currency_definitions",
             "financial_transaction_type_definitions",
-            "legacy_financial_evidence"
+            "legacy_financial_evidence",
+            "asset_kind_definitions",
+            "asset_records",
+            "asset_valuations",
+            "obligation_type_definitions",
+            "obligation_records",
+            "obligation_status_history",
+            "obligation_settlements",
+            "asset_encumbrances"
         )
     }
 }
