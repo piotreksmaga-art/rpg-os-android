@@ -129,15 +129,15 @@ class FinancialStore(private val db: SQLiteDatabase, private val campaignId: Str
         val tx = FinancialTransaction(campaignId, financialTransactionUid, null, accountUid, currency, amountMinor,
             "RPGOS-FIN-TYPE:MIGRATION_OPENING_BALANCE", FinancialFlowKind.SOURCE,
             "Explicit legacy opening balance", effectiveOrder, provenance, commandUid = "LEGACY:$legacyEvidenceUid")
-        val result = commit(tx)
-        if (!result.idempotentReplay) {
+        return writeTransactionResult {
+            val result = commit(tx)
             db.execSQL(
-                """INSERT INTO legacy_financial_evidence(campaign_id,legacy_evidence_uid,evidence_kind,mapped_account_uid,mapped_transaction_uid,mapping_version,provenance)
+                """INSERT OR IGNORE INTO legacy_financial_evidence(campaign_id,legacy_evidence_uid,evidence_kind,mapped_account_uid,mapped_transaction_uid,mapping_version,provenance)
                    VALUES(?,?,'OPENING_BALANCE',?,?,1,?)""".trimIndent(),
                 arrayOf(campaignId, legacyEvidenceUid, accountUid, financialTransactionUid, provenance)
             )
+            result
         }
-        return result
     }
 
     fun reverse(
@@ -200,55 +200,26 @@ class FinancialStore(private val db: SQLiteDatabase, private val campaignId: Str
 
     fun reconcile(accountUid: String): Long {
         requireAccount(accountUid)
-        var exact = 0L
-        db.rawQuery(
-            """SELECT from_account_uid,to_account_uid,amount_minor FROM financial_ledger_transactions
-               WHERE campaign_id=? AND (from_account_uid=? OR to_account_uid=?)
-               ORDER BY effective_order,financial_transaction_uid""".trimIndent(),
-            arrayOf(campaignId, accountUid, accountUid)
-        ).use { c ->
-            while (c.moveToNext()) {
-                val from = if (c.isNull(0)) null else c.getString(0)
-                val to = if (c.isNull(1)) null else c.getString(1)
-                val amount = c.getLong(2)
-                if (from == accountUid) exact = Math.subtractExact(exact, amount)
-                if (to == accountUid) exact = Math.addExact(exact, amount)
-            }
-        }
+        val exact = calculateLedgerBalance(accountUid)
         require(exact == balance(accountUid)) { "financial balance projection diverges from authoritative ledger" }
         return exact
     }
 
     fun rebuildBalance(accountUid: String): Long {
         requireAccount(accountUid)
-        var exact = 0L
-        var lastOrder: Long? = null
-        db.rawQuery(
-            """SELECT from_account_uid,to_account_uid,amount_minor,effective_order FROM financial_ledger_transactions
+        val exact = calculateLedgerBalance(accountUid)
+        val lastOrder = db.rawQuery(
+            """SELECT effective_order FROM financial_ledger_transactions
                WHERE campaign_id=? AND (from_account_uid=? OR to_account_uid=?)
-               ORDER BY effective_order,financial_transaction_uid""".trimIndent(),
+               ORDER BY effective_order DESC,financial_transaction_uid DESC LIMIT 1""".trimIndent(),
             arrayOf(campaignId, accountUid, accountUid)
-        ).use { c ->
-            while (c.moveToNext()) {
-                val from = if (c.isNull(0)) null else c.getString(0)
-                val to = if (c.isNull(1)) null else c.getString(1)
-                val amount = c.getLong(2)
-                if (from == accountUid) exact = Math.subtractExact(exact, amount)
-                if (to == accountUid) exact = Math.addExact(exact, amount)
-                lastOrder = c.getLong(3)
-            }
-        }
+        ).use { c -> if (c.moveToFirst()) c.getLong(0) else null }
         writeTransaction {
-            val s = db.compileStatement(
-                "UPDATE financial_account_balances SET balance_minor=?,balance_version=balance_version+1,last_effective_order=? WHERE campaign_id=? AND account_uid=? AND balance_version < 9223372036854775807"
+            db.execSQL("DELETE FROM financial_account_balances WHERE campaign_id=? AND account_uid=?", arrayOf(campaignId, accountUid))
+            db.execSQL(
+                "INSERT INTO financial_account_balances(campaign_id,account_uid,balance_minor,balance_version,last_effective_order) VALUES(?,?,?,1,?)",
+                arrayOf<Any?>(campaignId, accountUid, exact, lastOrder)
             )
-            s.use {
-                it.bindLong(1, exact)
-                if (lastOrder == null) it.bindNull(2) else it.bindLong(2, lastOrder!!)
-                it.bindString(3, campaignId)
-                it.bindString(4, accountUid)
-                require(it.executeUpdateDelete() == 1) { "financial balance projection version overflow/missing" }
-            }
         }
         return exact
     }
@@ -270,6 +241,25 @@ class FinancialStore(private val db: SQLiteDatabase, private val campaignId: Str
         "SELECT COUNT(*) FROM financial_ledger_transactions WHERE campaign_id=?",
         arrayOf(campaignId)
     ).use { c -> c.moveToFirst(); c.getLong(0) }
+
+    private fun calculateLedgerBalance(accountUid: String): Long {
+        var exact = 0L
+        db.rawQuery(
+            """SELECT from_account_uid,to_account_uid,amount_minor FROM financial_ledger_transactions
+               WHERE campaign_id=? AND (from_account_uid=? OR to_account_uid=?)
+               ORDER BY effective_order,financial_transaction_uid""".trimIndent(),
+            arrayOf(campaignId, accountUid, accountUid)
+        ).use { c ->
+            while (c.moveToNext()) {
+                val from = if (c.isNull(0)) null else c.getString(0)
+                val to = if (c.isNull(1)) null else c.getString(1)
+                val amount = c.getLong(2)
+                if (from == accountUid) exact = Math.subtractExact(exact, amount)
+                if (to == accountUid) exact = Math.addExact(exact, amount)
+            }
+        }
+        return exact
+    }
 
     private fun debit(accountUid: String, amount: Long, effectiveOrder: Long) {
         val s = db.compileStatement(
