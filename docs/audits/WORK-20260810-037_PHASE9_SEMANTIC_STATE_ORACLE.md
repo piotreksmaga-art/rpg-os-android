@@ -1,95 +1,40 @@
 # WORK-20260810-037 — Phase 9 Semantic / State-Machine Oracle
 
-Status: FINAL SEMANTIC RECHECK / READ-ONLY RUNTIME
+Status: FINAL SEMANTIC REVALIDATION / READ-ONLY RUNTIME
 
 Work ID: `WORK-20260810-037`
 Owner: `CHAT-2`
-Role: PHASE 9 SEMANTIC / STATE-MACHINE ORACLE
+Role: READ-ONLY SEMANTIC AUDITOR
 Repository: `piotreksmaga-art/rpg-os-android`
 Accepted Phase 8 runtime: `7a28e6e4b28ff10cbb516b94e5e0c120d0a15397`
-Audited Phase 9 runtime only: `d796d374f92d94477542da5f753ee411b633076b`
+Previous Phase 9 runtime: `d796d374f92d94477542da5f753ee411b633076b`
+Previous semantic verdict: `PHASE 9 SEMANTIC RECHECK: FAIL`
+Final hotfix audited: `c64c123104f1643a53bf9bb5ebbf19e4bc0dfe87`
 Original oracle commit: `90e584a73e7ee0066f952508328de42e22f6fdf8`
 
-This final recheck is read-only with respect to application runtime. No Kotlin, schema, migration, tests, or authoritative runtime state were modified by CHAT-2. This document consolidates the oracle and records the final comparison against the exact requested Phase-9 result commit.
+This report is documentation-only. CHAT-2 did not modify Kotlin runtime, schema, migrations, tests, authoritative state, or any Phase-10 subsystem.
 
 ---
 
-## 1. Canonical semantic oracle
+## 1. Revalidation scope
 
-Phase 9 must preserve these independent authorities:
+The final revalidation compares the exact hotfix runtime `c64c123104f1643a53bf9bb5ebbf19e4bc0dfe87` against the semantic/state-machine contract previously defined by WORK-037.
 
-- origin/species identity != clan identity,
-- identity != innate feature ownership,
-- innate ownership != evolution state,
-- unlocked form != active form,
-- evolution stage != temporary transformation,
-- Talent/Potential/Skill/Technique remain separate Phase 6–8 authorities.
+The prior FAIL at `d796d374f92d94477542da5f753ee411b633076b` was caused by a specific semantic gap:
 
-A World Pack may relate these concepts only through stable UID-addressed explicit definitions/mappings/rules. Text labels are not identity.
+- transition requirement UID existed but was not enforced before evolution mutation;
+- activation requirement UID existed but was not enforced before active state/modifier activation;
+- no explicit UNLOCK requirement contract was enforced before durable form unlock.
 
-### Identity/origin
-
-`PlayerOrigin` represents persistent character identity/origin relationship. It must not imply `PlayerInnateFeature`. `clan_uid` is legacy/canon evidence and must not itself grant a bloodline feature.
-
-### Innate ownership
-
-`PlayerInnateFeature` is durable owned state. Temporary suppression, form deactivation, injury, resource depletion, modifier lifecycle, or other runtime condition must not silently remove it. Temporary effects cannot create persistent ownership.
-
-### Evolution
-
-Evolution is a World-Pack-defined graph/track. Stage identity is stable UID identity, not label ordering or a global numeric level. Historical attainment and current stage are separate facts. A current-stage change requires an explicit transition. Cross-path movement requires explicit cross-path semantics.
-
-Rollback/reversal from B to previously attained A is not legal merely because A exists in history. It requires an explicit legal transition/reversal semantic or later legal domain mutation path.
-
-### Forms
-
-Canonical lifecycle:
-
-```text
-LOCKED
-  -> UNLOCKED + INACTIVE
-  -> ACTIVE
-  -> INACTIVE
-  -> ACTIVE ...
-```
-
-Unlock is persistent authority. Activity is current/reversible state. Deactivation must never delete the unlock.
-
-### Temporary transformation
-
-Temporary form/transformation effects belong to runtime/derived mechanics. Activation may affect Phase-5 effective targets, but deactivation must remove those effects while preserving authoritative Phase 3–8 bases and Phase-9 ownership/history.
+The hotfix introduces a generic `RequirementEvaluator`, explicit `RequirementGate` values `UNLOCK`, `TRANSITION`, `ACTIVATION`, versioned bindings, deterministic dependency evaluation, and additive migration `RPGOS-9.1-REQUIREMENT-GATES`.
 
 ---
 
-## 2. Requirement oracle
+## 2. Canonical semantic separation remains intact
 
-Three semantic phases must remain distinct:
+The hotfix does not collapse Phase-9 authorities.
 
-1. `UNLOCK` requirement — decides whether durable ownership/unlock may be granted.
-2. `TRANSITION` requirement — decides whether persistent evolution transition may be committed.
-3. `ACTIVATION` requirement — decides whether a reversible form may currently activate/remain active.
-
-They may eventually share generic rule infrastructure, but they are not interchangeable.
-
-Consequences are different:
-
-- failed unlock requirement => no durable grant,
-- failed transition requirement => current evolution stage remains unchanged,
-- failed activation requirement => activation is blocked/terminated according to World Pack rules, but existing unlock and evolution history remain.
-
-A temporary condition becoming false after a legal permanent unlock/transition must not retroactively erase that committed persistent state unless a separate explicit revocation/reversal mechanic exists.
-
----
-
-## 3. Exact runtime inspected
-
-Only runtime commit:
-
-`d796d374f92d94477542da5f753ee411b633076b`
-
-was used for this final semantic verdict.
-
-The Phase-9 runtime contains distinct typed models for:
+The runtime still keeps separate:
 
 - `OriginDefinition` / `PlayerOrigin`,
 - `InnateFeatureDefinition` / `PlayerInnateFeature`,
@@ -101,156 +46,344 @@ The Phase-9 runtime contains distinct typed models for:
 - `FormDefinition`,
 - `PlayerFormUnlock`,
 - `PlayerActiveForm`,
-- explicit legacy evidence/mapping records,
-- generic Phase-5 form modifier bindings.
+- unresolved legacy evidence / explicit World Pack mapping.
 
-This is structurally aligned with the oracle: identity, feature ownership, evolution progression/history and form activation are not collapsed into one value.
+Therefore the following invariants remain valid:
+
+```text
+origin/species identity != clan identity
+identity != innate ownership
+innate ownership != evolution state
+unlocked form != active form
+evolution stage != temporary transformation
+Talent != Potential != Skill != Technique != Phase-9 identity/state
+```
+
+No hotfix path introduces automatic origin/clan/label-to-feature grants.
 
 ---
 
-## 4. Final semantic recheck matrix
+## 3. Generic requirement contract
 
-| Gate | Runtime result | Verdict |
-|---|---|---|
-| origin/species identity != clan identity | `PlayerOrigin` is typed independently; legacy `clan_uid` remains evidence | PASS |
-| identity != innate ownership | separate `player_origins_v2` and `player_innate_features`; no implicit origin->feature grant | PASS |
-| innate ownership != evolution state | separate player innate/evolution state models and persistence | PASS |
-| unlocked form != active form | separate `PlayerFormUnlock` and `PlayerActiveForm` | PASS |
-| temporary transformation != permanent evolution | form activation produces Phase-5 modifier lifecycle; evolution state is separate | PASS |
-| deactivation preserves unlock | persistence test explicitly deactivates and retains A/B unlock rows | PASS |
-| evolution requires explicit transition | `transitionEvolution` consumes `transitionUid`, validates current source and rejects missing/wrong transition | PASS |
-| historical stages survive transition | attained A and B are both retained after A->B | PASS |
-| cross-path transition explicit | registration/runtime reject cross-path unless `crossPathAllowed` | PASS |
-| rollback requires legal transition semantics | direct reuse of A->B from current B fails; no direct arbitrary stage setter exposed in audited flow | PASS WITH GAP |
-| temporary condition cannot erase persistent unlock/history | form lifecycle never deletes unlock/attained-stage authority | PASS |
-| Phase 3–8 no-retrogression | active form changes effective targets through generic Phase-5 modifiers; stat/Skill/Technique bases remain unchanged; Talent/Potential unchanged | PASS |
-| legacy labels/clan_uid automatic grant forbidden | legacy labels are preserved as evidence; no typed state appears until explicit mapping | PASS |
-| explicit legacy mapping canonicalizes once | idempotent mapping application creates one canonical target while legacy bytes remain | PASS |
-| UNLOCK / TRANSITION / ACTIVATION requirement semantics enforced | runtime does not provide three enforceable requirement contracts | **FAIL** |
+The hotfix adds:
+
+```text
+RequirementGate.UNLOCK
+RequirementGate.TRANSITION
+RequirementGate.ACTIVATION
+```
+
+A `RequirementBinding` is explicitly versioned by:
+
+```text
+ruleUid
+ruleVersion
+```
+
+A provider exposes a descriptor containing:
+
+```text
+ruleUid
+version
+allowedGates
+dependencies
+```
+
+and evaluates using a `RequirementContext` containing the exact semantic gate and subject UID.
+
+This is a generic Core contract; it contains no Naruto/Bleach mechanics.
+
+### 3.1 Gate non-substitution
+
+`RequirementEvaluator` checks:
+
+```text
+context.gate in descriptor.allowedGates
+```
+
+Therefore a TRANSITION-only rule cannot satisfy UNLOCK, an UNLOCK-only rule cannot satisfy ACTIVATION, and an ACTIVATION-only rule cannot satisfy TRANSITION.
+
+This closes the prior semantic ambiguity.
 
 ---
 
-## 5. Blocking semantic finding — requirement contracts are incomplete
+## 4. UNLOCK gate — PASS
 
-The final runtime does not satisfy the oracle's required semantic separation of `UNLOCK`, `TRANSITION`, and `ACTIVATION` requirements as enforceable state-machine gates.
+`Phase9Store.unlockForm(...)` now performs:
 
-### 5.1 Transition requirement is persisted but not enforced
+1. player/campaign/version/provenance validation;
+2. canonical form lookup;
+3. duplicate-unlock idempotency check;
+4. `RequirementEvaluator.requirePass(... RequirementGate.UNLOCK ...)`;
+5. only after success: persistent insert into `player_form_unlocks`.
 
-`EvolutionTransitionDefinition` contains:
+Therefore a failed UNLOCK requirement cannot leave a new durable unlock row.
 
-```text
-requirementRuleUid
-```
+The runtime also fails before write for:
 
-and transition registration persists it.
+- missing provider,
+- missing rule,
+- incompatible rule version,
+- rule bound to the wrong gate,
+- malformed/indeterminate provider result,
+- dependency cycle.
 
-However `transitionEvolution(...)` validates transition identity, source/current-stage correctness and cross-path legality, then commits the state transition. In the audited runtime it does not evaluate `requirementRuleUid` before mutating persistent evolution state.
+A form with no explicit UNLOCK requirement remains legal to unlock according to its definition contract; absence of a binding is explicit no-requirement semantics, not a silent bypass of a declared rule.
 
-Therefore a transition carrying a non-null requirement binding can still be committed without proof that the transition requirement passed.
-
-This conflicts with the oracle invariant:
-
-```text
-failed transition requirement
-=> current stage remains unchanged
-```
-
-### 5.2 Activation requirement is persisted but not enforced
-
-`FormDefinition` contains:
-
-```text
-activationRuleUid
-```
-
-and registration persists it.
-
-`activateForm(...)` verifies durable form unlock, definition activity and exclusivity. In the audited runtime it does not evaluate `activationRuleUid` before creating active form state / Phase-5 form modifier effects.
-
-Therefore a form carrying an activation requirement can become active without proof that the activation requirement passed.
-
-This conflicts with the oracle invariant that activation eligibility is a distinct current-state gate and may fail while the durable unlock remains intact.
-
-### 5.3 Unlock requirement has no equivalent explicit runtime contract
-
-The audited Phase-9 model exposes `requirementRuleUid` for transitions and `activationRuleUid` for forms, but no equivalent explicit unlock-requirement binding on `FormDefinition`/unlock operation (nor a generic typed unlock requirement object covering feature/form/path/stage grants).
-
-`unlockForm(...)` validates identity, scope and definition existence and then persists the unlock. It therefore cannot distinguish:
-
-```text
-legal unlock after UNLOCK requirement success
-```
-
-from:
-
-```text
-direct durable unlock with no requirement evaluation
-```
-
-within Phase-9 runtime itself.
-
-This is the decisive semantic mismatch requested by the final recheck.
+Verdict: **PASS**.
 
 ---
 
-## 6. Rollback/reversible semantic note
+## 5. TRANSITION gate — PASS
 
-`EvolutionTransitionDefinition` contains a `reversible` flag, while `transitionEvolution(...)` primarily enforces explicit transition identity and source/target legality. The existing test correctly proves that historical attainment of A does not permit an arbitrary B->A rollback and that replaying A->B while current=B fails.
+### 5.1 Normal transition
 
-However the audited runtime does not establish a complete generic interpretation of the `reversible` flag itself. A future fix should make reversal semantics explicit rather than leaving the flag as persisted metadata with no clear enforcement role.
+For a source-stage transition, `transitionEvolution(...)` validates:
 
-This issue reinforces the requirement/state-machine gap but is not needed independently to reach the FAIL verdict.
+- transition identity exists,
+- target stage exists,
+- current source path/state exists,
+- current stage equals declared source stage,
+- cross-path semantics are explicitly allowed when needed,
+- `RequirementEvaluator.requirePass(... RequirementGate.TRANSITION ...)` succeeds.
 
----
+Only after requirement success does the runtime begin the transaction that changes current stage and records attained history.
 
-## 7. No-retrogression recheck
-
-The exact final commit adds an integration test proving active form effects flow through the accepted Phase-5 `DerivedValueResolver`:
-
-```text
-Stat base 10 -> effective 15 while active -> effective 10 after deactivate
-Resource max 100 -> 125 while active -> 100 after deactivate
-Resource current remains 40
-Skill base 20 -> effective 26 -> 20
-Technique base 30 -> effective 37 -> 30
-```
-
-Separate Phase-9 persistence coverage verifies that form activation does not rewrite:
-
-- `PlayerStat.baseValue`,
-- `PlayerSkill.baseMastery`,
-- `PlayerTechnique.baseMastery`,
-- Talent persistent base value,
-- Potential persistent base value.
-
-This satisfies the requested Phase 3–8 no-retrogression boundary for the audited transformation path.
-
----
-
-## 8. Legacy/evidence recheck
-
-The runtime preserves conservative canonicalization:
+A failed requirement therefore leaves:
 
 ```text
-legacy label / clan_uid
--> evidence only
--> no automatic typed grant
+current stage unchanged
+attained-stage history unchanged
+no target stage materialized
 ```
 
-The test fixture containing `clan_uid`, `race`, `bloodline`, `evolution_stage` and `form` creates no automatic `PlayerOrigin` or `PlayerInnateFeature`. Explicit `LegacyPhase9Mapping` is required to canonicalize, repeated application is idempotent, and original legacy bytes remain unchanged.
+### 5.2 ENTRY transition
 
-This matches the oracle and coordinator instruction.
+Direct arbitrary stage entry is explicitly forbidden. `enterEvolutionPath(...)` is deprecated at error level and throws; path entry must use an explicit `EvolutionTransitionDefinition` with `sourceStageUid == null`.
+
+ENTRY transitions execute the same `TRANSITION` gate before insertion of either:
+
+- `player_evolution_states`, or
+- `player_evolution_stages`.
+
+Thus an ENTRY requirement failure creates zero evolution state/history.
+
+### 5.3 Rollback semantics
+
+An ENTRY transition cannot be replayed on a path that already has current state and cannot be used as rollback. Normal rollback/reversal still requires an explicit legal transition whose declared source matches current stage.
+
+Historical attainment of an older stage alone never authorizes rollback.
+
+Verdict: **PASS**.
 
 ---
 
-## 9. Final verdict
+## 6. ACTIVATION gate — PASS
 
-The core Phase-9 state separation is strong and the runtime correctly preserves the most important no-retrogression, unlock-vs-active, explicit-transition, legacy-evidence and derived-effect boundaries.
+`activateForm(...)` now performs before authoritative active-state mutation:
 
-The final semantic gate nevertheless cannot PASS because the oracle explicitly requires `UNLOCK`, `TRANSITION`, and `ACTIVATION` to remain semantically distinct requirement contracts. At `d796d374f92d94477542da5f753ee411b633076b`, transition and activation rule UIDs are stored but not enforced by their mutation operations, while unlock has no corresponding explicit requirement binding/evaluation contract.
+1. campaign/player validation;
+2. durable unlock existence check;
+3. form definition/status validation;
+4. mutual-exclusion validation;
+5. `RequirementEvaluator.requirePass(... RequirementGate.ACTIVATION ...)`.
 
-This permits persistent transition or current activation without proof that the appropriate requirement phase succeeded, and it leaves no typed Phase-9 mechanism for an unlock requirement to be evaluated separately.
+Only after the ACTIVATION gate passes does one SQLite transaction:
 
-No runtime fix was made by CHAT-2.
+- create `player_active_forms` if needed;
+- ensure Phase-5 modifier rows exist;
+- activate the Phase-9 form modifier source.
 
-# PHASE 9 SEMANTIC RECHECK: FAIL
+Therefore activation requirement failure cannot leave:
+
+- active form state,
+- active Phase-5 form modifiers,
+- partial activation state.
+
+Verdict: **PASS**.
+
+---
+
+## 7. Failure semantics and determinism
+
+### 7.1 Missing provider
+
+A non-null binding with no `RequirementRuleProvider` fails explicitly before mutation.
+
+### 7.2 Missing rule
+
+A provider returning no descriptor for the bound UID fails explicitly.
+
+### 7.3 Version mismatch
+
+The top-level bound rule descriptor version must equal the persisted `RequirementBinding.ruleVersion`. Mismatch fails deterministically.
+
+### 7.4 Malformed result
+
+Provider result `null` is treated as malformed/indeterminate and fails explicitly; it cannot be interpreted as success.
+
+### 7.5 Dependency cycle
+
+Dependencies are evaluated recursively with a stable stack guard. Encountering a UID already in the active stack raises a deterministic cycle error containing the dependency path rather than recursing indefinitely.
+
+Dependencies are sorted before evaluation, so result order does not depend on provider insertion order.
+
+### 7.6 Failed dependency
+
+If any dependency resolves false, the parent requirement resolves false without authorizing the gate.
+
+Verdict: **PASS**.
+
+---
+
+## 8. No partial state
+
+The three gates are evaluated before their respective authoritative writes.
+
+- UNLOCK: evaluation precedes the single durable unlock insert.
+- TRANSITION: evaluation precedes transaction start and all current-stage/history writes.
+- ACTIVATION: evaluation precedes the transaction containing active state and modifier activation.
+
+Additionally, activation and transition multi-write operations are transactional.
+
+The final tests verify zero/unchanged state after failed gates, including ENTRY transition failure and failed activation modifier atomicity.
+
+Verdict: **PASS**.
+
+---
+
+## 9. Unlock vs active / temporary-condition semantics
+
+`deactivateForm(...)` removes only:
+
+- `player_active_forms` current state;
+- active status of Phase-5 modifiers sourced by the form.
+
+It does not delete `player_form_unlocks`.
+
+A test changes a previously passing activation condition to false and then deactivates the form; the durable unlock remains. Therefore loss of a current activation condition after legal unlock does not retroactively erase the unlock.
+
+The runtime does not reinterpret failure of ACTIVATION as failure of prior UNLOCK or TRANSITION.
+
+Verdict: **PASS**.
+
+---
+
+## 10. Temporary transformation and no-retrogression
+
+Phase-9 form effects continue to flow through the accepted generic Phase-5 modifier/resolver layer.
+
+The hotfix does not introduce writes from temporary requirement/form state into persistent Phase 3–8 bases.
+
+Existing verified behavior remains:
+
+```text
+PlayerStat.baseValue unchanged
+PlayerResource.currentValue not silently rewritten by derived max effect
+PlayerSkill.baseMastery unchanged
+PlayerTechnique.baseMastery unchanged
+Talent persistent value unchanged
+Potential persistent value unchanged
+```
+
+Phase-9 durable unlock and evolution history are also not deleted by deactivation or failed reactivation.
+
+Verdict: **PASS**.
+
+---
+
+## 11. Legacy evidence semantics
+
+The conservative Phase-9 legacy policy remains unchanged by the requirement hotfix:
+
+```text
+legacy label / clan_uid / status evidence
+!= automatic canonical grant
+```
+
+Canonicalization still requires explicit World Pack mapping.
+
+For legacy evolution-stage mapping, the hotfix is stricter: materialization requires exactly one explicit ENTRY transition to the target stage, and that transition is processed through the normal TRANSITION gate. Legacy mapping therefore cannot bypass transition requirement semantics.
+
+Legacy bytes remain preserved.
+
+Verdict: **PASS**.
+
+---
+
+## 12. Migration / current-schema semantics
+
+The hotfix adds additive migration:
+
+`RPGOS-9.1-REQUIREMENT-GATES`
+
+It adds nullable requirement-version / unlock-binding columns and preserves pre-hotfix transition/activation UID bindings deterministically as version 1 rather than discarding them.
+
+It does not rewrite player Phase-9 state or legacy evidence.
+
+`CurrentSchema.ensure(...)` now routes through `ensureV9RequirementHotfix(...)`, so normal production current-schema bootstrap reaches the hotfix.
+
+Migration is idempotent via the migration ledger and additive column checks.
+
+Verdict: **PASS**.
+
+---
+
+## 13. CI evidence for exact final SHA
+
+Exact SHA audited:
+
+`c64c123104f1643a53bf9bb5ebbf19e4bc0dfe87`
+
+GitHub Actions evidence:
+
+- workflow: `Build & Release RPG OS ALPHA`
+- run number: `#213`
+- run id: `31350492914`
+- event: `push`
+- head branch: `master`
+- head SHA: `c64c123104f1643a53bf9bb5ebbf19e4bc0dfe87`
+- status: `completed`
+- conclusion: `success`
+- attempt: `1`
+
+CI gate: **PASS**.
+
+---
+
+## 14. Final semantic revalidation matrix
+
+| Required semantic gate | Result |
+|---|---|
+| UNLOCK requirement before persistent write | PASS |
+| TRANSITION requirement before stage/history mutation | PASS |
+| ACTIVATION requirement before active state/modifiers | PASS |
+| failure leaves no partial state | PASS |
+| missing provider fails | PASS |
+| missing rule fails | PASS |
+| version mismatch fails | PASS |
+| malformed evaluation fails | PASS |
+| dependency cycle fails deterministically | PASS |
+| gate semantics cannot substitute for each other | PASS |
+| deactivation preserves durable unlock | PASS |
+| later activation-condition loss does not delete unlock | PASS |
+| ENTRY transition uses explicit TRANSITION gate | PASS |
+| arbitrary direct stage entry forbidden | PASS |
+| rollback requires explicit legal transition semantics | PASS |
+| temporary conditions do not rewrite Phase 3–9 persistent authority | PASS |
+| legacy labels / clan_uid remain evidence only | PASS |
+| legacy evolution mapping cannot bypass explicit ENTRY transition | PASS |
+| current-schema path reaches requirement hotfix | PASS |
+| exact final SHA CI | PASS (#213) |
+
+---
+
+## 15. Final conclusion
+
+The blocker that caused the prior `PHASE 9 SEMANTIC RECHECK: FAIL` at `d796d374f92d94477542da5f753ee411b633076b` is resolved in `c64c123104f1643a53bf9bb5ebbf19e4bc0dfe87`.
+
+UNLOCK, TRANSITION and ACTIVATION are now separate, typed, versioned semantic gates enforced in the real mutation paths before their respective authoritative writes. Failure behavior is explicit and deterministic, ENTRY evolution follows the same transition contract, active-form lifecycle preserves durable unlock, Phase-5 remains the sole derived-effect mechanism, and legacy evidence cannot bypass canonical state-machine gates.
+
+No runtime changes were made by CHAT-2.
+
+PHASE 9 SEMANTIC REVALIDATION: PASS
