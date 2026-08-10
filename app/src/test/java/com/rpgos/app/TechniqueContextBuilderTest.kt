@@ -41,10 +41,7 @@ class TechniqueContextBuilderTest {
             db.execSQL("INSERT INTO character_techniques VALUES('P','legacy-orphan',7.0,3.0,1,NULL,2,1,1,0,'legacy note',NULL)")
 
             MigrationManager().ensureV8(db, campaignId)
-            db.execSQL(
-                "INSERT INTO active_player_ref(campaign_id,player_uid,updated_at) VALUES(?,?,0)",
-                arrayOf(campaignId, "P")
-            )
+            assertEquals("P", ActivePlayerStore(db, campaignId).requireActive().playerUid)
 
             val store = TechniqueStore(db, campaignId)
             val definitions = (0 until 1001).map { index ->
