@@ -10,6 +10,49 @@ fun MigrationManager.ensureV12(saveDb: SQLiteDatabase, campaignId: String) {
     saveDb.beginTransaction()
     try {
         saveDb.execSQL("""
+            CREATE TABLE IF NOT EXISTS ownership_owner_kinds(
+                owner_kind_uid TEXT PRIMARY KEY,
+                kind_status TEXT NOT NULL CHECK(kind_status IN ('ACTIVE','RETIRED')),
+                provenance TEXT NOT NULL CHECK(length(trim(provenance)) > 0))
+        """.trimIndent())
+        listOf("CHARACTER","PLAYER","NPC","ORGANIZATION","STATE","BUSINESS","COMPANY").forEach { kind ->
+            saveDb.execSQL("INSERT OR IGNORE INTO ownership_owner_kinds(owner_kind_uid,kind_status,provenance) VALUES(?,'ACTIVE','RPGOS-12 owner namespace')", arrayOf(kind))
+        }
+        saveDb.execSQL("""
+            CREATE TABLE IF NOT EXISTS ownership_asset_kinds(
+                asset_kind_uid TEXT PRIMARY KEY,
+                kind_status TEXT NOT NULL CHECK(kind_status IN ('ACTIVE','RETIRED')),
+                provenance TEXT NOT NULL CHECK(length(trim(provenance)) > 0))
+        """.trimIndent())
+        saveDb.execSQL("INSERT OR IGNORE INTO ownership_asset_kinds(asset_kind_uid,kind_status,provenance) VALUES('$OWNERSHIP_ASSET_KIND_ITEM_INSTANCE','ACTIVE','RPGOS-12 ItemInstance namespace')")
+        saveDb.execSQL("""
+            CREATE TABLE IF NOT EXISTS ownership_party_registry(
+                campaign_id TEXT NOT NULL,
+                owner_kind_uid TEXT NOT NULL,
+                owner_uid TEXT NOT NULL,
+                reference_status TEXT NOT NULL CHECK(reference_status IN ('ACTIVE','RETIRED')),
+                provenance TEXT NOT NULL CHECK(length(trim(provenance)) > 0),
+                retirement_provenance TEXT,
+                PRIMARY KEY(campaign_id,owner_kind_uid,owner_uid),
+                FOREIGN KEY(owner_kind_uid) REFERENCES ownership_owner_kinds(owner_kind_uid),
+                CHECK((reference_status='ACTIVE' AND retirement_provenance IS NULL) OR
+                      (reference_status='RETIRED' AND retirement_provenance IS NOT NULL AND length(trim(retirement_provenance)) > 0)))
+        """.trimIndent())
+        saveDb.execSQL("""
+            CREATE TABLE IF NOT EXISTS ownership_asset_registry(
+                campaign_id TEXT NOT NULL,
+                asset_kind_uid TEXT NOT NULL,
+                asset_uid TEXT NOT NULL,
+                reference_status TEXT NOT NULL CHECK(reference_status IN ('ACTIVE','RETIRED')),
+                provenance TEXT NOT NULL CHECK(length(trim(provenance)) > 0),
+                retirement_provenance TEXT,
+                PRIMARY KEY(campaign_id,asset_kind_uid,asset_uid),
+                FOREIGN KEY(asset_kind_uid) REFERENCES ownership_asset_kinds(asset_kind_uid),
+                CHECK(asset_kind_uid <> '$OWNERSHIP_ASSET_KIND_ITEM_INSTANCE'),
+                CHECK((reference_status='ACTIVE' AND retirement_provenance IS NULL) OR
+                      (reference_status='RETIRED' AND retirement_provenance IS NOT NULL AND length(trim(retirement_provenance)) > 0)))
+        """.trimIndent())
+        saveDb.execSQL("""
             CREATE TABLE IF NOT EXISTS ownership_records(
                 campaign_id TEXT NOT NULL,
                 ownership_record_uid TEXT NOT NULL,
@@ -75,7 +118,14 @@ fun MigrationManager.ensureV12(saveDb: SQLiteDatabase, campaignId: String) {
         saveDb.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS uq_ownership_current_owner_asset_type ON ownership_records(campaign_id,owner_kind_uid,owner_uid,asset_kind_uid,asset_uid,ownership_type_uid) WHERE record_status='ACTIVE' AND valid_until_order IS NULL")
 
         listOf(
+            "trg_ownership_owner_reference_guard",
             "trg_ownership_item_instance_guard",
+            "trg_ownership_generic_asset_guard",
+            "trg_ownership_party_retire_guard",
+            "trg_ownership_party_delete_guard",
+            "trg_ownership_asset_retire_guard",
+            "trg_ownership_asset_delete_guard",
+            "trg_ownership_item_delete_guard",
             "trg_ownership_supersedes_guard",
             "trg_ownership_same_owner_overlap_guard",
             "trg_ownership_share_overlap_guard",
@@ -84,11 +134,65 @@ fun MigrationManager.ensureV12(saveDb: SQLiteDatabase, campaignId: String) {
         ).forEach { trigger -> saveDb.execSQL("DROP TRIGGER IF EXISTS $trigger") }
 
         saveDb.execSQL("""
+            CREATE TRIGGER trg_ownership_owner_reference_guard
+            BEFORE INSERT ON ownership_records
+            WHEN NOT EXISTS(
+                SELECT 1 FROM ownership_party_registry p
+                JOIN ownership_owner_kinds k ON k.owner_kind_uid=p.owner_kind_uid AND k.kind_status='ACTIVE'
+                WHERE p.campaign_id=NEW.campaign_id AND p.owner_kind_uid=NEW.owner_kind_uid
+                  AND p.owner_uid=NEW.owner_uid AND p.reference_status='ACTIVE')
+            BEGIN SELECT RAISE(ABORT,'ownership owner reference is unresolved or inactive'); END
+        """.trimIndent())
+
+        saveDb.execSQL("""
             CREATE TRIGGER trg_ownership_item_instance_guard
             BEFORE INSERT ON ownership_records
             WHEN NEW.asset_kind_uid='$OWNERSHIP_ASSET_KIND_ITEM_INSTANCE'
              AND NOT EXISTS(SELECT 1 FROM item_instances i WHERE i.campaign_id=NEW.campaign_id AND i.item_instance_uid=NEW.asset_uid)
             BEGIN SELECT RAISE(ABORT,'ownership ItemInstance asset target does not exist in campaign'); END
+        """.trimIndent())
+
+        saveDb.execSQL("""
+            CREATE TRIGGER trg_ownership_generic_asset_guard
+            BEFORE INSERT ON ownership_records
+            WHEN NEW.asset_kind_uid<>'$OWNERSHIP_ASSET_KIND_ITEM_INSTANCE'
+             AND NOT EXISTS(
+                SELECT 1 FROM ownership_asset_registry a
+                JOIN ownership_asset_kinds k ON k.asset_kind_uid=a.asset_kind_uid AND k.kind_status='ACTIVE'
+                WHERE a.campaign_id=NEW.campaign_id AND a.asset_kind_uid=NEW.asset_kind_uid
+                  AND a.asset_uid=NEW.asset_uid AND a.reference_status='ACTIVE')
+            BEGIN SELECT RAISE(ABORT,'ownership generic asset reference is unresolved or inactive'); END
+        """.trimIndent())
+
+        saveDb.execSQL("""
+            CREATE TRIGGER trg_ownership_party_retire_guard
+            BEFORE UPDATE OF reference_status ON ownership_party_registry
+            WHEN OLD.reference_status='ACTIVE' AND NEW.reference_status='RETIRED'
+             AND EXISTS(SELECT 1 FROM ownership_records r WHERE r.campaign_id=OLD.campaign_id AND r.owner_kind_uid=OLD.owner_kind_uid AND r.owner_uid=OLD.owner_uid AND r.record_status='ACTIVE' AND r.valid_until_order IS NULL)
+            BEGIN SELECT RAISE(ABORT,'cannot retire owner while active ownership exists'); END
+        """.trimIndent())
+        saveDb.execSQL("""
+            CREATE TRIGGER trg_ownership_party_delete_guard
+            BEFORE DELETE ON ownership_party_registry
+            BEGIN SELECT RAISE(ABORT,'ownership party registry identity is append-preserved'); END
+        """.trimIndent())
+        saveDb.execSQL("""
+            CREATE TRIGGER trg_ownership_asset_retire_guard
+            BEFORE UPDATE OF reference_status ON ownership_asset_registry
+            WHEN OLD.reference_status='ACTIVE' AND NEW.reference_status='RETIRED'
+             AND EXISTS(SELECT 1 FROM ownership_records r WHERE r.campaign_id=OLD.campaign_id AND r.asset_kind_uid=OLD.asset_kind_uid AND r.asset_uid=OLD.asset_uid AND r.record_status='ACTIVE' AND r.valid_until_order IS NULL)
+            BEGIN SELECT RAISE(ABORT,'cannot retire asset while active ownership exists'); END
+        """.trimIndent())
+        saveDb.execSQL("""
+            CREATE TRIGGER trg_ownership_asset_delete_guard
+            BEFORE DELETE ON ownership_asset_registry
+            BEGIN SELECT RAISE(ABORT,'ownership asset registry identity is append-preserved'); END
+        """.trimIndent())
+        saveDb.execSQL("""
+            CREATE TRIGGER trg_ownership_item_delete_guard
+            BEFORE DELETE ON item_instances
+            WHEN EXISTS(SELECT 1 FROM ownership_records r WHERE r.campaign_id=OLD.campaign_id AND r.asset_kind_uid='$OWNERSHIP_ASSET_KIND_ITEM_INSTANCE' AND r.asset_uid=OLD.item_instance_uid)
+            BEGIN SELECT RAISE(ABORT,'cannot delete ItemInstance referenced by ownership history'); END
         """.trimIndent())
 
         saveDb.execSQL("""
@@ -172,7 +276,7 @@ fun MigrationManager.ensureV12(saveDb: SQLiteDatabase, campaignId: String) {
             BEGIN SELECT RAISE(ABORT,'ownership history is append-preserved and cannot be deleted'); END
         """.trimIndent())
 
-        saveDb.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('$PHASE12_MIGRATION_ID',strftime('%s','now'),'Generic temporal OwnershipRecord history with exact fixed-scale shares, generic owner/asset references, explicit ItemInstance target validation, DB temporal/share overlap guards, immutable-history close CAS, idempotent operation ledger and zero legacy possession/equipment synthesis')")
+        saveDb.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('$PHASE12_MIGRATION_ID',strftime('%s','now'),'Generic temporal OwnershipRecord history with exact fixed-scale shares, campaign-scoped owner/asset reference registries, explicit ItemInstance target validation, DB temporal/share/reference guards, immutable-history close CAS, idempotent operation ledger and zero legacy possession/equipment synthesis')")
         saveDb.setTransactionSuccessful()
     } finally {
         saveDb.endTransaction()
