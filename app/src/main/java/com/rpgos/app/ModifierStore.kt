@@ -47,6 +47,7 @@ internal class ModifierStore(private val db: SQLiteDatabase, private val campaig
             ModifierTargetKind.STAT_EFFECTIVE -> "stat_definitions" to "stat_uid"
             ModifierTargetKind.RESOURCE_MAXIMUM,ModifierTargetKind.RESOURCE_REGENERATION -> "resource_definitions" to "resource_uid"
             ModifierTargetKind.SKILL_EFFECTIVE -> "skill_definitions_v2" to "skill_uid"
+            ModifierTargetKind.TECHNIQUE_EFFECTIVE -> "technique_definitions_v2" to "technique_uid"
         }
         val found=db.rawQuery("SELECT 1 FROM $table WHERE $column=? LIMIT 1",arrayOf(modifier.targetDefinitionUid)).use{it.moveToFirst()}
         require(found){"Modifier ${modifier.modifierUid} targets missing ${modifier.targetKind} definition ${modifier.targetDefinitionUid}"}
