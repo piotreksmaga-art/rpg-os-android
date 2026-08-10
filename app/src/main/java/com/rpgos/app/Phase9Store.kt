@@ -168,24 +168,31 @@ class Phase9Store(
         db.execSQL("INSERT INTO player_innate_features(campaign_id,character_uid,feature_uid,acquired_chapter,entry_version,provenance) VALUES(?,?,?,?,?,?)",arrayOf(feature.campaignId,feature.characterUid,feature.featureUid,feature.acquiredChapter,feature.entryVersion,feature.provenance))
     }
 
-    fun enterEvolutionPath(characterUid: String, stageUid: String, provenance: String, attainedChapter: Long? = null) {
-        require(characterUid.isNotBlank() && provenance.isNotBlank())
-        val stage=stageRecord(stageUid)
-        require(evolutionState(characterUid,stage.pathUid)==null) { "Evolution path ${stage.pathUid} already has current state" }
-        db.beginTransaction()
-        try {
-            db.execSQL("INSERT INTO player_evolution_states(campaign_id,character_uid,path_uid,current_stage_uid,state_version,provenance) VALUES(?,?,?,?,1,?)",arrayOf(campaignId,characterUid,stage.pathUid,stageUid,provenance))
-            attainStageIfMissing(characterUid,stageUid,null,attainedChapter,provenance)
-            db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
-    }
+    @Deprecated("Direct stage entry is forbidden. Use transitionEvolution with an explicit ENTRY transition UID.", level = DeprecationLevel.ERROR)
+    fun enterEvolutionPath(characterUid: String, stageUid: String, provenance: String, attainedChapter: Long? = null): Nothing =
+        error("Direct stage entry is forbidden; use transitionEvolution(characterUid, explicitEntryTransitionUid, provenance, attainedChapter)")
 
     fun transitionEvolution(characterUid: String, transitionUid: String, provenance: String, attainedChapter: Long? = null) {
         require(characterUid.isNotBlank() && transitionUid.isNotBlank() && provenance.isNotBlank())
         val t=transitionRecord(transitionUid)
         val target=stageRecord(t.targetStageUid)
         val source=t.sourceStageUid?.let(::stageRecord)
-        require(source != null) { "Entry transition cannot mutate an existing current stage; use enterEvolutionPath" }
+
+        if (source == null) {
+            require(evolutionState(characterUid,target.pathUid)==null) { "Evolution path ${target.pathUid} already has current state; ENTRY transition cannot be replayed or used as rollback" }
+            requirementEvaluator.requirePass(
+                t.requirement,
+                RequirementContext(campaignId, characterUid, RequirementGate.TRANSITION, t.transitionUid)
+            )
+            db.beginTransaction()
+            try {
+                db.execSQL("INSERT INTO player_evolution_states(campaign_id,character_uid,path_uid,current_stage_uid,state_version,provenance) VALUES(?,?,?,?,1,?)",arrayOf(campaignId,characterUid,target.pathUid,target.stageUid,provenance))
+                attainStageIfMissing(characterUid,target.stageUid,t.transitionUid,attainedChapter,provenance)
+                db.setTransactionSuccessful()
+            } finally { db.endTransaction() }
+            return
+        }
+
         val sourceState=evolutionState(characterUid,source.pathUid) ?: error("Character has no current state on source path ${source.pathUid}")
         require(sourceState.currentStageUid == source.stageUid) { "Invalid evolution transition source: expected ${source.stageUid}, actual ${sourceState.currentStageUid}" }
         require(source.pathUid == target.pathUid || t.crossPathAllowed) { "Cross-path transition is not allowed" }
@@ -320,7 +327,7 @@ class Phase9Store(
                     LegacyPhase9TargetKind.INNATE_FEATURE -> if(!playerRowExists("player_innate_features","feature_uid",characterUid,targetUid)) grantInnateFeature(PlayerInnateFeature(campaignId,characterUid,targetUid,null,mapping.mappingVersion,provenance))
                     LegacyPhase9TargetKind.EVOLUTION_STAGE -> {
                         val stage=stageRecord(targetUid); val state=evolutionState(characterUid,stage.pathUid)
-                        if(state==null) enterEvolutionPath(characterUid,targetUid,provenance)
+                        if(state==null) transitionEvolution(characterUid,entryTransitionUidForStage(targetUid),provenance)
                         else require(state.currentStageUid==targetUid){"Legacy mapping conflicts with typed evolution state on ${stage.pathUid}"}
                     }
                     LegacyPhase9TargetKind.FORM_UNLOCK -> unlockForm(PlayerFormUnlock(campaignId,characterUid,targetUid,mapping.mappingVersion,provenance))
@@ -351,6 +358,12 @@ class Phase9Store(
         val ruleVersion=if(c.isNull(5))null else c.getLong(5)
         Phase9Policy.requireOptionalRule(ruleUid,ruleVersion,"transition")
         TransitionRow(c.getString(0),if(c.isNull(1))null else c.getString(1),c.getString(2),c.getInt(3)!=0,ruleUid?.let{RequirementBinding(it,ruleVersion!!)})
+    }
+    private fun entryTransitionUidForStage(stageUid:String):String {
+        val matches=mutableListOf<String>()
+        db.rawQuery("SELECT transition_uid FROM evolution_transition_definitions WHERE source_stage_uid IS NULL AND target_stage_uid=? ORDER BY transition_uid",arrayOf(stageUid)).use{c->while(c.moveToNext())matches+=c.getString(0)}
+        require(matches.size==1){"Legacy evolution-stage mapping requires exactly one explicit ENTRY transition to $stageUid; found ${matches.size}"}
+        return matches.single()
     }
     private fun evolutionState(characterUid:String,pathUid:String):PlayerEvolutionState?=db.rawQuery("SELECT campaign_id,character_uid,path_uid,current_stage_uid,state_version,provenance FROM player_evolution_states WHERE campaign_id=? AND character_uid=? AND path_uid=?",arrayOf(campaignId,characterUid,pathUid)).use{c->if(!c.moveToFirst())null else PlayerEvolutionState(c.getString(0),c.getString(1),c.getString(2),if(c.isNull(3))null else c.getString(3),c.getLong(4),c.getString(5))}
     private fun formRecord(uid:String):FormDefinition=db.rawQuery("SELECT form_uid,world_pack_uid,form_key,display_name,source_feature_uid,source_stage_uid,exclusive_group_uid,activation_rule_uid,definition_status,definition_version,provenance,unlock_requirement_rule_uid,unlock_requirement_rule_version,activation_rule_version FROM form_definitions WHERE form_uid=?",arrayOf(uid)).use{c->
