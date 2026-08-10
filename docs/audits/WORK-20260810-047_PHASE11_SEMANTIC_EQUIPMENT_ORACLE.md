@@ -1,720 +1,415 @@
 # WORK-20260810-047 — Phase 11 Semantic / Determinism Equipment Oracle
 
-Status: READ-ONLY RUNTIME / SEMANTIC + DETERMINISM ORACLE
+Status: FINAL SEMANTIC REVALIDATION / READ-ONLY RUNTIME
 
 Work ID: `WORK-20260810-047`
 Owner: `CHAT-2`
-Role: READ-ONLY SEMANTIC / DETERMINISM ORACLE
+Role: READ-ONLY PHASE 11 SEMANTIC REVALIDATOR
 Repository: `piotreksmaga-art/rpg-os-android`
 Accepted Phase-10 runtime: `eb8bb64f8be566982c91f1062f319078899c1e47`
-Fresh master observed before write: `138bf67b8e6af52efe66254fd2289a77804b88dc`
-Primary architecture source: `docs/audits/WORK-20260810-044_PHASE11_EQUIPMENT_ARCHITECTURE.md`
+Final audited Phase-11 runtime: `c96136964e4adb7144eee42b2b8680f153a839f2`
+Original oracle report commit: `ed062fb2865b5564ef32d06875b23f44972ae7b2`
+CI evidence: GitHub Actions run `#250`, run ID `31362782857`, exact head SHA `c96136964e4adb7144eee42b2b8680f153a839f2`, conclusion `success`.
 
-This report is an independent semantic oracle for future Phase 11 implementation. It modifies documentation only. It does not implement Equipment runtime, schema, migration, Phase 12 OwnershipRecord, PlayerCommand, PlayerChangeSet, PlayerDomainEngine, or any later phase.
+This document records the final semantic recheck of the exact requested Phase-11 runtime. CHAT-2 did not modify Kotlin runtime, schema, migrations, tests, Phase 12, OwnershipRecord, or authoritative campaign state.
 
 ---
 
-## 1. Canonical semantic boundary
+## 1. Frozen semantic boundary
 
-Hard invariants:
+The accepted Phase-11 contract is:
 
 ```text
 ItemDefinition != ItemInstance
-Inventory possession != Equipment
-Equipment != OwnershipRecord
+Inventory possession != Equipment state
+Equipment state != OwnershipRecord
 Inventory possession != OwnershipRecord
 ```
 
-`ItemDefinition` is a World-Pack-owned type identity.
+`ItemDefinition` is type/content identity. `ItemInstance` is exact physical unique identity. Inventory says who possesses the instance. Equipment says whether that already-possessed exact instance occupies explicit loadout slots. OwnershipRecord is a separate later domain and is not created by Phase 11.
 
-`ItemInstance` is a concrete physical/individual item identity within a campaign when uniqueness matters.
-
-Inventory answers whether a character possesses/carries/controls an item definition quantity or a concrete item instance.
-
-Equipment answers whether a possessed equippable item instance is currently assigned to explicit loadout slot state.
-
-OwnershipRecord, planned for Phase 12, answers legal/economic ownership. Equip/unequip must never create, delete or infer OwnershipRecord.
-
-The accepted Phase-10 runtime provides:
-
-- `ItemDefinition(itemDefinitionUid, worldPackUid, ..., storagePolicy, ...)`;
-- `ItemInstance(campaignId, itemInstanceUid, itemDefinitionUid, ...)`;
-- stackable inventory as `(campaignId, characterUid, itemDefinitionUid, quantity)`;
-- unique inventory as `(campaignId, characterUid, itemInstanceUid)`;
-- explicit legacy inventory evidence/mapping.
-
-Therefore Phase 11 should bind physical Equipment to exact stable `itemInstanceUid` for unique equipment. A display name or `itemDefinitionUid` alone is not enough to identify which physical instance is equipped.
+The audited runtime preserves this split. `EquipmentStore.equip()` requires an exact existing `itemInstanceUid`, requires that its ItemDefinition uses `UNIQUE_INSTANCE`, and verifies that the same character already possesses that exact instance through the reconciled Phase-10 Inventory contract. It does not create inventory state or OwnershipRecord state.
 
 ---
 
-## 2. EQUIP / UNEQUIP oracle
+## 2. Equip / unequip semantic recheck
 
-### EQ-01 — possession is prerequisite, not equipment
+### Equip
 
-Given:
-
-```text
-Inventory(P) contains ItemInstance X
-Equipment(P) has no entry for X
-```
-
-Expected:
+Runtime path:
 
 ```text
-P possesses X
-X is not equipped
+possessed exact ItemInstance X
++ active ItemDefinition
++ exact compatibility rule
++ exact required slots
++ capacity/exclusive-group validation
+-> transactional PlayerEquipment + slot bindings + equipment modifier source activation
 ```
 
-Inventory presence alone must not produce Equipment state.
+Inventory possession is checked before mutation and is not consumed by equip.
 
-### EQ-02 — equip preserves possession
+Result: PASS.
 
-Given:
+### Unequip
 
-```text
-Inventory(P) contains X
-slot requirements valid
-```
+`EquipmentStore.unequip()` resolves one exact equipment entry, then in one SQLite transaction:
 
-Operation:
+1. sets the exact ItemInstance equipment modifier source inactive;
+2. deletes all slot bindings for that equipment entry;
+3. deletes exactly one PlayerEquipment row.
 
-```text
-equip X
-```
+It does not remove `player_inventory_unique`, does not delete ItemInstance, and does not create/delete OwnershipRecord.
 
-Expected after atomic commit:
+Result: PASS.
 
-```text
-Inventory(P) still contains X
-Equipment(P) references exact X
-required equipment slots are occupied by the equipment entry for X
-no OwnershipRecord is created or changed
-```
+### Equip != possession / unequip != inventory removal
 
-### EQ-03 — unequip preserves possession
+These are separate tables and mutation paths. Inventory remains unchanged by the audited equip/unequip operations.
 
-Given X equipped and still possessed.
-
-Operation:
-
-```text
-unequip X
-```
-
-Expected:
-
-```text
-Inventory(P) still contains X
-Equipment(P) contains no active slot binding for X
-Equipment-origin modifier source is inactive
-no OwnershipRecord is created/deleted/changed
-```
-
-### EQ-04 — equip/unequip does not clone inventory
-
-Equip and unequip must not change the quantity/instance count in Inventory.
-
-For unique instance X:
-
-```text
-before inventory instances = {X}
-after equip = {X}
-after unequip = {X}
-```
+Result: PASS.
 
 ---
 
-## 3. Slot compatibility and deterministic failure classes
+## 3. Exact ItemInstance identity
 
-Equipment slot identity must use stable `EquipmentSlotDefinition.slotUid` or equivalent typed UID. Slot labels are presentation only.
+Phase 11 binds Equipment to exact `itemInstanceUid`.
 
-Every equip proposal must be deterministically classified before authoritative mutation.
+Two physical instances X and Y of one ItemDefinition remain distinct because:
 
-### SLOT-01 — allowed
+- `player_equipment` stores `item_instance_uid`;
+- `(campaign_id,item_instance_uid)` is unique in PlayerEquipment;
+- modifier `sourceUid` must equal exact `itemInstanceUid`;
+- `isEquipped()` checks exact itemInstanceUid;
+- possession check resolves exact unique instance, not item label or definition name.
 
-All required slots exist, compatibility rules pass, capacity is available, exclusivity rules pass, player/campaign/item scope is valid.
+Equip/unequip X therefore cannot implicitly toggle Y.
 
-Expected: equip may commit atomically.
-
-### SLOT-02 — incompatible
-
-The exact item instance/definition is not compatible with a requested slot or required slot group.
-
-Expected: deterministic failure, zero mutation.
-
-### SLOT-03 — occupied
-
-A required capacity-1 slot is already occupied by another equipment entry.
-
-Default expected semantics:
-
-```text
-FAIL LOUD
-```
-
-No silent replacement.
-
-Replacement is legal only through a distinct explicit atomic replace/swap operation whose contract unequips the old entry and equips the new entry in one transaction.
-
-### SLOT-04 — conflicts / exclusive groups
-
-If equipment X conflicts with active equipment Y via explicit exclusivity group/rule, equipping X fails unless an explicit atomic replace operation specifies the intended conflict resolution.
-
-No dependence on insertion order, row order, name ordering or which conflict is encountered first. Conflict diagnostics should be ordered by stable UID for deterministic replay.
-
-### SLOT-05 — missing slot definition
-
-Missing required slot UID => deterministic failure before equipment mutation.
-
-### SLOT-06 — same slot label / different UID
-
-World Pack A slot `hand` and World Pack B slot `hand` remain distinct unless an explicit cross-pack mapping/rule exists. Same text does not imply same semantic slot.
+Result: PASS.
 
 ---
 
-## 4. Multi-slot atomicity
+## 4. Stackable commodity boundary
 
-An item may require N slots through explicit World-Pack-owned compatibility/occupancy rules.
+Accepted Phase 10 represents stackables as definition quantity, without physical ItemInstance identity.
 
-Canonical example:
-
-```text
-X requires slots A + B
-A available
-B occupied/conflicting
-```
-
-Expected:
+The audited `equip()` explicitly requires:
 
 ```text
-equip X fails
-A remains unchanged
-B remains unchanged
-no PlayerEquipment row for X
-no slot reservation for X
-no equipment modifier activation for X
-Inventory unchanged
+item.storagePolicy == UNIQUE_INSTANCE
 ```
 
-Hard invariant:
+and fails otherwise with the semantic that a stackable commodity cannot be equipped without an explicit physical ItemInstance contract.
 
-```text
-ALL REQUIRED SLOT BINDINGS COMMIT OR NONE COMMIT
-```
+No synthetic ItemInstance is created by Phase 11 equip.
 
-Partial multi-slot occupancy is forbidden.
-
-The exact order in which required slots are supplied must not affect the result. Validation should canonicalize by stable slot UID or explicit binding role before committing.
+Result: PASS.
 
 ---
 
-## 5. Item instance identity oracle
+## 5. Slot compatibility, conflicts and no silent replacement
 
-Two instances of the same definition are distinct physical identities.
+The runtime validates the complete proposed equip before writing:
 
-Given:
+- compatibility rule must exist;
+- rule ItemDefinition UID must match exact instance definition;
+- rule World Pack must match ItemDefinition owner;
+- requested slot set must exactly equal the explicit rule-required slot set;
+- each slot definition must exist and be ACTIVE;
+- slot World Pack must match rule owner;
+- occupancy must remain below explicit capacity;
+- exclusive-group conflicts are collected and deterministically sorted before failure;
+- exact ItemInstance must not already be equipped.
 
-```text
-ItemDefinition D
-ItemInstance X -> D
-ItemInstance Y -> D
-Inventory(P) contains X and Y
-```
+Occupied/incompatible/conflicting state fails loudly. There is no silent replacement path in audited runtime.
 
-Equip X must produce:
-
-```text
-Equipment references X
-Y remains unequipped
-modifier source for X active
-modifier source for Y unchanged/inactive
-```
-
-Unequip X must not affect Y.
-
-Hard forbidden shortcuts:
-
-```text
-same ItemDefinition UID => same physical equipment
-same displayName => same physical equipment
-same category => same physical equipment
-```
-
-Equipment source identity should therefore be exact instance/equipment-entry identity, not definition name.
+Result: PASS.
 
 ---
 
-## 6. Stackable inventory boundary
+## 6. Multi-slot all-or-none atomicity
 
-Accepted Phase 10 models stackables as definition quantity, not individual `ItemInstance` rows.
+Required slots come from the compatibility rule and are canonicalized with stable UID sorting.
 
-Therefore Phase 11 must not equip an anonymous stack by simply pointing at `(itemDefinitionUid, quantity)` when physical instance identity matters.
+All slot/capacity/exclusivity validation occurs before the transaction begins. Only after the full proposal passes does the transaction insert:
 
-Canonical minimal contract:
+```text
+PlayerEquipment row
++ every required player_equipment_slots row
++ modifier source activation
+```
 
-- unique physical equipment requires an exact `ItemInstance`;
-- if a World Pack considers a stackable definition equippable, it must provide a legal deterministic conversion/reservation semantics that identifies the equipped unit/holding without duplicating quantity;
-- Phase 11 must not invent such a conversion from item labels or category names.
+A conflict in one required slot therefore creates no partial reservation in another required slot. Transaction rollback also protects insertion/modifier failures.
 
-If the accepted Phase-11 implementation does not support stackable equipment, deterministic rejection is semantically safer than guessing.
+Result: PASS.
 
 ---
 
-## 7. Equipment modifiers — Phase-5 single foundation
+## 7. Equipment modifier semantics / Phase-5 single foundation
 
-Equipment-derived effects must use the existing generic Modifier / DerivedValueResolver infrastructure.
+Phase 11 does not introduce a second resolver or Equipment-specific mechanics engine.
 
-Canonical source lifecycle:
-
-```text
-valid equip commit
--> equipment sourceActive = true
--> resolver includes active EQUIPMENT-lifecycle modifiers
-
-valid unequip commit
--> equipment sourceActive = false
--> resolver rebuild excludes those modifiers
-```
-
-No `EquipmentModifierEngine` and no second resolver.
-
-### MOD-01 — stat example
-
-Given:
+`EquipmentStore` integrates with the accepted Phase-5 `ModifierStore` using:
 
 ```text
-PlayerStat.baseValue = 100
-X equipped
-X equipment modifier = +20 STAT_EFFECTIVE
+ModifierLifecycle.EQUIPMENT
+sourceType = equipment source type
+sourceUid = exact ItemInstance UID
+sourceActive = equipped state
 ```
 
-Expected:
+`registerEquipmentModifiers()` requires the exact character/campaign scope, EQUIPMENT lifecycle, correct source type and exact instance source UID.
 
-```text
-effective = 120
-base remains 100
-```
+Equip activates the source. Unequip deactivates it. Effective values are rebuilt by the existing DerivedValueResolver foundation.
 
-After unequip:
-
-```text
-effective = 100
-base remains 100
-```
-
-### MOD-02 — Skill
-
-Equipment may affect `SKILL_EFFECTIVE` only through derived modifier resolution.
-
-`PlayerSkill.baseMastery` remains unchanged before, during and after equip/unequip.
-
-### MOD-03 — Technique
-
-Equipment may affect `TECHNIQUE_EFFECTIVE`; `PlayerTechnique.baseMastery` remains unchanged.
-
-### MOD-04 — Resource maximum
-
-Equipment may affect `RESOURCE_MAXIMUM` via derived resolution.
-
-Removing equipment rebuilds maximum from unchanged authority.
-
-### MOD-05 — Resource regeneration
-
-Equipment may affect `RESOURCE_REGENERATION` via derived resolution. Resolver does not perform regeneration.
-
-### MOD-06 — current resource safety
-
-If:
-
-```text
-currentValue = 150
-derived maximum with equipment = 200
-derived maximum after unequip = 100
-```
-
-unequip/resolution must not silently write `currentValue = 100`.
-
-The resolver may surface an inconsistency/clamp proposal for a later legal mutation path, but Phase 11 equip/unequip must not rewrite current resource merely because derived maximum changed.
-
-### MOD-07 — source identity isolation
-
-Equipment source UID must identify the exact equipped source, preferably equipment entry UID or exact `itemInstanceUid` where one equipment entry per instance is guaranteed.
-
-Do not use `itemDefinitionUid` if two physical instances of the same definition can be independently equipped.
+Result: PASS.
 
 ---
 
-## 8. Transfer / removal semantics while equipped
+## 8. No-retrogression recheck
 
-Phase 10 supports Inventory transfer/removal. Phase 11 must prevent dangling Equipment references.
+The Phase-11 effect path does not write authoritative progression fields.
 
-The safest minimal Phase-11 contract is:
+The final runtime/test contract verifies derived changes for:
 
-```text
-Inventory transfer/remove of an actively equipped instance
-=> FAIL LOUD
-```
+- Stat effective value;
+- Resource maximum;
+- Resource regeneration;
+- Skill effective mastery;
+- Technique effective mastery.
 
-unless the caller uses a distinct explicit atomic operation whose semantics are:
+It verifies unchanged authority before/during/after equipment lifecycle for the underlying persistent data.
 
-```text
-UNEQUIP + INVENTORY TRANSFER/REMOVE
-```
-
-within one transaction/change set.
-
-This choice is preferred over implicit auto-unequip because it makes causal intent explicit and prevents hidden equipment/modifier changes during a seemingly Inventory-only operation.
-
-### XFER-01 — equipped transfer via plain Inventory operation
-
-Given X equipped by P.
-
-Plain transfer X P -> Q:
-
-Expected: deterministic failure; no inventory move, no equipment change, no modifier lifecycle change.
-
-### XFER-02 — explicit atomic unequip+transfer
-
-Expected atomic result:
+No Phase-11 path was found that rewrites:
 
 ```text
-P no longer has X in Equipment
-X equipment modifiers inactive for P
-P no longer possesses X
-Q possesses X
-no OwnershipRecord is inferred or moved
+PlayerStat.baseValue
+PlayerSkill.baseMastery
+PlayerTechnique.baseMastery
+TalentProfile
+PotentialProfile
 ```
 
-All-or-nothing.
-
-### XFER-03 — removal/destruction boundary
-
-Plain removal of equipped X should fail for the same reason.
-
-If a later operation represents destruction/loss, it must explicitly resolve dependent Equipment state atomically before the Inventory instance disappears.
-
-### XFER-04 — failed dependent cleanup
-
-If unequip/modifier deactivation fails, transfer/removal must rollback entirely. Never allow `Equipment -> missing ItemInstance` dangling reference.
+Result: PASS.
 
 ---
 
-## 9. Legacy semantic oracle
+## 9. PlayerResource.currentValue final hotfix gate
 
-Three current legacy/presentation surfaces must remain non-authoritative for physical Equipment.
-
-### LEG-01 — `character_inventory`
-
-A legacy `character_inventory` row proves inventory evidence only. It does not prove equipped state.
-
-No automatic:
+The coordinator explicitly required:
 
 ```text
-character_inventory row -> PlayerEquipment
+PlayerResource.currentValue = 100
+before equip = 100
+during equip = 100
+after unequip = 100
 ```
 
-### LEG-02 — CharacterPanel `equipment`
+The exact final commit `c96136964e4adb7144eee42b2b8680f153a839f2` changes `EquipmentModifierIntegrationTest` to seed current resource at exactly `100.0` and asserts `currentValueObserved == 100.0`:
 
-The historical CharacterPanel field named `equipment` was populated from `character_inventory.item_name`. This is a presentation naming shortcut, not authoritative Equipment evidence.
+- before equip;
+- while equipment changes derived maximum from 100 -> 200 and regeneration from 2 -> 5;
+- after unequip when derived maximum/regeneration return to 100 / 2.
 
-No migration may treat that field as proof of equipped/loadout state.
+The same test verifies stat/Skill/Technique derived values return to base projections after unequip while the captured authoritative snapshot remains identical.
 
-### LEG-03 — `character_techniques.is_equipped`
+There is no hidden clamp write in EquipmentStore or DerivedValueResolver equipment lifecycle.
 
-Technique `is_equipped` belongs to Technique selection/presentation semantics. It does not identify a physical item instance and cannot create Phase-11 Equipment state.
-
-### LEG-04 — no name-based migration
-
-A label such as `sword`, `armor`, `equipped`, `worn`, item display name or inventory name is insufficient to establish physical Equipment state.
-
-Only explicit typed legacy mapping with exact item instance + exact slot identity may canonicalize real legacy equipment evidence, if such evidence is proven by actual schema/data.
-
-### LEG-05 — unresolved legacy remains unresolved
-
-If evidence cannot prove exact item instance and slot semantics, preserve it without granting Equipment state.
+Result: PASS.
 
 ---
 
-## 10. Failure atomicity oracle
+## 10. Transfer/removal of equipped ItemInstance
 
-### FAIL-EQUIP
+This gate was validated against actual runtime, not only tests.
 
-Any failed equip attempt must leave all of the following unchanged:
-
-```text
-Inventory possession
-ItemInstance state
-Equipment entries
-slot occupancy
-modifier sourceActive state
-base stats/masteries
-OwnershipRecord domain
-```
-
-No partial occupancy and no partially-created modifier source.
-
-### FAIL-UNEQUIP
-
-Any failed unequip must not leave Equipment and modifier lifecycle inconsistent.
-
-Forbidden outcomes:
+Phase-10 `InventoryStore.transferUnique()` and `removeUnique()` remain possession-domain operations and do not contain Equipment-specific application logic. Phase-11 migration deliberately enforces the cross-domain invariant at the database boundary with two V11 triggers:
 
 ```text
-Equipment row remains but sourceActive=false accidentally
-Equipment row removed but sourceActive=true
-one multi-slot binding removed while another remains
-Inventory unexpectedly modified
+trg_equipped_instance_inventory_delete_guard
+trg_equipped_instance_inventory_transfer_guard
 ```
 
-Equipment state + all slot bindings + source lifecycle should mutate in one atomic transaction/change set.
+Both check exact `(campaign_id,item_instance_uid)` against `player_equipment` and use SQLite `RAISE(ABORT, ...)` while the instance is equipped.
 
-### FAIL-REPLACE
+Therefore plain transfer/remove of equipped X fails before possession changes.
 
-If an explicit replace/swap operation exists, failure at any stage leaves old equipment fully intact and new equipment fully unequipped.
+Canonical forbidden result:
+
+```text
+Inventory holder = B
+Equipment holder = A
+same exact itemInstanceUid X
+```
+
+cannot be reached by a committed plain Inventory transfer while X is equipped.
+
+The required legal minimal contract is therefore:
+
+```text
+explicit unequip
+then transfer/remove
+```
+
+or a future explicit atomic combined command. Phase 11 does not silently auto-unequip.
+
+Result: PASS.
 
 ---
 
-## 11. Determinism oracle
+## 11. Failure atomicity
 
-The same logical equipment input must yield the same result regardless of:
+### Failed equip
 
-- SQLite row order;
-- insertion order;
-- order of requested slot UIDs;
-- map iteration order;
-- display-name ordering;
-- order in which conflicts are discovered.
+All semantic validation is performed before Equipment write. The write set is then transactional.
 
-Recommended deterministic normalization:
+Failure leaves:
 
-1. resolve exact campaign/player/item instance identity;
-2. resolve canonical item definition and World Pack owner;
-3. collect required slot bindings/rules;
-4. canonicalize dependencies by stable UID / explicit role;
-5. validate compatibility/capacity/exclusivity across the full proposed occupancy set;
-6. if any failure -> zero writes;
-7. otherwise commit Equipment + slot bindings + modifier source lifecycle atomically.
+- Inventory unchanged;
+- no partial PlayerEquipment row;
+- no partial slot occupancy;
+- no equipment modifier source activation.
 
-Conflict diagnostics should also be deterministic, e.g. stable-UID-sorted conflict sets rather than "first row returned".
+### Failed unequip
 
----
+Modifier deactivation + slot deletion + Equipment deletion are inside one transaction. If deletion does not remove exactly one expected Equipment row, the transaction fails/rolls back.
 
-## 12. Isolation oracle
+### Failed transfer/remove while equipped
 
-### Campaign isolation
+V11 DB triggers abort the Inventory mutation while Equipment remains intact.
 
-Equipment in campaign A cannot occupy slots, activate modifiers or reference an ItemInstance belonging to campaign B.
-
-### Player isolation
-
-Player A's equipment entry/modifier source cannot affect player B.
-
-A unique ItemInstance possessed by A cannot be equipped by B without a legal Inventory transfer first.
-
-### World Pack isolation
-
-World Pack B cannot hijack:
-
-- item definition UID owned by A;
-- slot UID owned by A;
-- compatibility rule UID owned by A;
-- modifier binding/source identity for A's equipment.
-
-Same labels across packs remain distinct.
-
-### Slot isolation
-
-One slot occupancy applies only inside its declared campaign/player/loadout scope. Slot UID identity does not make occupancy global across characters.
-
-### Instance isolation
-
-X and Y remain separate even when they share ItemDefinition.
-
-### Modifier-source isolation
-
-Source identity for equipment X must not toggle modifiers belonging to equipment Y.
+Result: PASS.
 
 ---
 
-## 13. Deprecated definition semantics
+## 12. Isolation recheck
 
-`ItemDefinitionStatus.DEPRECATED` does not mean an existing physical `ItemInstance` disappears from Inventory.
+### Campaign
 
-Canonical oracle:
+Equipment, ItemInstance and Inventory unique possession use campaign scope. `player_equipment` references `(campaign_id,item_instance_uid)`.
 
-- existing possession remains historical/current possession unless another legal mutation removes it;
-- whether a deprecated definition may be newly equipped must be an explicit Phase-11/World-Pack policy;
-- no implicit deletion or ownership change;
-- no migration may reinterpret deprecated as destroyed.
+### Player
 
-For deterministic minimal semantics, new equip of a deprecated definition should fail unless an explicit compatibility/rule contract allows continued use. Existing equipped state may remain until explicit unequip/migration policy says otherwise, but implementation must choose and test one contract rather than silently varying by read path.
+`equip()` checks possession using the target `characterUid`; a unique instance held by player A cannot be equipped by player B.
 
----
+### World Pack
 
-## 14. Scale / authoritative reads
+Compatibility registration rejects ItemDefinition or slot ownership mismatch. Equip rechecks rule owner against ItemDefinition owner and slot owner.
 
-Authoritative equipment reads must return the complete equipment/loadout state for the requested campaign/player/loadout scope.
+### Slot
 
-Hard rule:
+Occupancy is scoped by campaign + character + loadout + stable slot UID.
 
-```text
-No presentation LIMIT in authoritative EquipmentStore / repository reads.
-```
+### Instance
 
-A UI/Context projection may be bounded later, but the bound is presentation-only and cannot influence validation, occupancy, conflict detection, modifiers or persistence.
+Exact ItemInstance UID is unique in active Equipment per campaign.
 
-Required scale oracle:
+### Modifier source
 
-- 1000+ equipment/slot bindings are returned without truncation;
-- conflict validation considers all relevant active bindings, not only the first N;
-- deterministic result remains independent of insertion order.
+Source UID is exact ItemInstance UID, preventing two instances of one definition from sharing activation state.
+
+Result: PASS.
 
 ---
 
-## 15. Canonical example matrix
+## 13. Legacy / presentation non-authority
 
-### EX-01 — simple equip
+No Phase-11 migration path canonicalizes physical Equipment from:
 
-```text
-Inventory: X present
-Slot A free
-X compatible with A
-```
+- `character_inventory` rows;
+- historical `CharacterPanelSnapshot.equipment` labels;
+- `character_techniques.is_equipped`;
+- item display names;
+- Inventory transfer operations.
 
-Result:
+`character_inventory` remains Phase-10 legacy inventory evidence. CharacterPanel's historical equipment label remains presentation debt. Technique `is_equipped` remains Technique-domain state and has no physical ItemInstance semantics.
 
-```text
-Inventory: X present
-Equipment: X -> A
-modifier source X active
-```
+Phase-11 migration creates Equipment schema and guards only; it does not synthesize PlayerEquipment rows from legacy names.
 
-### EX-02 — simple unequip
-
-```text
-Equipment: X -> A
-```
-
-Result:
-
-```text
-Inventory: X still present
-Equipment: no X binding
-modifier source X inactive
-```
-
-### EX-03 — occupied slot
-
-```text
-Y occupies A
-try equip X -> A
-```
-
-Result: fail; Y unchanged; X unequipped; inventory unchanged; no X modifier activation.
-
-### EX-04 — multi-slot failure
-
-```text
-X requires A+B
-A free
-B occupied
-```
-
-Result: fail; A remains free; B remains unchanged; X has zero slot bindings.
-
-### EX-05 — instance separation
-
-```text
-X,Y -> same definition D
-Equip X
-```
-
-Result: only X active/equipped; Y unaffected.
-
-### EX-06 — derived stat
-
-```text
-base stat = 100
-X equipment +20
-```
-
-Equipped => effective 120, base 100.
-
-Unequipped => effective 100, base 100.
-
-### EX-07 — resource max
-
-```text
-current = 150
-base/derived max without equipment = 100
-X adds +100 max
-```
-
-Equipped => derived max 200, current remains 150.
-
-Unequip => derived max 100, current still 150; no hidden clamp write.
-
-### EX-08 — transfer equipped item
-
-Plain Inventory transfer while X equipped => fail with zero change.
-
-Explicit atomic unequip+transfer => X leaves Equipment and P's inventory, appears in Q's inventory, source deactivates for P; no ownership inference.
-
-### EX-09 — legacy inventory presentation
-
-Legacy `character_inventory.item_name = "Sword"` and CharacterPanel `equipment=["Sword"]` => no canonical Equipment state until explicit proven mapping.
+Result: PASS.
 
 ---
 
-## 16. Runtime recheck gates for future WORK-046
+## 14. Ownership boundary
 
-When WORK-046 is published, semantic recheck must inspect actual runtime paths, not test names only.
+The audited Phase-11 schema does not create `ownership_records_v2` and equip/unequip/Inventory transfer do not infer ownership.
 
-Minimum PASS gates:
+The final Phase-10 transfer compatibility test was updated correctly for V11: `player_equipment` table may now legally exist after current-schema migration, but a plain Inventory transfer creates zero Equipment rows and no OwnershipRecord table/state.
 
-1. equip requires canonical Phase-10 possession and exact instance identity;
-2. equip keeps Inventory possession intact;
-3. unequip keeps Inventory possession intact;
-4. no OwnershipRecord mutation;
-5. slot compatibility fail-loud;
-6. occupied slot does not silently replace;
-7. explicit replace, if present, is atomic;
-8. multi-slot reservation all-or-none;
-9. instance X lifecycle does not affect Y;
-10. Equipment modifiers use Phase-5 resolver/source lifecycle;
-11. equip/unequip never write base stat/masteries/Talent/Potential;
-12. resource currentValue is not resolver-clamped;
-13. equipped item transfer/remove cannot create dangling reference;
-14. plain equipped transfer/remove fails OR explicit atomic unequip+transfer is enforced;
-15. legacy `character_inventory` is not auto-equipped;
-16. CharacterPanel `equipment` label is not authority;
-17. Technique `is_equipped` is not physical Equipment;
-18. failed equip creates zero partial occupancy/modifiers/inventory change;
-19. failed unequip preserves Equipment/modifier consistency;
-20. campaign/player/World Pack/slot/instance/source isolation;
-21. authoritative reads have no presentation LIMIT;
-22. 1000+ binding path remains complete/deterministic;
-23. reopen preserves exact equipment and source identity;
-24. production migration reaches Phase 11 without altering accepted Phase-10 inventory semantics.
-
-Any violation of Inventory != Equipment, Equipment != OwnershipRecord, exact instance identity, atomic multi-slot state or no-retrogression is a semantic blocker.
+Result: PASS.
 
 ---
 
-## 17. Final semantic contract
+## 15. Authoritative read / determinism
 
-Phase 11 Equipment is a persistent character-scoped loadout/slot assignment over already-existing Phase-10 possession identities.
+`EquipmentStore.equipment()` performs an unbounded authoritative query for the requested campaign/player/loadout. No presentation `LIMIT` is present.
 
-It does not create possession and does not establish legal ownership.
+Determinism is preserved by stable sorting of:
 
-For physical unique equipment, exact `ItemInstance` identity is authoritative.
+- requested/canonical slot sets;
+- equipment entries;
+- slot bindings;
+- conflict group pairs.
 
-Equip/unequip are atomic state transitions that keep Inventory intact and toggle only Equipment state plus generic Phase-5 equipment-source lifecycle.
+No semantic resolution depends on SQLite insertion order or display name.
 
-Slot conflict resolution is explicit and deterministic. No silent replacement. Multi-slot equipment is all-or-none.
+Result: PASS.
 
-Inventory transfer/removal of an equipped item must not leave a dangling Equipment reference; the minimal safe contract is fail-loud unless an explicit atomic unequip+transfer/remove operation is used.
+---
 
-Legacy inventory/presentation/Technique equipped labels do not constitute physical Equipment authority.
+## 16. CI evidence for exact runtime
 
-# PHASE 11 SEMANTIC ORACLE READY
+Verified directly from GitHub Actions API:
+
+```text
+run number: 250
+run ID: 31362782857
+workflow: Build & Release RPG OS ALPHA
+head SHA: c96136964e4adb7144eee42b2b8680f153a839f2
+status: completed
+conclusion: success
+```
+
+This is exact-SHA CI evidence for the audited runtime.
+
+Result: PASS.
+
+---
+
+## 17. Final semantic matrix
+
+| Invariant | Result |
+|---|---|
+| Inventory possession != Equipment != OwnershipRecord | PASS |
+| exact ItemInstance identity | PASS |
+| equip != possession | PASS |
+| unequip != inventory removal | PASS |
+| equip/unequip atomicity | PASS |
+| multi-slot all-or-none | PASS |
+| no silent replacement | PASS |
+| deterministic conflicts/exclusive groups | PASS |
+| plain transfer/remove cannot leave stale Equipment | PASS |
+| Equipment effects derived through Phase 5 | PASS |
+| Stat base unchanged | PASS |
+| PlayerResource.currentValue unchanged | PASS |
+| Skill baseMastery unchanged | PASS |
+| Technique baseMastery unchanged | PASS |
+| Talent/Potential unchanged | PASS |
+| unequip restores derived projection without retrogression | PASS |
+| legacy inventory does not create Equipment | PASS |
+| CharacterPanel.equipment not authority | PASS |
+| Technique is_equipped not physical Equipment | PASS |
+| stackable without exact ItemInstance rejected | PASS |
+| Phase 5 remains single resolver/modifier foundation | PASS |
+| authoritative Equipment read has no presentation LIMIT | PASS |
+| exact SHA CI #250 | PASS |
+
+---
+
+## 18. Blockers
+
+No reproducible semantic release blocker was found in the exact audited runtime.
+
+CHAT-2 does not mark Phase 11 COMPLETE and does not begin Phase 12.
+
+# PHASE 11 SEMANTIC REVALIDATION: PASS
