@@ -1,6 +1,6 @@
 # WORK-20260810-050 — Phase 11 Equipment Adversarial Matrix
 
-Status: READY — WAITING FOR WORK-20260810-046 RESULT COMMIT
+Status: FINAL VALIDATION COMPLETE
 
 Work ID: `WORK-20260810-050`
 Role: READ-ONLY ADVERSARIAL AUDITOR
@@ -10,6 +10,8 @@ Preparation baseline observed: `ed062fb2865b5564ef32d06875b23f44972ae7b2`
 Primary architecture: `docs/audits/WORK-20260810-044_PHASE11_EQUIPMENT_ARCHITECTURE.md`
 Semantic oracle: `docs/audits/WORK-20260810-047_PHASE11_SEMANTIC_EQUIPMENT_ORACLE.md`
 Migration/integrity plan: `docs/audits/WORK-20260810-048_PHASE11_MIGRATION_INTEGRITY_PLAN.md`
+Audited Phase-11 candidate: `c96136964e4adb7144eee42b2b8680f153a839f2`
+Exact CI: GitHub Actions `#250`, run ID `31362782857`, `SUCCESS`
 
 This document defines adversarial attacks only. It does not implement or repair Phase 11 runtime and does not start Phase 12 OwnershipRecord.
 
@@ -158,32 +160,121 @@ Final validation is FAIL immediately if any of these is established:
 - authoritative Equipment truncation;
 - Phase-11 migration unreachable through production `CurrentSchema` path.
 
-## Final validation procedure after WORK-20260810-046
+## Final validation — exact candidate `c96136964e4adb7144eee42b2b8680f153a839f2`
 
-When WORK-046 publishes a final `resultCommit`:
+### CI and routing evidence
 
-1. Re-read fresh master, WORK-046 result, WORK-047 semantic oracle and WORK-048 integrity plan.
-2. Pin validation to the exact resultCommit; do not validate moving master implicitly.
-3. Verify exact CI for that SHA independently.
-4. Diff accepted Phase-10 runtime/current Phase-11 baseline to resultCommit.
-5. Inspect schema, migration routing, slot definitions, compatibility, equipment entries/bindings and modifier integration.
-6. Execute/review every attack above, prioritizing automatic blockers and transaction-failure probes.
-7. Verify production bootstrap/reopen/restore/campaign-switch/idempotency.
-8. Verify >1000 authoritative reads and ContextBuilder behavior if Equipment is exposed there.
-9. Verify integrity/FK and Phase 3–10 no-regression.
-10. Do not repair failures. For each blocker report reproducer, violated contract, exact runtime location and minimal hotfix scope for CHAT-1.
-11. Update only this report with exact candidate SHA, CI evidence, per-gate result and final verdict.
+GitHub Actions run `#250` / run ID `31362782857` reports `head_sha=c96136964e4adb7144eee42b2b8680f153a839f2`, `status=completed`, `conclusion=success`.
 
-Final verdict after WORK-046 must be exactly one of:
+`CurrentSchema.ensure()` routes to `MigrationManager.ensureV11()`. `ensureV11()` calls `ensureV10()` first and creates additive Equipment tables, slot/rule definitions and inventory transfer/delete guards. Production routing tests cover bootstrap, campaign switch, restore from V10 and no synthetic Equipment from legacy inventory.
 
-`PHASE 11 ADVERSARIAL VALIDATION: PASS`
+### Gates that pass on code/test inspection
 
-or
+- slot UID/key ownership and World-Pack registration checks;
+- same label/different UID remains possible;
+- missing/deprecated slot rejected for new equip;
+- exact ItemInstance identity and UNIQUE_INSTANCE requirement;
+- static cross-player/cross-campaign possession checks;
+- same ItemDefinition/different ItemInstance separation;
+- explicit compatibility rules by stable UID, no item-name/category fallback;
+- requested multi-slot set must exactly match rule-required slot set;
+- capacity and exclusive-group checks under non-concurrent execution;
+- exact instance cannot be double-equipped because of runtime check plus schema UNIQUE(campaign_id,item_instance_uid);
+- ordinary transfer/remove of an already committed equipped instance fails through V11 triggers until explicit unequip;
+- equip/unequip do not create OwnershipRecord and no Phase-12 runtime is introduced;
+- Phase-5 ModifierStore remains the only modifier persistence/resolver foundation;
+- equipment source identity uses exact ItemInstance UID and two instances of one definition remain isolated;
+- modifier activation/deactivation participates in the same SQLite transaction as Equipment row/slot mutation;
+- Stat base, Resource current, Skill baseMastery, Technique baseMastery, Talent and Potential remain unchanged by tested equipment effects;
+- `PlayerResource.currentValue=100` is explicitly asserted before equip, while equipped and after unequip while maximum/regeneration change only as derived values;
+- legacy `character_inventory` and Technique `is_equipped` create zero physical Equipment;
+- >1000 slot definitions and 1001 equipment records are read without authoritative truncation and survive reopen;
+- migration marker/idempotency, integrity_check and foreign_key_check are covered by Phase-11 tests.
 
-`PHASE 11 ADVERSARIAL VALIDATION: FAIL`
+### RELEASE BLOCKER EQ-RACE-01 — possession/equip TOCTOU can commit stale holder
 
-## Preparation checkpoint
+`EquipmentStore.equip()` performs authoritative preconditions before opening its SQLite transaction. In particular it resolves the instance and then checks:
 
-At preparation time, Phase 11 runtime result from WORK-046 has not been validated here. This matrix is intentionally pre-implementation/read-only and must not be interpreted as Phase-11 acceptance.
+```text
+isPossessed(characterUid,itemInstanceUid)
+isEquipped(itemInstanceUid)
+slot occupancy
+exclusive-group conflicts
+```
 
-PHASE 11 ADVERSARIAL MATRIX READY
+Only after those checks does it call `db.beginTransaction()` and insert `player_equipment` / slot bindings / source activation.
+
+The V11 transfer/delete triggers protect only a possession mutation performed while an Equipment row already exists. They do not protect the race window before the Equipment row is inserted. The schema FK from `player_equipment` points to `(campaign_id,item_instance_uid)` in `item_instances`, not to the current `(campaign_id,character_uid,item_instance_uid)` possession row.
+
+#### Minimal reproducer
+
+Two concurrent callers/connections against the same campaign DB:
+
+```text
+Initial:
+player_inventory_unique: holder=A, instance=X
+player_equipment: no X
+
+T1: EquipmentStore.equip(A,X,...)
+    -> requireInstance(X) PASS
+    -> isPossessed(A,X) PASS
+    -> slot/conflict checks PASS
+    -> PAUSE before beginTransaction()
+
+T2: InventoryStore.transferUnique(A,B,X,...)
+    -> transfer trigger checks player_equipment: X absent
+    -> transfer commits, holder=B
+
+T1 resumes:
+    -> beginTransaction()
+    -> INSERT player_equipment(character_uid=A,item_instance_uid=X)
+    -> commit succeeds because FK references item_instances, not holder row
+
+Forbidden committed result:
+Inventory holder = B
+Equipment holder = A
+same exact itemInstanceUid = X
+```
+
+The same window allows `removeUnique(A,X)` to commit before T1 begins its transaction, after which T1 can create Equipment for an ItemInstance with no current inventory holder.
+
+This violates EQ-A11, EQ-A13, EQ-A42, EQ-A43 and the explicit automatic blocker `Inventory holder=B / Equipment holder=A`.
+
+### RELEASE BLOCKER EQ-RACE-02 — concurrent equip can overflow slot capacity
+
+Slot capacity and exclusive-group validation are also performed before the equip transaction. The schema intentionally cannot encode arbitrary dynamic capacity as a simple UNIQUE constraint. Therefore two concurrent equip operations can both observe `occupancyCount=0` for a capacity-1 slot before either starts/commits its write transaction, then serialize their inserts and leave occupancy=2.
+
+Minimal schedule:
+
+```text
+slot S capacity=1, currently empty
+X and Y both valid/possessed, distinct instances/rules
+
+T1 equip X -> occupancyCount(S)=0 -> PAUSE before beginTransaction
+T2 equip Y -> occupancyCount(S)=0 -> begin/commit Y
+T1 -> begin/commit X
+
+Committed occupancy(S)=2 > capacity=1
+```
+
+The same class can bypass precomputed exclusive-group conflict checks. This violates EQ-A30, EQ-A32, EQ-A33/EQ-A34 atomic conflict semantics and the requirement that conflict resolution cannot depend on race timing.
+
+### Why green CI does not clear these blockers
+
+Current tests validate sequential failure/rollback and ordinary equipped-instance transfer/remove guards, but do not interleave a possession transfer/remove or competing equip between prevalidation and `beginTransaction()`. Therefore CI `#250 = SUCCESS` is compatible with the above TOCTOU defects.
+
+### Minimal hotfix scope for CHAT-1
+
+Do not redesign Equipment or start Phase 12. Minimal Phase-11 repair:
+
+1. Establish the SQLite write transaction/serialization boundary before any authoritative mutable precondition that can change concurrently: possession holder, already-equipped identity, slot occupancy and exclusive-group state.
+2. Re-read/revalidate those conditions inside that same transaction immediately before inserts/source activation.
+3. Keep current inventory transfer/delete guards; after serialization they correctly reject a transfer/remove that loses the race after Equipment commit.
+4. Add deterministic interleaving/concurrency regression tests proving neither `Inventory holder=B / Equipment holder=A` nor capacity/exclusive-group overbooking can commit.
+5. Preserve existing all-or-none Equipment + slot + modifier mutation transaction.
+
+No changes to OwnershipRecord, PlayerDomainEngine or later phases are required for this hotfix.
+
+## Final verdict
+
+PHASE 11 ADVERSARIAL VALIDATION: FAIL
