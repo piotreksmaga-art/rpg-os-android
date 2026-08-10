@@ -20,9 +20,10 @@ class OwnershipReferenceRegistry(private val db: SQLiteDatabase, private val cam
         require(ownerKindUid.isNotBlank()) { "ownerKindUid must not be blank" }
         require(provenance.isNotBlank()) { "owner kind provenance must not be blank" }
         db.execSQL(
-            "INSERT INTO ownership_owner_kinds(owner_kind_uid,kind_status,provenance) VALUES(?,'ACTIVE',?)",
+            "INSERT OR IGNORE INTO ownership_owner_kinds(owner_kind_uid,kind_status,provenance) VALUES(?,'ACTIVE',?)",
             arrayOf(ownerKindUid, provenance)
         )
+        require(kindIsActive("ownership_owner_kinds", "owner_kind_uid", ownerKindUid)) { "owner namespace is retired" }
     }
 
     fun registerAssetKind(assetKindUid: String, provenance: String) {
@@ -30,9 +31,10 @@ class OwnershipReferenceRegistry(private val db: SQLiteDatabase, private val cam
         require(assetKindUid != OWNERSHIP_ASSET_KIND_ITEM_INSTANCE) { "ITEM_INSTANCE namespace is built in" }
         require(provenance.isNotBlank()) { "asset kind provenance must not be blank" }
         db.execSQL(
-            "INSERT INTO ownership_asset_kinds(asset_kind_uid,kind_status,provenance) VALUES(?,'ACTIVE',?)",
+            "INSERT OR IGNORE INTO ownership_asset_kinds(asset_kind_uid,kind_status,provenance) VALUES(?,'ACTIVE',?)",
             arrayOf(assetKindUid, provenance)
         )
+        require(kindIsActive("ownership_asset_kinds", "asset_kind_uid", assetKindUid)) { "asset namespace is retired" }
     }
 
     fun registerOwner(owner: OwnershipOwnerRef, provenance: String) {
@@ -90,4 +92,9 @@ class OwnershipReferenceRegistry(private val db: SQLiteDatabase, private val cam
             require(it.executeUpdateDelete() == 1) { "active ownership asset reference not found" }
         }
     }
+
+    private fun kindIsActive(table: String, column: String, uid: String): Boolean =
+        db.rawQuery("SELECT kind_status FROM $table WHERE $column=?", arrayOf(uid)).use { c ->
+            c.moveToFirst() && c.getString(0) == "ACTIVE"
+        }
 }
