@@ -69,7 +69,7 @@ class RequirementEvaluator(private val provider: RequirementRuleProvider?) {
                 "Requirement rule $ruleUid is not valid for ${context.gate} gate"
             }
             stack += ruleUid
-            return try {
+            val result = try {
                 val dependencyResults = linkedMapOf<String, Boolean>()
                 descriptor.dependencies.sorted().forEach { dependencyUid ->
                     dependencyResults[dependencyUid] = evaluateRule(dependencyUid, null)
@@ -80,7 +80,9 @@ class RequirementEvaluator(private val provider: RequirementRuleProvider?) {
                 }
             } finally {
                 stack.removeAt(stack.lastIndex)
-            }.also { memo[ruleUid] = it }
+            }
+            memo[ruleUid] = result
+            return result
         }
 
         check(evaluateRule(binding.ruleUid, binding.ruleVersion)) {
