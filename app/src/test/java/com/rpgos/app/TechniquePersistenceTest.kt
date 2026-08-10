@@ -32,7 +32,40 @@ class TechniquePersistenceTest {
 
     @Test fun skillRequirementsHaveExplicitPhaseAndBaseOrEffectiveViewWithoutMasteryCopy(){open().use{db->MigrationManager().ensureV8(db,"C");val ss=SkillStore(db,"C");ss.registerDefinitions("W",listOf(skill("S")));ss.savePlayerSkill(PlayerSkill("C","P","S",80.0,provenance="skill"));val ts=TechniqueStore(db,"C");ts.registerDefinitions("W",listOf(def("T",req=listOf(req("S",TechniqueRequirementPhase.ACQUISITION,TechniqueSkillMasteryBasis.BASE,70.0),req("S",TechniqueRequirementPhase.EXECUTION,TechniqueSkillMasteryBasis.EFFECTIVE,70.0)))));assertTrue(ts.requirementsSatisfied("P","T",TechniqueRequirementPhase.ACQUISITION,0,emptyList()));assertTrue(ts.requirementsSatisfied("P","T",TechniqueRequirementPhase.EXECUTION,0,emptyList()));val injury=Modifier("inj","C","P","S",ModifierTargetKind.SKILL_EFFECTIVE,ModifierLifecycle.INJURY,ModifierOperation.ADD_FLAT,-20.0,sourceType="TEST",sourceUid="inj",provenance="test");assertTrue(ts.requirementsSatisfied("P","T",TechniqueRequirementPhase.ACQUISITION,0,listOf(injury)));assertFalse(ts.requirementsSatisfied("P","T",TechniqueRequirementPhase.EXECUTION,0,listOf(injury)));ts.savePlayerTechnique(PlayerTechnique("C","P","T",13.0,provenance="learned"));ss.savePlayerSkill(PlayerSkill("C","P","S",99.0,provenance="skill-update"));assertEquals(13.0,ts.playerTechniques("P").single().baseMastery,0.0)}}
 
-    @Test fun techniqueModifiersAreDerivedDeterministicAndNoRetrogression(){open().use{db->MigrationManager().ensureV8(db,"C");val s=TechniqueStore(db,"C");s.registerDefinitions("W",listOf(def("T",max=100.0)));val p=PlayerTechnique("C","P","T",80.0,provenance="learned");s.savePlayerTechnique(p);val mods=listOf(tmod("b",5.0,1),tmod("a",-30.0,1));fun resolve(ms:List<Modifier>)=DerivedValueResolver().resolve(DerivedResolutionRequest("C","P",0,emptyList(),emptyList(),emptyList(),emptyList(),ms,techniqueDefinitions=s.definitions(),playerTechniques=listOf(p))).resolvedTechniques.single();val a=resolve(mods);val b=resolve(mods.reversed());assertEquals(a.effectiveMastery,b.effectiveMastery,0.0);assertEquals(listOf("a","b"),a.contributions.map{it.modifierUid});assertEquals(55.0,a.effectiveMastery,0.0);assertEquals(80.0,s.playerTechniques("P").single().baseMastery,0.0);assertEquals(80.0,resolve(emptyList()).effectiveMastery,0.0);expectFailure{DerivedValueResolver().resolve(DerivedResolutionRequest("C","P",0,emptyList(),emptyList(),emptyList(),emptyList(),listOf(tmod("leak",-1.0).copy(characterUid="Q")),techniqueDefinitions=s.definitions(),playerTechniques=listOf(p)))}}}
+    @Test fun techniqueModifiersAreDerivedDeterministicAndNoRetrogression(){
+        open().use { db ->
+            MigrationManager().ensureV8(db,"C")
+            val s=TechniqueStore(db,"C")
+            s.registerDefinitions("W",listOf(def("T",max=100.0)))
+            val p=PlayerTechnique("C","P","T",80.0,provenance="learned")
+            s.savePlayerTechnique(p)
+            val mods=listOf(tmod("b",5.0,1),tmod("a",-30.0,1))
+            fun resolve(ms:List<Modifier>) = DerivedValueResolver().resolve(
+                DerivedResolutionRequest(
+                    "C","P",0,emptyList(),emptyList(),emptyList(),emptyList(),ms,
+                    techniqueDefinitions=s.definitions(),
+                    playerTechniques=listOf(p)
+                )
+            ).resolvedTechniques.single()
+            val a=resolve(mods)
+            val b=resolve(mods.reversed())
+            assertEquals(a.effectiveMastery,b.effectiveMastery,0.0)
+            assertEquals(listOf("a","b"),a.contributions.map{it.modifierUid})
+            assertEquals(55.0,a.effectiveMastery,0.0)
+            assertEquals(80.0,s.playerTechniques("P").single().baseMastery,0.0)
+            assertEquals(80.0,resolve(emptyList()).effectiveMastery,0.0)
+            expectFailure {
+                DerivedValueResolver().resolve(
+                    DerivedResolutionRequest(
+                        "C","P",0,emptyList(),emptyList(),emptyList(),emptyList(),
+                        listOf(tmod("leak",-1.0).copy(characterUid="Q")),
+                        techniqueDefinitions=s.definitions(),
+                        playerTechniques=listOf(p)
+                    )
+                )
+            }
+        }
+    }
 
     @Test fun talentPotentialAndSkillDoNotRewriteTechniqueMastery(){open().use{db->MigrationManager().ensureV8(db,"C");val profiles=ProgressionProfileStore(db,"C");profiles.registerDomains("W",listOf(ProgressionDomainDefinition("D","W","d","D","generic",definitionVersion=1,provenance="pack")));profiles.saveTalent(TalentEntry("C","P","D",0.9,provenance="t"));profiles.savePotential(PotentialEntry("C","P","D","growth",0.2,provenance="p"));val ss=SkillStore(db,"C");ss.registerDefinitions("W",listOf(skill("S")));ss.savePlayerSkill(PlayerSkill("C","P","S",90.0,provenance="s"));val ts=TechniqueStore(db,"C");ts.registerDefinitions("W",listOf(def("T")));ts.savePlayerTechnique(PlayerTechnique("C","P","T",30.0,provenance="t"));profiles.saveTalent(TalentEntry("C","P","D",0.1,2,"t2"));profiles.savePotential(PotentialEntry("C","P","D","growth",0.8,2,"p2"));ss.savePlayerSkill(PlayerSkill("C","P","S",10.0,provenance="s2"));assertEquals(30.0,ts.playerTechniques("P").single().baseMastery,0.0)}}
 
