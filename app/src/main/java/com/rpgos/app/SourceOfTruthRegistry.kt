@@ -30,9 +30,9 @@ class SourceOfTruthRegistry(private val coreDb: SQLiteDatabase) {
     }
 
     fun canWrite(table: String): Boolean {
-        // Campaign truth has a dedicated typed/provenance-aware repository path.
-        // Generic StatePatch operations must never bypass that contract.
+        // Typed authorities cannot be bypassed by generic AI StatePatch writes.
         if (table == "campaign_truth_records") return false
+        if (table in FINANCE_TYPED_ONLY_TABLES) return false
         if (table in readOnlyTables) return false
         return table in activeTables || isExplicitRuntimeTable(table)
     }
@@ -53,9 +53,20 @@ class SourceOfTruthRegistry(private val coreDb: SQLiteDatabase) {
             "npc_action_candidates",
             "timeline_divergences",
             "gm_timeline_alerts",
-            "financial_transactions",
             "mission_outcomes",
             "mission_participants"
+        )
+    }
+
+    companion object {
+        private val FINANCE_TYPED_ONLY_TABLES = setOf(
+            "financial_transactions",
+            "financial_ledger_transactions",
+            "financial_accounts",
+            "financial_account_balances",
+            "currency_definitions",
+            "financial_transaction_type_definitions",
+            "legacy_financial_evidence"
         )
     }
 }
