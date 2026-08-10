@@ -80,38 +80,6 @@ jobs:
       - name: Run JVM unit tests
         run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
 
-      - name: Show JVM test failures
-        if: failure()
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import glob
-          import xml.etree.ElementTree as ET
-          found = False
-          for path in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
-              try:
-                  root = ET.parse(path).getroot()
-              except Exception as exc:
-                  print(f'::error file=app/src/test/java/com/rpgos/app/TechniquePersistenceTest.kt,line=1,title=JUnit diagnostics::Unable to parse {path}: {exc}')
-                  continue
-              for case in root.iter('testcase'):
-                  node = case.find('failure')
-                  if node is None:
-                      node = case.find('error')
-                  if node is None:
-                      continue
-                  found = True
-                  cls = case.attrib.get('classname', '?')
-                  name = case.attrib.get('name', '?')
-                  message = node.attrib.get('message', '')
-                  body = (node.text or '').splitlines()
-                  detail = body[0] if body else ''
-                  text = f'{cls}.{name}: {message} {detail}'.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-                  print(f'::error file=app/src/test/java/com/rpgos/app/TechniquePersistenceTest.kt,line=1,title=JUnit failure::{text}')
-          if not found:
-              print('::error file=app/src/test/java/com/rpgos/app/TechniquePersistenceTest.kt,line=1,title=JUnit diagnostics::No failure node found in JUnit XML')
-          PY
-
       - name: Build signed ALPHA APK
         run: gradle --no-daemon :app:assembleRelease --stacktrace
 
