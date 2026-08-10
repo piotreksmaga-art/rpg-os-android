@@ -1,611 +1,360 @@
-# WORK-20260810-053 — Phase 12 Migration / Integrity Validation
+# WORK-20260810-053 — Phase 12 Migration / Integrity Revalidation
 
-Status: FINAL VALIDATION — FAIL
+Status: FINAL REVALIDATION — PASS
 
 Work ID: `WORK-20260810-053`
-Role: `FINAL PHASE 12 MIGRATION / INTEGRITY VALIDATION`
+Role: `FINAL PHASE 12 MIGRATION / INTEGRITY REVALIDATION`
 Repository: `piotreksmaga-art/rpg-os-android`
-Validated runtime SHA: `9a4e5ba1f129baf32ff7f1d36a6f2248081efea7`
-Fresh master immediately before report write: `9a4e5ba1f129baf32ff7f1d36a6f2248081efea7`
-Exact CI: GitHub Actions `#267`, run ID `31384475406`, head SHA `9a4e5ba1f129baf32ff7f1d36a6f2248081efea7`, `SUCCESS`
-Accepted Phase-11 runtime baseline: `c87193a69136a6680102779e4f0cd3d90a616d41`
+Validated runtime SHA: `d5f1fd6e7a660e3e398f155784f8602c486b9906`
+Exact CI: GitHub Actions `#271`, run ID `31397821499`, head SHA `d5f1fd6e7a660e3e398f155784f8602c486b9906`, `SUCCESS`
+Previous candidate `9a4e5ba1f129baf32ff7f1d36a6f2248081efea7`: obsolete release candidate; not revalidated.
+Accepted Phase-11 baseline: `c87193a69136a6680102779e4f0cd3d90a616d41`
 Implementation work item: `WORK-20260810-051`
 Allowed write scope: this report only.
 
-# PHASE 12 INTEGRITY VALIDATION: FAIL
+# PHASE 12 INTEGRITY REVALIDATION: PASS
 
-The exact runtime SHA above is **not releasable as accepted Phase 12** under the WORK-049 architecture and WORK-053 integrity gates. The implementation passes substantial migration, temporal, share, history, legacy-safety, isolation and concurrency checks, but it violates two load-bearing reference-integrity invariants at the authoritative Ownership write boundary:
+The exact hotfix runtime `d5f1fd6e7a660e3e398f155784f8602c486b9906` closes both reference-integrity blockers identified by the earlier WORK-053 FAIL and preserves the previously passing migration/history/share/concurrency boundaries. No Phase 13 runtime was inspected or implemented.
 
-1. unresolved/nonexistent owners are accepted as legal `OwnershipOwnerRef`s;
-2. generic non-ItemInstance assets are accepted without any validated asset-kind namespace, registry or target-resolution authority.
+## 1. Candidate freshness and CI identity
 
-These are runtime integrity defects, not documentation gaps. `PRAGMA foreign_key_check` cannot detect them because the corresponding owner/generic-asset relationships are not represented as enforceable foreign keys or equivalent application/DB-authoritative resolver constraints.
+At revalidation start the latest runtime WORK-051 commit on master was exactly `d5f1fd6e7a660e3e398f155784f8602c486b9906`. A later master commit observed during the audit was `WORK-20260810-052 — final Phase 12 semantic hotfix revalidation`, which is report-only; no later WORK-051 runtime candidate appeared.
 
----
+Exact GitHub Actions evidence:
 
-## 1. Exact candidate and CI identity
+- workflow: `Build & Release RPG OS ALPHA`;
+- run number: `271`;
+- run ID: `31397821499`;
+- `head_sha=d5f1fd6e7a660e3e398f155784f8602c486b9906`;
+- status: `completed`;
+- conclusion: `success`.
 
-Fresh `master` resolves to exactly:
+Therefore CI is tied to the exact audited runtime.
 
-`9a4e5ba1f129baf32ff7f1d36a6f2248081efea7`
+## 2. Sources inspected
 
-The commit is `WORK-20260810-051 — implement Phase 12 ownership domain`.
-
-GitHub Actions run `31384475406` is run number `267`, workflow `Build & Release RPG OS ALPHA`, `head_sha=9a4e5ba1f129baf32ff7f1d36a6f2248081efea7`, status `completed`, conclusion `success`.
-
-Therefore the CI supplied for validation is tied to the exact runtime under audit. Green CI is acknowledged but does not override a violated integrity invariant.
-
----
-
-## 2. Sources and runtime inspected
-
-Validation was performed against repository source, not CHAT-1's declaration. Inspected material included:
+Revalidation was grounded in repository source rather than implementer declarations. Inspected inputs included:
 
 - `docs/RPG_OS_MASTER_ARCHITECTURE.md`;
 - `docs/RPG_OS_IMPLEMENTATION_ROADMAP.md`;
 - `docs/PARALLEL_WORK_COORDINATION.md`;
 - `docs/audits/WORK-20260810-049_PHASE12_OWNERSHIP_ARCHITECTURE.md`;
-- this WORK-053 plan and its release gates;
-- exact WORK-051 commit/diff;
-- `OwnershipModel.kt`;
-- `OwnershipStore.kt`;
+- the previous WORK-053 FAIL/report;
+- complete WORK-051 hotfix commit chain culminating in the candidate;
+- `OwnershipReferenceRegistry.kt`;
 - `Phase12Migration.kt`;
-- `Phase10Migration.kt`, Phase-11/V9 routing dependencies and `CurrentSchema` routing;
-- `LocalGameStore.kt`;
-- `BackupManager.kt` / `RestoreManager.kt`;
+- `OwnershipModel.kt` / `OwnershipStore.kt`;
 - `OwnershipPersistenceTest.kt`;
 - `OwnershipConcurrencyTest.kt`;
 - `Phase12ProductionRoutingTest.kt`;
-- exact Actions run metadata.
+- exact CI run metadata.
 
-No runtime/schema/test correction was implemented by this worker.
+## 3. Canonical ownership boundary — PASS
 
----
-
-## 3. Canonical boundary — PASS
-
-The required separation remains represented by the implementation and tests:
+The hard invariant remains true:
 
 ```text
-Inventory possession
-!= Equipment state
-!= OwnershipRecord
+Inventory possession != Equipment state != OwnershipRecord
 ```
 
-`OwnershipStore` is a separate authority. `InventoryStore.transferUnique()` does not implicitly call Ownership transfer. Equipment equip/unequip does not implicitly call Ownership mutation. Phase-12 persistence tests explicitly exercise theft/loan-like possession transfer and borrowed equipment while the legal owner remains unchanged.
+Ownership is still a separate temporal relationship `owner <-> asset`, not an `owned=true` flag. Existing tests retain the required divergent states:
 
-Ownership transfer also does not move physical inventory automatically.
+- possession transfer/theft-or-loan does not transfer title;
+- borrowed/equipped item can remain owned by another party;
+- unequip/removal does not close ownership;
+- ownership transfer does not move physical inventory.
 
-Result: **PASS** for this boundary.
+The hotfix adds reference registries only and does not collapse Inventory or Equipment into ownership authority.
 
----
+## 4. BLOCKER A recheck — owner reference integrity — PASS
 
-## 4. Migration chain and latest CurrentSchema routing — PASS
+### Authoritative design
 
-The production latest-schema route was changed from V11 to V12:
+Phase 12 now has:
 
 ```text
-CurrentSchema.ensure(...)
--> MigrationManager.ensureV12(...)
--> ensureV11(...)
--> prior additive migration chain
+ownership_owner_kinds
+ownership_party_registry
 ```
 
-`ensureV10()` calls the accepted V9 requirement hotfix, which chains backward into Phase 9 and earlier phases. V12 itself begins with `ensureV11(saveDb, campaignId)`.
+`ownership_party_registry` is keyed by:
 
-`LocalGameStore` routes bootstrap, active-player/state reads, normal current-schema access, restore and campaign switch through `ensureCurrentSchema()`, which delegates to `CurrentSchema.ensure()`.
+```text
+(campaign_id, owner_kind_uid, owner_uid)
+```
 
-`Phase12ProductionRoutingTest` covers:
+and its owner kind references `ownership_owner_kinds`.
 
-- bundled clean/bootstrap path -> V12;
-- V11 campaign -> V12 during campaign switch;
-- V11 backup restore -> V12;
-- one V12 migration marker;
-- required V12 tables;
-- `PRAGMA integrity_check = ok`.
+`trg_ownership_owner_reference_guard` executes `BEFORE INSERT ON ownership_records` and requires a matching:
 
-Result: **PASS** for latest-schema routing.
+- campaign;
+- owner kind;
+- owner UID;
+- `reference_status='ACTIVE'`;
+- owner namespace with `kind_status='ACTIVE'`.
 
----
+This is an SQLite write-boundary guard, not a Kotlin-only precheck.
 
-## 5. Additive/idempotent migration — PASS
+### Required cases
 
-`ensureV12()` is additive. It creates only Phase-12 tables/indexes/triggers and records the migration marker in the same transaction. It does not drop or rewrite Phase 3–11 tables or synthesize ownership rows.
+- blank owner identity: rejected by model/schema validation;
+- nonexistent owner: rejected by `trg_ownership_owner_reference_guard`;
+- wrong-campaign owner: rejected because registry lookup includes `NEW.campaign_id`;
+- unknown/unregistered owner kind: cannot become a legal OwnershipRecord; FK/namespace registration plus insert trigger reject it;
+- retired owner: new ownership rejected because registry row is not ACTIVE;
+- same `ownerUid` in different namespaces/campaigns: registry PK and ownership lookup include kind + campaign, preventing collision;
+- non-player generic owner: `ORGANIZATION` is explicitly exercised successfully, while the registry remains extensible through `registerOwnerKind()`.
 
-New tables are:
+The Core is therefore not hardcoded to Player-only ownership.
 
-- `ownership_records`;
-- `ownership_operations`;
-- `legacy_ownership_mappings`.
+### Lifecycle / TOCTOU
 
-Repeated `CurrentSchema.ensure()` is explicitly exercised and the Phase-12 marker count remains exactly one. `CREATE TABLE/INDEX IF NOT EXISTS` plus transactional marker insertion makes repeated schema ensure idempotent with respect to authoritative ownership data.
+`trg_ownership_party_retire_guard` rejects ACTIVE -> RETIRED while an active open OwnershipRecord exists. `trg_ownership_party_delete_guard` prevents deleting registry identity.
 
-The migration does intentionally drop/recreate only Phase-12 trigger definitions in order to establish their canonical definitions. It does not destructively rewrite authoritative historical rows.
+The race test uses two independent SQLite connections synchronized by latches:
 
-Result: **PASS**.
+```text
+T1 acquire ownership
+vs
+T2 retire owner
+```
 
----
+and requires exactly one success/one failure. SQLite writer serialization plus the insert/retirement triggers gives one coherent order:
 
-## 6. Legacy safety / zero automatic synthesis — PASS
+- retirement wins -> later insert sees inactive owner and aborts; or
+- acquisition wins -> retirement sees active ownership and aborts.
 
-No automatic ownership synthesis was found from:
+No stale owner-validation window remains.
 
-- `character_inventory`;
-- CharacterPanel's legacy `equipment` presentation;
-- `character_techniques.is_equipped`;
-- `item_name`;
-- same display label;
-- typed physical possession;
-- Equipment state.
+Previous BLOCKER A is closed.
 
-`Phase12Migration.kt` creates schema only. It does not scan those legacy surfaces.
+## 5. BLOCKER B recheck — generic asset reference integrity — PASS
 
-`OwnershipStore.registerLegacyMapping()` accepts only an explicit evidence UID -> existing OwnershipRecord mapping. It does not discover or infer ownership from legacy possession/equipment/name data.
+### ITEM_INSTANCE authority
 
-The persistence fixture creates `character_inventory` and `character_techniques(...is_equipped=1)`, runs `CurrentSchema.ensure()` twice and asserts exactly zero OwnershipRecords.
+`RPGOS-ASSET-KIND:ITEM_INSTANCE` remains resolved against Phase-10 `item_instances` with campaign scope. `trg_ownership_item_instance_guard` rejects a missing or wrong-campaign ItemInstance.
 
-The production restore fixture restores a V11 database containing legacy `character_inventory` and again asserts zero synthesized OwnershipRecords after current-schema migration.
+`trg_ownership_item_delete_guard` also prevents deletion of an ItemInstance referenced by ownership history, preserving historical target identity.
 
-No unambiguous pre-Phase-12 legal ownership evidence was found that would justify automatic synthesis.
+### Generic assets
 
-Result: **PASS**.
+Phase 12 now has:
 
----
+```text
+ownership_asset_kinds
+ownership_asset_registry
+```
 
-## 7. Stable OwnershipRecord identity / immutable history — PASS
+Generic assets are keyed by:
 
-`ownership_records` uses:
+```text
+(campaign_id, asset_kind_uid, asset_uid)
+```
+
+and kind registration is explicit. `trg_ownership_generic_asset_guard` executes at the SQLite `ownership_records` insert boundary and requires:
+
+- registered asset kind namespace with ACTIVE status;
+- campaign-scoped target row;
+- exact kind + UID match;
+- target `reference_status='ACTIVE'`.
+
+Required cases are covered:
+
+- unknown `assetKindUid`: rejected;
+- known kind + nonexistent target: rejected;
+- wrong-campaign target: rejected;
+- valid registered generic target: accepted;
+- same asset UID across different kinds: remains distinct because kind is part of identity;
+- same asset UID across campaigns: remains distinct because campaign is part of identity;
+- arbitrary future-looking free-text kind without registration: rejected.
+
+At the same time Ownership is not reduced to ItemInstance-only. `registerAssetKind()` and `registerAsset()` permit future stable namespaces/targets such as PROPERTY/BUSINESS/COMPANY/SHARE/STAKE without redesigning `OwnershipRecord`.
+
+### Lifecycle / TOCTOU
+
+`trg_ownership_asset_retire_guard` rejects retirement while active ownership exists and `trg_ownership_asset_delete_guard` prevents deletion of registry identity.
+
+The separate-connection synchronized race:
+
+```text
+T1 acquire ownership
+vs
+T2 retire generic asset
+```
+
+requires exactly one legal winner and is protected by the same SQLite-authoritative serialization/trigger model. No stale asset-validation window remains.
+
+Previous BLOCKER B is closed.
+
+## 6. Migration / CurrentSchema routing — PASS
+
+The production chain remains:
+
+```text
+CurrentSchema.ensure()
+-> ensureV12()
+-> ensureV11()
+-> prior accepted migration chain
+```
+
+V12 is additive. It adds namespace/registry tables and Phase-12 triggers without dropping or rewriting Phase 3–11 authoritative domain tables.
+
+Production routing tests on the exact candidate cover:
+
+- bundled clean/bootstrap -> V12;
+- Phase-11 database -> V12 on campaign switch;
+- Phase-11 backup restore -> V12;
+- migration marker exactly once;
+- seven expected Phase-12 tables present;
+- no ownership synthesis from restored legacy `character_inventory`.
+
+Repeated V12 ensure remains idempotent. The final candidate specifically changed namespace registration to `INSERT OR IGNORE` and verifies that an already-retired namespace is not silently reactivated.
+
+## 7. Reopen / campaign isolation / scale — PASS
+
+`OwnershipPersistenceTest` exercises repeated `CurrentSchema.ensure()`, closes/reopens the SQLite database and verifies authoritative ownership reads remain complete.
+
+Scale fixture persists `1001` OwnershipRecords, verifies exact owner read count `1001`, then reopens and verifies `1001` again. `OwnershipStore` authoritative readers used for ownership/history do not contain a presentation `LIMIT 1000` completeness dependency.
+
+Campaign isolation is revalidated with campaign C and D using overlapping owner/record/asset UID strings. Registries and ownership records scope target identity by campaign and kind, so no cross-campaign leakage was found.
+
+## 8. Stable UID / temporal history / immutable history — PASS
+
+Ownership identity remains:
 
 ```text
 PRIMARY KEY(campaign_id, ownership_record_uid)
 ```
 
-Record identity is stable through legal close. `closeRecordCas()` updates only close-state fields and increments `record_version`; it does not replace owner/asset/share/start/provenance identity.
+Legal close retains the original record UID and changes only the allowed closure fields/version. Transfers append successor records rather than rewriting predecessor ownership identity.
 
-The DB trigger `trg_ownership_immutable_update_guard` rejects mutation of immutable ownership identity and permits only the legal ACTIVE -> CLOSED transition with `record_version + 1`, a deterministic `valid_until_order`, close event and closure provenance.
-
-`trg_ownership_history_delete_guard` rejects deletion of Ownership history.
-
-Transfers close predecessors and append successor records instead of rewriting a predecessor into a new owner.
-
-Result: **PASS**.
-
----
-
-## 8. Temporal integrity — PASS
-
-The chosen interval convention is explicit and consistent:
+The temporal convention remains exactly:
 
 ```text
 [validFrom, validUntil)
 ```
 
-Schema enforces:
+Schema requires:
 
 ```text
 valid_until_order IS NULL OR valid_until_order > valid_from_order
 ```
 
-`ownershipAt()` implements:
+Historical lookup uses `from <= T < until`. The transfer boundary tests prove old owner at T-1 and destination owner exactly at T.
 
-```text
-valid_from_order <= T
-AND (valid_until_order IS NULL OR T < valid_until_order)
-```
+`trg_ownership_immutable_update_guard` prevents illegal historical mutation and `trg_ownership_history_delete_guard` prevents deletion.
 
-Same-owner overlap protection is enforced at the DB INSERT boundary. Successor intervals start exactly at the close/transfer order, so adjacent historical intervals are valid without overlap.
+## 9. Exact shares / aggregate conservation / overflow — PASS
 
-Result: **PASS**.
+Ownership shares remain fixed-scale integer authority with canonical scale `3_600_000_000`; no Float/Double ownership constructor exists.
 
----
+The model/schema reject:
 
-## 9. Exact share representation / overflow / aggregate conservation — PASS
+- zero/negative share;
+- share above 100%;
+- invalid denominator/numerator;
+- unsupported non-exact fraction precision;
+- overflow through exact arithmetic;
+- SQLite non-integer share authority.
 
-`OwnershipShare` is fixed-scale integer representation with canonical scale `3_600_000_000`. No floating-point constructor exists.
+`trg_ownership_share_overlap_guard` rejects aggregate temporal ownership above 100% per campaign + asset kind + asset UID + ownership type.
 
-The model rejects:
+Partial transfer tests conserve exact share, while competing 60% transfers/acquisitions cannot over-allocate.
 
-- zero shares;
-- negative shares;
-- shares > 100%;
-- zero/negative denominators;
-- fractions that cannot be represented exactly;
-- integer overflow through exact arithmetic.
+## 10. Transfer/close atomicity and stale-state protection — PASS
 
-The DB additionally requires `share_units` to be SQLite INTEGER, `> 0`, and `<= OWNERSHIP_SHARE_SCALE`.
+`transferShare()` begins the SQLite transaction before authoritative source/destination reads and closes records using a conditional CAS predicate including:
 
-`trg_ownership_share_overlap_guard` performs DB-authoritative aggregate-share checking over temporal overlap points and rejects inserts that would exceed 100% for the same campaign + asset kind + asset UID + ownership type.
+- campaign;
+- record UID;
+- owner;
+- asset kind/UID;
+- ownership type;
+- share;
+- ACTIVE/open state;
+- record version.
 
-Partial transfer closes the old source/destination intervals and appends exact successor shares. Tests demonstrate 60/40 -> 40/60 with exact conservation and rejection of over-allocation.
+Exactly one row must be updated. Successor inserts and operation-ledger writes occur in the same transaction.
 
-Result: **PASS**.
+Concurrency suite revalidates:
 
----
+- A -> B 100% vs A -> C 100%: exactly one winner;
+- A -> B 60% vs A -> C 60%: exactly one legal winner and final aggregate exactly 100%;
+- transfer vs close: exactly one serialized legal outcome;
+- concurrent independent 60% acquisitions: only one can commit;
+- stale source cannot pass the current-source/CAS boundary;
+- repeated operation UID is idempotent rather than duplicating history.
 
-## 10. Duplicate/overlap protection — PASS
+The same ACTIVE/open/version CAS makes a second close unable to legally mutate a source already closed by another writer.
 
-The schema/write boundary contains multiple defenses:
+## 11. Legacy safety / no synthesis — PASS
 
-- PK for stable OwnershipRecord UID;
-- unique current owner+asset+type index;
-- same-owner temporal overlap trigger;
-- aggregate temporal share trigger;
-- predecessor scope trigger;
-- immutable update guard;
-- append-history delete guard.
+No Phase-12 migration/runtime path synthesizes OwnershipRecord from:
 
-These are DB-authoritative constraints and therefore do not rely solely on application-level SELECT-before-INSERT checks.
+- `character_inventory`;
+- CharacterPanel equipment presentation;
+- `character_techniques.is_equipped`;
+- item display name;
+- same label;
+- physical possession;
+- Equipment state.
 
-Result: **PASS**.
+Migration fixtures explicitly seed legacy possession/equipment-like evidence and require zero synthesized ownership. `legacy_ownership_mappings` remains an explicit evidence mapping path, not an inference engine.
 
----
+## 12. SQLite integrity — PASS
 
-## 11. Concurrency / TOCTOU release gates — PASS for implemented invariant boundary
-
-`transferShare()` starts the transaction before authoritative source/destination reads. It uses a conditional CAS close which predicates on campaign, record UID, owner, asset, type, share, active/open status and record version, and requires exactly one updated row.
-
-SQLite serialized writer semantics plus DB INSERT triggers protect successor creation and aggregate share invariants.
-
-Independent tests cover:
-
-- A -> B vs A -> C competing full transfer: exactly one success;
-- two concurrent 60% transfers: exactly one success and exact final 100% aggregate;
-- transfer-vs-close: exactly one success;
-- concurrent independent 60% acquisitions: exactly one success;
-- post-race `integrity_check=ok` and empty `foreign_key_check`.
-
-The exact fixture set does not name a standalone double-close test, but the same CAS/source-active/version boundary makes a second concurrent close unable to perform the required single-row legal transition after the first winner. This was inspected at the authoritative write path rather than inferred from application prechecks.
-
-Result: **PASS** for the DB/write-boundary concurrency model.
-
----
-
-## 12. Campaign isolation / cross-owner / cross-asset scoping — PARTIAL PASS
-
-Authoritative reads and CAS operations consistently predicate on `campaign_id`. Ownership record identity is campaign-scoped. Tests create the same `R0`, owner `P`, asset `A0` in campaign C and D and prove independent reads.
-
-Queries include owner and asset identity where appropriate and no cross-owner/cross-asset mutation predicate defect was found in transfer/close CAS.
-
-However campaign scoping is not sufficient to establish **referential validity** of the owner or generic asset itself. That is the blocker described below.
-
----
-
-# 13. BLOCKER A — owner reference integrity FAIL
-
-## Violated invariant
-
-WORK-053 requires:
-
-- unresolved owner rejected unless an explicit unresolved/external-owner contract exists;
-- an owner from another campaign cannot be used as a valid owner in this campaign;
-- if no universal entity FK target exists, campaign-scoped referential validity must still be enforced at the authoritative write boundary.
-
-WORK-049 likewise requires stable owner identity, and the transfer architecture requires destination stable owner identity to exist or be validated under repository rules.
-
-## Actual runtime path
-
-```text
-OwnershipStore.acquire(record)
--> OwnershipPolicy.validateRecord(record)
--> OwnershipPolicy.validateOwner(owner)
--> only checks ownerKindUid.isNotBlank()
-   and ownerUid.isNotBlank()
--> insertRecord(record)
--> INSERT ownership_records
-```
-
-`ownership_records` has no FK to a generic owner/entity registry and no trigger/resolver validates `owner_kind_uid + owner_uid` against a campaign-scoped authoritative owner target.
-
-Transfer destination validation has the same weakness: `OwnershipPolicy.validateOwner(toOwner)` checks only nonblank strings.
-
-The candidate's own test `temporalHistoryFullTransferStableIdentityGenericOwnersAndAssets()` proves the behavior by transferring title to:
-
-```text
-OwnershipOwnerRef("ORGANIZATION", "ORG-9")
-```
-
-without creating or resolving any authoritative organization-owner record first. The operation is expected to succeed.
-
-## Minimal reproducer
-
-Conceptual executable fixture against this exact runtime:
-
-```kotlin
-val db = SQLiteDatabase.openOrCreateDatabase(file, null)
-CurrentSchema.ensure(db, "C")
-val ownership = OwnershipStore(db, "C")
-
-ownership.acquire(
-    OwnershipRecord(
-        campaignId = "C",
-        ownershipRecordUid = "R-GHOST",
-        owner = OwnershipOwnerRef("ORGANIZATION", "OWNER-DOES-NOT-EXIST"),
-        asset = OwnedAssetRef("PROPERTY", "PROPERTY-X"),
-        ownershipTypeUid = "TITLE",
-        share = OwnershipShare.full(),
-        validFrom = 10,
-        sourceEventUid = "EV",
-        provenance = "reproducer"
-    )
-)
-```
-
-No owner registration/resolution is required by this runtime.
-
-## Expected
-
-The authoritative write must reject an unresolved owner, unless Phase 12 explicitly defines and persists an external/unresolved-owner reference contract with appropriate semantics.
-
-## Actual
-
-The owner strings are nonblank, so owner validation passes and the OwnershipRecord can be inserted, subject only to unrelated ownership/share/temporal constraints.
-
-`PRAGMA foreign_key_check` can still report zero violations because there is no owner FK/reference relationship for SQLite to verify.
-
-## Minimal required correction scope
-
-Phase-12 Ownership reference integrity only:
-
-- introduce/use an authoritative campaign-scoped generic owner/entity resolver or registry contract, or equivalent typed owner validators;
-- validate `ownerKindUid + ownerUid + campaignId` at the authoritative write boundary for acquire and transfer destination/source operations;
-- add DB-level enforcement where representable, otherwise a transaction-authoritative resolver with tests including nonexistent and cross-campaign owners;
-- do not modify Inventory, Equipment, Phase 13 Economy or unrelated domains.
-
----
-
-# 14. BLOCKER B — generic asset reference integrity FAIL
-
-## Violated invariant
-
-WORK-053 requires generic asset references to use either:
-
-- a validated generic typed entity-reference/asset-kind contract; or
-- an equivalently safe registry/reference mechanism.
-
-The plan explicitly identifies acceptance of arbitrary free-text asset identity as a failure class.
-
-WORK-049 requires stable `OwnedAssetRef(assetKindUid, assetUid)` so Phase 12 can safely reference future assets without conflating labels with identity.
-
-## Actual runtime path
-
-`OwnershipPolicy.validateAsset()` checks only:
-
-```text
-assetKindUid is not blank
-assetUid is not blank
-```
-
-The database has one special authoritative target guard:
-
-```text
-asset_kind_uid == RPGOS-ASSET-KIND:ITEM_INSTANCE
--> matching item_instances(campaign_id,item_instance_uid) must exist
-```
-
-This is correct for `ItemInstance`.
-
-For every other `asset_kind_uid`, however, no asset-kind registry, namespace registry, target resolver, target FK or equivalent authoritative validity check exists in Phase 12. Arbitrary nonblank pairs such as:
-
-```text
-("PROPERTY", "PROPERTY-DOES-NOT-EXIST")
-("TYPO-KIND", "ANYTHING")
-```
-
-can become authoritative legal asset identities immediately.
-
-Again, the candidate's own temporal-history test establishes `OwnedAssetRef("PROPERTY", "PROPERTY-X")` without registering a Property asset or asset-kind resolver and expects success.
-
-## Minimal reproducer
-
-```kotlin
-CurrentSchema.ensure(db, "C")
-OwnershipStore(db, "C").acquire(
-    OwnershipRecord(
-        campaignId = "C",
-        ownershipRecordUid = "R-PHANTOM-ASSET",
-        owner = OwnershipOwnerRef("CHARACTER", "P"),
-        asset = OwnedAssetRef("NOT-A-REGISTERED-ASSET-KIND", "DOES-NOT-EXIST"),
-        ownershipTypeUid = "TITLE",
-        share = OwnershipShare.full(),
-        validFrom = 10,
-        sourceEventUid = "EV",
-        provenance = "reproducer"
-    )
-)
-```
-
-There is no Phase-12 generic-asset resolver that can reject the kind/target.
-
-## Expected
-
-A generic asset reference must resolve through a validated asset-kind namespace/registry or equivalent target validator. Unknown kinds and unresolved targets must fail loudly rather than silently create legal asset identity by string assertion.
-
-## Actual
-
-Any nonblank generic asset kind/UID pair is accepted, except the special `ITEM_INSTANCE` kind which is correctly guarded.
-
-`PRAGMA foreign_key_check` remains clean because there is no generic asset FK/reference relationship to inspect.
-
-## Minimal required correction scope
-
-Phase-12 generic asset reference layer only:
-
-- add a stable asset-kind/asset-reference registry or equivalent resolver contract;
-- register `ITEM_INSTANCE` as one validated kind using the existing campaign-scoped ItemInstance authority;
-- require other generic kinds to have a registered resolver/target contract before OwnershipRecord insertion;
-- reject unknown kinds and unresolved targets at the authoritative write boundary;
-- add cross-kind collision and cross-campaign target tests;
-- do **not** implement Phase 14 Assets and do not synthesize future asset rows merely to satisfy ownership.
-
----
-
-## 15. ItemInstance integration — PASS
-
-The specific unique-item asset contract is correctly guarded.
-
-For:
-
-```text
-assetKindUid = RPGOS-ASSET-KIND:ITEM_INSTANCE
-```
-
-`trg_ownership_item_instance_guard` requires an `item_instances` row with matching `campaign_id` and `item_instance_uid`.
-
-Tests demonstrate that a missing ItemInstance fails, while ownership remains independent of the current inventory holder and Equipment state.
-
-Result: **PASS** for ItemInstance specifically. This does not cure the generic-asset blocker.
-
----
-
-## 16. SQLite integrity_check / foreign_key_check — PASS but insufficient for blockers
-
-The Phase-12 persistence and concurrency fixtures execute:
+The exact candidate's ownership integrity/race tests execute:
 
 ```sql
 PRAGMA integrity_check;
 PRAGMA foreign_key_check;
 ```
 
-and require:
+Fresh ownership persistence/race fixtures require:
 
 ```text
 integrity_check = ok
 foreign_key_check = zero rows
 ```
 
-The inspected exact CI is green, so these assertions passed in the test suite attached to the validated SHA.
+Production bundled-routing fixtures additionally require `integrity_check=ok` and run scoped `foreign_key_check(table)` for each Phase-12 FK-owning table so unrelated pre-existing bundled-database FK debt is not falsely attributed to Phase 12.
 
-Result: **PASS** for represented SQLite constraints.
+This scoped production check is not used as a substitute for the full fresh-schema foreign-key test: the full `PRAGMA foreign_key_check` remains in the fresh ownership persistence/concurrency suite and passed exact CI #271.
 
-Important limitation: `foreign_key_check` cannot report missing owner/generic-asset references that are not modeled as foreign keys or equivalent registry relations. Therefore clean PRAGMA output is compatible with Blockers A and B.
+## 13. Phase 3–11 regression — PASS
 
----
+The hotfix delta is limited to Phase-12 reference registry/schema guards and Phase-12 tests. It does not rewrite the authority of:
 
-## 17. Scale / authoritative completeness — PASS for >1000 active records; historical scale evidence incomplete
+- Stats / Resources;
+- Modifier / DerivedValueResolver;
+- Talent / Potential;
+- Skills;
+- Techniques;
+- Innate/Racial/Evolution;
+- Inventory;
+- Equipment.
 
-`OwnershipStore.ownershipByOwner()` and asset history/current readers contain no authoritative `LIMIT`.
+The additive V12 chain still calls the accepted previous migration chain. No destructive migration of Phase 3–11 data was found.
 
-The persistence test writes `1001` OwnershipRecords and verifies all `1001` are returned, then closes/reopens the database and verifies all `1001` again. This rules out a common `LIMIT 1000` truncation path for active records.
-
-No bounded presentation reader is used as the authoritative ownership source.
-
-However the exact WORK-051 test set does not provide an equivalent >1000 **closed historical** OwnershipRecords fixture. The underlying `history()` reader also contains no `LIMIT`, so no truncation defect was found statically, but the full historical-scale gate from WORK-053 is not independently demonstrated by the candidate's tests.
-
-This is recorded as a coverage deficiency, not the principal FAIL cause, because the two reference-integrity defects already independently block acceptance.
-
----
-
-## 18. Reopen / backup / restore — mixed result
-
-Reopen is directly exercised for 1001 OwnershipRecords and preserves the authoritative rows.
-
-`BackupManager.createBackup()` copies the entire `campaign.db`; `RestoreManager.restoreBackup()` copies the selected backup DB over the active campaign DB and `LocalGameStore.restoreBackup()` then routes the restored database through `ensureCurrentSchema()`.
-
-Therefore Phase-12 rows are structurally included in backup/restore rather than reconstructed from presentation state.
-
-`Phase12ProductionRoutingTest` directly validates V11 backup -> restore -> V12 with zero synthetic ownership.
-
-The exact WORK-051 tests do **not** contain the stronger WORK-053 fixture:
-
-```text
-active + closed historical + co-owned Phase-12 state
--> backup
--> restore
--> exact semantic equality
-```
-
-Nor do they explicitly exercise A -> B -> A switch with ownership state on both campaigns. Static implementation paths are compatible with preservation, but those stronger final gates are not demonstrated by the candidate test corpus.
-
-Again, this is additional validation debt rather than the primary release blocker.
-
----
-
-## 19. Phase 3–11 regression / destructive migration — PASS by diff and routing inspection
-
-The WORK-051 runtime adds Ownership model/store/migration/tests and changes CurrentSchema's latest target to V12. V12 itself calls V11 and then adds its own objects.
-
-No Phase-12 SQL was found that rewrites authoritative Stats, Resources, Modifier/Resolver, Talent/Potential, Skills, Techniques, Innate/Racial, Inventory or Equipment rows.
-
-The migration does not infer Ownership from those domains.
-
-The central semantic split remains intact after V12 routing:
+The core split remains true after the hotfix:
 
 ```text
 Inventory possession != Equipment state != OwnershipRecord
 ```
 
-Result: **PASS** for the inspected migration/regression boundary.
+## 14. Final result
 
----
+Both earlier release blockers are fixed at the authoritative SQLite boundary:
 
-## 20. Final gate matrix
+- owner references are namespace-validated, campaign-scoped, target-resolved and lifecycle guarded;
+- generic asset references are namespace-validated, campaign-scoped, target-resolved and lifecycle guarded, while ITEM_INSTANCE continues using actual ItemInstance authority.
 
-| Gate | Result | Evidence / reason |
-|---|---|---|
-| Exact SHA / fresh master | PASS | master = validated SHA |
-| Exact CI | PASS | #267 / 31384475406 / exact head / SUCCESS |
-| V3...V11 -> V12 migration chain | PASS | V12 chains through V11 and prior current chain |
-| CurrentSchema latest routing | PASS | latest target changed to ensureV12 |
-| Bootstrap | PASS | production routing test |
-| Existing DB upgrade | PASS | V11 -> V12 fixture |
-| Reopen | PASS | ownership rows survive reopen |
-| Repeated ensure / marker idempotency | PASS | marker remains one; no synthetic rows |
-| Additive/no destructive V12 migration | PASS | new V12 objects only |
-| Legacy zero-synthesis | PASS | inventory / technique-equipped fixtures remain zero ownership |
-| Inventory != Ownership | PASS | possession transfer independent |
-| Equipment != Ownership | PASS | borrowed equip/unequip independent |
-| Stable record UID/history | PASS | composite PK + append/close model + delete guard |
-| Temporal validity | PASS | explicit half-open interval + overlap guards |
-| Exact share / overflow | PASS | fixed-scale integer + exact arithmetic + DB CHECK |
-| Aggregate share <= 100% | PASS | DB overlap/share trigger |
-| TOCTOU / race write boundary | PASS | transaction + CAS + DB triggers; race tests |
-| ItemInstance reference integrity | PASS | campaign-scoped existence trigger |
-| **Generic owner reference integrity** | **FAIL** | unresolved arbitrary owner refs accepted |
-| **Generic asset reference integrity** | **FAIL** | unknown/unresolved generic asset refs accepted |
-| Campaign row scoping | PASS | campaign predicates and isolation fixture |
-| `integrity_check` | PASS | `ok` in exact candidate tests |
-| `foreign_key_check` | PASS for modeled FKs | cannot detect missing unmodeled generic refs |
-| >1000 active authoritative records | PASS | 1001 + reopen |
-| >1000 historical records | NOT FULLY DEMONSTRATED | no matching exact fixture found |
-| Phase-12 history backup/restore exact equality | NOT FULLY DEMONSTRATED | V11 restore covered; full V12-history fixture absent |
-| Campaign switch A -> B -> A with ownership | NOT FULLY DEMONSTRATED | one-way switch migration fixture present |
-| Phase 3–11 preservation by V12 diff | PASS | no destructive prior-domain mutation found |
+No new Phase-12 integrity release blocker was found in the exact candidate.
 
----
+# PHASE 12 INTEGRITY REVALIDATION: PASS
 
-## 21. Why green CI does not permit PASS
+Validated runtime SHA: `d5f1fd6e7a660e3e398f155784f8602c486b9906`
 
-GitHub Actions #267 successfully verifies the tests that exist on this exact SHA. Those tests substantially validate V12.
+Exact CI: GitHub Actions `#271`, run ID `31397821499`, head SHA `d5f1fd6e7a660e3e398f155784f8602c486b9906`, `SUCCESS`.
 
-However one of those tests also demonstrates the problematic contract: it successfully creates generic PROPERTY ownership and transfers it to an ORGANIZATION without any authoritative registration/resolution of that asset or owner. Thus the test suite currently codifies permissive unresolved-reference behavior instead of proving the WORK-053 reference-integrity gate.
-
-A clean SQLite database is not equivalent to semantically valid Ownership references when the semantic references are not represented as FKs/registry constraints.
-
-The project priority remains:
-
-```text
-DATA INTEGRITY > CAMPAIGN CONTINUITY > CORRECT ARCHITECTURE > SAFE INTEGRATION > PARALLEL SPEED
-```
-
-Accordingly this candidate cannot be accepted as Phase 12 until these authoritative reference-integrity holes are closed and independently revalidated.
-
----
-
-# 22. FINAL VERDICT
-
-# PHASE 12 INTEGRITY VALIDATION: FAIL
-
-Validated runtime:
-
-`9a4e5ba1f129baf32ff7f1d36a6f2248081efea7`
-
-Exact CI:
-
-`GitHub Actions #267 / run 31384475406 / head 9a4e5ba1f129baf32ff7f1d36a6f2248081efea7 / SUCCESS`
-
-Primary blockers:
-
-1. unresolved/nonexistent owner identities are accepted at the authoritative Ownership write boundary;
-2. generic non-ItemInstance asset kinds/targets are accepted without a validated namespace/registry/resolver.
-
-Required correction scope is strictly Phase-12 Ownership reference integrity plus focused tests. This audit does not authorize Phase 13 and does not implement the correction.
+This report changes documentation only. It does not implement runtime changes and does not begin Phase 13.
