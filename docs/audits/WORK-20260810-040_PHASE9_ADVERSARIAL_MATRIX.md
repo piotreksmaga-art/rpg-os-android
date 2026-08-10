@@ -1,240 +1,268 @@
 # WORK-20260810-040 — Phase 9 Adversarial Matrix
 
-Status: FINAL READ-ONLY ADVERSARIAL VALIDATION
+Status: FINAL READ-ONLY ADVERSARIAL REVALIDATION
 
 Work ID: `WORK-20260810-040`
 Owner: `CHAT-5`
 Role: PHASE 9 ADVERSARIAL AUDITOR
 Repository: `piotreksmaga-art/rpg-os-android`
-Fresh master at matrix creation: `4f8431e4cdf983f7f12fa73e544d988db30953ad`
 Accepted Phase 8 runtime: `7a28e6e4b28ff10cbb516b94e5e0c120d0a15397`
-Phase 9 implementation work item: `WORK-20260810-036`
-Final audited candidate: `d796d374f92d94477542da5f753ee411b633076b`
-Fresh master before final report write: `7d9585bf0457734b7400916c3e113a1ee6c4adbe`
+Previous failed Phase-9 candidate: `d796d374f92d94477542da5f753ee411b633076b`
+Previous blocker: `E-07` — authoritative stage-only evolution-path entry bypass
+Final hotfix under revalidation: `c64c123104f1643a53bf9bb5ebbf19e4bc0dfe87`
+Fresh master before report write: `12156f917fbc2a79144efdbfd93884a91cbf788c`
 
-This document is read-only. It does not implement or repair Phase 9 runtime, schema, migration, World Pack mechanics, ProgressionEngine, PlayerDomainEngine, DevelopmentProject, or CharacterPanelSnapshot v2.
+This report is read-only. CHAT-5 changed no runtime, schema, migration, tests or later-phase code. The only write performed by this work item is this audit document.
 
-Canonical architecture input: `docs/audits/WORK-20260810-034_NEXT_PHASE_ARCHITECTURE.md`.
+## 1. Executive result
 
-## 1. Release invariants under attack
+The previous E-07 blocker is removed in the hotfix candidate.
 
-Phase 9 must preserve all of the following:
+The old public stage-only API still exists only as an intentionally unusable compatibility surface: it is annotated `DeprecationLevel.ERROR`, returns `Nothing`, and always throws. It can no longer materialize a current/attained stage. The authoritative evolution mutation path is now `transitionEvolution(characterUid, transitionUid, ...)`.
 
-1. Origin/identity, innate feature ownership, evolution path, evolution stage, transition, unlocked form and active form are distinct semantic concepts.
-2. `OWNED / UNLOCKED != CURRENTLY ACTIVE`.
-3. `EVOLUTION STAGE != TEMPORARY TRANSFORMATION`.
-4. World-Pack-owned definitions use stable UID identity; labels are presentation/evidence only.
-5. Clan/race/species/bloodline labels do not automatically grant gameplay features.
-6. Legacy status/prompt/canon labels remain evidence until explicitly mapped.
-7. Persistent unlock/ownership cannot be destroyed by temporary deactivation.
-8. Temporary form effects may only affect derived Phase-5 targets and must never rewrite Phase-3–8 persistent authority.
-9. Evolution state changes must occur only through explicit legal transitions; no implicit stage arithmetic or label guessing.
-10. Campaign, character and World Pack isolation are mandatory.
-11. Typed Phase-9 authoritative reads must not silently truncate state.
-12. Production `CurrentSchema.ensure()` must reach V9/latest schema.
-13. Phase 3–8 data, aliases, modifiers, Talent/Potential, Skills and Techniques must remain unchanged except for explicit backward-compatible generic relationships.
+An explicit path-entry transition is represented by:
 
-## 2. Definition identity / World Pack attacks
+```text
+EvolutionTransitionDefinition.sourceStageUid == null
+```
 
-| ID | Attack | Required outcome | Final result |
-|---|---|---|---|
-| D-01 | duplicate exact definition UID | Fail-loud | PASS |
-| D-02 | same UID incompatible owner/metadata | Reject | PASS |
-| D-03 | same display label, different UID | Separate identities | PASS |
-| D-04 | same textual key across World Packs | No automatic merge | PASS |
-| D-05 | World Pack B attempts to register A-owned UID | Reject | PASS |
-| D-06 | blank owner/provenance/invalid version | Reject | PASS |
+and the transition UID is preserved as `attainedViaTransitionUid` for the first attained stage.
 
-Registration methods validate stable UID, owner UID, definition version and provenance. Stage/form relationships additionally validate ownership of referenced path/feature/stage definitions.
+No reproducible current-contract blocker was found in the requested adversarial revalidation.
 
-## 3. Origin / innate / legacy attacks
+## 2. Explicit ENTRY / E-07 revalidation
 
-- `clan_uid`, `race`, `bloodline`, `evolution_stage`, `form` and similar legacy fields are read as evidence only.
-- Bare evidence creates no `PlayerOrigin`, `PlayerInnateFeature`, evolution state, attained stage, form unlock or active form.
-- Explicit World Pack mapping is required for canonicalization.
-- Ambiguous mappings fail loudly.
-- Missing/deleted mapping target fails loudly.
-- Target ownership is checked against the mapping World Pack.
-- Applying the same explicit mapping twice canonicalizes exactly once.
-- Legacy bytes remain untouched.
-- Mixed typed state plus unmapped legacy evidence remains explicitly unresolved.
+| Attack | Result | Evidence |
+|---|---|---|
+| direct start at B/C without ENTRY | PASS | Missing transition UID fails before state mutation; `Phase9EntryTransitionTest.onlyExplicitEntryTransitionCanStartPathAndIllegalStartingStagesFail`. |
+| stage-only `enterEvolutionPath(stageUid)` bypass | PASS | API is compile-error deprecated and unconditional runtime error. Reflection adversarial test confirms no state/history is created. |
+| missing ENTRY | PASS | Missing `transitionUid` fails and leaves evolution state/attainment empty. |
+| wrong target | PASS | Caller selects transition identity, not raw target stage; target comes from registered transition definition. |
+| wrong path | PASS | ENTRY creates state only on target stage's registered path. Existing state on that path rejects replay/re-entry. |
+| wrong World Pack | PASS | Transition registration requires target stage World-Pack ownership to match transition owner. |
+| multiple legal ENTRY points | PASS | Explicit distinct ENTRY UIDs are legal and deterministic for fresh players. There is no implicit selection by stage label/order. |
+| replay ENTRY | PASS | Existing current state on the target path rejects replay. |
+| ENTRY used as rollback/re-entry after progress | PASS | Rejected once path state exists, including after advancing to later stage. |
+| cross-path ENTRY | PASS | A source-null ENTRY has no source path to smuggle across; it starts only its target stage's registered path. Independent paths require independent explicit ENTRY transitions. |
+| failed ENTRY atomicity | PASS | Requirement failure occurs before transaction; test verifies zero current state and zero attained stage. Transaction covers state+attainment on successful ENTRY. |
+| `attainedViaTransitionUid` correctness | PASS | ENTRY test and legacy mapping test assert exact ENTRY transition UID is stored. |
 
-Result: PASS for label/clan automatic-grant attacks, ambiguity, missing target and lossless evidence preservation.
+The original `d796d374...` E-07 reproducer no longer succeeds on `c64c123...`.
 
-## 4. Unlock vs active-form attacks
+## 3. Transition requirement attacks
 
-Canonical lifecycle under test:
+Phase 9.1 adds generic requirement gates rather than embedding World-Pack mechanics in Core.
 
-`locked -> unlocked + inactive -> active -> inactive`
+`RequirementEvaluator` enforces:
 
-Observed runtime:
+- explicit provider when a binding exists;
+- nonblank provider UID;
+- existing rule descriptor;
+- exact root rule version match;
+- gate compatibility (`UNLOCK`, `TRANSITION`, `ACTIVATION` are distinct);
+- deterministic dependency traversal (`dependencies.sorted()`);
+- cycle detection;
+- fail on dependency false;
+- fail on malformed/indeterminate `null` evaluation;
+- fail on final false result.
 
-- activation without persistent unlock is rejected;
-- unlock does not activate automatically;
-- deactivation removes only active state and disables form-sourced modifiers;
-- deactivation preserves `PlayerFormUnlock`;
-- mutually exclusive active forms sharing `exclusiveGroupUid` are rejected;
-- deprecated form cannot be newly activated;
-- reopen persistence tests preserve unlock/current-state separation.
+Adversarial matrix:
+
+| Attack | Result |
+|---|---|
+| ENTRY requirement FAIL | PASS — no state/history materialized. |
+| missing requirement provider | PASS — fail-loud. |
+| missing requirement rule | PASS — fail-loud. |
+| requirement version mismatch | PASS — fail-loud on binding/descriptor mismatch. |
+| malformed requirement result (`null`) | PASS — fail-loud. |
+| requirement dependency cycle | PASS — deterministic cycle error. |
+| requirement gate substitution | PASS — UNLOCK/TRANSITION/ACTIVATION rules cannot silently substitute for each other. |
+
+Dependency descriptors themselves are provider-owned and are resolved by UID; the accepted Phase-9.1 contract pins the explicitly persisted root binding version. No reproducible requirement-version bypass was found in the current contract.
+
+## 4. Legacy evolution-stage mapping attacks
+
+Legacy status remains evidence, not authority.
+
+For an explicit legacy `EVOLUTION_STAGE` mapping:
+
+1. the canonical stage target must exist and belong to the selected World Pack;
+2. if no typed state exists, materialization goes through `transitionEvolution()`;
+3. `entryTransitionUidForStage(stageUid)` requires **exactly one** explicit `source_stage_uid IS NULL` transition to that target;
+4. zero matching ENTRY transitions fails loudly;
+5. multiple matching ENTRY transitions fail loudly instead of selecting arbitrarily;
+6. the resulting attained stage records the exact ENTRY transition UID;
+7. existing conflicting typed state fails loudly;
+8. legacy bytes remain preserved.
+
+Result: PASS for legacy mapping without legal ENTRY, ambiguous legacy ENTRY, missing/deleted mapping target and duplicate canonical materialization attacks.
+
+## 5. Unlock / activation requirement attacks
+
+`unlockForm()` and `activateForm()` now use separate generic requirement gates.
+
+Verified behavior:
+
+- locked form cannot activate;
+- unlock requirement failure creates no unlock;
+- missing provider/rule fails loudly;
+- malformed/version/gate mismatch fails loudly;
+- activation requirement failure creates no active row and no active form modifier;
+- deactivation does not re-check activation eligibility and therefore cannot trap a player in an active form;
+- deactivation preserves persistent unlock;
+- mutually exclusive forms remain rejected through `exclusiveGroupUid`;
+- deprecated form cannot be newly activated.
 
 Result: PASS.
 
-## 5. Phase-5 derived/no-retrogression attacks
+## 6. Modifier activation atomicity / Phase-5 boundary
 
-Phase 9 does not introduce a second race/bloodline/evolution/transformation resolver. `FormModifierBinding` materializes ordinary Phase-5 `Modifier` rows with source type `PHASE9_FORM`, and `sourceActive` follows form activation/deactivation.
+Activation checks unlock, definition status, exclusivity and activation requirement before the activation transaction. The transaction then creates active state, creates/reuses generic Phase-5 modifiers, and switches the source active flag. A failure inside that transaction rolls back the activation unit.
 
-Verified integration tests show:
+Phase 9 still uses only the accepted Phase-5 `ModifierStore` / `DerivedValueResolver` foundation. No Race/Bloodline/Evolution/Transformation-specific second resolver exists.
 
-- stat base remains unchanged while effective stat changes;
-- resource `currentValue` remains unchanged while derived maximum changes;
-- Skill `baseMastery` remains unchanged while effective mastery changes;
-- Technique `baseMastery` remains unchanged while effective mastery changes;
-- Talent remains unchanged;
-- Potential remains unchanged;
-- deactivation returns derived effective values to their base values without deleting unlock state.
+Existing integration tests verify active/deactivated form effects do not mutate:
 
-Result: PASS.
+- `PlayerStat.baseValue`;
+- `PlayerResource.currentValue`;
+- `PlayerSkill.baseMastery`;
+- `PlayerTechnique.baseMastery`;
+- Talent base value;
+- Potential base value.
 
-## 6. Campaign / player / World Pack isolation
-
-`Phase9Store` is campaign-scoped. Player rows use `(campaign_id, character_uid, ...)` identities and reads filter by campaign and character. `validatePlayer()` rejects cross-campaign state objects. Tests independently verify another player and another campaign cannot observe the stored state. World-Pack-owned definition registration rejects owner mismatch and legacy mapping target ownership mismatch.
-
-Result: PASS for tested Phase-9 identity/state isolation boundaries.
-
-## 7. Scale / authoritative truncation
-
-Authoritative Phase-9 store reads iterate complete query result sets and contain no presentation `LIMIT` in the tested player-origin/feature/evolution/form authority paths. The Phase-9 persistence suite creates 1005 innate definitions and 1005 player-owned entries, verifies exact counts, closes/reopens, and verifies 1005 again.
+Derived effects return to base after deactivation while unlock remains persistent.
 
 Result: PASS.
 
-## 8. Migration / production routing
+## 7. Evolution graph integrity beyond ENTRY
 
-Candidate `d796d374f92d94477542da5f753ee411b633076b` provides:
+The existing explicit transition model continues to enforce:
 
-- `CurrentSchema.ensure()` -> `MigrationManager.ensureV9()`;
-- `ensureV9()` -> `ensureV8()` -> prior chain;
-- additive `RPGOS-9.0-INNATE-EVOLUTION` marker;
-- idempotent `CREATE TABLE IF NOT EXISTS` / migration marker semantics;
-- production campaign-switch V9 routing test;
-- production restore V9 routing test;
+- transition UID existence;
+- source stage existence;
+- target stage existence;
+- source World-Pack ownership;
+- target World-Pack ownership;
+- exact current source stage;
+- cross-path prohibition unless explicitly allowed;
+- explicit history retention through attained stages;
+- no implicit stage arithmetic;
+- no arbitrary rollback by replaying a prior transition from the wrong source.
+
+ENTRY cannot be used as rollback or replay after any current state exists on its target path.
+
+Result: PASS.
+
+## 8. Identity / legacy / isolation regression gates
+
+Previously passing WORK-040 gates remain valid on the hotfix:
+
+- duplicate definition UID rejection;
+- World-Pack owner mismatch rejection;
+- same display label with different stable UID remains separate;
+- `clan_uid`, race, bloodline, form and evolution labels grant nothing without explicit mapping;
+- ambiguous explicit legacy mappings fail loudly;
+- deleted/missing legacy mapping targets fail loudly;
+- campaign and player state remain scoped by `(campaign_id, character_uid, ...)`;
+- World-Pack-owned definitions/mappings cannot hijack another pack's target identity;
+- unlock remains distinct from active form.
+
+Result: PASS.
+
+## 9. Scale / authoritative no-truncation / integrity
+
+Existing Phase-9 persistence tests still exercise 1005 innate definitions and 1005 player-owned entries, then close/reopen and assert all 1005 remain visible. Authoritative Phase-9 store reads iterate the full result set; no presentation `LIMIT` is used as an authority boundary.
+
+The suite also checks:
+
 - `PRAGMA integrity_check = ok`;
-- clean `PRAGMA foreign_key_check` in the adopted test policy.
+- clean `PRAGMA foreign_key_check` under the adopted FK test policy.
 
 Result: PASS.
 
-## 9. Exact CI evidence
+## 10. V9.1 migration / production routing
 
-GitHub Actions run:
-
-- workflow: `Build & Release RPG OS ALPHA`
-- run number: `#196`
-- run id: `31349200549`
-- head SHA: `d796d374f92d94477542da5f753ee411b633076b`
-- status: `completed`
-- conclusion: `success`
-
-CI gate itself: PASS.
-
-## 10. RELEASE BLOCKER — E-07 explicit evolution-transition bypass
-
-The prepared WORK-040 matrix defines E-07:
-
-> direct write of current stage to arbitrary target bypassing transition identity -> reject or be impossible through authoritative API.
-
-The final candidate violates this invariant through the public authoritative API:
-
-```kotlin
-fun enterEvolutionPath(
-    characterUid: String,
-    stageUid: String,
-    provenance: String,
-    attainedChapter: Long? = null
-)
-```
-
-`enterEvolutionPath()` accepts any existing `stageUid` and, when the character has no state on that path, directly inserts:
+Phase 9.1 migration marker:
 
 ```text
-player_evolution_states.current_stage_uid = supplied stageUid
+RPGOS-9.1-REQUIREMENT-GATES
 ```
 
-and marks that stage attained. It does not require a `transitionUid`, does not verify a path-entry transition, and does not verify that the stage is a legal entry stage.
+`CurrentSchema.ensure()` now routes to `ensureV9RequirementHotfix()`, which first calls `ensureV9()`, preserving the complete prior migration chain.
 
-This is especially significant because the Phase-9 definition model already supports explicit path-entry transition identity:
+The hotfix is additive:
 
-```text
-EvolutionTransitionDefinition.sourceStageUid: String?
-```
+- adds version columns for transition/activation bindings;
+- adds explicit unlock requirement UID/version columns;
+- preserves pre-hotfix non-null transition/activation rule UIDs deterministically as version 1;
+- rewrites no player state and no legacy evidence;
+- uses an idempotent migration marker.
 
-where `null` can represent a path-entry source. However `transitionEvolution()` explicitly rejects source-null transitions:
+Tests execute `CurrentSchema.ensure()` twice, assert exactly one V9.1 migration marker, verify integrity/FK, and reopen successfully. Existing production restore/campaign-switch routing uses the same `CurrentSchema.ensure()` entrypoint, so those paths now reach V9.1 through the same central schema authority.
 
-```text
-Entry transition cannot mutate an existing current stage; use enterEvolutionPath
-```
+Result: PASS.
 
-and the alternative `enterEvolutionPath()` bypasses transition identity entirely.
+## 11. Phase 3–8 no-regression assessment
 
-### Reproducer
+The hotfix changes evolution-entry/requirement gating and migration metadata only. The inspected tests continue to exercise Phase-5 derived integration and persistent Phase-6/7/8 boundaries. No hotfix code path writes base stats/resources, Skill/Technique base mastery, Talent/Potential, or Phase-4/6/7/8 legacy reconciliation data.
 
-Given one path with two stages and no legal entry transition to the advanced stage:
+No reproducible Phase 3–8 regression was found.
 
-```text
-path P
-stage A
-stage B
-```
+Result: PASS.
 
-on a character with no current state on P:
+## 12. Exact CI evidence
 
-```kotlin
-store.enterEvolutionPath("PLAYER", "B", "start")
-```
+Exact candidate:
 
-succeeds and makes `B` both current and attained.
+`c64c123104f1643a53bf9bb5ebbf19e4bc0dfe87`
 
-No explicit transition `ENTRY -> B` is required. Therefore an arbitrary stage can become authoritative current evolution state at initial path entry while bypassing the explicit transition graph.
+GitHub Actions:
 
-The existing test does not catch this because it first calls `enterEvolutionPath(..., "A", ...)` and only then verifies that another direct `enterEvolutionPath(..., "B", ...)` fails after a current path state already exists. The adversarial case is choosing `B` as the *first* stage.
+- workflow: `Build & Release RPG OS ALPHA`;
+- run number: `#213`;
+- run id: `31350492914`;
+- head SHA: `c64c123104f1643a53bf9bb5ebbf19e4bc0dfe87`;
+- status: `completed`;
+- conclusion: `success`.
 
-This is a reproducible violation of:
+CI gate: PASS.
 
-- WORK-040 E-07;
-- the Phase-9 invariant that evolution state changes use explicit legal transitions;
-- the semantic state oracle requirement that stage identity/order is not inferred or bypassed and legal movement is defined by explicit transition identity.
-
-Under WORK-040 section 16, allowing an invalid transition/state change without explicit legal transition is an automatic FAIL condition.
-
-## 11. Secondary risk observed but not required for this FAIL
-
-`EvolutionTransitionDefinition.requirementRuleUid` and `FormDefinition.activationRuleUid` are persisted as generic bindings, while the direct store mutation methods do not evaluate those rules. This may be intentionally deferred to a future legal domain/rule caller, so this report does not independently classify it as an additional release blocker. The explicit E-07 transition-identity bypass above is sufficient and reproducible on the current Phase-9 authority API.
-
-## 12. Final matrix summary
+## 13. Final adversarial matrix summary
 
 | Gate | Result |
 |---|---|
-| Definition stable UID / duplicate rejection | PASS |
-| World Pack ownership / same-label separation | PASS |
-| Clan/race/bloodline labels grant nothing automatically | PASS |
-| Legacy explicit mapping / ambiguity / missing target | PASS |
-| Unlock != active | PASS |
-| Active form requires unlock | PASS |
-| Deactivation preserves unlock | PASS |
-| Mutually exclusive forms | PASS |
-| Phase-5 derived integration / no base mutation | PASS |
-| Resource current value no hidden mutation | PASS |
-| Skill/Technique mastery no-retrogression | PASS |
+| Original E-07 stage-only bypass | PASS — removed as authoritative mutation path |
+| Direct B/C start without explicit ENTRY | PASS |
+| Missing/wrong ENTRY transition | PASS |
+| ENTRY replay/rollback/re-entry | PASS |
+| ENTRY World-Pack/path isolation | PASS |
+| Multiple explicit ENTRY points | PASS |
+| ENTRY requirement fail/missing provider/missing rule | PASS |
+| Requirement version mismatch | PASS |
+| Malformed requirement result | PASS |
+| Requirement dependency cycle | PASS |
+| Failed ENTRY atomicity | PASS |
+| `attainedViaTransitionUid` | PASS |
+| Legacy evolution stage without unique explicit ENTRY | PASS — fail-loud |
+| Ambiguous legacy ENTRY | PASS — fail-loud |
+| Unlock requirement bypass | PASS |
+| Activation requirement bypass | PASS |
+| Exclusive forms | PASS |
+| Modifier activation/deactivation atomic boundary | PASS |
+| Phase-5 generic resolver reuse | PASS |
+| Stat/resource/Skill/Technique no-retrogression | PASS |
 | Talent/Potential no mutation | PASS |
-| Campaign/player isolation | PASS |
-| >1000 authoritative entries / reopen | PASS |
-| V9 production routing | PASS |
-| Phase 3–8 migration chain preservation | PASS on inspected/tested boundaries |
-| Exact CI #196 for exact candidate SHA | PASS |
-| **Explicit legal evolution transition identity / E-07** | **FAIL — BLOCKER** |
+| Campaign/player/World-Pack isolation | PASS |
+| >1000 authoritative entries | PASS |
+| Authoritative no-truncation | PASS |
+| Production V9.1 routing | PASS |
+| Integrity / FK | PASS |
+| Exact CI for hotfix SHA | PASS — #213 SUCCESS |
 
-## 13. Final verdict
+## 14. Final verdict
 
-`PHASE 9 ADVERSARIAL VALIDATION: FAIL`
+`PHASE 9 ADVERSARIAL REVALIDATION: PASS`
 
-Reason: final candidate `d796d374f92d94477542da5f753ee411b633076b` exposes an authoritative `enterEvolutionPath(characterUid, stageUid, ...)` path that can set any stage as the initial current/attained stage without an explicit legal transition identity. This reproduces the matrix's E-07 automatic-fail condition.
+The previously reproducible E-07 blocker is closed on `c64c123104f1643a53bf9bb5ebbf19e4bc0dfe87`. Explicit ENTRY transition identity is now required for initial evolution-path materialization, requirement gates fail safely before authoritative mutation, legacy evolution-stage mapping cannot bypass a unique legal ENTRY, and the Phase-3–8/no-retrogression boundaries remain intact on the inspected candidate.
 
-No runtime correction was implemented by CHAT-5.
+No runtime correction was implemented by CHAT-5. Phase 10 was not started.
