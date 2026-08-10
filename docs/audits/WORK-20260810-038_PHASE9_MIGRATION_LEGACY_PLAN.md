@@ -1,17 +1,18 @@
 # WORK-20260810-038 — Phase 9 Migration / Legacy Integrity Plan
 
-Status: READ-ONLY RUNTIME / FINAL VALIDATION
+Status: READ-ONLY RUNTIME / FINAL REVALIDATION
 
 Work ID: `WORK-20260810-038`
 Role: PHASE 9 MIGRATION / LEGACY INTEGRITY AUDITOR
 Repository: `piotreksmaga-art/rpg-os-android`
 Fresh master at plan creation: `4f8431e4cdf983f7f12fa73e544d988db30953ad`
 Accepted Phase 8 runtime: `7a28e6e4b28ff10cbb516b94e5e0c120d0a15397`
-Audited final Phase 9 runtime: `d796d374f92d94477542da5f753ee411b633076b`
+Previously audited Phase 9 runtime: `d796d374f92d94477542da5f753ee411b633076b`
+Audited final Phase 9.1 hotfix runtime: `c64c123104f1643a53bf9bb5ebbf19e4bc0dfe87`
 Phase 9 implementation work item: `WORK-20260810-036`
 Allowed write scope: this report only.
 
-This document defines and now records final validation results for Phase 9 persistence, legacy evidence, explicit canonicalization, isolation, migration and no-regression. It does not implement runtime or later phases.
+This document defines and records final validation results for Phase 9 persistence, legacy evidence, explicit canonicalization, isolation, migration, requirement-gate hotfixing and no-regression. It does not implement runtime or later phases.
 
 ## 1. Confirmed legacy evidence boundary
 
@@ -57,17 +58,65 @@ No automatic canonicalization is permitted from:
 
 Canonicalization requires explicit World-Pack-owned mapping with stable target UID, version and provenance. Mapping target ownership is validated. Ambiguous mappings fail loudly. Missing/deleted targets fail loudly. Legacy bytes remain unchanged after mapping.
 
-## 4. Migration gates
+## 4. Phase 9.1 requirement-gates migration
 
-Production chain:
+The hotfix adds migration:
 
-`LocalGameStore.ensureCurrentSchema()` -> `CurrentSchema.ensure()` -> `ensureV9()` -> prior schema chain.
+`RPGOS-9.1-REQUIREMENT-GATES`
 
-`RPGOS-9.0-INNATE-EVOLUTION` is created inside the additive V9 migration transaction after Phase 8 is ensured. Repeated latest-schema ensure is idempotent and leaves one migration marker.
+Production chain is now:
 
-## 5. Phase 3–8 no-regression result
+`LocalGameStore.ensureCurrentSchema()` -> `CurrentSchema.ensure()` -> `ensureV9RequirementHotfix()` -> `ensureV9()` -> prior schema chain.
 
-Final runtime preserves:
+The migration is additive and idempotent. It adds only nullable requirement-version/binding columns:
+
+- `evolution_transition_definitions.requirement_rule_version`;
+- `form_definitions.unlock_requirement_rule_uid`;
+- `form_definitions.unlock_requirement_rule_version`;
+- `form_definitions.activation_rule_version`.
+
+Existing pre-hotfix `requirement_rule_uid` and `activation_rule_uid` values are preserved. Where an old UID exists without a version, the migration deterministically assigns version `1`. Existing player origins, innate ownership, evolution current state/history, unlocks, active forms, Phase 3–8 authority and legacy evidence are not rewritten.
+
+Repeated current-schema ensure leaves one `RPGOS-9.1-REQUIREMENT-GATES` marker and does not duplicate state.
+
+## 5. Requirement gate semantics / atomicity
+
+Phase 9.1 separates three requirement gates:
+
+- `UNLOCK`;
+- `TRANSITION`;
+- `ACTIVATION`.
+
+A rule bound for one gate cannot substitute for another. Missing provider/rule, wrong version, malformed result and dependency cycle fail deterministically.
+
+Required failure atomicity is preserved:
+
+- failed form unlock creates no unlock row;
+- failed form activation creates no active form and no active Phase-5 modifiers;
+- failed evolution transition preserves existing current state and attained history;
+- failed ENTRY transition creates neither current evolution state nor attained-stage row.
+
+Successful ENTRY is explicit and provenance-bearing: the attained stage stores the exact `attained_via_transition_uid` for the entry transition.
+
+## 6. Explicit ENTRY and legacy evolution mapping
+
+Direct stage entry is forbidden. A path can start only through an explicit transition whose source stage is null.
+
+For legacy `EVOLUTION_STAGE` materialization, `applyLegacyMappings()` no longer bypasses the transition contract. It requires exactly one explicit ENTRY transition targeting the mapped stage, then executes normal `transitionEvolution()` including its transition requirement gate.
+
+Consequences:
+
+- no ENTRY transition -> fail-loud;
+- more than one candidate ENTRY -> fail-loud;
+- failed ENTRY requirement -> zero persistent current/attained state;
+- successful ENTRY -> exactly one current state and one attained stage with transition provenance;
+- replaying ENTRY or using ENTRY as rollback fails.
+
+Legacy bytes remain unchanged throughout.
+
+## 7. Phase 3–8 no-regression result
+
+Final hotfix preserves:
 
 - ActivePlayerRef semantics;
 - PlayerStat base values and PlayerResource current values;
@@ -76,91 +125,80 @@ Final runtime preserves:
 - Talent/Potential profiles;
 - Skill baseMastery and reconciliation;
 - Technique baseMastery/history/reconciliation/resource-cost mappings;
-- legacy `character_status_snapshot` bytes.
+- legacy `character_status_snapshot` bytes;
+- pre-hotfix Phase-9 origins/features/evolution state/history/unlocks/active forms.
 
-Phase-9 active-form effects use existing Phase-5 generic modifiers. Tests verify base Stat/Skill/Technique/Talent/Potential values remain unchanged during activation and after deactivation.
+Phase-9 active-form effects continue to use existing Phase-5 generic modifiers. Requirement failures do not create partial persistent Phase-9 state.
 
-## 6. Final validation matrix
+## 8. Production routing / reopen / restore / campaign switch
 
-- P9-01 definition registration and World Pack ownership: PASS
-- P9-02 duplicate UID fail-loud: PASS
-- P9-03 same label/different UID remains separate: PASS
-- P9-10 origin persistence: PASS
-- P9-11 innate feature ownership persistence: PASS
-- P9-12 campaign/player/World Pack isolation: PASS
-- P9-20 unlocked != active: PASS
-- P9-21 deactivation preserves unlock: PASS
-- P9-22 active-without-unlock rejected: PASS
-- P9-30 path/stage persistence: PASS
-- P9-31 legal transition succeeds: PASS
-- P9-32 invalid/cross-path transition rejected: PASS
-- P9-33 arbitrary rollback without legal transition rejected: PASS
-- P9-34 attained stage history preserved: PASS
-- P9-40 clan/race/bloodline/form/evolution labels alone grant nothing: PASS
-- P9-41 unresolved legacy evidence preserved: PASS
-- P9-42 explicit mapping canonicalizes exactly once: PASS
-- P9-43 mixed ambiguity fail-loud/unresolved: PASS
-- P9-44 missing/deleted mapping target fail-loud: PASS
-- P9-45 mapping owner validation: PASS
-- P9-46 mapping re-application/idempotency: PASS
-- P9-47 legacy bytes unchanged: PASS
-- P9-50 temporary form changes only derived/effective state: PASS
-- P9-51 base Stat/Skill/Technique/Talent/Potential unchanged: PASS
-- P9-60 current-schema path reaches V9: PASS
-- P9-61 restore/campaign switch latest-schema routing: PASS
-- P9-62 migration idempotent: PASS
-- P9-63 Phase 3–8 no-regression: PASS
-- P9-64 1005 entries no authoritative truncation: PASS
-- P9-65 `PRAGMA integrity_check` = `ok`: PASS
-- P9-66 `PRAGMA foreign_key_check` empty: PASS
-- P9-67 exact candidate CI #196 succeeds: PASS
+`CurrentSchema.ensure()` now invokes `ensureV9RequirementHotfix()`, so every production caller of the common latest-schema entrypoint reaches V9.1.
 
-## 7. Evidence summary from final runtime
+`LocalGameStore.bootstrap()` calls the common `ensureCurrentSchema()` path. `restoreBackup()` restores the database and then invokes `ensureCurrentSchema()`. `setActiveCampaign()` switches the campaign and immediately invokes the same entrypoint. Therefore old V9 databases opened through bootstrap/restore/campaign switch are upgraded through the same V9.1 chain.
 
-### Legacy safety
+Reopen of a V9.1 database is idempotent; successful unlock/active state persists across reopen. Existing V9 rows remain readable after the additive column migration.
 
-`Phase9LegacySafetyTest` proves bare `clan_uid`, race, bloodline, evolution-stage and form evidence produces no canonical origin, feature, evolution state, stage, unlock or active form. It also proves ambiguous explicit mappings fail, a deleted target fails, and unmapped evidence remains explicitly unresolved beside typed state.
+## 9. Final revalidation matrix
 
-### Explicit mapping and exactly-one materialization
+- P9.1-01 migration additive: PASS
+- P9.1-02 migration idempotent / one marker: PASS
+- P9.1-03 existing Phase-9 state preserved: PASS
+- P9.1-04 Phase 3–8 state preserved: PASS
+- P9.1-05 existing transition requirement UID preserved as version 1: PASS
+- P9.1-06 existing activation rule UID preserved as version 1: PASS
+- P9.1-07 unlock requirement UID/version fields added without guessing: PASS
+- P9.1-08 old V9 DB reaches V9.1 through current schema: PASS
+- P9.1-09 V9.1 reopen idempotent: PASS
+- P9.1-10 bootstrap uses latest schema: PASS
+- P9.1-11 restore uses latest schema: PASS
+- P9.1-12 campaign switch uses latest schema: PASS
+- P9.1-13 failed unlock leaves no partial state: PASS
+- P9.1-14 failed activation leaves no partial active state/modifier: PASS
+- P9.1-15 failed transition preserves current/history: PASS
+- P9.1-16 failed ENTRY writes no current/attained state: PASS
+- P9.1-17 legal ENTRY stores exact transition provenance/history: PASS
+- P9.1-18 direct stage entry forbidden: PASS
+- P9.1-19 ENTRY replay/rollback rejected: PASS
+- P9.1-20 legacy evolution materialization requires explicit ENTRY: PASS
+- P9.1-21 legacy evidence lossless: PASS
+- P9.1-22 explicit legacy mapping owner validation preserved: PASS
+- P9.1-23 campaign/player/World-Pack isolation preserved: PASS
+- P9.1-24 `PRAGMA integrity_check` = `ok`: PASS
+- P9.1-25 `PRAGMA foreign_key_check` empty: PASS
+- P9.1-26 full JVM regression suite exact hotfix SHA: PASS
+- P9.1-27 signed ALPHA APK exact hotfix SHA: PASS
+- P9.1-28 exact hotfix CI succeeds: PASS
 
-`Phase9EvolutionLegacyMappingTest` applies the same explicit evolution-stage mapping twice and still produces exactly one current state and one attained stage while preserving the original legacy bytes.
+## 10. Evidence summary
 
-### Unlock vs active and reopen
+`Phase9RequirementMigration.kt` proves the hotfix migration calls `ensureV9()` first, adds only missing nullable columns, deterministically backfills version `1` for pre-hotfix transition/activation rule UIDs, writes a single migration marker and does not rewrite player state or legacy evidence.
 
-`Phase9ReopenStateTest` persists origin, feature, evolution state, attained stage, unlock and active form across close/reopen. Deactivation removes only active state while the unlock remains.
+`Phase9RequirementGatesTest` proves unlock/transition/activation gate separation, failure atomicity, missing/wrong-version/malformed/cycle failures, migration idempotency, reopen persistence, `integrity_check` and `foreign_key_check`.
 
-### Evolution transition integrity
+`Phase9EntryTransitionTest` proves only explicit ENTRY transitions can start a path, failed ENTRY creates zero current/attained state, successful ENTRY creates exactly one state/history record with `attained_via_transition_uid`, ENTRY replay/rollback fails, World-Pack ownership is validated and reopen preserves entry provenance.
 
-`Phase9PersistenceTest` rejects an unauthorized cross-path transition definition, rejects missing transitions, requires the current source stage to match, preserves attained stages A and B after A -> B, and rejects reusing the A -> B transition as an implicit rollback.
+`Phase9Store.applyLegacyMappings()` proves mapped evolution stages use `entryTransitionUidForStage()` and normal `transitionEvolution()` rather than direct stage insertion, so legacy mapping cannot bypass transition requirements.
 
-### Isolation and no-retrogression
+Existing Phase-9 safety/persistence tests continue to cover lossless legacy evidence, explicit mapping, unlock-vs-active, 1005 entries, isolation and Phase 3–8 no-retrogression.
 
-`Phase9PersistenceTest` covers player and campaign isolation and World-Pack ownership checks. Active forms create generic Phase-5 modifiers but do not mutate base stat, Skill mastery, Technique mastery, Talent or Potential.
+## 11. CI evidence
 
-### 1000+ / integrity / FK
+Exact hotfix SHA:
 
-The same test registers and persists 1005 innate features, confirms all 1005 are returned after reopen, verifies `PRAGMA integrity_check` returns `ok`, and verifies `PRAGMA foreign_key_check` returns no rows.
+`c64c123104f1643a53bf9bb5ebbf19e4bc0dfe87`
 
-### Production routing
+GitHub Actions exact-SHA run:
 
-`Phase9ProductionRoutingTest` proves campaign switch and restore route actual V8 campaign databases through `LocalGameStore` to V9. `CurrentSchema.ensure()` points to `ensureV9()`, so normal latest-schema entrypoints use the same chain.
-
-## 8. CI evidence
-
-Exact runtime SHA:
-
-`d796d374f92d94477542da5f753ee411b633076b`
-
-GitHub Actions run:
-
-`#196` / run ID `31349200549`
+`#213` / run ID `31350492914`
 
 Result:
 
 `SUCCESS`
 
-The run is for the exact audited SHA and completed successfully.
+The exact hotfix run completed successfully. `Validate project`, full JVM unit tests and `Build signed ALPHA APK` all passed.
 
-## 9. Final verdict
+Note: CI `#196` belongs to the previous runtime `d796d374f92d94477542da5f753ee411b633076b`; the exact CI run for the requested hotfix SHA is `#213`.
 
-`PHASE 9 INTEGRITY VALIDATION: PASS`
+## 12. Final verdict
+
+`PHASE 9 INTEGRITY REVALIDATION: PASS`
