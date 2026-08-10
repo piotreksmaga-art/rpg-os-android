@@ -101,6 +101,47 @@ class EquipmentPersistenceTest {
         assertTrue(inv.typedUnique("P").isEmpty());assertEquals("X",inv.typedUnique("Q").single().first.itemInstanceUid)
     }}
 
+    @Test fun stalePossessionPrecheckCannotCommitEquipmentAfterTransfer(){ db().use{d->
+        val (inv,e)=seed(d,uids=listOf("X"))
+        e.registerSlots("W",listOf(slot("S")))
+        e.registerCompatibilityRules("W",listOf(EquipmentCompatibilityRule("R","W","DX",listOf("S"),provenance="r")))
+        assertEquals("X",inv.typedUnique("P").single().first.itemInstanceUid)
+        inv.transferUnique("P","Q","X","race-winner")
+        fail {
+            d.execSQL("INSERT INTO player_equipment(campaign_id,character_uid,equipment_entry_uid,item_instance_uid,compatibility_rule_uid,loadout_uid,entry_version,provenance) VALUES('C','P','STALE','X','R','default',1,'stale-precheck')")
+        }
+        assertTrue(e.equipment("P").isEmpty())
+        assertEquals("X",inv.typedUnique("Q").single().first.itemInstanceUid)
+        assertEquals(0,scalar(d,"SELECT COUNT(*) FROM player_equipment WHERE campaign_id='C' AND item_instance_uid='X'"))
+    }}
+
+    @Test fun staleCapacityAndExclusivePrechecksCannotCommitSecondWinnerAndRollbackMultiSlot(){ db().use{d->
+        val (_,e)=seed(d,uids=listOf("X","Y","Z"))
+        e.registerSlots("W",listOf(slot("S",capacity=1),slot("A",group="G"),slot("B"),slot("C",group="G")))
+        e.registerCompatibilityRules("W",listOf(
+            EquipmentCompatibilityRule("RX","W","DX",listOf("S"),provenance="r"),
+            EquipmentCompatibilityRule("RY","W","DY",listOf("S"),provenance="r"),
+            EquipmentCompatibilityRule("RZ","W","DZ",listOf("A","B"),provenance="r")
+        ))
+        assertEquals(0,scalar(d,"SELECT COUNT(*) FROM player_equipment_slots WHERE campaign_id='C' AND character_uid='P' AND slot_uid='S'"))
+        e.equip("P","Y","RY",listOf("S"),"EY","winner")
+        fail {
+            d.beginTransaction()
+            try {
+                d.execSQL("INSERT INTO player_equipment VALUES('C','P','EX','X','RX','default',1,'stale-capacity')")
+                d.execSQL("INSERT INTO player_equipment_slots VALUES('C','P','EX','S')")
+                d.setTransactionSuccessful()
+            } finally { d.endTransaction() }
+        }
+        assertEquals(1,scalar(d,"SELECT COUNT(*) FROM player_equipment"))
+        assertEquals(1,scalar(d,"SELECT COUNT(*) FROM player_equipment_slots WHERE slot_uid='S'"))
+        e.unequip("P","EY")
+        e.equip("P","Z","RZ",listOf("A","B"),"EZ","multi")
+        assertEquals(listOf("A","B"),e.equipment("P").single().occupiedSlotUids)
+        d.rawQuery("PRAGMA integrity_check",null).use{c->c.moveToFirst();assertEquals("ok",c.getString(0))}
+        d.rawQuery("PRAGMA foreign_key_check",null).use{c->assertFalse(c.moveToFirst())}
+    }}
+
     @Test fun reopenPreservesExactEntrySlotsAndNoAuthoritativeTruncation() {
         db().use { d ->
             CurrentSchema.ensure(d,"C")
