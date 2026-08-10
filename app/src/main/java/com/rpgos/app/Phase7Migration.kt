@@ -38,37 +38,25 @@ fun MigrationManager.ensureV7(saveDb: SQLiteDatabase, campaignId: String) {
                 skill_uid TEXT NOT NULL,
                 domain_uid TEXT NOT NULL,
                 PRIMARY KEY(skill_uid,domain_uid),
-                FOREIGN KEY(skill_uid) REFERENCES skill_definitions_v2(skill_uid) ON DELETE CASCADE)
+                FOREIGN KEY(skill_uid) REFERENCES skill_definitions_v2(skill_uid),
+                FOREIGN KEY(domain_uid) REFERENCES progression_domain_definitions(domain_uid))
         """.trimIndent())
         saveDb.execSQL("""
             CREATE TABLE IF NOT EXISTS player_skills_v2(
                 campaign_id TEXT NOT NULL,
                 character_uid TEXT NOT NULL,
                 skill_uid TEXT NOT NULL,
-                mastery REAL NOT NULL,
-                experience REAL NOT NULL DEFAULT 0.0,
-                state_version INTEGER NOT NULL CHECK(state_version >= 1),
+                base_mastery REAL NOT NULL CHECK(base_mastery >= 0.0),
+                progress_value REAL,
+                progress_semantics_uid TEXT,
+                entry_version INTEGER NOT NULL CHECK(entry_version >= 1),
                 provenance TEXT NOT NULL,
+                learned_chapter INTEGER,
                 PRIMARY KEY(campaign_id,character_uid,skill_uid),
                 FOREIGN KEY(skill_uid) REFERENCES skill_definitions_v2(skill_uid),
-                CHECK(mastery >= 0.0), CHECK(experience >= 0.0))
-        """.trimIndent())
-        saveDb.execSQL("""
-            CREATE TABLE IF NOT EXISTS skill_progression_ledger(
-                campaign_id TEXT NOT NULL,
-                entry_uid TEXT NOT NULL,
-                character_uid TEXT NOT NULL,
-                skill_uid TEXT NOT NULL,
-                mastery_before REAL NOT NULL,
-                mastery_after REAL NOT NULL,
-                experience_delta REAL NOT NULL,
-                source_type TEXT NOT NULL,
-                source_uid TEXT NOT NULL,
-                created_at INTEGER NOT NULL,
-                provenance TEXT NOT NULL,
-                PRIMARY KEY(campaign_id,entry_uid),
-                FOREIGN KEY(skill_uid) REFERENCES skill_definitions_v2(skill_uid),
-                CHECK(mastery_before >= 0.0), CHECK(mastery_after >= mastery_before), CHECK(experience_delta >= 0.0))
+                CHECK(progress_value IS NULL OR progress_value >= 0.0),
+                CHECK((progress_value IS NULL AND progress_semantics_uid IS NULL) OR (progress_value IS NOT NULL AND progress_semantics_uid IS NOT NULL)),
+                CHECK(learned_chapter IS NULL OR learned_chapter >= 0))
         """.trimIndent())
         saveDb.execSQL("""
             CREATE TABLE IF NOT EXISTS legacy_skill_mappings(
@@ -79,24 +67,26 @@ fun MigrationManager.ensureV7(saveDb: SQLiteDatabase, campaignId: String) {
                 world_pack_uid TEXT NOT NULL,
                 mapping_version INTEGER NOT NULL CHECK(mapping_version >= 1),
                 provenance TEXT NOT NULL,
+                superseded_by_typed INTEGER NOT NULL DEFAULT 0 CHECK(superseded_by_typed IN (0,1)),
                 PRIMARY KEY(campaign_id,character_uid,legacy_skill_uid),
                 FOREIGN KEY(canonical_skill_uid) REFERENCES skill_definitions_v2(skill_uid))
         """.trimIndent())
         saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_skill_definitions_pack ON skill_definitions_v2(world_pack_uid,category,skill_key)")
         saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_player_skills_character ON player_skills_v2(campaign_id,character_uid,skill_uid)")
-        saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_skill_ledger_character ON skill_progression_ledger(campaign_id,character_uid,skill_uid,created_at)")
         saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_legacy_skill_target ON legacy_skill_mappings(campaign_id,character_uid,canonical_skill_uid)")
-        saveDb.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('$PHASE7_MIGRATION_ID',strftime('%s','now'),'Adds typed generic skills, player mastery/xp state and append-only progression evidence; legacy skills stay untouched')")
+        saveDb.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('$PHASE7_MIGRATION_ID',strftime('%s','now'),'Adds generic World Pack SkillDefinition/PlayerSkill, explicit legacy reconciliation, and SKILL_EFFECTIVE as a generic Phase 5 target; legacy skill bytes remain untouched')")
         saveDb.setTransactionSuccessful()
     } finally { saveDb.endTransaction() }
 }
 
 private fun ensureSkillModifierTarget(db: SQLiteDatabase) {
-    val sql = db.rawQuery("SELECT sql FROM sqlite_master WHERE type='table' AND name='modifiers'", null).use { c -> if(c.moveToFirst()) c.getString(0) else null } ?: return
+    val sql = db.rawQuery("SELECT sql FROM sqlite_master WHERE type='table' AND name='modifiers'", null).use { c ->
+        if (c.moveToFirst()) c.getString(0).orEmpty() else ""
+    }
     if (sql.contains("SKILL_EFFECTIVE")) return
-    db.execSQL("ALTER TABLE modifiers RENAME TO modifiers_phase7_old")
+    db.execSQL("DROP TABLE IF EXISTS modifiers_phase7_new")
     db.execSQL("""
-        CREATE TABLE modifiers(
+        CREATE TABLE modifiers_phase7_new(
             modifier_uid TEXT NOT NULL,
             campaign_id TEXT NOT NULL,
             character_uid TEXT NOT NULL,
@@ -117,8 +107,10 @@ private fun ensureSkillModifierTarget(db: SQLiteDatabase) {
             PRIMARY KEY(campaign_id,modifier_uid),
             CHECK(valid_from IS NULL OR valid_until IS NULL OR valid_until >= valid_from))
     """.trimIndent())
-    db.execSQL("INSERT INTO modifiers SELECT * FROM modifiers_phase7_old")
-    db.execSQL("DROP TABLE modifiers_phase7_old")
+    db.execSQL("""INSERT INTO modifiers_phase7_new(modifier_uid,campaign_id,character_uid,target_definition_uid,target_kind,lifecycle,operation,modifier_value,priority,source_type,source_uid,source_active,valid_from,valid_until,active,provenance,version)
+        SELECT modifier_uid,campaign_id,character_uid,target_definition_uid,target_kind,lifecycle,operation,modifier_value,priority,source_type,source_uid,source_active,valid_from,valid_until,active,provenance,version FROM modifiers""")
+    db.execSQL("DROP TABLE modifiers")
+    db.execSQL("ALTER TABLE modifiers_phase7_new RENAME TO modifiers")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_modifiers_character_target ON modifiers(campaign_id,character_uid,target_kind,target_definition_uid,active,source_active)")
     db.execSQL("CREATE INDEX IF NOT EXISTS idx_modifiers_source ON modifiers(campaign_id,character_uid,source_type,source_uid)")
 }
