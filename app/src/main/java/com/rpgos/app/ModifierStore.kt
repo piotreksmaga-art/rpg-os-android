@@ -35,10 +35,14 @@ internal class ModifierStore(private val db: SQLiteDatabase, private val campaig
         val changed=db.update("modifiers",android.content.ContentValues().apply{put("active",if(active)1 else 0)},"campaign_id=? AND character_uid=? AND modifier_uid=?",arrayOf(campaignId,characterUid,modifierUid))
         require(changed==1){"Modifier not found: $modifierUid"}
     }
-    internal fun setSourceActive(characterUid:String,sourceType:String,sourceUid:String,active:Boolean):Int{
+
+    internal fun setSourceActive(characterUid:String,sourceType:String,sourceUid:String,active:Boolean,lifecycle:ModifierLifecycle?=null):Int{
         require(characterUid.isNotBlank()&&sourceType.isNotBlank()&&sourceUid.isNotBlank()){ "source identity must not be blank" }
-        return db.update("modifiers",android.content.ContentValues().apply{put("source_active",if(active)1 else 0)},"campaign_id=? AND character_uid=? AND source_type=? AND source_uid=?",arrayOf(campaignId,characterUid,sourceType,sourceUid))
+        val where = if(lifecycle==null) "campaign_id=? AND character_uid=? AND source_type=? AND source_uid=?" else "campaign_id=? AND character_uid=? AND source_type=? AND source_uid=? AND lifecycle=?"
+        val args = if(lifecycle==null) arrayOf(campaignId,characterUid,sourceType,sourceUid) else arrayOf(campaignId,characterUid,sourceType,sourceUid,lifecycle.name)
+        return db.update("modifiers",android.content.ContentValues().apply{put("source_active",if(active)1 else 0)},where,args)
     }
+
     internal fun remove(characterUid:String,modifierUid:String):Boolean=db.delete("modifiers","campaign_id=? AND character_uid=? AND modifier_uid=?",arrayOf(campaignId,characterUid,modifierUid))==1
     private fun exists(uid:String)=db.rawQuery("SELECT 1 FROM modifiers WHERE campaign_id=? AND modifier_uid=? LIMIT 1",arrayOf(campaignId,uid)).use{it.moveToFirst()}
 
