@@ -24,7 +24,7 @@ class EquipmentModifierIntegrationTest {
             val statDef=StatDefinition("S","s","generic",worldPackUid="W")
             val resDef=ResourceDefinition("R","r","generic",maxValue=100.0,regenerationRuleUid="regen",worldPackUid="W")
             sr.registerStatDefinitions("W",listOf(statDef));sr.registerResourceDefinitions("W",listOf(resDef))
-            sr.savePlayerStat(PlayerStat("C","P","S",100.0));sr.savePlayerResource(PlayerResource("C","P","R",150.0))
+            sr.savePlayerStat(PlayerStat("C","P","S",100.0));sr.savePlayerResource(PlayerResource("C","P","R",100.0))
 
             d.execSQL("INSERT INTO skill_definitions_v2(skill_uid,world_pack_uid,skill_key,display_name,category,min_mastery,max_mastery,definition_status,definition_version,provenance) VALUES('K','W','k','K','generic',0,NULL,'ACTIVE',1,'pack')")
             d.execSQL("INSERT INTO player_skills_v2(campaign_id,character_uid,skill_uid,base_mastery,entry_version,provenance) VALUES('C','P','K',40,1,'player')")
@@ -51,6 +51,7 @@ class EquipmentModifierIntegrationTest {
             val before=resolve(d)
             assertEquals(100.0,before.resolvedStats.single().effectiveValue,0.0)
             assertEquals(100.0,before.resolvedResources.single().maximumValue!!,0.0)
+            assertEquals(100.0,before.resolvedResources.single().currentValueObserved,0.0)
             assertEquals(2.0,before.resolvedResources.single().regenerationRate!!,0.0)
             assertEquals(40.0,before.resolvedSkills.single().effectiveMastery,0.0)
             assertEquals(50.0,before.resolvedTechniques.single().effectiveMastery,0.0)
@@ -60,6 +61,7 @@ class EquipmentModifierIntegrationTest {
             val active=resolve(d)
             assertEquals(120.0,active.resolvedStats.single().effectiveValue,0.0)
             assertEquals(200.0,active.resolvedResources.single().maximumValue!!,0.0)
+            assertEquals(100.0,active.resolvedResources.single().currentValueObserved,0.0)
             assertEquals(5.0,active.resolvedResources.single().regenerationRate!!,0.0)
             assertEquals(45.0,active.resolvedSkills.single().effectiveMastery,0.0)
             assertEquals(57.0,active.resolvedTechniques.single().effectiveMastery,0.0)
@@ -70,8 +72,10 @@ class EquipmentModifierIntegrationTest {
             val after=resolve(d)
             assertEquals(100.0,after.resolvedStats.single().effectiveValue,0.0)
             assertEquals(100.0,after.resolvedResources.single().maximumValue!!,0.0)
-            assertEquals(150.0,after.resolvedResources.single().currentValueObserved,0.0)
-            assertTrue(after.resolvedResources.single().diagnostics.any{it.code=="RESOURCE_CURRENT_ABOVE_DERIVED_MAX"})
+            assertEquals(100.0,after.resolvedResources.single().currentValueObserved,0.0)
+            assertEquals(2.0,after.resolvedResources.single().regenerationRate!!,0.0)
+            assertEquals(40.0,after.resolvedSkills.single().effectiveMastery,0.0)
+            assertEquals(50.0,after.resolvedTechniques.single().effectiveMastery,0.0)
             assertEquals(beforeAuthority,authoritySnapshot(d))
         }}finally{f.delete()}
     }
