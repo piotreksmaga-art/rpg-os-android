@@ -31,10 +31,11 @@ class Phase9ReopenStateTest {
             store.registerInnateFeatures("W", listOf(InnateFeatureDefinition("F", "W", "f", "Feature", "generic", provenance = "pack")))
             store.registerEvolutionPaths("W", listOf(EvolutionPathDefinition("P", "W", "p", "Path", provenance = "pack")))
             store.registerEvolutionStages("W", listOf(EvolutionStageDefinition("S", "P", "W", "s", "Stage", provenance = "pack")))
+            store.registerEvolutionTransitions("W", listOf(EvolutionTransitionDefinition("ENTRY-S", "W", null, "S", provenance = "pack")))
             store.registerForms("W", listOf(FormDefinition("FORM", "W", "form", "Form", sourceStageUid = "S", provenance = "pack")))
             store.saveOrigin(PlayerOrigin("C", "PLAYER", "O", "PRIMARY", provenance = "typed"))
             store.grantInnateFeature(PlayerInnateFeature("C", "PLAYER", "F", provenance = "typed"))
-            store.enterEvolutionPath("PLAYER", "S", "transition")
+            store.transitionEvolution("PLAYER", "ENTRY-S", "transition")
             store.unlockForm(PlayerFormUnlock("C", "PLAYER", "FORM", provenance = "unlock"))
             store.activateForm(PlayerActiveForm("C", "PLAYER", "FORM", provenance = "active"))
         }
