@@ -1,268 +1,258 @@
 # WORK-20260810-035 — Phase 8 Adversarial Matrix
 
-Status: READ-ONLY RUNTIME / PRE-IMPLEMENTATION ADVERSARIAL MATRIX
+Status: FINAL READ-ONLY ADVERSARIAL VALIDATION
 
 Work ID: `WORK-20260810-035`
 Owner: `CHAT-5`
 Role: PHASE 8 ADVERSARIAL AUDITOR
 Repository: `piotreksmaga-art/rpg-os-android`
-Master at matrix creation: `0653c6c6fe03da3db98623112f7a0af4c3f88464`
-Accepted Phase 7 runtime: `8075487d24bf0b3da1bcbd8f9fb2483e9154ec6c`
-Phase 8 implementation work item: `WORK-20260810-031`
-WORK-031 result commit at matrix creation: NOT FOUND
+Matrix baseline: `0653c6c6fe03da3db98623112f7a0af4c3f88464`
+Final audited Phase 8 candidate: `7a28e6e4b28ff10cbb516b94e5e0c120d0a15397`
+Fresh master before final report write: `540e6693644d50194b2f0a7df73f696d8d61c941` (read-only CHAT-3 Phase 8 integrity report on top of the audited runtime)
+Exact CI evidence: GitHub Actions run #177, run id `31344101852`, head SHA `7a28e6e4b28ff10cbb516b94e5e0c120d0a15397`, conclusion `success`.
 
-This document is read-only. It does not implement Phase 8 runtime, schema, migration, DevelopmentProject, ProgressionEngine, PlayerDomainEngine, or CharacterPanelSnapshot v2.
+This document is read-only. No runtime implementation was changed by CHAT-5.
 
 Canonical architecture input: `docs/audits/WORK-20260810-029_PHASE8_TECHNIQUE_ARCHITECTURE.md`.
 
-## 1. Release invariants under attack
-
-Phase 8 must preserve all of the following:
-
-1. `Technique != Skill != Talent != Potential != Stat != Resource`.
-2. Learned Technique identity is stable UID based and World-Pack-owned.
-3. Player Technique authority is scoped by `(campaign, character, techniqueUid)`.
-4. If mastery exists, `baseTechniqueMastery` is persistent authority; temporary effects must never overwrite it.
-5. Existing `character_techniques` data must remain losslessly visible through the typed Technique contract.
-6. Legacy + typed representations of one logical Technique cannot become two unresolved authoritative Technique states.
-7. Legacy XP/history/counters/equipped/notes must be preserved according to proven semantics; no invented XP conversion.
-8. Skill requirement relationships use stable Skill UID and cannot copy Skill mastery into Technique mastery.
-9. Talent/Potential cannot directly grant or write Technique mastery.
-10. Generic resource costs use `ResourceDefinition.resourceUid`; Core must not hardcode chakra or another universe resource.
-11. `canon_technique_index` is reference/browser data and must not auto-create/link TechniqueDefinition by name.
-12. Authoritative Technique reads must not inherit presentation/context truncation such as legacy `LIMIT 60`.
-13. Phase-8 migration must be reachable from the production current-schema entrypoint.
-14. Phase 3–7 authority and migrations must remain unchanged except for explicit backward-compatible Phase-5 target extension if required.
-
-## 2. Existing attack surface
-
-Current legacy/runtime evidence includes `character_techniques` fields such as `entity_uid`, `technique_uid`, `mastery`, `xp`, `learned_chapter`, `last_used_chapter`, `usage_count`, `success_count`, `failure_count`, `is_equipped`, `notes`, plus definition-side `base_chakra_cost` and player-side `chakra_cost_override` in existing presentation paths. `ContextBuilder` currently applies a player Technique context limit, so Phase 8 must ensure this remains presentation-only and never becomes authoritative repository truncation.
-
-`canon_technique_index` is a World Pack/reference surface. Its name/category/rank/element metadata is not sufficient proof that a corresponding canonical `TechniqueDefinition` exists or shares identity.
-
-## 3. Technique identity / definition attacks
-
-| ID | Case | Required outcome |
-|---|---|---|
-| D-01 | duplicate exact Technique UID | Fail-loud unless exact idempotent registration is explicitly supported. |
-| D-02 | same UID with incompatible owner/metadata | Reject; no silent reinterpretation. |
-| D-03 | same label/name, different UID | Remain separate identities. |
-| D-04 | same textual key in different World Packs | No automatic merge. |
-| D-05 | World Pack B attempts to register A-owned UID | Reject. |
-| D-06 | definition version < 1 / blank provenance | Reject. |
-| D-07 | missing/deleted definition for learned player Technique | Preserve unresolved/history; never silently delete learned Technique. |
-| D-08 | deprecated definition | Existing learned ownership persists; deprecation must not mean unlearned. |
-| D-09 | guessed identity from canon-index name | Forbidden. |
-
-Stable UID has precedence over every display label.
-
-## 4. Mastery numeric attacks
-
-If Phase 8 canonicalizes Technique mastery:
-
-- M-01 `baseMastery = 0` — legal if declared range permits.
-- M-02 negative mastery — deterministic reject unless explicit scale allows it.
-- M-03 NaN — reject before persistence/resolution.
-- M-04 +Infinity / -Infinity — reject.
-- M-05 very large finite mastery — obey explicit definition range; no arbitrary global maximum is required.
-- M-06 value above declared max — reject or explicit legal policy; never hidden mutation.
-- M-07 `-0.0` — deterministic canonical handling if Double is used.
-- M-08 duplicate `(campaign,character,techniqueUid)` — never two authoritative rows.
-
-Automatic blocker: any temporary derived path that writes back into persistent mastery.
-
-## 5. No-retrogression / modifier attacks
-
-If `TECHNIQUE_EFFECTIVE` or equivalent is added to Phase 5:
-
-- NR-01 injury penalty changes effective value only.
-- NR-02 equipment bonus/removal changes effective value only.
-- NR-03 temporary buff expiry does not persist gain.
-- NR-04 override/cap/floor do not mutate base mastery.
-- NR-05 same priority/order remains deterministic by existing Phase-5 rules.
-- NR-06 reversed modifier insertion/list/SQLite order produces identical result.
-- NR-07 Player A modifier cannot affect B.
-- NR-08 Campaign A modifier cannot affect B.
-- NR-09 Technique modifier targeting Skill/Stat UID fails target-kind validation.
-- NR-10 Stat/Skill modifier targeting Technique UID fails.
-- NR-11 no `TechniqueModifierEngine` or second resolver is introduced.
-
-## 6. Skill requirement attacks
-
-Technique requirements must use stable Skill identity.
-
-- SR-01 missing required Skill definition -> deterministic failure/unresolved requirement.
-- SR-02 wrong World Pack Skill owner -> reject if ownership contract requires same/authorized pack.
-- SR-03 label-only requirement -> forbidden.
-- SR-04 required Skill mastery threshold must declare BASE vs EFFECTIVE semantics explicitly.
-- SR-05 temporary Skill injury may affect an EFFECTIVE requirement only; it cannot unlearn Technique.
-- SR-06 Skill mastery is never copied into Technique mastery.
-- SR-07 Skill update does not automatically rewrite Technique mastery.
-- SR-08 learning Skill does not automatically create/grant Technique.
-- SR-09 learned Technique remains learned if an execution requirement later becomes temporarily unmet.
-
-## 7. Talent/Potential attacks
-
-Forbidden paths:
-
-- TP-01 Talent directly grants PlayerTechnique.
-- TP-02 Potential directly grants PlayerTechnique.
-- TP-03 Talent value copied into Technique mastery.
-- TP-04 Potential used as direct Technique mastery cap/write in Phase 8.
-- TP-05 Talent/Potential profile update rewrites Technique row.
-- TP-06 Technique save writes Talent/Potential.
-
-Future progression relationships are allowed only as explicit future ProgressionEngine inputs.
-
-## 8. Legacy reconciliation attacks
-
-Required cases:
-
-- L-01 legacy-only Technique remains visible through typed Technique read.
-- L-02 orphan `technique_uid` survives as unresolved compatibility state.
-- L-03 unknown/custom Technique survives without universe hardcoding.
-- L-04 legacy + typed same logical Technique WITHOUT explicit mapping fails loudly or remains explicitly unresolved.
-- L-05 explicit mapping/supersession yields exactly one canonical logical Technique.
-- L-06 legacy bytes remain unchanged after mapping.
-- L-07 unrelated unmapped legacy Technique remains visible.
-- L-08 same name/case-insensitive name across World Packs is not guessed as same Technique.
-- L-09 mapping target missing -> fail-loud.
-- L-10 mapping owner changed/hijacked -> fail-loud.
-- L-11 mapping version mismatch -> no silent remap.
-- L-12 typed canonical value cannot be silently overwritten by legacy row.
-- L-13 1000+ legacy Techniques are not truncated.
-- L-14 active/non-active players remain isolated.
-- L-15 same character UID string in two campaigns remains isolated.
-
-No global `same name == same Technique` or `same key == same Technique` rule is acceptable.
-
-## 9. XP / telemetry / learned-state attacks
-
-Legacy XP semantics are not proven. Therefore:
-
-- X-01 preserve XP losslessly.
-- X-02 no XP -> mastery conversion without explicit semantics/rule.
-- X-03 no XP -> Skill XP conversion.
-- X-04 no XP -> Talent/Potential conversion.
-- X-05 reopen preserves exact compatibility representation.
-
-Usage/success/failure counters are historical/telemetry-like unless runtime proves stronger authority semantics. They must not manufacture mastery or ownership.
-
-`is_equipped` must not be used as proof of learned ownership; a learned-but-unequipped Technique must remain learned.
-
-## 10. Generic resource cost attacks
-
-New Core contract must target stable `ResourceDefinition.resourceUid`.
-
-- RC-01 no literal `chakra` branch in generic Technique Core model/resolver.
-- RC-02 legacy `base_chakra_cost` remains preserved when unmapped.
-- RC-03 legacy `chakra_cost_override` remains preserved when unmapped.
-- RC-04 no automatic legacy chakra -> arbitrary generic resource mapping.
-- RC-05 explicit mapping target resource missing -> fail-loud.
-- RC-06 explicit mapping target belongs to wrong World Pack/campaign context -> reject.
-- RC-07 deleted/deprecated resource target -> deterministic unresolved/failure semantics.
-- RC-08 cost binding with NaN/Infinity/negative invalid value follows explicit validation policy.
-- RC-09 multiple resource costs remain separate and deterministic if supported.
-- RC-10 cost definition must not mutate `PlayerResource.currentValue`; actual spending belongs to a later legal mechanics/domain action, not the Technique definition/read model.
-
-## 11. Canon index attacks
-
-- CI-01 same Technique name in `canon_technique_index` and legacy definition does not auto-link.
-- CI-02 different World Packs with same name remain separate.
-- CI-03 browser/reference metadata cannot create PlayerTechnique.
-- CI-04 canon index rename cannot change persistent Technique identity.
-- CI-05 explicit canon mapping target missing or ownership-changed -> fail-loud.
-
-## 12. Skill != Technique leakage
-
-- ST-01 PlayerTechnique save creates no PlayerSkill.
-- ST-02 PlayerSkill save creates no PlayerTechnique.
-- ST-03 Skill mastery update does not copy to Technique mastery.
-- ST-04 Technique mastery update does not copy to Skill mastery.
-- ST-05 Technique requirement rows do not become Skill ownership rows.
-- ST-06 legacy similarly named Skill/Technique UIDs are not merged without explicit cross-domain mapping.
-
-Any combined Skill+Technique authoritative object is a blocker.
-
-## 13. Isolation attacks
-
-Mandatory attempts:
-
-- I-01 campaign A -> B leakage.
-- I-02 player A -> B leakage.
-- I-03 World Pack A -> B definition hijack.
-- I-04 same Technique UID string across campaigns respects definition/ownership contract and player state isolation.
-- I-05 active-player switch does not retain previous player's Technique read.
-- I-06 ContextBuilder/repository never use first-row/global fallback.
-- I-07 cost mapping for one campaign/pack cannot alter another.
-
-## 14. Scale / truncation attacks
-
-- S-01 authoritative read with 100 Techniques returns exactly 100.
-- S-02 authoritative read with >1000 Techniques returns exact count.
-- S-03 old ContextBuilder `LIMIT 60` remains context-only; typed authoritative read has no such limit.
-- S-04 duplicate/conflict after the 1000th row still fails loudly.
-- S-05 reopen after >1000 Techniques preserves exact count and values.
-
-## 15. Migration / production entrypoint attacks
-
-After WORK-031 exists, verify:
-
-1. `CurrentSchema.ensure()` reaches Phase 8/latest schema.
-2. `ensureV8()` or equivalent chains through prior migrations in order.
-3. bootstrap reaches V8.
-4. restore reaches V8.
-5. campaign switch reaches V8.
-6. migration is additive/idempotent.
-7. ActivePlayerRef unchanged.
-8. stats/resources unchanged.
-9. Phase-4 reconciliation unchanged.
-10. Phase-5 modifiers/resolver unchanged except explicit backward-compatible target extension.
-11. Talent/Potential unchanged.
-12. Skill definitions/player Skills/reconciliation unchanged.
-13. legacy Technique bytes unchanged.
-14. no false migration marker without required schema.
-15. `PRAGMA integrity_check = ok`.
-16. `PRAGMA foreign_key_check` clean under adopted FK policy.
-
-Failure to wire V8 into production current-schema path is an automatic release blocker.
-
-## 16. Automatic FAIL conditions
-
-`PHASE 8 ADVERSARIAL VALIDATION: FAIL` is mandatory for any reproducible current-runtime case where WORK-031:
-
-- loses or silently hides legacy/orphan Technique state;
-- creates duplicate authoritative Technique state for one reconciled logical Technique;
-- guesses Technique identity from name/key/canon index;
-- allows NaN/Infinity canonical mastery;
-- permanently changes base Technique mastery from temporary modifier state;
-- copies Skill mastery into Technique mastery;
-- lets Talent/Potential directly grant or rewrite Technique;
-- hardcodes chakra (or another universe-specific resource) into the new generic Core Technique contract;
-- silently maps ambiguous legacy chakra cost to a generic resource;
-- permits cross-campaign/player/World-Pack leakage;
-- silently truncates authoritative Technique reads;
-- creates a second Technique-specific modifier/resolver engine;
-- collapses Skill and Technique into one authoritative model;
-- mutates Phase 3–7 authority during migration;
-- fails to reach Phase-8 schema through the production current-schema entrypoint.
-
-Missing future DevelopmentProject/ProgressionEngine behavior is NOT a Phase-8 failure if identity, persistence and no-retrogression contracts remain correct.
-
-## 17. Current validation status
-
-At matrix creation, fresh `master = 0653c6c6fe03da3db98623112f7a0af4c3f88464`. Repository commit search found no `WORK-20260810-031` result commit. Therefore final runtime adversarial validation cannot yet be performed.
-
-Current status:
-
-`PHASE 8 ADVERSARIAL MATRIX READY`
-
-After WORK-031 resultCommit appears, extend this report with actual code/test/CI evidence and exactly one final verdict:
+## 1. Final executive verdict
 
 `PHASE 8 ADVERSARIAL VALIDATION: PASS`
 
-or
+No reproducible violation of the current Phase-8 contract was found on exact runtime candidate `7a28e6e4b28ff10cbb516b94e5e0c120d0a15397`.
 
-`PHASE 8 ADVERSARIAL VALIDATION: FAIL`
+The accepted implementation keeps Technique separate from Skill/Talent/Potential/Stat/Resource, introduces stable World-Pack-owned Technique definitions and campaign/character-scoped PlayerTechnique rows, preserves legacy Technique state through explicit reconciliation, extends the existing Phase-5 generic resolver with `TECHNIQUE_EFFECTIVE`, keeps base Technique mastery persistent, and routes production schema through V8.
 
-No runtime implementation changes are authorized under WORK-20260810-035.
+## 2. Technique identity / definition attacks
+
+PASS.
+
+Evidence from `TechniqueModel.kt` / `TechniqueStore.kt`:
+
+- `TechniqueDefinition` has stable `techniqueUid`, `worldPackUid`, key/display/category metadata, definition version, provenance and ACTIVE/DEPRECATED status.
+- registration rejects duplicate UID in a request, duplicate `(worldPackUid,key)`, duplicate already-persisted UID, and owner mismatch.
+- same display name with different stable UID is legal and tested.
+- missing Skill requirement and missing ResourceDefinition cost target are rejected before definition persistence.
+- a deprecated Technique cannot be newly learned, while an already persisted PlayerTechnique is not automatically erased.
+- `canon_technique_index` is not consulted by Technique definition registration and same-name canon index data does not auto-create or auto-link a TechniqueDefinition.
+
+No name-based identity merge was found.
+
+## 3. Mastery numeric attacks
+
+PASS for the contractually required semantics.
+
+`TechniquePolicy.validatePlayerTechnique()` rejects:
+
+- negative `baseMastery`,
+- NaN,
+- +Infinity / -Infinity through `isFinite()`,
+- invalid negative progress/history counters,
+- invalid versions/provenance.
+
+`TechniqueStore.savePlayerTechnique()` additionally enforces declared definition `minMastery/maxMastery` bounds.
+
+The test suite explicitly covers negative, NaN, +Infinity, over-range mastery and an extremely large finite (`1.0e200`) mastery where the definition has no maximum. No arbitrary global maximum is introduced.
+
+`-0.0` is not separately asserted in Phase-8 tests, but it is finite and numerically equal to zero; no current path turns it into a distinct identity or persistence authority. This is non-blocking hardening debt, not a reproduced contract break.
+
+## 4. No-retrogression / TECHNIQUE_EFFECTIVE
+
+PASS.
+
+Phase 8 does not introduce a Technique-specific modifier engine. It extends the existing `ModifierTargetKind`/`DerivedValueResolver` with `TECHNIQUE_EFFECTIVE`.
+
+`DerivedValueResolver`:
+
+- validates campaign/player scope,
+- requires the TechniqueDefinition and learned PlayerTechnique to exist,
+- rejects wrong target kind / missing target,
+- uses the same generic modifier lifecycle and deterministic sorting (`lifecycle`, operation stage, priority, `modifierUid`),
+- returns `ResolvedTechnique` containing base/pre-bound/effective mastery,
+- never writes the resolved value back to `PlayerTechnique.baseMastery`.
+
+Tests prove reversed modifier list order gives the same effective value and contribution order, temporary/injury/equipment-like derived effects leave `baseMastery` unchanged, and removing all modifiers reconstructs base mastery exactly.
+
+No retrogression path was found.
+
+## 5. Skill requirement attacks
+
+PASS.
+
+Technique Skill requirements use stable `skillUid`, explicit `TechniqueRequirementPhase` (ACQUISITION/EXECUTION/BOTH), explicit mastery basis (BASE/EFFECTIVE), threshold, version and provenance.
+
+Registration fails when a required SkillDefinition is missing.
+
+The runtime requirement check distinguishes base from effective Skill mastery. The test fixture demonstrates that an injury penalty can make an EXECUTION requirement fail while the ACQUISITION requirement based on base mastery remains satisfied.
+
+Updating Skill mastery does not copy that value into Technique mastery; the persisted Technique base mastery remains independent.
+
+No Skill->Technique mastery copy or automatic Technique grant was found.
+
+## 6. Talent / Potential boundary
+
+PASS.
+
+Phase-6 Talent/Potential profile updates and Skill updates are exercised while an existing PlayerTechnique is present; Technique mastery remains unchanged.
+
+There is no direct API/path from TalentEntry or PotentialEntry to TechniqueStore.savePlayerTechnique(), and Phase 8 does not implement ProgressionEngine or automatic Technique acquisition.
+
+No direct Talent/Potential Technique write was found.
+
+## 7. Campaign / player / World Pack isolation
+
+PASS.
+
+PlayerTechnique logical identity is `(campaign_id, character_uid, technique_uid)`. `TechniqueStore` requires its campaign ID and all PlayerTechnique saves must match that campaign. Reads filter by campaign + character.
+
+Definition registration validates World Pack ownership. Legacy identity mappings validate mapping owner against the target TechniqueDefinition owner. Resource-cost compatibility mapping also requires the existing Technique identity mapping and matching World Pack owner.
+
+Tests cover campaign and player isolation; resolver rejects modifier inputs belonging to another player/campaign.
+
+No cross-campaign/player/World-Pack leakage was reproduced.
+
+## 8. Legacy + typed reconciliation / orphan preservation
+
+PASS.
+
+The legacy read path keeps raw legacy Technique rows, including orphan UIDs, as `LegacyTechniqueRecord` / unresolved compatibility state.
+
+Without explicit mapping:
+
+- legacy-only rows remain visible as unresolved;
+- a legacy and typed row with the same UID causes a deterministic fail-loud condition rather than silent precedence.
+
+With explicit mapping:
+
+- mapped legacy mastery can be projected to one canonical Technique identity;
+- if a typed PlayerTechnique is the authority, `supersededByTyped` must be explicit and the typed row must actually exist;
+- legacy bytes are left untouched.
+
+Tests preserve orphan Technique rows and verify before/after legacy table contents.
+
+No global same-name/same-key equivalence rule was found.
+
+## 9. XP / history / equipped / notes preservation
+
+PASS.
+
+Typed PlayerTechnique persists explicit progress only when paired with a `progressSemanticsUid`. Legacy XP is not automatically reinterpreted; mapped legacy projection carries `legacyXpRaw` separately.
+
+Legacy reconciliation preserves:
+
+- learned chapter,
+- last-used chapter,
+- usage count,
+- success count,
+- failure count,
+- equipped flag,
+- notes,
+- raw XP,
+- raw chakra cost override / base chakra cost.
+
+The implementation does not derive mastery from legacy XP, usage counters, success rate or equipped state.
+
+## 10. Canon-index collision attacks
+
+PASS.
+
+A dedicated test creates `canon_technique_index` with a Technique name matching a newly registered TechniqueDefinition. The registry remains empty before explicit definition registration and the resulting Technique identity is the explicitly supplied stable UID, not the canon-index entry UID/name.
+
+No automatic canon-index link or PlayerTechnique creation exists.
+
+## 11. Generic resource cost / legacy chakra attacks
+
+PASS.
+
+New Technique Core cost contract uses `TechniqueResourceCost(resourceUid, amount, version, provenance)` and validates that the referenced ResourceDefinition exists.
+
+Legacy `base_chakra_cost` and `chakra_cost_override` remain opaque/raw compatibility data. They do not become generic resource costs merely from their names.
+
+A legacy resource-cost mapping is only legal after an explicit legacy Technique identity mapping; its ResourceDefinition target must exist and its World Pack owner must match the Technique identity mapping.
+
+The implementation preserves both raw legacy chakra cost values even after a resource identity mapping exists.
+
+No `chakra` branch was introduced into the generic TechniqueDefinition/TechniqueResourceCost model.
+
+Wrong/missing ResourceDefinition target fails at registration/mapping time. There is no current public deletion workflow that produces a reproducible silent dangling cost target through normal Phase-8 APIs; future deletion semantics remain a domain hardening responsibility.
+
+## 12. No automatic resource spending
+
+PASS.
+
+Technique resource cost handling is definition/read/reconciliation logic only. No Phase-8 TechniqueStore or DerivedValueResolver path subtracts from or rewrites `PlayerResource.currentValue`.
+
+Calculating/reading a cost does not perform spending, regeneration or hidden clamping. Actual spending remains a future legal mechanics/domain mutation responsibility.
+
+## 13. Scale / no LIMIT 60 authoritative truncation
+
+PASS.
+
+`TechniqueStore.playerTechniques(characterUid)` has no authoritative LIMIT and orders the full set by Technique UID.
+
+The Phase-8 test suite inserts and reads 1005 Technique definitions/player Techniques and asserts the full count while also running SQLite integrity/FK checks.
+
+`ContextBuilder` now obtains Techniques from `TechniqueStore.reconciled(playerUid)` and exposes canonical + unresolved entries. It no longer performs the old direct `character_techniques ... LIMIT 60` authoritative-looking query.
+
+No silent authoritative truncation was found.
+
+## 14. Production V8 migration
+
+PASS.
+
+`CurrentSchema.ensure()` now calls `MigrationManager().ensureV8(...)`.
+
+`ensureV8()` begins by calling `ensureV7()`, preserving the ordered previous migration chain, then adds Phase-8 tables and the backward-compatible `TECHNIQUE_EFFECTIVE` modifier target extension.
+
+The migration is additive with respect to Technique authority: legacy `character_techniques`, legacy `technique_definitions`, and canon reference data are not rewritten/deleted.
+
+The migration test calls `CurrentSchema.ensure()` twice and confirms a single V8 migration marker, preserved Phase-7 Skill state and existing modifier state.
+
+Normal `LocalGameStore` bootstrap/restore/campaign-switch paths already route through `ensureCurrentSchema()` / `CurrentSchema.ensure()`, so they reach V8.
+
+## 15. Phase 3–7 regression checks
+
+PASS for observed/current gates.
+
+The Phase-8 migration chains through prior migrations instead of replacing them. The regression test explicitly confirms existing Phase-7 Skill mastery and Phase-5 modifier row preservation.
+
+The runtime diff does not change ActivePlayerRef/PlayerState contracts, Phase-4 stat/resource reconciliation, Phase-6 Talent/Potential semantics, or Skill persistence semantics beyond the intended generic modifier enum extension.
+
+The current master immediately before this report was `540e6693644d50194b2f0a7df73f696d8d61c941`, whose only commit on top of the audited candidate is CHAT-3's read-only Phase-8 integrity validation report. Thus the audited runtime remains exactly `7a28e6e4b28ff10cbb516b94e5e0c120d0a15397`.
+
+## 16. CI gate
+
+PASS.
+
+Exact SHA: `7a28e6e4b28ff10cbb516b94e5e0c120d0a15397`
+
+GitHub Actions:
+
+- workflow: `Build & Release RPG OS ALPHA`
+- run number: `177`
+- run id: `31344101852`
+- head SHA: exact audited SHA
+- status: completed
+- conclusion: success
+
+Therefore the exact runtime candidate requested by the coordinator has green CI evidence.
+
+## 17. Non-blocking hardening debt
+
+No item below reproduces a current Phase-8 contract violation:
+
+- add an explicit `-0.0` mastery canonicalization assertion;
+- add a dedicated persisted-deprecated-Technique reopen test;
+- add a dedicated resource target deletion scenario once resource-definition deletion/supersession becomes a supported domain operation;
+- add very-large legacy-only Technique fixtures beyond the existing 1005 typed scale test;
+- future version/supersession policy can become stricter when content-update mutation APIs are introduced.
+
+These do not justify a FAIL for the current Phase-8 contract.
+
+## 18. Final verdict
+
+`PHASE 8 ADVERSARIAL VALIDATION: PASS`
+
+CHAT-5 found no reproducible adversarial blocker in final Phase-8 candidate `7a28e6e4b28ff10cbb516b94e5e0c120d0a15397`.
+
+This report does not mark global Phase 8 COMPLETE; that decision remains with the coordinator.
