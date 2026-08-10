@@ -228,14 +228,57 @@ class ContextBuilder(
             canonical + unresolved
         } else emptyList()
 
-        val techniques = if (playerUid != null) safeQueryMany(
-            saveDb,
-            """SELECT entity_uid,technique_uid,mastery,xp,learned_chapter,last_used_chapter,
-                      usage_count,success_count,failure_count,is_equipped,notes
-               FROM character_techniques WHERE entity_uid=?
-               ORDER BY is_equipped DESC,mastery DESC,xp DESC LIMIT 60""",
-            arrayOf(playerUid)
-        ) else emptyList()
+        val techniques = if (playerUid != null) {
+            val read = TechniqueStore(saveDb, campaignRef.campaignId).reconciled(playerUid)
+            val canonical = read.techniques.map { item ->
+                val technique = item.playerTechnique
+                linkedMapOf<String, Any?>(
+                    "entity_uid" to technique.characterUid,
+                    "technique_uid" to technique.techniqueUid,
+                    "mastery" to technique.baseMastery,
+                    "base_mastery" to technique.baseMastery,
+                    "progress_value" to technique.progressValue,
+                    "progress_semantics_uid" to technique.progressSemanticsUid,
+                    "learned_chapter" to technique.learnedChapter,
+                    "last_used_chapter" to technique.lastUsedChapter,
+                    "usage_count" to technique.usageCount,
+                    "success_count" to technique.successCount,
+                    "failure_count" to technique.failureCount,
+                    "is_equipped" to technique.isEquipped,
+                    "notes" to technique.notes,
+                    "entry_version" to technique.entryVersion,
+                    "provenance" to technique.provenance,
+                    "authority_source" to item.authoritySource.name,
+                    "legacy_xp_raw" to item.legacyXpRaw,
+                    "legacy_chakra_cost_override_raw" to item.legacyChakraCostOverrideRaw,
+                    "legacy_base_chakra_cost_raw" to item.legacyBaseChakraCostRaw,
+                    "mapped_legacy_cost_resource_uid" to item.mappedLegacyCostResourceUid,
+                    "canonical" to true
+                )
+            }
+            val unresolved = read.unresolvedLegacy.map { legacy ->
+                linkedMapOf<String, Any?>(
+                    "entity_uid" to legacy.characterUid,
+                    "technique_uid" to legacy.legacyTechniqueUid,
+                    "mastery_raw" to legacy.masteryRaw,
+                    "xp_raw" to legacy.xpRaw,
+                    "learned_chapter_raw" to legacy.learnedChapterRaw,
+                    "last_used_chapter_raw" to legacy.lastUsedChapterRaw,
+                    "usage_count_raw" to legacy.usageCountRaw,
+                    "success_count_raw" to legacy.successCountRaw,
+                    "failure_count_raw" to legacy.failureCountRaw,
+                    "is_equipped_raw" to legacy.isEquippedRaw,
+                    "notes_raw" to legacy.notesRaw,
+                    "display_name" to legacy.displayName,
+                    "category" to legacy.category,
+                    "legacy_chakra_cost_override_raw" to legacy.chakraCostOverrideRaw,
+                    "legacy_base_chakra_cost_raw" to legacy.baseChakraCostRaw,
+                    "authority_source" to "LEGACY_UNRESOLVED",
+                    "canonical" to false
+                )
+            }
+            canonical + unresolved
+        } else emptyList()
 
         val organizations = if (playerUid != null) safeQueryMany(
             saveDb,
