@@ -14,6 +14,7 @@ data class ContextBundle(
     val retrievedLongTermMemory: List<Map<String, Any?>>,
     val playerSkills: List<Map<String, Any?>> = emptyList(),
     val playerTechniques: List<Map<String, Any?>> = emptyList(),
+    val playerInventory: List<Map<String, Any?>> = emptyList(),
     val playerOrganizations: List<Map<String, Any?>> = emptyList(),
     val activeWorldEvents: List<Map<String, Any?>> = emptyList(),
     val npcMemories: List<Map<String, Any?>> = emptyList(),
