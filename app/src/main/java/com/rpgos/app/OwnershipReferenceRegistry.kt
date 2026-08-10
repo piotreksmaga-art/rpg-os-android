@@ -5,14 +5,34 @@ import android.database.sqlite.SQLiteDatabase
 enum class OwnershipReferenceStatus { ACTIVE, RETIRED }
 
 /**
- * Minimal campaign-scoped authority for owner and generic non-item asset references.
- * It does not define future entity/asset domains; it only registers stable identities
- * that those domains may own and retire. ITEM_INSTANCE remains authoritative in Inventory.
+ * Minimal generic authority for Ownership reference namespaces and campaign-scoped targets.
+ * Future entity/asset domains register their namespace and stable identities here; Ownership
+ * never accepts arbitrary free-text kinds/targets. ITEM_INSTANCE target existence remains
+ * authoritative in the Phase-10 item_instances table.
  */
 class OwnershipReferenceRegistry(private val db: SQLiteDatabase, private val campaignId: String) {
     init {
         require(campaignId.isNotBlank()) { "campaignId must not be blank" }
         MigrationManager().ensureV12(db, campaignId)
+    }
+
+    fun registerOwnerKind(ownerKindUid: String, provenance: String) {
+        require(ownerKindUid.isNotBlank()) { "ownerKindUid must not be blank" }
+        require(provenance.isNotBlank()) { "owner kind provenance must not be blank" }
+        db.execSQL(
+            "INSERT INTO ownership_owner_kinds(owner_kind_uid,kind_status,provenance) VALUES(?,'ACTIVE',?)",
+            arrayOf(ownerKindUid, provenance)
+        )
+    }
+
+    fun registerAssetKind(assetKindUid: String, provenance: String) {
+        require(assetKindUid.isNotBlank()) { "assetKindUid must not be blank" }
+        require(assetKindUid != OWNERSHIP_ASSET_KIND_ITEM_INSTANCE) { "ITEM_INSTANCE namespace is built in" }
+        require(provenance.isNotBlank()) { "asset kind provenance must not be blank" }
+        db.execSQL(
+            "INSERT INTO ownership_asset_kinds(asset_kind_uid,kind_status,provenance) VALUES(?,'ACTIVE',?)",
+            arrayOf(assetKindUid, provenance)
+        )
     }
 
     fun registerOwner(owner: OwnershipOwnerRef, provenance: String) {
