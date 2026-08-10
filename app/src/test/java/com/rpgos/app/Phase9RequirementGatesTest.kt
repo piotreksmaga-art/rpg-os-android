@@ -63,10 +63,11 @@ class Phase9RequirementGatesTest {
         s.registerEvolutionPaths("W",listOf(path("P")))
         s.registerEvolutionStages("W",listOf(stage("A","P"),stage("B","P"),stage("C","P")))
         s.registerEvolutionTransitions("W",listOf(
+            EvolutionTransitionDefinition("ENTRY-A","W",null,"A","transition-pass",provenance="pack"),
             EvolutionTransitionDefinition("AB","W","A","B","transition-pass",provenance="pack"),
             EvolutionTransitionDefinition("BC","W","B","C","transition-fail",provenance="pack")
         ))
-        s.enterEvolutionPath("PLAYER","A","start")
+        s.transitionEvolution("PLAYER","ENTRY-A","start")
         s.transitionEvolution("PLAYER","AB","pass")
         assertEquals("B",s.evolutionStates("PLAYER").single().currentStageUid)
         val before=s.attainedStages("PLAYER").map{it.stageUid}
@@ -121,22 +122,34 @@ class Phase9RequirementGatesTest {
         fail{s.activateForm(PlayerActiveForm("C","P","UNLOCK-AS-ACTIVATION",provenance="x"))}
 
         s.registerEvolutionPaths("W",listOf(path("P")));s.registerEvolutionStages("W",listOf(stage("A","P"),stage("B","P")))
-        s.registerEvolutionTransitions("W",listOf(EvolutionTransitionDefinition("BADGATE","W","A","B","activation-only",provenance="pack")))
-        s.enterEvolutionPath("P","A","start")
+        s.registerEvolutionTransitions("W",listOf(
+            EvolutionTransitionDefinition("ENTRY-A","W",null,"A","transition-only",provenance="pack"),
+            EvolutionTransitionDefinition("BADGATE","W","A","B","activation-only",provenance="pack")
+        ))
+        s.transitionEvolution("P","ENTRY-A","start")
         fail{s.transitionEvolution("P","BADGATE","x")}
         assertEquals("A",s.evolutionStates("P").single().currentStageUid)
     }}
 
-    @Test fun successfulRequirementStatePersistsAndHotfixMigrationIsIdempotent(){open().use{db->
-        CurrentSchema.ensure(db,"C");CurrentSchema.ensure(db,"C")
-        assertEquals(1,scalar(db,"SELECT COUNT(*) FROM rpgos_schema_migrations WHERE migration_id='$PHASE9_REQUIREMENT_HOTFIX_MIGRATION_ID'"))
-        val p=Provider().apply{rule("u",RequirementGate.UNLOCK);rule("a",RequirementGate.ACTIVATION)}
-        val s=Phase9Store(db,"C",p);s.registerForms("W",listOf(form("F","u","a")));s.unlockForm(PlayerFormUnlock("C","P","F",provenance="x"));s.activateForm(PlayerActiveForm("C","P","F",provenance="x"))
-        assertEquals(1,s.formUnlocks("P").size);assertEquals(1,s.activeForms("P").size)
-        db.rawQuery("PRAGMA integrity_check",null).use{c->assertTrue(c.moveToFirst());assertEquals("ok",c.getString(0))}
-        db.rawQuery("PRAGMA foreign_key_check",null).use{c->assertFalse(c.moveToFirst())}
-    }}
-        open().use{db->CurrentSchema.ensure(db,"C");val s=Phase9Store(db,"C");assertEquals("F",s.formUnlocks("P").single().formUid);assertEquals("F",s.activeForms("P").single().formUid)}
+    @Test fun successfulRequirementStatePersistsAndHotfixMigrationIsIdempotent(){
+        open().use{db->
+            CurrentSchema.ensure(db,"C");CurrentSchema.ensure(db,"C")
+            assertEquals(1,scalar(db,"SELECT COUNT(*) FROM rpgos_schema_migrations WHERE migration_id='$PHASE9_REQUIREMENT_HOTFIX_MIGRATION_ID'"))
+            val p=Provider().apply{rule("u",RequirementGate.UNLOCK);rule("a",RequirementGate.ACTIVATION)}
+            val s=Phase9Store(db,"C",p)
+            s.registerForms("W",listOf(form("F","u","a")))
+            s.unlockForm(PlayerFormUnlock("C","P","F",provenance="x"))
+            s.activateForm(PlayerActiveForm("C","P","F",provenance="x"))
+            assertEquals(1,s.formUnlocks("P").size);assertEquals(1,s.activeForms("P").size)
+            db.rawQuery("PRAGMA integrity_check",null).use{c->assertTrue(c.moveToFirst());assertEquals("ok",c.getString(0))}
+            db.rawQuery("PRAGMA foreign_key_check",null).use{c->assertFalse(c.moveToFirst())}
+        }
+        open().use{db->
+            CurrentSchema.ensure(db,"C")
+            val s=Phase9Store(db,"C")
+            assertEquals("F",s.formUnlocks("P").single().formUid)
+            assertEquals("F",s.activeForms("P").single().formUid)
+        }
     }
 
     private fun scalar(db:SQLiteDatabase,sql:String)=db.rawQuery(sql,null).use{c->assertTrue(c.moveToFirst());c.getInt(0)}
