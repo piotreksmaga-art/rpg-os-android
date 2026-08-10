@@ -101,12 +101,29 @@ class EquipmentPersistenceTest {
         assertTrue(inv.typedUnique("P").isEmpty());assertEquals("X",inv.typedUnique("Q").single().first.itemInstanceUid)
     }}
 
-    @Test fun reopenPreservesExactEntrySlotsAndNoAuthoritativeTruncation(){ db().use{d->
-        CurrentSchema.ensure(d,"C");val inv=InventoryStore(d,"C");inv.registerDefinitions("W",listOf(item("D")));val e=EquipmentStore(d,"C")
-        e.registerSlots("W",listOf(slot("S",capacity=1100)));e.registerCompatibilityRules("W",listOf(EquipmentCompatibilityRule("R","W","D",listOf("S"),provenance="r")))
-        for(i in 0..1000){val uid="I$i";inv.createInstance(ItemInstance("C",uid,"D",provenance="i"));inv.addUnique("P",uid,"p");e.equip("P",uid,"R",listOf("S"),"E$i","e")}
-        assertEquals(1001,e.equipment("P").size)
-    }};SQLiteDatabase.openDatabase(f.absolutePath,null,SQLiteDatabase.OPEN_READWRITE).use{d->CurrentSchema.ensure(d,"C");val e=EquipmentStore(d,"C");assertEquals(1001,e.equipment("P").size);assertEquals(listOf("S"),e.equipment("P").first().occupiedSlotUids)}}
+    @Test fun reopenPreservesExactEntrySlotsAndNoAuthoritativeTruncation() {
+        db().use { d ->
+            CurrentSchema.ensure(d,"C")
+            val inv=InventoryStore(d,"C")
+            inv.registerDefinitions("W",listOf(item("D")))
+            val e=EquipmentStore(d,"C")
+            e.registerSlots("W",listOf(slot("S",capacity=1100)))
+            e.registerCompatibilityRules("W",listOf(EquipmentCompatibilityRule("R","W","D",listOf("S"),provenance="r")))
+            for(i in 0..1000){
+                val uid="I$i"
+                inv.createInstance(ItemInstance("C",uid,"D",provenance="i"))
+                inv.addUnique("P",uid,"p")
+                e.equip("P",uid,"R",listOf("S"),"E$i","e")
+            }
+            assertEquals(1001,e.equipment("P").size)
+        }
+        SQLiteDatabase.openDatabase(f.absolutePath,null,SQLiteDatabase.OPEN_READWRITE).use { d ->
+            CurrentSchema.ensure(d,"C")
+            val e=EquipmentStore(d,"C")
+            assertEquals(1001,e.equipment("P").size)
+            assertEquals(listOf("S"),e.equipment("P").first().occupiedSlotUids)
+        }
+    }
 
     private fun scalar(d:SQLiteDatabase,q:String)=d.rawQuery(q,null).use{c->c.moveToFirst();c.getInt(0)}
 }
