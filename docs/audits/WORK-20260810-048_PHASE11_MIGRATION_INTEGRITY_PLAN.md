@@ -1,20 +1,20 @@
-# WORK-20260810-048 — Phase 11 Migration / Integrity Plan
+# WORK-20260810-048 — Phase 11 Migration / Integrity Validation
 
-Status: READ-ONLY RUNTIME / VALIDATION PLAN
+Status: FINAL READ-ONLY RUNTIME VALIDATION
 
 Work ID: `WORK-20260810-048`
-Role: READ-ONLY MIGRATION / INTEGRITY AUDITOR
+Role: READ-ONLY PHASE 11 MIGRATION / INTEGRITY VALIDATOR
 Repository: `piotreksmaga-art/rpg-os-android`
 Accepted Phase 10 runtime: `eb8bb64f8be566982c91f1062f319078899c1e47`
-Fresh master at plan creation: `138bf67b8e6af52efe66254fd2289a77804b88dc`
-Phase 11 implementation work item: `WORK-20260810-046`
+Audited Phase 11 candidate: `c96136964e4adb7144eee42b2b8680f153a839f2`
+Exact CI: GitHub Actions run `#250`, run ID `31362782857`, conclusion `SUCCESS`.
 Allowed write scope: this report only.
 
-This report defines migration, persistence, lifecycle, isolation and no-regression release gates for Phase 11 Equipment. It does not implement Phase 11, repair runtime, or start Phase 12 OwnershipRecord.
+This report supersedes the planning checkpoint with final evidence from the exact WORK-20260810-046 runtime. No runtime code was changed by CHAT-3 and Phase 12 was not started.
 
-## 1. Canonical authority boundaries
+## 1. Scope and authority boundaries
 
-Phase 11 must preserve the following hard split:
+The final runtime preserves the required split:
 
 ```text
 Inventory possession
@@ -22,62 +22,57 @@ Inventory possession
 != legal OwnershipRecord
 ```
 
-The accepted Phase-10 contract provides stable `ItemDefinition`, `ItemInstance`, stack possession and unique-instance possession. Physical Equipment must bind to a legal Phase-10 inventory identity; it must not create or infer item identity from labels.
+Phase 11 uses exact Phase-10 `ItemInstance` identity. It does not infer physical Equipment from `character_inventory`, the historical `CharacterPanel.equipment` presentation field, or `character_techniques.is_equipped`.
 
-Historical compatibility surfaces are not Equipment authority:
+No Phase-12 `OwnershipRecord` runtime is created by the Phase-11 migration or by legal equip/unequip/transfer operations.
 
-- `character_inventory` rows are inventory evidence/possession evidence, not equipped-state evidence;
-- `CharacterPanel.equipment` is a historical presentation shortcut populated from inventory names;
-- `character_techniques.is_equipped` belongs to Technique-domain semantics and must not materialize physical item Equipment.
+## 2. Migration and production routing — PASS
 
-Migration must create zero synthetic equipment entries from any of those surfaces unless a future explicit equipment mapping contract proves real equipment semantics.
+`RPGOS-11.0-EQUIPMENT` is additive and calls `ensureV10()` before creating Phase-11 objects.
 
-## 2. Required Phase-11 migration contract
+V11 creates:
 
-Expected migration characteristics:
+- `equipment_slot_definitions`;
+- `equipment_compatibility_rules`;
+- `equipment_rule_slots`;
+- `player_equipment`;
+- `player_equipment_slots`;
+- indexes;
+- DB-level transfer/remove guards for equipped unique inventory instances;
+- exactly one migration marker through `INSERT OR IGNORE`.
 
-- additive only;
-- idempotent;
-- no destructive rewrite of Phase 3–10 data;
-- marker written only after successful schema migration;
-- all prior migrations remain reachable;
-- production `CurrentSchema.ensure()` advances to Phase 11/latest;
-- bootstrap, reopen, restore and campaign switch use the same latest-schema route.
+The migration does not rewrite Phase 3–10 authority or legacy inventory bytes.
 
-Final WORK-046 validation must compare an old Phase-10 database before and after Phase-11 migration and prove semantic equality of all pre-existing authoritative state.
+`CurrentSchema.ensure()` routes to `MigrationManager().ensureV11(...)`, preserving the complete prior migration chain through V10 and earlier.
 
-## 3. Required schema concepts
+Production tests cover:
 
-Exact Kotlin/table names remain implementation decisions, but final runtime must expose equivalent stable concepts for:
+- bootstrap of the bundled campaign -> V11;
+- campaign switch from a V10 campaign -> V11;
+- restore of a V10 database -> V11;
+- restore does not synthesize equipment from legacy `character_inventory`.
 
-- World-Pack-owned equipment slot definition;
-- optional loadout identity if multiple loadouts are supported;
-- player equipment entry bound to a concrete `ItemInstance`;
-- explicit slot occupancy/bindings;
-- optional compatibility/conflict/exclusive-group rule identity;
-- stable version/provenance fields;
-- source identity sufficient to drive Phase-5 equipment modifiers deterministically.
+Repeated schema ensure is idempotent; migration tests confirm a single V11 marker.
 
-No single string field such as `equipped_item_name` is sufficient.
+## 3. ItemInstance and holder integrity — PASS
 
-## 4. Inventory FK / identity release gates
+`EquipmentStore.equip()` validates before persistence:
 
-Equipment must reference a legal Phase-10 `ItemInstance` or an equivalently unambiguous accepted inventory identity.
+1. exact `ItemInstance` exists in the same campaign;
+2. definition is `UNIQUE_INSTANCE`;
+3. definition is ACTIVE;
+4. exact instance is possessed by the target character through Phase-10 inventory reconciliation;
+5. exact instance is not already equipped;
+6. compatibility rule matches the instance's `ItemDefinition`;
+7. World-Pack ownership of item, rule and slots is consistent.
 
-Required cases:
+Missing instance, wrong/unpossessed instance and duplicate exact-instance equip fail before a legal equipment state is committed.
 
-1. existing unique ItemInstance possessed by player -> equip may proceed if slot/rules permit;
-2. missing ItemInstance -> fail-loud before equipment state is written;
-3. ItemInstance exists but is not held by target player -> fail-loud;
-4. ItemInstance exists in another campaign -> fail-loud;
-5. same ItemDefinition with two different ItemInstances -> equipment identity remains instance-specific;
-6. duplicate equipment attempt for the same unique instance -> deterministic rejection unless the model explicitly supports one entry spanning multiple slots;
-7. deleted/missing inventory instance target -> detectable invalid state / fail-loud, never silent empty reconciliation;
-8. transferred ItemInstance -> dependent equipment state must be resolved atomically according to explicit policy;
-9. removed ItemInstance -> dependent equipment state cannot remain pointing to a non-holder;
-10. dangling FK/reference checks must fail integrity validation.
+Two instances of one ItemDefinition remain independent equipment identities. The test suite equips separate instance UIDs for separate players and also verifies campaign isolation when the same text instance UID exists in another campaign.
 
-Hard invariant:
+## 4. Critical transfer/remove invariant — PASS
+
+The forbidden committed state:
 
 ```text
 Inventory holder = B
@@ -85,334 +80,231 @@ Equipment holder = A
 same itemInstanceUid
 ```
 
-must never survive a committed transaction.
+is prevented at two layers.
 
-## 5. Slot definition and World-Pack integrity
+### Store-level policy
 
-Slot identity is stable UID, not label.
+Phase-10 `removeUnique()` / `transferUnique()` fail while the exact instance is equipped. After explicit `unequip()`, transfer succeeds.
 
-Required tests:
+### DB-level integrity guard
 
-- slot definition registration;
-- duplicate slot UID fail-loud;
-- same slot label with different stable UID remains distinct;
-- World Pack B cannot hijack slot UID owned by A;
-- definition version/provenance nonblank and preserved;
-- deprecated/inactive slot behavior explicitly defined;
-- missing slot target fail-loud;
-- item-slot compatibility validated by stable UID/rule identity, never by display-name convention.
+V11 installs:
 
-Core must not hardcode world-specific slots or item classes.
+- `trg_equipped_instance_inventory_delete_guard`;
+- `trg_equipped_instance_inventory_transfer_guard`.
 
-## 6. Slot compatibility / conflict matrix
+These triggers abort direct DELETE or holder/campaign/instance UPDATE of `player_inventory_unique` whenever `player_equipment` still references the exact instance. This protects consistency even from callers that bypass the InventoryStore mutation API.
 
-Final runtime must deterministically validate at least:
+The regression test explicitly performs:
 
-- valid single-slot equip;
-- incompatible slot rejection;
-- same capacity-1 slot claimed by two entries;
+1. equip instance X for P;
+2. attempt remove -> fail-loud;
+3. attempt transfer P -> Q -> fail-loud;
+4. verify holder remains P and equipment remains present;
+5. explicit unequip;
+6. transfer P -> Q succeeds;
+7. verify no stale Equipment remains for P.
+
+No reproducer produced a committed holder/equipment mismatch.
+
+## 5. Slot definition / World-Pack integrity — PASS
+
+Slot identity is stable `slot_uid`, not label.
+
+Validation covers:
+
+- duplicate slot UID rejection;
+- duplicate `(world_pack_uid, slot_key)` rejection;
+- World-Pack owner validation;
+- positive capacity;
+- ACTIVE/DEPRECATED semantics for new equip;
+- stable version/provenance;
+- rule ownership matching ItemDefinition owner;
+- slot ownership matching rule owner.
+
+Same-label concepts are not globally merged by display name.
+
+## 6. Compatibility, capacity, exclusive groups and multi-slot atomicity — PASS
+
+Compatibility uses explicit stable rule UID plus exact required slot UID set.
+
+`equip()` rejects:
+
+- missing requested slots;
+- duplicate requested slot UID;
+- requested slot set different from the rule's canonical set;
+- incompatible ItemDefinition/rule;
+- slot capacity exhaustion;
+- deprecated slot;
 - exclusive-group conflict;
-- multi-slot equipment reserving all required slots atomically;
-- partial multi-slot reservation impossible;
-- missing one required slot -> whole equip fails;
-- same ItemInstance cannot occupy duplicated bindings illegally;
-- two distinct instances of one definition remain independently equipable if rules allow;
-- conflict result independent of SQLite row order / insertion order / map iteration order.
+- duplicate equip of the same exact ItemInstance.
 
-If slot capacity >1 exists, capacity accounting must be explicit and deterministic.
+For multi-slot equipment, `player_equipment` and every `player_equipment_slots` binding are inserted in one SQLite transaction, together with Phase-5 modifier-source activation. A failed validation occurs before the transaction; a failed write cannot legally leave only a subset of slot reservations committed.
 
-## 7. Equip / unequip atomicity
+The runtime does not silently replace existing equipment to resolve a conflict.
 
-Equip must be an all-or-nothing state transition.
+## 7. Phase-5 modifier lifecycle and no-retrogression — PASS
 
-Before commit validate:
+Phase 11 reuses the existing Phase-5 `ModifierStore` and `DerivedValueResolver`. No `EquipmentModifierEngine` or second Equipment resolver is introduced.
 
-1. campaign/player scope;
-2. canonical inventory holder;
-3. ItemInstance existence;
-4. slot existence and World-Pack compatibility;
-5. slot availability/capacity;
-6. exclusive-group conflicts;
-7. multi-slot completeness;
-8. source identity for derived effects;
-9. no unresolved legacy identity is being guessed.
+Equipment modifiers require:
 
-Unequip must remove/deactivate only equipment state and derived source activation. It must not:
+- `ModifierLifecycle.EQUIPMENT`;
+- exact equipment source type;
+- `sourceUid == itemInstanceUid`;
+- campaign/player scope match.
 
-- delete inventory possession;
-- delete ItemInstance;
-- create or modify OwnershipRecord;
-- mutate base Stat/Skill/Technique/Talent/Potential;
-- rewrite PlayerResource.currentValue.
+Equip activates that exact source; unequip deactivates it. Two instances of the same ItemDefinition retain separate modifier source identities.
 
-Failed equip/unequip must leave no partial slot rows, equipment rows, source state or modifiers.
+The integration test snapshots authoritative state before equip and proves identical authoritative state during and after equipment lifecycle for:
 
-## 8. Transfer/remove equipped instance — critical integrity gate
+- `PlayerStat.baseValue`;
+- `PlayerResource.currentValue`;
+- `PlayerSkill.baseMastery`;
+- `PlayerTechnique.baseMastery`;
+- Talent profile;
+- Potential profile.
 
-This is a release blocker class.
-
-Required scenarios:
-
-### Transfer equipped unique instance A -> B
-
-Accepted policies are only explicit and atomic, e.g.:
-
-- reject transfer while equipped; or
-- transactionally unequip/deactivate effects, transfer inventory holder, then commit consistent final state.
-
-Unacceptable:
+The final resource regression is explicitly covered:
 
 ```text
-inventory: B owns/holds instance X
-equipment: A still equips X
+currentValue before equip = 100
+equipment active: derived maximum 200, currentValueObserved = 100
+after unequip: derived maximum 100, currentValueObserved = 100
 ```
 
-### Remove/destroy equipped instance
+Resource regeneration changes only as a derived result. No current-resource clamp/write occurs.
 
-Operation must either fail while equipped or atomically resolve equipment state before inventory removal.
+## 8. Legacy non-authority and Phase-10 boundary — PASS
 
-### Rollback/failure injection
+A fixture containing both:
 
-Inject failure after equipment deactivation but before inventory transfer/removal and verify transaction rollback restores the complete prior state.
+- `character_inventory` legacy data;
+- `character_techniques.is_equipped = 1`
 
-## 9. Phase-5 modifier lifecycle integration
+is migrated through V11 and produces zero `player_equipment` rows.
 
-Phase 11 must reuse existing generic Phase-5 modifier infrastructure, especially equipment lifecycle/source semantics. No second resolver or `EquipmentModifierEngine` is permitted.
+Therefore historical inventory labels, CharacterPanel naming and Technique equipped state are not physical Equipment authority.
 
-Required gates:
+Phase 11 requires a real unique `ItemInstance`; stackable commodity state cannot be equipped without an explicit physical instance contract. The migration does not synthesize instances from legacy names.
 
-- equip activates only equipment-origin derived source(s);
-- unequip deactivates/removes source contribution;
-- reopen reconstructs identical derived result;
-- stable source identity tied to equipment entry or ItemInstance, never display name;
-- two instances of same definition produce distinct source identities;
-- same source does not duplicate after repeated reopen/ensure;
-- source from player A cannot affect B;
-- source from campaign A cannot affect B;
-- source removal restores effective value without altering base progression;
-- equipment effects may target accepted Phase-5 target kinds only;
-- no direct write to `PlayerStat.baseValue`;
-- no direct write to `PlayerSkill.baseMastery`;
-- no direct write to `PlayerTechnique.baseMastery`;
-- no direct write to Talent/Potential profiles;
-- no hidden `PlayerResource.currentValue` clamp/write when maximum changes.
+The updated Phase-10 regression contract correctly allows the V11 `player_equipment` table to exist, while still asserting that Inventory transfer does not itself create Equipment state and does not create `ownership_records_v2`.
 
-Required over-cap resource case:
+## 9. Reopen, isolation and authoritative scale — PASS
 
-```text
-current resource = 150
-equipment-derived maximum before unequip = 200
-after unequip derived maximum = 100
-```
+Persistence test creates 1001 exact unique instances and 1001 Equipment entries, closes the DB, reopens through `CurrentSchema.ensure()`, and retrieves all 1001 entries without truncation.
 
-Expected: current remains 150 unless a separate explicit authoritative mutation is invoked later.
+A slot with sufficient explicit capacity retains the complete occupancy state. No `LIMIT 50/60` exists in the authoritative `EquipmentStore.equipment()` path.
 
-## 10. Legacy non-authority gates
+The slot-definition scale fixture registers 1005 slot definitions and reads all 1005.
 
-Final validation must explicitly prove:
+Player isolation, campaign isolation, and exact-instance separation are covered by runtime tests.
 
-- legacy `character_inventory` row does not create PlayerEquipment;
-- CharacterPanel historical `equipment` presentation does not create PlayerEquipment;
-- `character_techniques.is_equipped = 1` does not create physical PlayerEquipment;
-- labels such as weapon/armor/worn/equipped do not auto-create slot or equipment identity;
-- unresolved legacy inventory evidence cannot be equipped by name guessing;
-- migration preserves all source legacy bytes untouched.
+## 10. Backup / restore and campaign switch — PASS
 
-If an actual future legacy-equipment source is discovered, it must use explicit mapping with version/provenance and stable ItemInstance/slot identities. No such authority should be inferred from current presentation data.
+Production routing tests independently prove restore and campaign-switch upgrade old V10 databases to V11. The restore fixture also proves no synthetic Equipment is created from legacy inventory evidence.
 
-## 11. Reopen / persistence gates
+Existing backup/restore infrastructure copies/restores the campaign database as the persistence unit; Phase-11 Equipment tables, slot bindings and modifiers therefore remain inside the same campaign DB persistence boundary. No Phase-11 code introduces an external parallel Equipment store.
 
-Required fixture:
+No campaign-switch path bypassing `CurrentSchema.ensure()` was found in the audited production routing.
 
-1. create valid ItemInstance + inventory possession;
-2. equip into one or more slots;
-3. persist active equipment modifier source;
-4. close database;
-5. reopen via production current-schema path;
-6. verify exact equipment entry UID, ItemInstance UID, slot bindings, version/provenance and derived effect;
-7. unequip;
-8. close/reopen;
-9. verify inventory possession remains and equipment-derived effect is absent.
+## 11. Phase 3–10 no-regression — PASS
 
-Repeated schema ensure must not duplicate equipment entries, slot bindings or modifiers.
+The exact CI JVM suite includes all prior regression suites and the Phase-11 tests. The Phase-11 migration is additive and only creates new Equipment objects plus two guards on the Phase-10 unique-inventory table.
 
-## 12. Backup / restore gates
+Equipment integration directly proves zero mutation of Stat, Resource current value, Skill mastery, Technique mastery, Talent and Potential authority.
 
-Required tests:
+Phase-10 Inventory remains possession authority; Phase-9 and earlier data paths are not rewritten by `ensureV11()`.
 
-- backup of Phase-11 campaign preserves inventory + equipment + slot bindings + modifier source identity;
-- restore to same campaign reproduces exact equipment state;
-- restore of old Phase-10 database reaches latest Phase-11 schema without inventing Equipment;
-- restored legacy CharacterPanel/inventory presentation does not become equipment authority;
-- pre-restore safety backup continues working;
-- restore preserves campaign/player identity and does not cross-bind ItemInstances.
+No OwnershipRecord runtime or Phase-12 mutation path is introduced.
 
-## 13. Campaign switch gates
+## 12. Database integrity / FK — PASS
 
-Switch A -> B must run latest schema for B and return only B equipment.
-
-Required:
-
-- same player UID in two campaigns remains isolated;
-- same ItemInstance text UID in two campaigns is resolved according to Phase-10 campaign scoping and cannot leak equipment state;
-- switching back restores original campaign loadout exactly;
-- no active-player heuristic migrates/equips first available inventory item.
-
-## 14. Phase 3–10 no-regression snapshot
-
-Before/after Phase-11 migration compare semantic equality of:
-
-- ActiveCampaignRef / campaign selection;
-- ActivePlayerRef;
-- PlayerState persistent/derived/runtime semantics;
-- PlayerStat.baseValue;
-- PlayerResource.currentValue;
-- stat/resource reconciliation aliases;
-- Phase-5 modifiers not owned by equipment;
-- Talent/Potential profiles;
-- Skills / baseMastery / reconciliation;
-- Techniques / baseMastery / history / resource mappings / `is_equipped` technique state;
-- Phase-9 origin/innate/evolution/form state;
-- Phase-9.1 requirement gates;
-- Phase-10 ItemDefinition/ItemInstance/inventory stacks/unique possession/legacy mappings;
-- all untouched legacy bytes.
-
-Phase-11 migration must not create OwnershipRecord tables/rows or mutate financial state.
-
-## 15. Scale / authoritative read gates
-
-Authoritative Equipment store/repository reads must not contain presentation limits.
-
-Required scale test:
-
-- >1000 equipment entries/slot-binding state where valid fixtures permit;
-- >1000 slot definitions or bindings where applicable;
-- close/reopen preserves exact count;
-- no `LIMIT 50/60` or CharacterPanel historical naming leaks into authoritative Equipment read;
-- ContextBuilder, if extended, must consume canonical Equipment reconciliation first and apply presentation budgeting only afterwards.
-
-## 16. Database integrity / FK gates
-
-After migration and adversarial mutation scenarios:
+Phase-11 persistence tests execute:
 
 ```sql
-PRAGMA integrity_check;
+PRAGMA integrity_check
 ```
 
-must return `ok`.
+and require `ok`.
+
+They also execute:
 
 ```sql
-PRAGMA foreign_key_check;
+PRAGMA foreign_key_check
 ```
 
-must return no rows under the adopted FK policy.
+and require no rows.
 
-Explicitly test:
+Schema FKs connect compatibility rules to ItemDefinitions, rule-slot bindings to rules/slots, player equipment to exact `(campaign_id,item_instance_uid)`, and slot bindings to equipment entries and slot definitions.
 
-- missing ItemInstance;
-- wrong campaign ItemInstance;
-- missing slot definition;
-- missing compatibility target;
-- dangling equipment->inventory reference;
-- duplicate slot binding;
-- duplicate equipment entry UID;
-- World-Pack ownership mismatch;
-- moved/deleted instance with stale equipment row.
+The additional transfer/delete triggers cover the holder-consistency invariant that cannot be represented by the static ItemInstance FK alone.
 
-## 17. Production routing gates
+## 13. CI evidence — PASS
 
-Expected production chain after WORK-046:
+Exact candidate:
 
-```text
-LocalGameStore.ensureCurrentSchema()
--> CurrentSchema.ensure()
--> Phase 11/latest migration
--> prior chain through Phase 10 and earlier
-```
+`c96136964e4adb7144eee42b2b8680f153a839f2`
 
-Required tests:
+GitHub Actions:
 
-- bootstrap old/new campaign -> Phase 11 marker/tables;
-- ordinary reopen -> Phase 11;
-- restore old Phase-10 backup -> Phase 11;
-- campaign switch to Phase-10 DB -> Phase 11;
-- repeated `CurrentSchema.ensure()` idempotent;
-- migration marker exactly once;
-- partial migration failure does not leave marker with incomplete schema.
+- run number: `#250`;
+- run ID: `31362782857`;
+- head SHA: exact candidate above;
+- conclusion: `success`.
 
-Direct `MigrationManager.ensureV11()` tests alone are insufficient.
+Successful steps include:
 
-## 18. Required final validation matrix
+- `Validate project`;
+- `Run JVM unit tests`;
+- `Build signed ALPHA APK`;
+- artifact/release update steps.
 
-- P11-01 additive migration: REQUIRED
-- P11-02 latest `CurrentSchema` routing: REQUIRED
-- P11-03 bootstrap: REQUIRED
-- P11-04 reopen: REQUIRED
-- P11-05 backup/restore: REQUIRED
-- P11-06 campaign switch: REQUIRED
-- P11-07 migration idempotency: REQUIRED
-- P11-08 Phase 3–10 no-regression: REQUIRED
-- P11-09 integrity/FK: REQUIRED
-- P11-10 legacy inventory does not grant equipment: REQUIRED
-- P11-11 CharacterPanel equipment presentation does not grant equipment: REQUIRED
-- P11-12 Technique `is_equipped` does not grant physical equipment: REQUIRED
-- P11-20 stable slot UID: REQUIRED
-- P11-21 World-Pack slot ownership: REQUIRED
-- P11-22 duplicate slot UID fail-loud: REQUIRED
-- P11-23 compatibility validation: REQUIRED
-- P11-24 slot conflict validation: REQUIRED
-- P11-25 exclusive-group validation: REQUIRED
-- P11-26 multi-slot atomic reservation: REQUIRED
-- P11-30 ItemInstance FK identity: REQUIRED
-- P11-31 wrong holder rejection: REQUIRED
-- P11-32 moved/deleted instance consistency: REQUIRED
-- P11-33 same definition / different instance separation: REQUIRED
-- P11-34 dangling references fail-loud: REQUIRED
-- P11-40 equipment modifier activation: REQUIRED
-- P11-41 unequip deactivation: REQUIRED
-- P11-42 source identity stable after reopen: REQUIRED
-- P11-43 multiple-instance source isolation: REQUIRED
-- P11-44 base Stat/Skill/Technique/Talent/Potential unchanged: REQUIRED
-- P11-45 no current-resource clamp/write: REQUIRED
-- P11-50 equipped-instance transfer/removal atomic policy: REQUIRED
-- P11-51 failure rollback leaves consistent inventory/equipment state: REQUIRED
-- P11-60 >1000 equipment/slot state no authoritative truncation: REQUIRED
-- P11-61 exact WORK-046 JVM/build/CI success: REQUIRED
+Earlier failing/WIP CI runs are not used as the final evidence.
 
-## 19. Final validation procedure after WORK-046
+## 14. Final gate matrix
 
-When CHAT-1 publishes final WORK-046 resultCommit, CHAT-3 must:
+- P11-01 additive migration: PASS
+- P11-02 latest CurrentSchema routing: PASS
+- P11-03 bootstrap: PASS
+- P11-04 reopen: PASS
+- P11-05 backup/restore: PASS
+- P11-06 campaign switch: PASS
+- P11-07 migration idempotency: PASS
+- P11-08 Phase 3–10 no-regression: PASS
+- P11-09 integrity/FK: PASS
+- P11-10 legacy inventory does not grant Equipment: PASS
+- P11-11 CharacterPanel historical equipment naming is not authority: PASS
+- P11-12 Technique `is_equipped` does not grant physical Equipment: PASS
+- P11-20 stable slot UID: PASS
+- P11-21 World-Pack slot ownership: PASS
+- P11-22 duplicate slot UID fail-loud: PASS
+- P11-23 compatibility validation: PASS
+- P11-24 slot conflict/capacity validation: PASS
+- P11-25 exclusive-group validation: PASS
+- P11-26 multi-slot atomic reservation: PASS
+- P11-30 exact ItemInstance identity/FK: PASS
+- P11-31 wrong holder rejection: PASS
+- P11-32 moved/deleted equipped instance consistency: PASS
+- P11-33 same definition / different instance separation: PASS
+- P11-34 dangling-reference protections: PASS
+- P11-40 equipment modifier activation: PASS
+- P11-41 unequip deactivation: PASS
+- P11-42 exact source identity/reopen persistence: PASS
+- P11-43 multiple-instance source isolation: PASS
+- P11-44 base Stat/Skill/Technique/Talent/Potential unchanged: PASS
+- P11-45 PlayerResource.currentValue unchanged: PASS
+- P11-50 equipped-instance transfer/removal explicit-unequip policy: PASS
+- P11-51 atomic consistency: PASS
+- P11-60 >1000 equipment/slot state without authoritative truncation: PASS
+- P11-61 exact WORK-046 tests/build/CI: PASS
 
-1. re-check fresh master and exact SHA;
-2. diff accepted Phase-10 runtime/current baseline -> WORK-046;
-3. inspect schema/migration marker and `CurrentSchema` routing;
-4. inspect slot definitions, equipment entries and slot bindings;
-5. verify all Equipment references resolve to legal Phase-10 ItemInstances held by the same player/campaign;
-6. verify legacy presentation sources create zero synthetic equipment;
-7. test single-slot/multi-slot/conflict/exclusive-group atomicity;
-8. test equip/unequip modifier lifecycle and no-retrogression;
-9. test transfer/remove equipped instance consistency and rollback;
-10. test reopen, backup/restore and campaign switch;
-11. verify Phase 3–10 semantic snapshot unchanged;
-12. verify >1000 authoritative state without truncation;
-13. verify integrity/FK;
-14. verify exact candidate full JVM tests, signed build and CI;
-15. update only this report with one exact verdict.
+## 15. Release blockers
 
-Final verdict must be exactly one of:
+No reproducible Phase-11 migration/integrity release blocker was found on the exact candidate.
 
-`PHASE 11 INTEGRITY VALIDATION: PASS`
+The most important adversarial integrity state requested by the coordinator — Inventory holder B while Equipment holder A references the same exact ItemInstance — is prevented by both legal-store validation and V11 database triggers.
 
-or
+Global Phase-11 completion remains a coordinator decision after the independent CHAT-2 and CHAT-5 results.
 
-`PHASE 11 INTEGRITY VALIDATION: FAIL`
-
-## 20. Current checkpoint
-
-Fresh master during plan creation is `138bf67b8e6af52efe66254fd2289a77804b88dc`, containing the final read-only Phase-10 integrity report on top of accepted Phase-10 runtime `eb8bb64f8be566982c91f1062f319078899c1e47`.
-
-CI run #243 for fresh master completed `SUCCESS`.
-
-WORK-044 confirms that no accepted dedicated physical Equipment store exists yet, that legacy `character_inventory` / CharacterPanel equipment labels and Technique `is_equipped` are not Equipment authority, and that Phase 11 should bind to Phase-10 ItemInstance identities while reusing Phase-5 `ModifierLifecycle.EQUIPMENT` instead of creating another resolver.
-
-`PHASE 11 MIGRATION / INTEGRITY PLAN READY — WAITING FOR WORK-20260810-046 RESULT COMMIT`
+PHASE 11 INTEGRITY VALIDATION: PASS
