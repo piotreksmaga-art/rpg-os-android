@@ -31,6 +31,7 @@ class Phase9EvolutionLegacyMappingTest {
             val store = Phase9Store(db, "C")
             store.registerEvolutionPaths("W", listOf(EvolutionPathDefinition("PATH", "W", "path", "Path", provenance = "pack")))
             store.registerEvolutionStages("W", listOf(EvolutionStageDefinition("STAGE", "PATH", "W", "stage", "Stage", provenance = "pack")))
+            store.registerEvolutionTransitions("W", listOf(EvolutionTransitionDefinition("ENTRY-STAGE", "W", null, "STAGE", provenance = "pack")))
             store.registerLegacyMappings("W", listOf(
                 LegacyPhase9Mapping("W", "evolution_stage", "legacy-stage", LegacyPhase9TargetKind.EVOLUTION_STAGE, "STAGE", provenance = "explicit")
             ))
@@ -40,6 +41,7 @@ class Phase9EvolutionLegacyMappingTest {
 
             assertEquals("STAGE", store.evolutionStates("P").single().currentStageUid)
             assertEquals(listOf("STAGE"), store.attainedStages("P").map { it.stageUid })
+            assertEquals("ENTRY-STAGE", store.attainedStages("P").single().attainedViaTransitionUid)
             db.rawQuery("SELECT evolution_stage FROM character_status_snapshot WHERE entity_uid='P'", null).use { cursor ->
                 cursor.moveToFirst()
                 assertEquals("legacy-stage", cursor.getString(0))
