@@ -74,8 +74,12 @@ data class EvolutionTransitionDefinition(
     val reversible: Boolean = false,
     val crossPathAllowed: Boolean = false,
     val transitionVersion: Long = 1L,
-    val provenance: String
-)
+    val provenance: String,
+    val requirementRuleVersion: Long? = requirementRuleUid?.let { 1L }
+) {
+    val transitionRequirement: RequirementBinding?
+        get() = requirementRuleUid?.let { RequirementBinding(it, requirementRuleVersion ?: error("Transition requirement rule version missing")) }
+}
 
 data class PlayerEvolutionState(
     val campaignId: String,
@@ -107,8 +111,16 @@ data class FormDefinition(
     val activationRuleUid: String? = null,
     val status: Phase9DefinitionStatus = Phase9DefinitionStatus.ACTIVE,
     val definitionVersion: Long = 1L,
-    val provenance: String
-)
+    val provenance: String,
+    val unlockRequirementRuleUid: String? = null,
+    val unlockRequirementRuleVersion: Long? = unlockRequirementRuleUid?.let { 1L },
+    val activationRuleVersion: Long? = activationRuleUid?.let { 1L }
+) {
+    val unlockRequirement: RequirementBinding?
+        get() = unlockRequirementRuleUid?.let { RequirementBinding(it, unlockRequirementRuleVersion ?: error("Unlock requirement rule version missing")) }
+    val activationRequirement: RequirementBinding?
+        get() = activationRuleUid?.let { RequirementBinding(it, activationRuleVersion ?: error("Activation requirement rule version missing")) }
+}
 
 data class PlayerFormUnlock(
     val campaignId: String,
@@ -188,5 +200,12 @@ object Phase9Policy {
         requireIdentity(displayName, "displayName")
         require(version >= 1L) { "definition version must be at least 1" }
         requireIdentity(provenance, "provenance")
+    }
+    fun requireOptionalRule(uid: String?, version: Long?, label: String) {
+        if (uid == null) require(version == null) { "$label rule version without rule UID" }
+        else {
+            requireIdentity(uid, "$label ruleUid")
+            require(version != null && version >= 1L) { "$label rule version must be at least 1" }
+        }
     }
 }
