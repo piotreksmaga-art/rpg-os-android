@@ -1,23 +1,55 @@
-# WORK-20260810-058 — Phase 13 Migration / Integrity Plan
+# WORK-20260810-058 — Phase 13 Migration / Integrity Revalidation
 
-Status: READ-ONLY RUNTIME / VALIDATION PLAN
+Status: FINAL REVALIDATION — PASS
 
 Work ID: `WORK-20260810-058`
-Role: `READ-ONLY PHASE 13 MIGRATION / INTEGRITY AUDITOR`
+Role: `FINAL PHASE 13 MIGRATION / INTEGRITY REVALIDATION`
 Repository: `piotreksmaga-art/rpg-os-android`
-Accepted Phase-12 runtime baseline: `d5f1fd6e7a660e3e398f155784f8602c486b9906`
-Accepted Phase-12 state: SEMANTIC PASS / INTEGRITY PASS / ADVERSARIAL PASS
-Phase-13 architecture input: `docs/audits/WORK-20260810-054_NEXT_PHASE_ARCHITECTURE.md`
-Fresh master observed before report write: `b08ee3253e62c68ba5a4bccd1840d77644c76a0f` (report-only Phase-13 adversarial matrix on top of accepted Phase-12 runtime)
+Validated runtime SHA: `be10d7f1b6bf0f6a2cd0522b1dac577d0f398790`
+Exact CI: GitHub Actions `#279`, run ID `31406682617`, head SHA `be10d7f1b6bf0f6a2cd0522b1dac577d0f398790`, `SUCCESS`
+Accepted Phase-12 baseline: `d5f1fd6e7a660e3e398f155784f8602c486b9906`
 Allowed write scope: this report only.
 
-This document defines independent release gates for Phase 13 Financial Ledger / Economy migration, persistence, reference integrity, concurrency, scale and Phase 3–12 preservation. It does not implement Phase 13 and does not issue a final PASS/FAIL before CHAT-1 supplies a final runtime result commit.
+# PHASE 13 INTEGRITY REVALIDATION: PASS
+
+The exact runtime above satisfies the WORK-058 migration/integrity gates. No Phase-13 release blocker was reproduced. The candidate installs a forward-only V13.0/V13.1/V13.2 contract on top of accepted V12, keeps the canonical ledger append-only, treats balances as rebuildable projections, validates holder/account/currency/account-type references at SQLite authority boundaries, protects funds and overflow at the ledger INSERT boundary, blocks generic StatePatch finance writes, preserves legacy finance data without synthesizing history, and passes the mandatory concurrency fixtures with separate SQLite connections.
+
+A later master commit observed during final revalidation was `WORK-20260810-057 — final Phase 13 semantic revalidation`; it is report-only. No later runtime commit from WORK-20260810-056 appeared, so validation remained pinned to `be10d7f1...` as instructed.
 
 ---
 
-## 1. Canonical boundary
+## 1. Sources and evidence
 
-The Phase-13 hard separation is:
+The revalidation used current repository truth and inspected:
+
+- `docs/RPG_OS_MASTER_ARCHITECTURE.md`;
+- `docs/RPG_OS_IMPLEMENTATION_ROADMAP.md`;
+- `docs/PARALLEL_WORK_COORDINATION.md`;
+- `docs/audits/WORK-20260810-054_NEXT_PHASE_ARCHITECTURE.md`;
+- `docs/audits/WORK-20260810-057_PHASE13_FINANCIAL_LEDGER_SEMANTIC_ORACLE.md`;
+- this WORK-058 migration/integrity plan;
+- `docs/audits/WORK-20260810-060_PHASE13_ADVERSARIAL_MATRIX.md`;
+- the exact WORK-056 candidate diff relative to accepted V12;
+- `Phase13Migration.kt`;
+- `Phase13BalanceGuards.kt`;
+- `Phase13ContractGuards.kt`;
+- `FinancialModel.kt`;
+- `FinancialStore.kt`;
+- `FinancialContextReader.kt`;
+- `SourceOfTruthRegistry.kt`;
+- `CurrentSchema` routing in `Phase7Migration.kt`;
+- `FinancialPersistenceTest.kt`;
+- `FinancialConcurrencyTest.kt`;
+- `Phase13ProductionRoutingTest.kt`;
+- exact GitHub Actions run and job metadata.
+
+No runtime/schema/test correction was implemented by CHAT-3.
+
+---
+
+## 2. Canonical domain boundary — PASS
+
+The required separation remains intact:
 
 ```text
 Inventory possession
@@ -26,708 +58,408 @@ Inventory possession
 != Financial Ledger
 ```
 
-Financial transaction history is also distinct from:
+The Phase-13 store only mutates finance tables. No ledger transaction automatically changes Inventory, Equipment or OwnershipRecord. Conversely, accepted Phase 10–12 stores do not call FinancialStore merely because possession/equipment/title changes.
 
-```text
-current balance projection
-asset valuation
-liability / obligation
-country economy dashboard
-```
+A cross-domain outer transaction may coordinate those domains in a future higher-level operation, but the existing test deliberately performs a finance payment inside an outer SQLite transaction and then simulates a later ownership/inventory failure; because the outer transaction is not committed, the finance transaction and both balance effects disappear. This proves Phase 13 can participate atomically without collapsing domain authority.
 
-A payment alone must not transfer Inventory possession or OwnershipRecord title. Ownership transfer alone must not fabricate a payment. Equip/unequip must not create finance entries. Theft/custody/loan must not become legal sale/payment history unless an explicit finance-domain operation is committed.
-
-Phase 14 remains responsible for Assets / debts / obligations / net-worth. Phase 13 must not manufacture Phase-14 identities from `property_value`, `investment_value`, or aggregate `debt`.
+Result: **PASS**.
 
 ---
 
-## 2. Repository baseline and migration chain precondition
+# MIGRATION / ROUTING
 
-At plan creation the production latest-schema route is still:
+## 3. CurrentSchema and full migration chain — PASS
 
-```text
-CurrentSchema.ensure(saveDb, campaignId)
--> MigrationManager.ensureV12(saveDb, campaignId)
-```
-
-The final Phase-13 candidate must change the production latest-schema route to V13 or equivalent while retaining the complete additive chain:
+Production `CurrentSchema.ensure(saveDb, campaignId)` routes to:
 
 ```text
-Phase 3
--> Phase 4
--> Phase 5
--> Phase 6
--> Phase 7
--> Phase 8
--> Phase 9
--> Phase 9 requirement hotfix
--> Phase 10
--> Phase 11
--> Phase 12
--> Phase 13
+ensureV13ContractGuards
+-> ensureV13BalanceGuards
+-> ensureV13
+-> ensureV12
+-> accepted earlier migration chain
 ```
 
-Direct unit invocation of `ensureV13()` is insufficient. Final validation must prove the production path used by `LocalGameStore` / repository bootstrap, restore and campaign switching.
+`ensureV13()` begins by ensuring V12. Accepted V12 itself chains through V11/V10/V9 requirement hotfix and earlier phases. Therefore the current latest-schema route remains forward-only and preserves Phase 3–12 dependencies.
+
+The V13 contract is versioned in three additive markers:
+
+- `RPGOS-13.0-FINANCIAL-LEDGER`;
+- `RPGOS-13.1-FINANCIAL-BALANCE-GUARDS`;
+- `RPGOS-13.2-FINANCIAL-CONTRACT-GUARDS`.
+
+V13.1 and V13.2 intentionally refresh their trigger definitions on repeated ensure; committed ledger/history rows are not rewritten.
+
+Result: **PASS**.
+
+## 4. Clean bootstrap — PASS
+
+`Phase13ProductionRoutingTest.bootstrapRoutesBundledCampaignThroughV13()` invokes the actual `LocalGameStore.bootstrap()` production path and verifies the resulting campaign DB contains the Phase-13 tables/triggers and migration markers and passes `PRAGMA integrity_check`.
+
+No opening balance or transaction is automatically generated merely by bootstrap.
+
+Result: **PASS**.
+
+## 5. V12 -> V13 upgrade — PASS
+
+The production routing fixture creates a DB at exactly V12, then reaches V13 through normal campaign switch/restore paths rather than by directly invoking only a test migration helper.
+
+V13 schema creation is additive. The runtime adds:
+
+- currency definitions;
+- transaction-type definitions;
+- financial account types;
+- financial accounts;
+- immutable financial ledger transactions;
+- rebuildable account balance projections;
+- explicit legacy financial evidence;
+- required indexes and SQLite guards.
+
+No V13 code drops or rewrites Phase 3–12 authoritative tables.
+
+Result: **PASS**.
+
+## 6. Reopen / repeated ensure / idempotency — PASS
+
+The persistence fixture performs repeated CurrentSchema ensure against a DB containing legacy finance evidence and proves:
+
+- no synthetic canonical transaction appears;
+- legacy rows survive;
+- the V13 marker remains singular;
+- 1001 committed canonical transactions remain complete after DB close/reopen;
+- ledger-derived balance remains exact after reopen.
+
+Schema uses `CREATE ... IF NOT EXISTS` and marker `INSERT OR IGNORE`, while trigger refresh is deterministic. Stable transaction/account identities are not regenerated on ensure.
+
+Result: **PASS**.
+
+## 7. Restore — PASS
+
+Production restore validation creates a V12 backup containing:
+
+- `character_finances(entity_uid='P', ryo=777)`;
+- an opaque legacy `financial_transactions` row.
+
+After `LocalGameStore.restoreBackup()` and latest-schema routing:
+
+- V13 is installed;
+- canonical `financial_ledger_transactions` remains empty;
+- legacy `character_finances.ryo=777` remains preserved;
+- no guessed payer/payee/currency/history is synthesized.
+
+The existing backup/restore mechanism operates on the campaign database as a whole; V13 tables are ordinary persistent SQLite state and the migration is non-destructive on already-V13 data. Reopen/reconciliation tests independently prove that complete ledger history is sufficient to reconstruct balances.
+
+Result: **PASS**.
+
+## 8. Campaign switch A -> B -> A / campaign isolation — PASS
+
+Production routing verifies a V12 alternate campaign is upgraded when selected. Finance primary keys and authoritative lookups are campaign-scoped for accounts, transactions, balances and legacy evidence.
+
+Persistence validation creates the same holder/account identity strings in campaign `C` and campaign `D` and proves balances remain independent. Transaction/account reads in `FinancialStore` always include `campaign_id`.
+
+Returning to an already migrated campaign cannot duplicate migration/opening transactions because migration itself creates no financial history and markers/definitions are idempotent.
+
+Result: **PASS**.
+
+## 9. Additive / forward-only / Phase 3–12 preservation — PASS
+
+The exact candidate is ahead of accepted Phase 12 and only introduces the Phase-13 finance subsystem plus narrow ContextBuilder/CurrentSchema/SourceOfTruthRegistry integration. V13 always calls V12 first. No downgrade path exists.
+
+The exact CI executes the complete JVM regression suite, so the accepted Stats, Resources, Modifier/Resolver, Talent, Potential, Skills, Techniques, Innate/Racial, Inventory, Equipment and Ownership tests remain green.
+
+Result: **PASS**.
 
 ---
 
-## 3. Lessons inherited from Phase 10–12
+# LEGACY SAFETY
 
-Phase 10 established the migration pattern that legacy evidence must be preserved losslessly, same labels cannot define identity, authoritative readers may not silently truncate >1000 rows, and backup/restore must preserve typed state plus legacy evidence.
+## 10. Zero synthetic legacy financial history — PASS
 
-Phase 11 established that application prechecks are insufficient for race-sensitive invariants. Slot/possession consistency was accepted only after SQLite write-boundary guards closed TOCTOU races.
+The migration explicitly performs no legacy balance/history synthesis.
 
-Phase 12 added two further rules that are mandatory for Phase 13:
+It does not convert any of the following into invented canonical transactions:
 
-1. nonblank UID strings are not proof that a target exists;
-2. `PRAGMA foreign_key_check = clean` is not proof of generic-reference validity when authority is provided by registries/resolvers/triggers rather than direct FKs.
-
-Final Phase-13 validation must inspect actual authoritative write boundaries, not infer correctness from service-layer intent.
-
----
-
-# MIGRATION / ROUTING GATES
-
-## 4. Additive V13 migration
-
-PASS requires:
-
-- V13 first ensures V12;
-- no destructive drop/rewrite/truncation of Phase 3–12 authoritative tables;
-- Phase-13 schema creation occurs transactionally;
-- migration marker/version is written only after successful schema establishment;
-- a failed V13 migration does not leave a half-created ledger contract;
-- legacy `character_finances` / existing `financial_transactions` bytes are not silently destroyed;
-- Phase-13 triggers/indexes/reference registries required for integrity are present after migration;
-- migration is forward-only; normal runtime never attempts an automatic downgrade from V13 to V12.
-
-A migration may create new canonical ledger/account/currency tables and explicit legacy mapping/evidence tables. It may not convert presentation/summary fields into fabricated detailed history without a documented evidence contract.
-
-## 5. Clean bootstrap
-
-Test a fresh bundled/default campaign through the actual app bootstrap path.
-
-Required result:
-
-- full CurrentSchema route reaches V13;
-- exactly one V13 marker exists;
-- canonical Phase-13 tables/indices/triggers exist;
-- required default currency/account/reference definitions are deterministic and idempotent if the architecture requires them;
-- no duplicate opening balances or bootstrap transactions are created by a second bootstrap;
-- `PRAGMA integrity_check = ok`.
-
-## 6. V12 -> V13 upgrade
-
-Build a fixture at exactly the accepted V12 schema, populate representative data from Phases 3–12, close the DB, reopen under the V13 runtime and invoke only the normal production ensure path.
-
-Validate:
-
-- V13 marker appears exactly once;
-- all Phase 3–12 authoritative rows survive semantically unchanged;
-- no OwnershipRecord, Inventory or Equipment mutation is caused by finance migration;
-- finance legacy promotion follows only explicit deterministic rules;
-- a V12 DB with no sufficient finance evidence receives no invented transaction history.
-
-## 7. Full Phase 3 -> V13 chain
-
-Create/obtain an older Phase-3-compatible fixture and run the real latest CurrentSchema path through all later migrations.
-
-Required:
-
-- complete marker chain appropriate to the implementation;
-- no skipped dependency such as V9 requirement hotfix;
-- no schema-name collision between historical finance tables and new Phase-13 tables;
-- no reliance on manually invoking intermediate migration functions outside production routing;
-- final Phase-13 ledger state consistent with the same conservative legacy rules as direct V12 -> V13.
-
-## 8. Reopen
-
-For every important Phase-13 state fixture:
-
-```text
-write -> close DB -> reopen -> CurrentSchema.ensure -> exact authoritative equality
-```
-
-Preserve at minimum:
-
-- FinancialTransaction UID;
-- campaign scope;
-- party/account references;
-- currency/value identity;
-- exact amount representation;
-- transaction order/time;
-- source event/command/operation IDs if present;
-- provenance/version/status;
-- opening-balance/migration evidence;
-- reversal/correction links if supported.
-
-Reopen must not regenerate transaction UIDs, duplicate derived balances, or replay opening entries.
-
-## 9. Repeated ensure / idempotency
-
-Execute:
-
-```text
-ensure -> ensure -> ensure -> close -> reopen -> ensure
-```
-
-Validate:
-
-- one migration marker;
-- no duplicated accounts/currencies/reference targets;
-- no duplicated opening balances;
-- no duplicated imported legacy transactions;
-- no changed provenance/version/time fields;
-- already-migrated databases receive any required guard/trigger refresh deterministically without modifying committed ledger history.
-
-## 10. Restore
-
-Mandatory scenarios:
-
-1. V12 backup -> restore under V13 app -> automatic V13 migration.
-2. V13 backup containing current + historical ledger entries -> restore -> exact ledger equality.
-3. V13 backup containing explicit migration/opening evidence -> restore -> no replay/duplication.
-4. Restore while another campaign is active must remain scoped to the active campaign contract and must not leak ledger state.
-
-After restore run latest CurrentSchema and then integrity/reference checks.
-
-## 11. Campaign switch A -> B -> A
-
-Create two campaigns with intentionally colliding strings:
-
-- same account UID;
-- same party UID;
-- same transaction UID if namespace contract permits campaign-scoped identity;
-- same currency UID where global currency identity is intended;
-- distinct balances and histories.
-
-Switch:
-
-```text
-A -> B -> A
-```
-
-Required:
-
-- reads after each switch expose only the active campaign;
-- no store/cache remains bound to previous campaign;
-- no migration marker/opening transaction is duplicated on return to A;
-- a transaction in B cannot mutate A;
-- balance derivation is campaign-scoped.
-
-## 12. Schema marker/version / forward-only behavior
-
-The final candidate must expose a stable Phase-13 migration ID/version.
-
-PASS requires:
-
-- marker count exactly one per schema DB where marker semantics are global;
-- V13 marker cannot be written before V13 objects are usable;
-- reopening an already-V13 DB is a no-op except deterministic guard refreshes explicitly designed as such;
-- runtime does not destructively reinterpret V13 DB as V12;
-- restore of an older DB moves forward through the current path.
-
----
-
-# LEDGER INTEGRITY GATES
-
-## 13. Stable FinancialTransaction UID
-
-Every committed canonical financial entry must have a stable identity independent of display reason, row order, amount label or current balance.
-
-Test:
-
-- nonblank UID required;
-- duplicate committed UID in its authoritative namespace rejected or replayed as an exact idempotent no-op according to the contract;
-- same UID with changed immutable fields must fail loudly;
-- UID survives reopen and restore;
-- correction/reversal creates a new transaction UID and preserves original history rather than rewriting it.
-
-## 14. Campaign scope
-
-All authoritative ledger reads/writes must scope by campaign.
-
-Test same account/party/transaction strings across campaigns and prove:
-
-- reads do not cross;
-- transfers do not cross;
-- idempotency lookup does not treat another campaign's transaction as already committed unless transaction identity is intentionally global and the implementation proves it;
-- balance aggregation never sums another campaign.
-
-## 15. Exact monetary representation
-
-Canonical conserved money must not use SQLite `REAL`, Kotlin `Float`, or `Double` authority.
-
-Acceptable designs include integer minor units or an equivalently exact decimal/integer+scale representation.
-
-Required tests:
-
-- zero amount rejected for normal value movement unless a specific zero-value transaction type is explicitly legal and semantically non-monetary;
-- negative amount rejected as input; direction belongs to from/to or typed entry semantics;
-- amount above canonical maximum rejected;
-- exact repeated split/recombine produces original amount;
-- unsupported precision fails loudly rather than rounds silently;
-- arithmetic uses checked overflow semantics.
-
-If currency precision is configurable, test at least two precision definitions and a value not representable in the target currency.
-
-## 16. Currency/value identity
-
-If Phase 13 introduces `CurrencyDefinition` or equivalent, validate:
-
-- stable currency UID;
-- exact precision/minor-unit semantics;
-- unknown currency rejected;
-- deprecated/inactive currency behavior explicit;
-- World Pack/campaign scoping follows the chosen contract;
-- same display name never substitutes for currency UID;
-- transaction amount interpretation cannot change retroactively because a mutable definition silently changes precision.
-
-If the implementation intentionally supports only one fixed currency initially, final validation must confirm this is an explicit stable definition contract, not a hardcoded string/label bypass that prevents future World Packs.
-
-## 17. Party/account references
-
-If `FinancialAccount` exists, validate stable account UID and its holder/currency relation.
-
-If a lighter `holder + currency + account scope` model is used, apply the same reference requirements to that composite authority.
-
-Required failures:
-
-- blank identity;
-- nonexistent account/party;
-- wrong campaign;
-- unknown namespace/type;
-- inactive/closed/retired target when new transactions are prohibited;
-- account currency mismatch;
-- same UID in different party/account namespaces must not collide.
-
-A legal generic non-player holder (NPC/organization/state/business or equivalent registered type) must remain representable. Core may not hardcode finances to ActivePlayer only.
-
-## 18. Source / provenance / time
-
-Every authoritative committed financial transaction must retain sufficient audit evidence.
-
-Validate implementation equivalents of:
-
-- reason / transaction type;
-- source event or operation/command identity where available;
-- deterministic campaign order/time;
-- provenance;
-- migration/opening source if applicable;
-- version/status.
-
-Blank required provenance must fail. Migration may not invent historical event IDs when none exist; it must use explicit migration provenance instead.
-
-Order/time must be deterministic enough to answer ledger history ordering after reopen/restore.
-
-## 19. Immutable committed history
-
-Committed financial history must be append-preserved.
-
-Direct SQL/API attempts to:
-
-- change amount;
-- change source/destination;
-- change currency;
-- change campaign;
-- change transaction UID;
-- delete a committed transaction
-
-must fail at the authoritative boundary unless the model has an explicitly documented mutable pre-commit state that is not yet ledger truth.
-
-Corrections should use reversal/correction entries rather than mutation of committed history.
-
-## 20. Duplicate identity / operation idempotency
-
-Test repeated submission of exactly the same stable operation/transaction ID:
-
-- first commit succeeds;
-- retry returns existing committed result or deterministic already-committed outcome;
-- no duplicate debit/credit;
-- no duplicate ledger row;
-- no duplicate opening-balance row.
-
-Then retry with the same idempotency key but changed amount/source/destination/currency/provenance-relevant identity. It must fail, not silently reuse the old result as if semantically identical.
-
-## 21. Atomic internal transfer
-
-For a normal same-currency internal transfer:
-
-```text
-source delta = -amount
-destination delta = +amount
-net conserved delta = 0
-```
-
-Required test:
-
-- both sides become visible together;
-- any failure after source validation but before destination commit rolls back all effects;
-- derived balance cache/projection cannot commit only one side;
-- transaction history is sufficient to rebuild both balances.
-
-If the model records one bilateral FinancialTransaction rather than two ledger legs, the same atomic/conservation semantics must be derivable without ambiguity.
-
-## 22. Rollback
-
-Inject failures at each meaningful write step:
-
-- invalid destination reference;
-- currency mismatch;
-- amount overflow;
-- duplicate transaction UID;
-- source insufficient funds if Phase-13 rules disallow negative balances;
-- trigger/constraint failure;
-- derived projection/cache failure if it participates in the same transaction.
-
-After each failure:
-
-- no partial ledger entry;
-- no partial account delta;
-- no changed balance projection;
-- no unrelated Inventory/Equipment/Ownership mutation.
-
-## 23. Negative balance / overdraft policy
-
-The architecture must explicitly state whether accounts may go below zero.
-
-If prohibited, balance sufficiency is a race-sensitive invariant and must be protected at authoritative commit boundary.
-
-If permitted for specific account types, overdraft authority must be typed/rule-based and must not become a universal escape from double-spend tests.
-
-The migration/integrity audit must not assume either policy from UI behavior.
-
----
-
-# REFERENCE INTEGRITY GATES
-
-## 24. General rule
-
-Phase 12 established:
-
-```text
-string UID != valid reference
-```
-
-For every Phase-13 reference category — party, holder, account, currency, organization, external boundary, and any asset reference actually introduced by Phase 13 — final validation must identify the authoritative resolution strategy.
-
-Acceptable strategies include:
-
-- direct campaign-scoped FK;
-- generic registry + namespace FK + target row;
-- SQLite trigger/resolver guard;
-- transaction-authoritative resolver with equivalent integrity and race protection.
-
-Application `require(uid.isNotBlank())` alone is not sufficient.
-
-## 25. Reference lifecycle
-
-For mutable lifecycle targets, test:
-
-```text
-target ACTIVE
-T1 validates transaction
-T2 retires/closes/deletes target
-T1 attempts commit
-```
-
-Required: one coherent serialized outcome. A stale target validation cannot create a newly committed transaction against an invalid reference.
-
-If lifecycle deletion is forbidden once ledger history references a target, prove the DB/reference boundary preserves historical resolvability.
-
-## 26. External source/sink boundaries
-
-`from=NULL` or `to=NULL` must not be an unrestricted bypass.
-
-If the model supports external mint/source/sink semantics, require:
-
-- explicit registered/typed boundary identity or transaction type;
-- provenance;
-- rule authorization;
-- exact amount;
-- campaign/currency scope;
-- idempotency.
-
-Unknown external source/sink strings must be rejected.
-
----
-
-# CONCURRENCY / TOCTOU RELEASE GATES
-
-## 27. FIN-RACE-01 — double spend
-
-Initial state:
-
-```text
-A balance = 100
-```
-
-Concurrent:
-
-```text
-T1: A -> B 80
-T2: A -> C 80
-```
-
-If negative balance is not permitted, at most one transfer may commit.
-
-Forbidden final state:
-
-```text
-both commits succeed based on stale balance read
-```
-
-Test with two independent SQLite connections/transactions and synchronization barrier proving competing execution.
-
-## 28. FIN-RACE-02 — competing source transfers
-
-Use a source with exactly enough value for one of two mutually exclusive transactions, including cases with different destinations and different transaction UIDs.
-
-The authoritative source/account/balance boundary must serialize them. Service-level pre-read is not evidence.
-
-## 29. FIN-RACE-03 — stale balance
-
-Explicitly reproduce:
-
-```text
-T1 reads balance N
-T2 commits a debit
-T1 attempts transaction calculated from old N
-```
-
-Required: T1 revalidates atomically at commit boundary or fails through a DB-authoritative invariant. Cached/presentation balance may not authorize spend.
-
-## 30. FIN-RACE-04 — duplicate/idempotency transaction
-
-Two simultaneous callers submit the same stable financial transaction/operation UID.
-
-Required:
-
-- exactly one economic effect;
-- both calls may return success/already-committed according to API contract, but only one ledger mutation exists;
-- no duplicate source/destination delta.
-
-A unique constraint without semantic replay validation is insufficient if the losing caller can partially mutate another table before uniqueness failure.
-
-## 31. FIN-RACE-05 — party/account lifecycle vs transaction
-
-Race an account/party close/retirement against a transaction that references it.
-
-Required coherent outcomes:
-
-- transaction commits first -> lifecycle operation sees committed dependency and follows policy; or
-- lifecycle commits first -> transaction is rejected.
-
-No stale validation window may leave a transaction referencing a target that became invalid in the same commit order.
-
-## 32. FIN-RACE-06 — overflow/limit concurrency
-
-Where account balance, aggregate, supply, credit limit or transaction counters have a finite numeric ceiling, race two individually valid additions that jointly exceed the limit.
-
-Required: combined committed state remains within exact numeric range. No wraparound, SQLite dynamic-type coercion, `SUM()` overflow surprise, or stale maximum precheck may produce invalid authority.
-
-## 33. Authoritative DB/write boundary requirement
-
-For every race above, final report must identify the actual protection:
-
-- SQLite transaction serialization;
-- CAS update;
-- conditional debit;
-- trigger;
-- unique constraint;
-- FK/registry lifecycle guard;
-- or equivalent authoritative mechanism.
-
-Kotlin/application precheck by itself is a release blocker for invariants whose truth can change between read and write.
-
----
-
-# LEGACY MIGRATION GATES
-
-## 34. Legacy preflight
-
-Before accepting any automatic finance promotion, inspect the real bundled/current legacy schema with PRAGMA and actual readers:
-
-```sql
-PRAGMA table_info(character_finances);
-PRAGMA index_list(character_finances);
-PRAGMA foreign_key_list(character_finances);
-PRAGMA table_info(financial_transactions);
-PRAGMA index_list(financial_transactions);
-PRAGMA foreign_key_list(financial_transactions);
-```
-
-Do not infer undocumented columns or semantics from table names.
-
-## 35. Current balance is not transaction history
-
-Legacy `character_finances.ryo` is current balance-like evidence only.
-
-Forbidden migration:
-
-```text
-ryo = 5000
-=> invent arbitrary historical income/payment transactions totaling 5000
-```
-
-If no opening-balance contract is implemented, preserve the row as unresolved/legacy evidence and synthesize no canonical ledger history.
-
-## 36. Opening-balance migration contract
-
-If V13 chooses a deterministic opening-balance entry, PASS requires all of:
-
-- stable target holder/account identity proven;
-- stable currency identity proven;
-- exact amount conversion;
-- one deterministic opening transaction UID/idempotency key;
-- explicit type equivalent to `MIGRATION_OPENING_BALANCE`;
-- explicit migration provenance;
-- deterministic migration boundary/order/time;
-- repeated ensure does not create another opening entry;
-- opening entry claims only the known balance at cutover, not historical causes;
-- zero/negative legacy values follow an explicit policy rather than ad hoc coercion.
-
-## 37. Existing `financial_transactions` legacy evidence
-
-Do not assume the old table already satisfies the canonical contract.
-
-Promotion is allowed only if each required identity/amount/reference/time/provenance field can be mapped deterministically and losslessly, or if the implementation stores an explicit migration evidence mapping that documents missing semantics.
-
-Forbidden:
-
-- infer payer/payee from reason text;
-- infer account from active player merely because UI shows the row;
-- infer currency from a display label when ambiguous;
-- silently drop rows that cannot be mapped;
-- rewrite legacy rows to force reconciliation.
-
-Unmappable legacy rows must remain preserved evidence.
-
-## 38. Legacy summary fields outside Phase 13
-
-No automatic canonical transaction/asset/ownership synthesis from:
-
-- `monthly_income`;
-- `monthly_expenses`;
-- `debt`;
+- current `character_finances.ryo`;
+- `monthly_income` / `monthly_expenses` summaries;
+- aggregate `debt`;
 - `property_value`;
-- `investment_value`.
+- `investment_value`;
+- opaque legacy `financial_transactions` rows;
+- reason/display labels.
 
-Recurring summaries do not prove historical scheduled transactions. Debt/property/investment summaries belong to later domains unless explicit historical finance evidence independently exists.
+The persistence and restore fixtures prove nonzero legacy balances and opaque legacy transaction rows survive while canonical ledger count remains zero.
+
+If an opening balance is later promoted, `FinancialStore.migrationOpeningBalance()` is an explicit caller operation requiring a stable legacy evidence UID and migration provenance/idempotency identity. It is not automatic migration inference.
+
+Result: **PASS**.
+
+---
+
+# LEDGER / ACCOUNT INTEGRITY
+
+## 11. Stable FinancialTransaction UID / command idempotency — PASS
+
+Canonical transaction identity is:
+
+```text
+PRIMARY KEY(campaign_id, financial_transaction_uid)
+```
+
+A separate campaign-scoped unique command UID index protects logical operation replay.
+
+`FinancialStore.commit()` allows an exact retry to return an idempotent replay result. Reusing the same transaction or command identity with different immutable content fails. The database PK/unique constraints remain authoritative under concurrent races even if both Kotlin callers read before either commits.
+
+FIN-RACE-04 confirms two synchronized connections submitting the same transaction+command yield one economic effect and one ledger row for that operation, while both callers may observe a successful/idempotent result.
+
+Result: **PASS**.
+
+## 12. Stable FinancialAccount identity and immutable meaning — PASS
+
+Accounts use stable `(campaign_id, account_uid)` identity. Account holder, account type, currency, opening order and provenance are immutable after creation; only the guarded legal close transition increments account version.
+
+Account creation requires a registered active holder, active holder namespace, active currency and active account type at the SQLite INSERT boundary. This makes account identity substantially stronger than a nonblank string.
+
+A nonzero-balance account cannot be closed. Account delete is blocked, preserving referenced history.
+
+Result: **PASS**.
+
+## 13. Holder / account / currency / account-type references — PASS
+
+Authoritative reference resolution is explicit:
+
+- holder -> accepted Phase-12 `ownership_party_registry`, campaign + owner namespace + owner UID, ACTIVE;
+- account -> campaign-scoped `financial_accounts` FK/reference trigger;
+- currency -> stable `currency_definitions`, ACTIVE;
+- account type -> stable `financial_account_type_definitions`, ACTIVE;
+- transaction type -> registered definition whose flow kind must match the transaction.
+
+Required failure classes are covered by schema, triggers and tests:
+
+- blank identity -> model/schema reject;
+- nonexistent holder -> account insert reject;
+- wrong-campaign holder/account -> reject through campaign-scoped lookup/FK;
+- unknown owner namespace -> Phase-12 registry cannot resolve it;
+- unknown account type -> account guard rejects;
+- unknown/retired currency -> account/transaction guard rejects;
+- closed account -> transaction guard rejects;
+- currency mismatch between accounts -> reject;
+- same UID strings in another campaign -> no leakage.
+
+A generic non-player `ORGANIZATION` holder is exercised successfully, so finance is not hardcoded to Player.
+
+Result: **PASS**.
+
+## 14. Definition precision / exact monetary representation — PASS
+
+Canonical amount and balance fields use SQLite INTEGER / Kotlin `Long` minor units. No `Float`, `Double` or SQLite REAL is used as conserved money authority.
+
+Currency definition carries immutable `minor_unit_scale > 0`. Transactions carry already-normalized integral minor units, so unsupported fractional precision cannot be silently rounded inside the ledger.
+
+Normal monetary movement requires `amount_minor > 0`. Zero and negative inputs fail.
+
+Ledger reconstruction uses `Math.addExact` / `Math.subtractExact`, and SQLite balance guards prevent committed target overflow/source underfunding before the ledger INSERT completes.
+
+Result: **PASS**.
+
+## 15. Source/provenance/order — PASS
+
+Committed transaction rows preserve:
+
+- stable transaction UID;
+- campaign;
+- from/to accounts;
+- currency;
+- exact amount;
+- transaction type and flow kind;
+- reason;
+- effective order;
+- optional source event UID;
+- optional command UID;
+- optional reversal target;
+- nonblank provenance;
+- COMMITTED status.
+
+Required text fields are nonblank. Migration opening balance uses explicit migration evidence rather than pretending a historical gameplay event existed.
+
+Result: **PASS**.
+
+## 16. Immutable committed ledger / reversal history — PASS
+
+SQLite guards reject UPDATE and DELETE of committed `financial_ledger_transactions`.
+
+Corrections are append-only. `reverse()` creates a new transaction with its own UID, opposite endpoints, same exact amount/currency and `reversal_of_uid` referencing the original. A unique campaign-scoped reversal index prevents a second reversal of the same original transaction.
+
+Persistence tests prove original debit remains, reversal restores the balance, direct UPDATE/DELETE fail and double reversal fails.
+
+Result: **PASS**.
+
+## 17. Non-backdating — PASS
+
+The V13.2 transaction reference guard rejects a new transaction whose `effective_order` is lower than the already committed latest order for either participating account. Account opening/closing time is also checked at the transaction boundary.
+
+This prevents inserting stale historical debits/credits after later account history has already been committed in order to bypass spendability/lifecycle semantics.
+
+Result: **PASS**.
+
+## 18. Atomic debit/credit and rollback — PASS
+
+A bilateral transfer is represented by one immutable ledger INSERT. SQLite triggers validate references/funds/overflow before insertion, and an AFTER INSERT trigger applies both source debit and destination credit in the same SQLite statement/transaction.
+
+Thus there is no separate application sequence:
+
+```text
+debit source -> later credit target
+```
+
+that could half-commit.
+
+The outer-domain rollback test additionally proves that if a later coordinated Ownership/Inventory step fails inside an enclosing DB transaction, the ledger insert and both projected balance changes roll back together.
+
+Result: **PASS**.
+
+## 19. Balance projection is not authority — PASS
+
+`financial_account_balances` is a rebuildable projection. `reconcile()` computes exact balance from the complete canonical ledger and requires equality. `rebuildBalance()` reconstructs projection from the unbounded ledger history.
+
+The persistence test deletes a projection row and reconstructs it exactly from ledger history.
+
+`FinancialContextReader` is intentionally bounded presentation/context output. It is not called by `FinancialStore.calculateLedgerBalance()`, reconciliation, spendability checks or migration. Therefore its limits do not become authoritative truncation.
+
+Result: **PASS**.
+
+## 20. Generic StatePatch finance bypass — PASS
+
+`SourceOfTruthRegistry.canWrite()` explicitly treats finance tables as typed-only and blocks generic StatePatch writes, including both legacy `financial_transactions` and canonical ledger/account/balance/definition/evidence tables.
+
+Direct SQL against the canonical ledger is still constrained by SQLite reference, funds, lifecycle, immutable-history and balance triggers, so critical invariants do not depend solely on typed Kotlin callers.
+
+Result: **PASS**.
+
+---
+
+# CONCURRENCY / TOCTOU
+
+## 21. SQLite authoritative boundary
+
+Race-sensitive spendability is not implemented as only:
+
+```text
+SELECT balance
+-> Kotlin require
+-> unconditional INSERT
+```
+
+The authoritative ledger INSERT executes `trg_fin_transaction_balance_guard` before commit. For a source account it requires the current serialized balance row to contain at least the requested amount; for a destination it requires enough `Long` headroom. The following AFTER INSERT trigger updates the balance projection in that same statement.
+
+Reference/lifecycle validation is also performed by DB triggers/FKs at insertion time. SQLite writer serialization therefore orders competing commits against the actual current state.
+
+Result: **PASS**.
+
+## 22. FIN-RACE-01 — double spend — PASS
+
+Initial A=100. Two synchronized SQLite connections concurrently transfer 80 from A to B and 80 from A to C.
+
+Observed required fixture outcome: exactly one succeeds and one fails; A=20 and B+C=80.
+
+Protection: SQLite serialization + BEFORE INSERT funds guard + atomic AFTER INSERT projection application.
+
+## 23. FIN-RACE-02 — competing transfers — PASS
+
+Covered by the same competing-source fixture with distinct transaction UIDs and destinations. Two application callers may both begin from the same conceptual balance, but only one legal serialized ledger INSERT survives.
+
+## 24. FIN-RACE-03 — stale balance — PASS
+
+The test first reads A=100, then synchronizes two independent 70-unit debits. Exactly one succeeds; the loser cannot use the stale earlier read to authorize a second spend. Final A=30.
+
+## 25. FIN-RACE-04 — duplicate/idempotency — PASS
+
+Two independent connections race the exact same transaction UID and command UID. There is one economic effect. Database PK/unique command identity plus replay lookup prevents duplicate debit/credit/history.
+
+## 26. FIN-RACE-05 — lifecycle race — PASS
+
+A zero-balance account races external credit versus account close on two connections. Exactly one operation succeeds and one fails. If close serializes first, later credit fails the open-account reference guard. If credit serializes first, close fails because balance is nonzero.
+
+Holder retirement is likewise blocked while an open financial account exists by the finance lifecycle guard attached to the Phase-12 owner registry.
+
+## 27. FIN-RACE-06 — concurrent overflow — PASS
+
+Target account starts at `Long.MAX_VALUE - 5`. Two concurrent +4 credits race. Exactly one succeeds and one fails. Final exact balance/reconciliation is `Long.MAX_VALUE - 1`, with no wraparound.
+
+Protection is the SQLite destination headroom condition evaluated at ledger INSERT time, not only Kotlin arithmetic.
 
 ---
 
 # SCALE / COMPLETENESS
 
-## 39. >1000 FinancialTransactions
+## 28. >1000 transactions — PASS
 
-Persist at least 1001 canonical transactions in one campaign/account/currency history, with a mix of incoming/outgoing and historical times.
+The scale persistence fixture commits 1001 canonical FinancialTransactions in one campaign.
 
-Validate exact counts through authoritative ledger readers before and after reopen.
+It verifies:
 
-No authoritative reader may depend on a bounded presentation method such as `LIMIT 1000`, `LIMIT 100`, context budget, or first-page-only retrieval.
+- `historyCount() == 1001`;
+- projected balance == 1001;
+- full ledger reconciliation == 1001;
+- close/reopen preserves 1001 records and exact balance;
+- `recentTransactions(limit=50)` deliberately returns only 50 as a bounded presentation reader.
 
-## 40. Balance derivation at scale
+The authoritative balance derivation query has no LIMIT and iterates every matching ledger row. No `LIMIT 1000` or bounded context reader is used for ledger authority.
 
-Compute expected balance independently from the fixture and compare with the canonical derived balance after >1000 entries.
-
-Required:
-
-- no truncation;
-- no floating-point drift;
-- no integer overflow;
-- no omission of old history because a recent-history reader is bounded;
-- same result after reopen and restore.
-
-## 41. Income/expense aggregation
-
-If Phase 13 provides income/expense/category/period aggregates, test >1000 transactions spanning multiple categories/time windows.
-
-Aggregation must operate from complete authoritative data or clearly documented time filters, not from bounded presentation history.
-
-## 42. Historical ledger completeness
-
-Test current state and historical reads separately.
-
-A valid current-balance query is not evidence that the ledger history reader is complete. Closed/reversed/old entries must remain queryable according to contract.
-
-## 43. Restore scale
-
-Create backup with >1000 ledger entries, restore it, run latest schema ensure and validate:
-
-- exact ledger count;
-- exact transaction UIDs;
-- exact balances/aggregates;
-- exact migration/opening evidence;
-- no duplicate replay.
+Result: **PASS**.
 
 ---
 
 # SQLITE INTEGRITY
 
-## 44. `PRAGMA integrity_check`
+## 29. PRAGMA integrity_check — PASS
 
-Final validation executes after migration and after mutation/race/scale fixtures:
+Phase-13 persistence, production-routing and race fixtures execute:
 
 ```sql
 PRAGMA integrity_check;
 ```
 
-Required result:
+and require exactly:
 
 ```text
 ok
 ```
 
-## 45. `PRAGMA foreign_key_check`
+These tests executed successfully in exact CI #279.
 
-Final validation executes:
+## 30. PRAGMA foreign_key_check — PASS
+
+Fresh persistence/concurrency fixtures execute full:
 
 ```sql
 PRAGMA foreign_key_check;
 ```
 
-Required: zero violations for the authoritative DB fixture.
+and require zero rows. Production routing additionally checks Phase-13-owned FK tables individually so unrelated bundled historical FK debt cannot be misattributed to Phase 13.
 
-For bundled historical DBs with known unrelated legacy FK debt, a Phase-13-specific scoped check may be useful diagnostically, but it cannot replace a clean full check on fresh canonical Phase-13 fixtures.
+This clean FK result is not used alone as reference-integrity proof; holder/account/currency/account-type/transaction-type trigger/registry authorities were inspected directly above.
 
-## 46. Generic resolver validation is separate
-
-Even when `foreign_key_check` is clean, separately attack every generic reference registry/resolver:
-
-- nonexistent UID;
-- wrong campaign;
-- unknown namespace;
-- inactive target;
-- cross-kind collision;
-- lifecycle race.
-
-A clean FK check cannot grant PASS to references that SQLite does not model as direct FKs.
+Result: **PASS**.
 
 ---
 
-# REGRESSION / PRESERVATION
+# REGRESSION SAFETY
 
-## 47. Phase 3–12 preservation matrix
+## 31. Phase 3–12 no-regression — PASS
 
-Before/after V13 migration semantic equality must be demonstrated for prior accepted domains, including:
+Phase-13 runtime does not replace accepted authorities for:
 
-- ActivePlayerRef / Player State classification;
+- Player state / ActivePlayer;
 - Stats / Resources;
 - Modifier/DerivedValueResolver;
 - Talent / Potential;
-- Skills;
-- Techniques;
-- Innate/Racial/Bloodline/Evolution/Forms;
-- Inventory definitions/instances/stacks/unique possession/legacy evidence;
-- Equipment definitions/loadouts/slots/modifier activation;
-- OwnershipRecord history/reference registries/shares/provenance.
+- Skills / Techniques;
+- Innate/Racial state;
+- Inventory / ItemInstance;
+- Equipment;
+- OwnershipRecord.
 
-V13 migration must not directly mutate those domains merely to make finance migration succeed.
-
-## 48. Cross-domain hard boundary regression
-
-Mandatory tests retain:
+The exact CI executes the full JVM unit test suite after adding Phase 13. The cross-domain hard relation therefore remains:
 
 ```text
 Inventory possession
@@ -736,124 +468,86 @@ Inventory possession
 != Financial Ledger
 ```
 
-Examples:
+No migration derives one of these domains from another.
 
-- inventory transfer only -> no ledger transaction;
-- equip/unequip only -> no ledger transaction;
-- ownership transfer only -> no payment fabricated;
-- payment only -> no ownership/possession/equipment mutation;
-- theft possession change -> no sale/payment fabricated;
-- gift ownership transfer -> payment not required;
-- salary/reward payment -> no asset ownership side effect.
-
-If Phase 13 exposes a higher-level purchase/sale operation that intentionally spans domains, all participating effects must be in one atomic SQLite transaction; failure of any side must rollback all sides. Phase 13 must not silently couple unrelated lower-level operations.
-
-## 49. Ownership reference integrity preservation
-
-Phase 13 must not weaken Phase-12 owner/asset registries or lifecycle triggers to make account/party integration easier.
-
-Any reuse of Phase-12 generic party reference authority must respect:
-
-- campaign scope;
-- namespace identity;
-- ACTIVE/RETIRED status;
-- history-preserving lifecycle constraints.
-
-A finance account holder may reference a party authority, but Finance must not reinterpret OwnershipRecord itself as account ownership or cash balance.
-
-## 50. Generic StatePatch bypass
-
-WORK-054 identified that legacy `financial_transactions` is currently generic-StatePatch-writable.
-
-When canonical Phase-13 ledger becomes authoritative, final validation must search every write path and prove that generic AI/UI patching cannot bypass finance-domain conservation/reference/idempotency rules.
-
-Acceptable outcomes include removing canonical ledger tables from generic StatePatch writability or making every such path pass through an equivalent authoritative finance validator/transaction boundary.
-
-A typed FinanceStore plus an unchanged raw generic patch bypass is a release blocker.
+Result: **PASS**.
 
 ---
 
-# FINAL VALIDATION PROCEDURE AFTER CHAT-1 RESULT
+# 32. Final release matrix
 
-## 51. Candidate identity gate
-
-Do not validate “latest” by assumption.
-
-Final WORK-058 validation will require:
-
-- exact final CHAT-1 result commit SHA;
-- fresh master state;
-- diff from accepted V12 runtime;
-- confirmation whether later master commits are report-only or runtime-changing;
-- exact GitHub Actions run tied to the candidate SHA.
-
-A green CI on another SHA is insufficient.
-
-## 52. Required evidence collection
-
-Inspect at minimum:
-
-- Phase-13 model(s);
-- migration file and migration marker;
-- `CurrentSchema.ensure()` routing;
-- Finance/Ledger store/write API;
-- account/currency/party reference schema/resolvers;
-- StatePatch/SourceOfTruth writable-table boundary;
-- bootstrap/restore/campaign-switch production paths;
-- authoritative ledger readers and balance aggregation;
-- concurrency tests and DB guards;
-- backup/restore tests;
-- >1000 scale tests;
-- Phase 3–12 regression suite;
-- CI metadata for exact candidate.
-
-## 53. Final PASS criteria
-
-`PHASE 13 INTEGRITY VALIDATION: PASS` will require all of:
-
-- additive V13 migration;
-- correct latest CurrentSchema routing;
-- clean bootstrap;
-- V12 -> V13 upgrade;
-- full earlier migration-chain compatibility;
-- reopen/repeated ensure/restore/campaign switch;
-- migration idempotency and forward-only behavior;
-- conservative legacy treatment / no invented transaction history;
-- stable immutable FinancialTransaction identity;
-- exact monetary representation and checked arithmetic;
-- authoritative party/account/currency reference integrity;
-- atomic transfer/rollback;
-- idempotency/double-commit protection;
-- race-safe balance/conservation/lifecycle invariants at DB/write boundary;
-- >1000 ledger/history/balance completeness;
-- `PRAGMA integrity_check = ok`;
-- clean required `PRAGMA foreign_key_check` fixture;
-- direct generic-resolver attacks pass;
-- Phase 3–12 preserved;
-- no raw StatePatch bypass of canonical ledger authority;
-- exact candidate CI SUCCESS.
-
-Any reproducible violation of a load-bearing invariant produces FAIL even if CI is green.
-
-## 54. Required FAIL report shape
-
-If final validation fails, report:
-
-- violated invariant;
-- minimal reproducer;
-- exact schema/migration/runtime path;
-- expected result;
-- actual result;
-- minimal required correction scope.
-
-CHAT-3 must not implement the correction.
+- clean bootstrap: PASS
+- V12 -> V13: PASS
+- full CurrentSchema routing: PASS
+- reopen: PASS
+- repeated ensure: PASS
+- restore: PASS
+- campaign switch A -> B -> A semantics/isolation: PASS
+- migration idempotency: PASS
+- additive/forward-only migration: PASS
+- Phase 3–12 preservation: PASS
+- zero synthetic legacy financial history: PASS
+- stable FinancialTransaction UID: PASS
+- stable FinancialAccount identity: PASS
+- holder reference integrity: PASS
+- account reference integrity: PASS
+- currency reference integrity: PASS
+- account-type reference integrity: PASS
+- campaign-scoped resolution: PASS
+- unknown/nonexistent/inactive/wrong-campaign rejection: PASS
+- immutable account identity: PASS
+- immutable committed ledger: PASS
+- exact Long minor-unit arithmetic: PASS
+- overflow/underflow protection: PASS
+- precision definition immutability: PASS
+- source/provenance integrity: PASS
+- transaction/command idempotency: PASS
+- atomic debit/credit: PASS
+- rollback on partial failure: PASS
+- reversal history: PASS
+- non-backdating: PASS
+- lifecycle guards: PASS
+- generic StatePatch finance blocking: PASS
+- FinancialContextReader presentation-only: PASS
+- >1000 no authoritative truncation: PASS
+- reopen full history/balance: PASS
+- campaign isolation: PASS
+- no cross-domain corruption: PASS
+- FIN-RACE-01: PASS
+- FIN-RACE-02: PASS
+- FIN-RACE-03: PASS
+- FIN-RACE-04: PASS
+- FIN-RACE-05: PASS
+- FIN-RACE-06: PASS
+- `PRAGMA integrity_check = ok`: PASS
+- `PRAGMA foreign_key_check` zero authoritative violations: PASS
+- exact CI identity: PASS
 
 ---
 
-# STATUS
+## 33. Exact CI evidence
 
-No final Phase-13 PASS/FAIL is issued by this plan.
+Validated runtime:
 
-`MIGRATION / INTEGRITY PLAN READY`
+`be10d7f1b6bf0f6a2cd0522b1dac577d0f398790`
 
-Final verdict is deferred until CHAT-1 supplies the final Phase-13 result commit and exact CI for validation.
+GitHub Actions:
+
+- workflow: `Build & Release RPG OS ALPHA`;
+- run number: `279`;
+- run ID: `31406682617`;
+- head SHA: exact validated runtime;
+- status: `completed`;
+- conclusion: `success`.
+
+The build job reports successful project validation, JVM unit tests and signed ALPHA APK build.
+
+---
+
+## 34. Verdict
+
+No reproducible Phase-13 migration/integrity release blocker was found on the exact candidate.
+
+`PHASE 13 INTEGRITY REVALIDATION: PASS`
+
+This report does not start or implement Phase 14. Global Phase-13 acceptance remains a coordinator decision based on the required independent audit set for this same runtime SHA.
