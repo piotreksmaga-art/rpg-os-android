@@ -80,12 +80,6 @@ jobs:
       - name: Run JVM unit tests
         run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
 
-      - name: TEMP dump failing JVM XML
-        if: failure()
-        shell: bash
-        run: |
-          find app/build/test-results/testDebugUnitTest -type f -name '*.xml' -print -exec cat {} \;
-
       - name: Build signed ALPHA APK
         run: gradle --no-daemon :app:assembleRelease --stacktrace
 
