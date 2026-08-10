@@ -125,22 +125,24 @@ fun MigrationManager.ensureV11(saveDb: SQLiteDatabase, campaignId: String) {
         saveDb.execSQL("""
             CREATE TRIGGER trg_equipment_slot_capacity_guard
             BEFORE INSERT ON player_equipment_slots
-            WHEN EXISTS(
-                SELECT 1
-                FROM player_equipment parent
-                JOIN equipment_slot_definitions d ON d.slot_uid=NEW.slot_uid
-                WHERE parent.campaign_id=NEW.campaign_id
-                  AND parent.character_uid=NEW.character_uid
-                  AND parent.equipment_entry_uid=NEW.equipment_entry_uid
-                  AND (
-                    SELECT COUNT(*)
-                    FROM player_equipment_slots s
-                    JOIN player_equipment e ON e.campaign_id=s.campaign_id AND e.equipment_entry_uid=s.equipment_entry_uid
-                    WHERE s.campaign_id=NEW.campaign_id
-                      AND s.character_uid=NEW.character_uid
-                      AND s.slot_uid=NEW.slot_uid
-                      AND e.loadout_uid=parent.loadout_uid
-                  ) >= d.capacity)
+            WHEN (
+                SELECT COUNT(*)
+                FROM player_equipment_slots s
+                WHERE s.campaign_id=NEW.campaign_id
+                  AND s.character_uid=NEW.character_uid
+                  AND s.slot_uid=NEW.slot_uid
+                  AND EXISTS(
+                    SELECT 1
+                    FROM player_equipment occupied
+                    JOIN player_equipment incoming
+                      ON incoming.campaign_id=NEW.campaign_id
+                     AND incoming.character_uid=NEW.character_uid
+                     AND incoming.equipment_entry_uid=NEW.equipment_entry_uid
+                    WHERE occupied.campaign_id=s.campaign_id
+                      AND occupied.equipment_entry_uid=s.equipment_entry_uid
+                      AND occupied.loadout_uid=incoming.loadout_uid
+                  )
+            ) >= COALESCE((SELECT capacity FROM equipment_slot_definitions WHERE slot_uid=NEW.slot_uid),0)
             BEGIN SELECT RAISE(ABORT,'equipment slot capacity exhausted'); END
         """.trimIndent())
         saveDb.execSQL("""
