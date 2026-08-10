@@ -108,7 +108,7 @@ class EquipmentPersistenceTest {
         assertEquals("X",inv.typedUnique("P").single().first.itemInstanceUid)
         inv.transferUnique("P","Q","X","race-winner")
         fail {
-            d.execSQL("INSERT INTO player_equipment(campaign_id,character_uid,equipment_entry_uid,item_instance_uid,compatibility_rule_uid,loadout_uid,entry_version,provenance) VALUES('C','P','STALE','X','R','default',1,'stale-precheck')")
+            d.execSQL("INSERT INTO player_equipment(campaign_id,character_uid,equipment_entry_uid,item_instance_uid,compatibility_rule_uid,loadout_uid,entry_version,provenance) VALUES('C','P','STALE','X','R','$DEFAULT_EQUIPMENT_LOADOUT_UID',1,'stale-precheck')")
         }
         assertTrue(e.equipment("P").isEmpty())
         assertEquals("X",inv.typedUnique("Q").single().first.itemInstanceUid)
@@ -128,7 +128,7 @@ class EquipmentPersistenceTest {
         fail {
             d.beginTransaction()
             try {
-                d.execSQL("INSERT INTO player_equipment VALUES('C','P','EX','X','RX','default',1,'stale-capacity')")
+                d.execSQL("INSERT INTO player_equipment VALUES('C','P','EX','X','RX','$DEFAULT_EQUIPMENT_LOADOUT_UID',1,'stale-capacity')")
                 d.execSQL("INSERT INTO player_equipment_slots VALUES('C','P','EX','S')")
                 d.setTransactionSuccessful()
             } finally { d.endTransaction() }
