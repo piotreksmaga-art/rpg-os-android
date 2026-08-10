@@ -73,11 +73,23 @@ fun MigrationManager.ensureV11(saveDb: SQLiteDatabase, campaignId: String) {
         saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_player_equipment_instance ON player_equipment(campaign_id,item_instance_uid)")
         saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_player_equipment_slots_character ON player_equipment_slots(campaign_id,character_uid,slot_uid,equipment_entry_uid)")
 
+        // Hotfix guards are deliberately recreated on every ensureV11() so already-migrated V11 databases
+        // receive corrected authoritative invariants without needing a destructive schema rewrite.
+        listOf(
+            "trg_equipment_possession_guard",
+            "trg_equipment_rule_exclusive_guard",
+            "trg_equipment_slot_parent_scope_guard",
+            "trg_equipment_slot_capacity_guard",
+            "trg_equipment_slot_exclusive_guard",
+            "trg_equipped_instance_inventory_delete_guard",
+            "trg_equipped_instance_inventory_transfer_guard"
+        ).forEach { trigger -> saveDb.execSQL("DROP TRIGGER IF EXISTS $trigger") }
+
         // Authoritative concurrent validation lives in SQLite write triggers. These checks execute inside
         // the same serialized write transaction as Equipment mutation, so stale application pre-reads
         // can never commit an invalid holder, capacity, or exclusive-group state.
         saveDb.execSQL("""
-            CREATE TRIGGER IF NOT EXISTS trg_equipment_possession_guard
+            CREATE TRIGGER trg_equipment_possession_guard
             BEFORE INSERT ON player_equipment
             WHEN NOT EXISTS(
                 SELECT 1 FROM player_inventory_unique p
@@ -85,7 +97,7 @@ fun MigrationManager.ensureV11(saveDb: SQLiteDatabase, campaignId: String) {
             BEGIN SELECT RAISE(ABORT,'equipment item instance must still be possessed by character'); END
         """.trimIndent())
         saveDb.execSQL("""
-            CREATE TRIGGER IF NOT EXISTS trg_equipment_rule_exclusive_guard
+            CREATE TRIGGER trg_equipment_rule_exclusive_guard
             BEFORE INSERT ON player_equipment
             WHEN EXISTS(
                 SELECT 1 FROM equipment_compatibility_rules nr
@@ -103,7 +115,7 @@ fun MigrationManager.ensureV11(saveDb: SQLiteDatabase, campaignId: String) {
             BEGIN SELECT RAISE(ABORT,'equipment exclusive-group conflict'); END
         """.trimIndent())
         saveDb.execSQL("""
-            CREATE TRIGGER IF NOT EXISTS trg_equipment_slot_parent_scope_guard
+            CREATE TRIGGER trg_equipment_slot_parent_scope_guard
             BEFORE INSERT ON player_equipment_slots
             WHEN NOT EXISTS(
                 SELECT 1 FROM player_equipment e
@@ -111,18 +123,28 @@ fun MigrationManager.ensureV11(saveDb: SQLiteDatabase, campaignId: String) {
             BEGIN SELECT RAISE(ABORT,'equipment slot binding parent scope mismatch'); END
         """.trimIndent())
         saveDb.execSQL("""
-            CREATE TRIGGER IF NOT EXISTS trg_equipment_slot_capacity_guard
+            CREATE TRIGGER trg_equipment_slot_capacity_guard
             BEFORE INSERT ON player_equipment_slots
-            WHEN (
-                SELECT COUNT(*) FROM player_equipment_slots s
-                JOIN player_equipment e ON e.campaign_id=s.campaign_id AND e.equipment_entry_uid=s.equipment_entry_uid
-                WHERE s.campaign_id=NEW.campaign_id AND s.character_uid=NEW.character_uid AND s.slot_uid=NEW.slot_uid
-                  AND e.loadout_uid=(SELECT loadout_uid FROM player_equipment WHERE campaign_id=NEW.campaign_id AND equipment_entry_uid=NEW.equipment_entry_uid)
-            ) >= COALESCE((SELECT capacity FROM equipment_slot_definitions WHERE slot_uid=NEW.slot_uid),0)
+            WHEN EXISTS(
+                SELECT 1
+                FROM player_equipment parent
+                JOIN equipment_slot_definitions d ON d.slot_uid=NEW.slot_uid
+                WHERE parent.campaign_id=NEW.campaign_id
+                  AND parent.character_uid=NEW.character_uid
+                  AND parent.equipment_entry_uid=NEW.equipment_entry_uid
+                  AND (
+                    SELECT COUNT(*)
+                    FROM player_equipment_slots s
+                    JOIN player_equipment e ON e.campaign_id=s.campaign_id AND e.equipment_entry_uid=s.equipment_entry_uid
+                    WHERE s.campaign_id=NEW.campaign_id
+                      AND s.character_uid=NEW.character_uid
+                      AND s.slot_uid=NEW.slot_uid
+                      AND e.loadout_uid=parent.loadout_uid
+                  ) >= d.capacity)
             BEGIN SELECT RAISE(ABORT,'equipment slot capacity exhausted'); END
         """.trimIndent())
         saveDb.execSQL("""
-            CREATE TRIGGER IF NOT EXISTS trg_equipment_slot_exclusive_guard
+            CREATE TRIGGER trg_equipment_slot_exclusive_guard
             BEFORE INSERT ON player_equipment_slots
             WHEN EXISTS(
                 SELECT 1 FROM equipment_slot_definitions nd
@@ -143,13 +165,13 @@ fun MigrationManager.ensureV11(saveDb: SQLiteDatabase, campaignId: String) {
         """.trimIndent())
 
         saveDb.execSQL("""
-            CREATE TRIGGER IF NOT EXISTS trg_equipped_instance_inventory_delete_guard
+            CREATE TRIGGER trg_equipped_instance_inventory_delete_guard
             BEFORE DELETE ON player_inventory_unique
             WHEN EXISTS(SELECT 1 FROM player_equipment e WHERE e.campaign_id=OLD.campaign_id AND e.item_instance_uid=OLD.item_instance_uid)
             BEGIN SELECT RAISE(ABORT,'equipped item instance must be unequipped before inventory removal'); END
         """.trimIndent())
         saveDb.execSQL("""
-            CREATE TRIGGER IF NOT EXISTS trg_equipped_instance_inventory_transfer_guard
+            CREATE TRIGGER trg_equipped_instance_inventory_transfer_guard
             BEFORE UPDATE OF campaign_id,character_uid,item_instance_uid ON player_inventory_unique
             WHEN EXISTS(SELECT 1 FROM player_equipment e WHERE e.campaign_id=OLD.campaign_id AND e.item_instance_uid=OLD.item_instance_uid)
             BEGIN SELECT RAISE(ABORT,'equipped item instance must be unequipped before inventory transfer'); END
