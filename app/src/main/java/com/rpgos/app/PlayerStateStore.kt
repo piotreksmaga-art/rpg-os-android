@@ -24,6 +24,9 @@ class PlayerStateStore(
         val runtime = linkedMapOf<String, Any?>()
 
         splitLegacyStatus(ref.playerUid, persistent, derived, runtime)
+        if (tableExists("origin_definitions_v2")) {
+            persistent["phase9"] = Phase9Store(db, campaignId).snapshot(ref.playerUid).toContextMap()
+        }
 
         persistent["stats"] = rowsForEntity(
             table = "character_stats",
@@ -98,9 +101,6 @@ class PlayerStateStore(
                 arrayOf(playerUid)
             )
         } else {
-            // A no-UID legacy status table is accepted only when it is provably
-            // a single-row player snapshot. Multi-row ambiguity is an integrity
-            // error, never "first row wins".
             val count = scalarLong("SELECT COUNT(*) FROM character_status_snapshot")
             when (count) {
                 0L -> emptyMap()
@@ -126,78 +126,42 @@ class PlayerStateStore(
         orderBy: String? = null
     ): List<Map<String, Any?>> {
         if (!tableExists(table)) return emptyList()
-        require(hasColumn(table, entityColumn)) {
-            "Existing table $table is missing required player identity column $entityColumn"
-        }
+        require(hasColumn(table, entityColumn)) { "Existing table $table is missing required player identity column $entityColumn" }
         val where = buildString {
             append("$entityColumn=?")
             if (!whereSuffix.isNullOrBlank()) append(" AND ($whereSuffix)")
         }
         val order = if (orderBy.isNullOrBlank()) "" else " ORDER BY $orderBy"
-        return queryMany(
-            "SELECT * FROM $table WHERE $where$order",
-            arrayOf(entityUid)
-        )
+        return queryMany("SELECT * FROM $table WHERE $where$order", arrayOf(entityUid))
     }
 
-    private fun firstForEntity(
-        table: String,
-        entityColumn: String,
-        entityUid: String
-    ): Map<String, Any?> {
+    private fun firstForEntity(table: String, entityColumn: String, entityUid: String): Map<String, Any?> {
         if (!tableExists(table)) return emptyMap()
-        require(hasColumn(table, entityColumn)) {
-            "Existing table $table is missing required player identity column $entityColumn"
-        }
-        return queryOne(
-            "SELECT * FROM $table WHERE $entityColumn=? LIMIT 1",
-            arrayOf(entityUid)
-        )
+        require(hasColumn(table, entityColumn)) { "Existing table $table is missing required player identity column $entityColumn" }
+        return queryOne("SELECT * FROM $table WHERE $entityColumn=? LIMIT 1", arrayOf(entityUid))
     }
 
-    private fun tableExists(table: String): Boolean =
-        db.rawQuery(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
-            arrayOf(table)
-        ).use { it.moveToFirst() }
-
-    private fun hasColumn(table: String, column: String): Boolean =
-        db.rawQuery("PRAGMA table_info($table)", null).use { cursor ->
-            val nameIndex = cursor.getColumnIndex("name")
-            while (cursor.moveToNext()) {
-                if (nameIndex >= 0 && cursor.getString(nameIndex).equals(column, ignoreCase = true)) {
-                    return@use true
-                }
-            }
-            false
-        }
-
-    private fun scalarLong(sql: String): Long =
-        db.rawQuery(sql, null).use { cursor ->
-            if (!cursor.moveToFirst()) 0L else cursor.getLong(0)
-        }
-
-    private fun queryOne(sql: String, args: Array<String>?): Map<String, Any?> =
-        queryMany(sql, args).firstOrNull() ?: emptyMap()
-
+    private fun tableExists(table: String): Boolean = db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", arrayOf(table)).use { it.moveToFirst() }
+    private fun hasColumn(table: String, column: String): Boolean = db.rawQuery("PRAGMA table_info($table)", null).use { cursor ->
+        val nameIndex = cursor.getColumnIndex("name")
+        while (cursor.moveToNext()) if (nameIndex >= 0 && cursor.getString(nameIndex).equals(column, ignoreCase = true)) return@use true
+        false
+    }
+    private fun scalarLong(sql: String): Long = db.rawQuery(sql, null).use { cursor -> if (!cursor.moveToFirst()) 0L else cursor.getLong(0) }
+    private fun queryOne(sql: String, args: Array<String>?): Map<String, Any?> = queryMany(sql, args).firstOrNull() ?: emptyMap()
     private fun queryMany(sql: String, args: Array<String>?): List<Map<String, Any?>> {
         val out = mutableListOf<Map<String, Any?>>()
-        db.rawQuery(sql, args).use { cursor ->
-            while (cursor.moveToNext()) out += cursor.toRow()
-        }
+        db.rawQuery(sql, args).use { cursor -> while (cursor.moveToNext()) out += cursor.toRow() }
         return out
     }
-
     private fun Cursor.toRow(): Map<String, Any?> {
         val row = linkedMapOf<String, Any?>()
-        for (index in columnNames.indices) {
-            row[columnNames[index]] = when (getType(index)) {
-                Cursor.FIELD_TYPE_NULL -> null
-                Cursor.FIELD_TYPE_INTEGER -> getLong(index)
-                Cursor.FIELD_TYPE_FLOAT -> getDouble(index)
-                Cursor.FIELD_TYPE_BLOB -> "[BLOB ${getBlob(index).size} bytes]"
-                else -> getString(index)
-            }
+        for (index in columnNames.indices) row[columnNames[index]] = when (getType(index)) {
+            Cursor.FIELD_TYPE_NULL -> null
+            Cursor.FIELD_TYPE_INTEGER -> getLong(index)
+            Cursor.FIELD_TYPE_FLOAT -> getDouble(index)
+            Cursor.FIELD_TYPE_BLOB -> "[BLOB ${getBlob(index).size} bytes]"
+            else -> getString(index)
         }
         return row
     }
