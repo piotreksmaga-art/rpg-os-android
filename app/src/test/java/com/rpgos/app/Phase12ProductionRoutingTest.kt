@@ -25,6 +25,7 @@ class Phase12ProductionRoutingTest{
  private fun assertV12(f:File){SQLiteDatabase.openDatabase(f.absolutePath,null,SQLiteDatabase.OPEN_READWRITE).use{d->
   d.rawQuery("SELECT COUNT(*) FROM rpgos_schema_migrations WHERE migration_id=?",arrayOf(PHASE12_MIGRATION_ID)).use{c->c.moveToFirst();assertEquals(1,c.getInt(0))}
   d.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('ownership_records','ownership_operations','legacy_ownership_mappings','ownership_owner_kinds','ownership_asset_kinds','ownership_party_registry','ownership_asset_registry')",null).use{c->c.moveToFirst();assertEquals(7,c.getInt(0))}
-  d.rawQuery("PRAGMA integrity_check",null).use{c->c.moveToFirst();assertEquals("ok",c.getString(0))};d.rawQuery("PRAGMA foreign_key_check",null).use{c->assertFalse(c.moveToFirst())}
+  d.rawQuery("PRAGMA integrity_check",null).use{c->c.moveToFirst();assertEquals("ok",c.getString(0))}
+  listOf("ownership_party_registry","ownership_asset_registry","ownership_records","ownership_operations","legacy_ownership_mappings").forEach{table->d.rawQuery("PRAGMA foreign_key_check($table)",null).use{c->assertFalse("Phase 12 FK violation in $table",c.moveToFirst())}}
  }}
 }
