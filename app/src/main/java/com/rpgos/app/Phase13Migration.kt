@@ -110,11 +110,15 @@ fun MigrationManager.ensureV13(saveDb: SQLiteDatabase, campaignId: String) {
         saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_fin_ledger_event ON financial_ledger_transactions(campaign_id,source_event_uid)")
         saveDb.execSQL("CREATE INDEX IF NOT EXISTS idx_fin_ledger_reversal ON financial_ledger_transactions(campaign_id,reversal_of_uid)")
         saveDb.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS uq_fin_ledger_command ON financial_ledger_transactions(campaign_id,command_uid) WHERE command_uid IS NOT NULL")
+        saveDb.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS uq_fin_single_reversal ON financial_ledger_transactions(campaign_id,reversal_of_uid) WHERE reversal_of_uid IS NOT NULL")
 
         listOf(
             "trg_fin_account_holder_guard",
             "trg_fin_account_close_guard",
+            "trg_fin_account_update_guard",
+            "trg_fin_account_delete_guard",
             "trg_fin_holder_retire_guard",
+            "trg_fin_currency_retire_guard",
             "trg_fin_transaction_reference_guard",
             "trg_fin_transaction_immutable_guard",
             "trg_fin_transaction_delete_guard",
@@ -140,11 +144,34 @@ fun MigrationManager.ensureV13(saveDb: SQLiteDatabase, campaignId: String) {
             BEGIN SELECT RAISE(ABORT,'financial account with nonzero balance cannot be closed'); END
         """.trimIndent())
         saveDb.execSQL("""
+            CREATE TRIGGER trg_fin_account_update_guard
+            BEFORE UPDATE ON financial_accounts
+            WHEN NEW.campaign_id<>OLD.campaign_id OR NEW.account_uid<>OLD.account_uid
+              OR NEW.holder_kind_uid<>OLD.holder_kind_uid OR NEW.holder_uid<>OLD.holder_uid
+              OR NEW.account_type_uid<>OLD.account_type_uid OR NEW.currency_uid<>OLD.currency_uid
+              OR NEW.opened_order<>OLD.opened_order OR NEW.provenance<>OLD.provenance
+              OR OLD.closed_order IS NOT NULL OR NEW.closed_order IS NULL OR NEW.closed_order<=OLD.opened_order
+              OR NEW.account_version<>OLD.account_version+1
+            BEGIN SELECT RAISE(ABORT,'financial account mutation is not a legal close transition'); END
+        """.trimIndent())
+        saveDb.execSQL("""
+            CREATE TRIGGER trg_fin_account_delete_guard
+            BEFORE DELETE ON financial_accounts
+            BEGIN SELECT RAISE(ABORT,'financial account identity is append-preserved'); END
+        """.trimIndent())
+        saveDb.execSQL("""
             CREATE TRIGGER trg_fin_holder_retire_guard
             BEFORE UPDATE OF reference_status ON ownership_party_registry
             WHEN OLD.reference_status='ACTIVE' AND NEW.reference_status='RETIRED'
              AND EXISTS(SELECT 1 FROM financial_accounts a WHERE a.campaign_id=OLD.campaign_id AND a.holder_kind_uid=OLD.owner_kind_uid AND a.holder_uid=OLD.owner_uid AND a.closed_order IS NULL)
             BEGIN SELECT RAISE(ABORT,'cannot retire finance holder while open financial account exists'); END
+        """.trimIndent())
+        saveDb.execSQL("""
+            CREATE TRIGGER trg_fin_currency_retire_guard
+            BEFORE UPDATE OF definition_status ON currency_definitions
+            WHEN OLD.definition_status='ACTIVE' AND NEW.definition_status='RETIRED'
+             AND EXISTS(SELECT 1 FROM financial_accounts a WHERE a.currency_uid=OLD.currency_uid AND a.closed_order IS NULL)
+            BEGIN SELECT RAISE(ABORT,'cannot retire currency while open financial account exists'); END
         """.trimIndent())
         saveDb.execSQL("""
             CREATE TRIGGER trg_fin_transaction_reference_guard
@@ -164,12 +191,6 @@ fun MigrationManager.ensureV13(saveDb: SQLiteDatabase, campaignId: String) {
             CREATE TRIGGER trg_fin_transaction_delete_guard
             BEFORE DELETE ON financial_ledger_transactions
             BEGIN SELECT RAISE(ABORT,'committed financial history is append-only'); END
-        """.trimIndent())
-        saveDb.execSQL("""
-            CREATE TRIGGER trg_fin_balance_delete_guard
-            BEFORE DELETE ON financial_account_balances
-            WHEN EXISTS(SELECT 1 FROM financial_ledger_transactions t WHERE t.campaign_id=OLD.campaign_id AND (t.from_account_uid=OLD.account_uid OR t.to_account_uid=OLD.account_uid))
-            BEGIN SELECT RAISE(ABORT,'use typed finance rebuild path for balance projection'); END
         """.trimIndent())
 
         saveDb.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('$PHASE13_MIGRATION_ID',strftime('%s','now'),'Append-only exact-integer FinancialTransaction ledger; campaign-scoped accounts reuse Phase-12 party identity; rebuildable balance projection; generic StatePatch bypass closed separately; zero legacy financial history synthesis')")
