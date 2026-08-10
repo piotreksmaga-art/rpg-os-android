@@ -5,8 +5,17 @@ import android.database.sqlite.SQLiteDatabase
 
 private const val PHASE9_FORM_SOURCE_TYPE = "PHASE9_FORM"
 
-class Phase9Store(private val db: SQLiteDatabase, private val campaignId: String) {
-    init { require(campaignId.isNotBlank()) { "campaignId must not be blank" } }
+class Phase9Store(
+    private val db: SQLiteDatabase,
+    private val campaignId: String,
+    requirementRuleProvider: RequirementRuleProvider? = null
+) {
+    private val requirementEvaluator = RequirementEvaluator(requirementRuleProvider)
+
+    init {
+        require(campaignId.isNotBlank()) { "campaignId must not be blank" }
+        MigrationManager().ensureV9RequirementHotfix(db, campaignId)
+    }
 
     fun registerOrigins(worldPackUid: String, definitions: List<OriginDefinition>) {
         require(worldPackUid.isNotBlank())
@@ -65,6 +74,7 @@ class Phase9Store(private val db: SQLiteDatabase, private val campaignId: String
         definitions.forEach { definition ->
             Phase9Policy.requireIdentity(definition.transitionUid, "transitionUid")
             Phase9Policy.requireIdentity(definition.targetStageUid, "targetStageUid")
+            Phase9Policy.requireOptionalRule(definition.requirementRuleUid, definition.requirementRuleVersion, "transition")
             require(definition.transitionVersion >= 1L) { "transitionVersion must be at least 1" }
             require(definition.provenance.isNotBlank()) { "provenance must not be blank" }
             require(definition.worldPackUid == worldPackUid) { "Transition ${definition.transitionUid} belongs to another World Pack" }
@@ -76,8 +86,8 @@ class Phase9Store(private val db: SQLiteDatabase, private val campaignId: String
                 require(source.pathUid == target.pathUid || definition.crossPathAllowed) { "Cross-path transition requires explicit crossPathAllowed" }
             }
             require(!exists("evolution_transition_definitions", "transition_uid", definition.transitionUid)) { "Duplicate evolution transition UID: ${definition.transitionUid}" }
-            db.execSQL("INSERT INTO evolution_transition_definitions(transition_uid,world_pack_uid,source_stage_uid,target_stage_uid,requirement_rule_uid,reversible,cross_path_allowed,transition_version,provenance) VALUES(?,?,?,?,?,?,?,?,?)",
-                arrayOf(definition.transitionUid,definition.worldPackUid,definition.sourceStageUid,definition.targetStageUid,definition.requirementRuleUid,if(definition.reversible)1 else 0,if(definition.crossPathAllowed)1 else 0,definition.transitionVersion,definition.provenance))
+            db.execSQL("INSERT INTO evolution_transition_definitions(transition_uid,world_pack_uid,source_stage_uid,target_stage_uid,requirement_rule_uid,reversible,cross_path_allowed,transition_version,provenance,requirement_rule_version) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                arrayOf(definition.transitionUid,definition.worldPackUid,definition.sourceStageUid,definition.targetStageUid,definition.requirementRuleUid,if(definition.reversible)1 else 0,if(definition.crossPathAllowed)1 else 0,definition.transitionVersion,definition.provenance,definition.requirementRuleVersion))
         }
     }
 
@@ -86,12 +96,14 @@ class Phase9Store(private val db: SQLiteDatabase, private val campaignId: String
         definitions.forEach { definition ->
             Phase9Policy.requireIdentity(definition.formUid, "formUid")
             Phase9Policy.requireDefinition(definition.worldPackUid, definition.key, definition.displayName, definition.definitionVersion, definition.provenance)
+            Phase9Policy.requireOptionalRule(definition.unlockRequirementRuleUid, definition.unlockRequirementRuleVersion, "unlock")
+            Phase9Policy.requireOptionalRule(definition.activationRuleUid, definition.activationRuleVersion, "activation")
             require(definition.worldPackUid == worldPackUid) { "Form ${definition.formUid} belongs to another World Pack" }
             definition.sourceFeatureUid?.let { require(owner("innate_feature_definitions","feature_uid",it) == worldPackUid) { "Form feature source belongs to another World Pack or is missing" } }
             definition.sourceStageUid?.let { require(owner("evolution_stage_definitions","stage_uid",it) == worldPackUid) { "Form stage source belongs to another World Pack or is missing" } }
             require(!exists("form_definitions", "form_uid", definition.formUid)) { "Duplicate form UID: ${definition.formUid}" }
-            db.execSQL("INSERT INTO form_definitions(form_uid,world_pack_uid,form_key,display_name,source_feature_uid,source_stage_uid,exclusive_group_uid,activation_rule_uid,definition_status,definition_version,provenance) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                arrayOf(definition.formUid,definition.worldPackUid,definition.key,definition.displayName,definition.sourceFeatureUid,definition.sourceStageUid,definition.exclusiveGroupUid,definition.activationRuleUid,definition.status.name,definition.definitionVersion,definition.provenance))
+            db.execSQL("INSERT INTO form_definitions(form_uid,world_pack_uid,form_key,display_name,source_feature_uid,source_stage_uid,exclusive_group_uid,activation_rule_uid,definition_status,definition_version,provenance,unlock_requirement_rule_uid,unlock_requirement_rule_version,activation_rule_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                arrayOf(definition.formUid,definition.worldPackUid,definition.key,definition.displayName,definition.sourceFeatureUid,definition.sourceStageUid,definition.exclusiveGroupUid,definition.activationRuleUid,definition.status.name,definition.definitionVersion,definition.provenance,definition.unlockRequirementRuleUid,definition.unlockRequirementRuleVersion,definition.activationRuleVersion))
         }
     }
 
@@ -177,6 +189,10 @@ class Phase9Store(private val db: SQLiteDatabase, private val campaignId: String
         val sourceState=evolutionState(characterUid,source.pathUid) ?: error("Character has no current state on source path ${source.pathUid}")
         require(sourceState.currentStageUid == source.stageUid) { "Invalid evolution transition source: expected ${source.stageUid}, actual ${sourceState.currentStageUid}" }
         require(source.pathUid == target.pathUid || t.crossPathAllowed) { "Cross-path transition is not allowed" }
+        requirementEvaluator.requirePass(
+            t.requirement,
+            RequirementContext(campaignId, characterUid, RequirementGate.TRANSITION, t.transitionUid)
+        )
         db.beginTransaction()
         try {
             if(source.pathUid==target.pathUid){
@@ -193,8 +209,12 @@ class Phase9Store(private val db: SQLiteDatabase, private val campaignId: String
 
     fun unlockForm(unlock: PlayerFormUnlock) {
         validatePlayer(unlock.campaignId,unlock.characterUid,unlock.entryVersion,unlock.provenance)
-        require(exists("form_definitions","form_uid",unlock.formUid)) { "Missing form definition ${unlock.formUid}" }
+        val form=formRecord(unlock.formUid)
         if(playerRowExists("player_form_unlocks","form_uid",unlock.characterUid,unlock.formUid)) return
+        requirementEvaluator.requirePass(
+            form.unlockRequirement,
+            RequirementContext(campaignId, unlock.characterUid, RequirementGate.UNLOCK, unlock.formUid)
+        )
         db.execSQL("INSERT INTO player_form_unlocks(campaign_id,character_uid,form_uid,entry_version,provenance) VALUES(?,?,?,?,?)",arrayOf(unlock.campaignId,unlock.characterUid,unlock.formUid,unlock.entryVersion,unlock.provenance))
     }
 
@@ -208,6 +228,10 @@ class Phase9Store(private val db: SQLiteDatabase, private val campaignId: String
                 WHERE a.campaign_id=? AND a.character_uid=? AND f.exclusive_group_uid=? AND a.form_uid<>? LIMIT 1""".trimIndent(),arrayOf(campaignId,active.characterUid,group,active.formUid)).use { c -> if(c.moveToFirst()) c.getString(0) else null }
             require(conflict==null){"Mutually exclusive form already active: $conflict"}
         }
+        requirementEvaluator.requirePass(
+            form.activationRequirement,
+            RequirementContext(campaignId, active.characterUid, RequirementGate.ACTIVATION, active.formUid)
+        )
         db.beginTransaction()
         try {
             if(!playerRowExists("player_active_forms","form_uid",active.characterUid,active.formUid)){
@@ -312,12 +336,32 @@ class Phase9Store(private val db: SQLiteDatabase, private val campaignId: String
         attainedStages=attainedStages(characterUid),formUnlocks=formUnlocks(characterUid),activeForms=activeForms(characterUid),unresolvedLegacy=legacyEvidence(characterUid))
 
     private data class StageRow(val stageUid:String,val pathUid:String,val worldPackUid:String)
-    private data class TransitionRow(val transitionUid:String,val sourceStageUid:String?,val targetStageUid:String,val crossPathAllowed:Boolean)
+    private data class TransitionRow(
+        val transitionUid:String,
+        val sourceStageUid:String?,
+        val targetStageUid:String,
+        val crossPathAllowed:Boolean,
+        val requirement: RequirementBinding?
+    )
 
     private fun stageRecord(uid:String):StageRow=db.rawQuery("SELECT stage_uid,path_uid,world_pack_uid FROM evolution_stage_definitions WHERE stage_uid=?",arrayOf(uid)).use{c->require(c.moveToFirst()){ "Missing evolution stage $uid" };StageRow(c.getString(0),c.getString(1),c.getString(2))}
-    private fun transitionRecord(uid:String):TransitionRow=db.rawQuery("SELECT transition_uid,source_stage_uid,target_stage_uid,cross_path_allowed FROM evolution_transition_definitions WHERE transition_uid=?",arrayOf(uid)).use{c->require(c.moveToFirst()){ "Missing evolution transition $uid" };TransitionRow(c.getString(0),if(c.isNull(1))null else c.getString(1),c.getString(2),c.getInt(3)!=0)}
+    private fun transitionRecord(uid:String):TransitionRow=db.rawQuery("SELECT transition_uid,source_stage_uid,target_stage_uid,cross_path_allowed,requirement_rule_uid,requirement_rule_version FROM evolution_transition_definitions WHERE transition_uid=?",arrayOf(uid)).use{c->
+        require(c.moveToFirst()){ "Missing evolution transition $uid" }
+        val ruleUid=if(c.isNull(4))null else c.getString(4)
+        val ruleVersion=if(c.isNull(5))null else c.getLong(5)
+        Phase9Policy.requireOptionalRule(ruleUid,ruleVersion,"transition")
+        TransitionRow(c.getString(0),if(c.isNull(1))null else c.getString(1),c.getString(2),c.getInt(3)!=0,ruleUid?.let{RequirementBinding(it,ruleVersion!!)})
+    }
     private fun evolutionState(characterUid:String,pathUid:String):PlayerEvolutionState?=db.rawQuery("SELECT campaign_id,character_uid,path_uid,current_stage_uid,state_version,provenance FROM player_evolution_states WHERE campaign_id=? AND character_uid=? AND path_uid=?",arrayOf(campaignId,characterUid,pathUid)).use{c->if(!c.moveToFirst())null else PlayerEvolutionState(c.getString(0),c.getString(1),c.getString(2),if(c.isNull(3))null else c.getString(3),c.getLong(4),c.getString(5))}
-    private fun formRecord(uid:String):FormDefinition=db.rawQuery("SELECT form_uid,world_pack_uid,form_key,display_name,source_feature_uid,source_stage_uid,exclusive_group_uid,activation_rule_uid,definition_status,definition_version,provenance FROM form_definitions WHERE form_uid=?",arrayOf(uid)).use{c->require(c.moveToFirst()){ "Missing form $uid" };FormDefinition(c.getString(0),c.getString(1),c.getString(2),c.getString(3),if(c.isNull(4))null else c.getString(4),if(c.isNull(5))null else c.getString(5),if(c.isNull(6))null else c.getString(6),if(c.isNull(7))null else c.getString(7),Phase9DefinitionStatus.valueOf(c.getString(8)),c.getLong(9),c.getString(10))}
+    private fun formRecord(uid:String):FormDefinition=db.rawQuery("SELECT form_uid,world_pack_uid,form_key,display_name,source_feature_uid,source_stage_uid,exclusive_group_uid,activation_rule_uid,definition_status,definition_version,provenance,unlock_requirement_rule_uid,unlock_requirement_rule_version,activation_rule_version FROM form_definitions WHERE form_uid=?",arrayOf(uid)).use{c->
+        require(c.moveToFirst()){ "Missing form $uid" }
+        FormDefinition(
+            c.getString(0),c.getString(1),c.getString(2),c.getString(3),
+            if(c.isNull(4))null else c.getString(4),if(c.isNull(5))null else c.getString(5),if(c.isNull(6))null else c.getString(6),if(c.isNull(7))null else c.getString(7),
+            Phase9DefinitionStatus.valueOf(c.getString(8)),c.getLong(9),c.getString(10),
+            if(c.isNull(11))null else c.getString(11),if(c.isNull(12))null else c.getLong(12),if(c.isNull(13))null else c.getLong(13)
+        )
+    }
 
     private fun attainStageIfMissing(characterUid:String,stageUid:String,transitionUid:String?,chapter:Long?,provenance:String){
         if(playerRowExists("player_evolution_stages","stage_uid",characterUid,stageUid)) return
