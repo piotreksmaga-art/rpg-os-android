@@ -6,6 +6,7 @@ const val PHASE14_HARDENING_MIGRATION_ID = "RPGOS-14.1-ASSETS-LIABILITIES-GUARDS
 
 /** Release-gate guards derived from WORK-062/063/065. */
 fun MigrationManager.ensureV14Hardening(db:SQLiteDatabase,campaignId:String){
+ db.execSQL("PRAGMA busy_timeout=5000")
  ensureV14ContractGuards(db,campaignId)
  db.beginTransaction();try{
   listOf(Triple(ASSET_KIND_INFRASTRUCTURE,"ASSET","Infrastructure"),Triple(ASSET_KIND_RECEIVABLE,"OTHER","Receivable")).forEach{(uid,klass,name)->db.execSQL("INSERT OR IGNORE INTO ownership_asset_kinds(asset_kind_uid,kind_status,provenance) VALUES(?,'ACTIVE','RPGOS-14.1 generic asset namespace')",arrayOf(uid));db.execSQL("INSERT OR IGNORE INTO asset_kind_definitions(asset_kind_uid,asset_class,display_name,definition_status,definition_version,provenance) VALUES(?,?,?,'ACTIVE',1,'RPGOS-14.1 core asset kind')",arrayOf(uid,klass,name))}
