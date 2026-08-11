@@ -9,6 +9,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -33,16 +34,16 @@ class AssetLiabilityConcurrencyTest {
 
     @After fun tearDown() { f.delete() }
     private fun p(x: String) = OwnershipOwnerRef("CHARACTER", x)
-    private data class R(val ok: Int, val bad: Int)
+    private data class R(val ok: Int, val bad: Int, val errors: List<Throwable>)
 
     private fun race(a: (SQLiteDatabase, AssetLiabilityStore) -> Unit,b: (SQLiteDatabase, AssetLiabilityStore) -> Unit): R {
         val d1 = SQLiteDatabase.openDatabase(f.absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
         val d2 = SQLiteDatabase.openDatabase(f.absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
         val s1 = AssetLiabilityStore(d1, "C")
         val s2 = AssetLiabilityStore(d2, "C")
-        val ready = CountDownLatch(2);val go = CountDownLatch(1);val ok = AtomicInteger();val bad = AtomicInteger();val pool = Executors.newFixedThreadPool(2)
-        fun submit(d:SQLiteDatabase,s:AssetLiabilityStore,op:(SQLiteDatabase,AssetLiabilityStore)->Unit)=pool.submit{ready.countDown();go.await();try{op(d,s);ok.incrementAndGet()}catch(_:Throwable){bad.incrementAndGet()}}
-        val x=submit(d1,s1,a);val y=submit(d2,s2,b);assertTrue(ready.await(5,TimeUnit.SECONDS));go.countDown();x.get(15,TimeUnit.SECONDS);y.get(15,TimeUnit.SECONDS);pool.shutdownNow();d1.close();d2.close();return R(ok.get(),bad.get())
+        val ready = CountDownLatch(2);val go = CountDownLatch(1);val ok = AtomicInteger();val bad = AtomicInteger();val errors=ConcurrentLinkedQueue<Throwable>();val pool = Executors.newFixedThreadPool(2)
+        fun submit(d:SQLiteDatabase,s:AssetLiabilityStore,op:(SQLiteDatabase,AssetLiabilityStore)->Unit)=pool.submit{ready.countDown();go.await();try{op(d,s);ok.incrementAndGet()}catch(t:Throwable){errors.add(t);bad.incrementAndGet()}}
+        val x=submit(d1,s1,a);val y=submit(d2,s2,b);assertTrue(ready.await(5,TimeUnit.SECONDS));go.countDown();x.get(15,TimeUnit.SECONDS);y.get(15,TimeUnit.SECONDS);pool.shutdownNow();d1.close();d2.close();return R(ok.get(),bad.get(),errors.toList())
     }
 
     private fun seedAsset(uid:String="ASSET"){SQLiteDatabase.openDatabase(f.absolutePath,null,SQLiteDatabase.OPEN_READWRITE).use{d->AssetLiabilityStore(d,"C").createAsset(AssetRecord("C",uid,ASSET_KIND_PROPERTY,1,"race"))}}
@@ -60,7 +61,7 @@ class AssetLiabilityConcurrencyTest {
 
     @Test fun p14Race06EncumbranceReleaseIsSingleCasTransition(){seedAsset();seedObligation();SQLiteDatabase.openDatabase(f.absolutePath,null,SQLiteDatabase.OPEN_READWRITE).use{d->AssetLiabilityStore(d,"C").addEncumbrance("ENC",OwnedAssetRef(ASSET_KIND_PROPERTY,"ASSET"),"OBL","LIEN",0,2,"race")};val r=race({_,s->s.releaseEncumbrance("ENC",3,"one")},{_,s->s.releaseEncumbrance("ENC",4,"two")});assertEquals(1,r.ok);assertEquals(1,r.bad);check{d->assertEquals(1L,n(d,"SELECT COUNT(*) FROM asset_encumbrances WHERE encumbrance_uid='ENC' AND released_order IS NOT NULL AND record_version=2"));checks(d)}}
 
-    @Test fun exactSameUidConcurrentReplayConvergesToOneCanonicalFact(){val op=ObligationRecord("C","REPLAY-RACE","RPGOS-OBLIGATION-TYPE:DEBT",ObligationClass.DEBT,p("A"),p("B"),1,"replay-race",currencyUid="CUR",principalMinor=100,sourceContractUid="RC");val r=race({_,s->assertEquals(op,s.createObligation(op,"REPLAY-RACE-ACTIVE"))},{_,s->assertEquals(op,s.createObligation(op.copy(),"REPLAY-RACE-ACTIVE"))});assertEquals(2,r.ok);assertEquals(0,r.bad);check{d->assertEquals(1L,n(d,"SELECT COUNT(*) FROM obligation_records WHERE obligation_uid='REPLAY-RACE'"));assertEquals(1L,n(d,"SELECT COUNT(*) FROM obligation_status_history WHERE status_event_uid='REPLAY-RACE-ACTIVE'"));checks(d)}}
+    @Test fun exactSameUidConcurrentReplayConvergesToOneCanonicalFact(){val op=ObligationRecord("C","REPLAY-RACE","RPGOS-OBLIGATION-TYPE:DEBT",ObligationClass.DEBT,p("A"),p("B"),1,"replay-race",currencyUid="CUR",principalMinor=100,sourceContractUid="RC");val r=race({_,s->assertEquals(op,s.createObligation(op,"REPLAY-RACE-ACTIVE"))},{_,s->assertEquals(op,s.createObligation(op.copy(),"REPLAY-RACE-ACTIVE"))});if(r.errors.isNotEmpty()){val e=r.errors.first();throw AssertionError("exact replay worker failed: ${e.javaClass.name}: ${e.message}",e)};assertEquals(2,r.ok);assertEquals(0,r.bad);check{d->assertEquals(1L,n(d,"SELECT COUNT(*) FROM obligation_records WHERE obligation_uid='REPLAY-RACE'"));assertEquals(1L,n(d,"SELECT COUNT(*) FROM obligation_status_history WHERE status_event_uid='REPLAY-RACE-ACTIVE'"));checks(d)}}
 
     @Test fun conflictingSameUidConcurrentReplayRejectsOneWriter(){val a=ObligationRecord("C","REPLAY-CONFLICT","RPGOS-OBLIGATION-TYPE:DEBT",ObligationClass.DEBT,p("A"),p("B"),1,"replay-race",currencyUid="CUR",principalMinor=100,sourceContractUid="RC");val b=a.copy(principalMinor=200);val r=race({_,s->s.createObligation(a,"REPLAY-CONFLICT-ACTIVE")},{_,s->s.createObligation(b,"REPLAY-CONFLICT-ACTIVE")});assertEquals(1,r.ok);assertEquals(1,r.bad);check{d->assertEquals(1L,n(d,"SELECT COUNT(*) FROM obligation_records WHERE obligation_uid='REPLAY-CONFLICT'"));val principal=n(d,"SELECT principal_minor FROM obligation_records WHERE obligation_uid='REPLAY-CONFLICT'");assertTrue(principal==100L||principal==200L);checks(d)}}
 
