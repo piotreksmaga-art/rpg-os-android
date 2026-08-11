@@ -1,21 +1,22 @@
-# WORK-20260810-062 — Final Phase 14 Semantic Revalidation
+# WORK-20260810-062 — Final Phase 14 Semantic Revalidation — Hotfix
 
-Status: FINAL SEMANTIC REVALIDATION — FAIL
+Status: FINAL SEMANTIC REVALIDATION — PASS
 
 Work ID: `WORK-20260810-062`
 Worker: `CHAT-2`
 Role: `FINAL PHASE 14 SEMANTIC REVALIDATION`
 Repository: `piotreksmaga-art/rpg-os-android`
-Validated runtime SHA: `0ddae36008b13c6d3ac20cde3eb19d0e2859afd9`
-Exact CI: GitHub Actions `#289`, run ID `31487248358`, head SHA `0ddae36008b13c6d3ac20cde3eb19d0e2859afd9`, `SUCCESS`
+Validated runtime SHA: `cace545627b2de41295bacb9e70a0e017a7b49a2`
+Exact CI: GitHub Actions `#293`, run ID `31488698595`, head SHA `cace545627b2de41295bacb9e70a0e017a7b49a2`, `SUCCESS`
 Accepted Phase-13 baseline: `be10d7f1b6bf0f6a2cd0522b1dac577d0f398790`
+Previous obsolete semantic candidate: `0ddae36008b13c6d3ac20cde3eb19d0e2859afd9` — FAIL due to receivable double counting
 Allowed write scope: this report only.
 
-# PHASE 14 SEMANTIC REVALIDATION: FAIL
+# PHASE 14 SEMANTIC REVALIDATION: PASS
 
-The exact candidate satisfies most Phase-14 separation, identity, reference, lifecycle, history, StatePatch, legacy and exact-arithmetic semantics, but it fails the mandatory net-worth anti-double-counting invariant for receivables.
+The exact hotfix candidate closes the previous WORK-062 net-worth receivable double-count blocker and preserves the remainder of the Phase-14 semantic contract. No new semantic release blocker was found.
 
-Fresh master was checked immediately before report creation and remained exactly `0ddae36008b13c6d3ac20cde3eb19d0e2859afd9`. No later WORK-061 runtime candidate existed.
+Fresh master was checked immediately before final report write and resolved to exactly `cace545627b2de41295bacb9e70a0e017a7b49a2`. No later WORK-061 runtime candidate existed.
 
 ---
 
@@ -28,31 +29,73 @@ Revalidation used current repository truth and inspected:
 - `docs/PARALLEL_WORK_COORDINATION.md`;
 - `docs/audits/WORK-20260810-059_PHASE14_ASSETS_DEBTS_OBLIGATIONS_NET_WORTH_ARCHITECTURE.md`;
 - `docs/audits/WORK-20260810-062_PHASE14_ASSETS_LIABILITIES_SEMANTIC_ORACLE.md`;
-- WORK-063 migration/integrity plan;
-- WORK-065 adversarial matrix;
-- accepted Phase-12 Ownership runtime/audits;
-- accepted Phase-13 Financial Ledger runtime/audits;
-- exact Phase-14 candidate runtime/schema/tests at the validated SHA.
+- previous WORK-062 final semantic FAIL;
+- WORK-063 migration/integrity planning as cross-check;
+- WORK-065 adversarial matrix as cross-check;
+- accepted Phase-12 Ownership and Phase-13 Financial Ledger runtime/contracts;
+- exact Phase-14 hotfix store/model/migration/tests at the validated SHA;
+- exact GitHub Actions run #293 metadata.
 
-No runtime/schema/test correction was implemented.
+No runtime/schema/test correction was implemented by this work item.
 
 ---
 
-## 2. Candidate freshness and CI — PASS
+## 2. Candidate freshness / exact CI — PASS
 
-Fresh master resolved to the exact requested candidate. Exact GitHub Actions run `31487248358` / run number `289` is completed with conclusion `success` and exact head SHA `0ddae36008b13c6d3ac20cde3eb19d0e2859afd9`.
+Fresh master resolved to exactly the requested runtime SHA:
 
-The final CI-fix merge from parent `19e55391bd335e94d4b8657bbb6ec875e45e5c0e` to the candidate modifies only:
+`cace545627b2de41295bacb9e70a0e017a7b49a2`
 
-`app/src/test/java/com/rpgos/app/AssetLiabilityConcurrencyTest.kt`
+Exact GitHub Actions run `31488698595`, run number `293`, is completed with conclusion `success` and exact head SHA `cace545627...`.
 
-No production Kotlin model/store/migration/schema file changes in that final CI-fix delta. The patch reformats/expands the concurrency test syntax so it compiles; the Phase-14 production semantics are unchanged by that final fix.
+No later WORK-061 runtime commit was present, so the validation target did not change.
 
 Result: **PASS**.
 
 ---
 
-## 3. Hard domain separation — PASS
+## 3. Previous blocker recheck — PASS
+
+Previous blocker:
+
+```text
+ASSET_KIND_RECEIVABLE AssetRecord
++ beneficiary ObligationRecord for the same claim
+-> assetsMinor + receivablesMinor
+-> double-counted net worth
+```
+
+The hotfix makes `ObligationRecord` the sole monetary-receivable contribution to derived net worth.
+
+`ASSET_KIND_RECEIVABLE` remains a legal Phase-14 asset kind. It may still have stable AssetRecord identity, OwnershipRecord title/share, valuation history and provenance. The hotfix does not delete, disable or hardcode away that generic asset kind.
+
+The only projection change is that `AssetLiabilityStore.netWorth()` excludes `ASSET_KIND_RECEIVABLE` from the owned-asset aggregation feeding `assetsMinor`. Beneficiary monetary receivables continue to come from outstanding `ObligationRecord` state.
+
+Therefore the same economic claim cannot contribute through both paths.
+
+Regression test `receivableAssetAndBeneficiaryObligationContributeExactlyOnce()` creates:
+
+- a RECEIVABLE AssetRecord;
+- explicit valuation 100 CUR;
+- 100% OwnershipRecord for beneficiary B;
+- ObligationRecord A -> B for principal 100 CUR tied to the same receivable asset;
+
+and requires:
+
+```text
+assetsMinor = 0
+receivablesMinor = 100
+netWorthMinor = 100
+missingValuationCount = 0
+```
+
+This exactly reproduces the previous semantic blocker and confirms canonical normalization.
+
+Result: **PASS / previous blocker closed**.
+
+---
+
+## 4. Hard domain separation — PASS
 
 Required invariant:
 
@@ -64,175 +107,240 @@ Asset / Liability
 != Financial Ledger
 ```
 
-The runtime preserves this split:
+Still preserved:
 
-- `AssetRecord` contains asset identity/lifecycle, not owner or valuation;
-- `AssetValuation` is separate append-preserved value history;
-- legal title/share remains in Phase-12 `ownership_records`;
-- cash/payment remains Phase-13 financial ledger authority;
-- `ObligationRecord` is a separate contract between generic parties;
-- net worth is calculated on demand; there is no mutable authoritative `net_worth` table;
-- asset creation does not auto-create OwnershipRecord;
-- valuation does not prove title;
-- payment does not automatically create asset/title;
-- Inventory/Equipment are not consulted as ownership evidence.
+- AssetRecord stores economic-object identity/lifecycle, not legal owner or current valuation;
+- legal ownership/share remains Phase-12 OwnershipRecord authority;
+- Inventory/Equipment remain possession/loadout authorities and are not used as title evidence;
+- AssetValuation is independent historical value evidence;
+- ObligationRecord is a distinct debtor/beneficiary contract;
+- FinancialTransaction/payment remains Phase-13 ledger authority;
+- payment does not automatically create/transfer title;
+- ownership does not automatically create valuation/payment;
+- net worth is derived, not a mutable authoritative row.
 
-Result: **PASS**.
-
----
-
-## 4. Stable identity / generic references — PASS
-
-Phase-14 asset identity is `(campaign_id, asset_kind_uid, asset_uid)`. Asset kind UIDs are registered through the Phase-12 ownership asset namespace; `asset_records` additionally require the campaign-scoped Phase-12 asset registry target. ItemInstance identity is explicitly excluded from Phase-14 duplicate AssetRecord authority.
-
-Obligor/beneficiary references use Phase-12 generic party identity. Valuations reference Phase-13 currency identity. PAYMENT settlements require an existing same-campaign internal FinancialTransaction whose currency, amount and account-holder direction match the obligation parties.
-
-Unknown/nonexistent/wrong-campaign/inactive references are guarded by FKs and/or SQLite triggers at the write boundary.
+The receivable normalization does not collapse any of those domains.
 
 Result: **PASS**.
 
 ---
 
-## 5. History / temporal / lifecycle semantics — PASS
+## 5. Stable identities / campaign scope / generic references — PASS
 
-Asset lifecycle preserves stable identity and only permits an ACTIVE-to-terminal CAS-like transition. Valuation history is immutable/append-only. Obligation contract rows are immutable; status and settlement histories are append-only. Settlement/status backdating is guarded. Historical as-of queries use deterministic effective order.
+Asset identity remains owner-independent and value-independent, scoped by campaign + asset kind + asset UID.
 
-Asset terminal transitions are guarded against conflicting active ownership, active encumbrances and later valuations. New OwnershipRecord creation outside the Phase-14 asset lifecycle is blocked by hardening trigger.
+Phase-14 generic asset kinds continue to integrate with Phase-12 `ownership_asset_kinds` / campaign-scoped asset registry. ItemInstance remains excluded from duplicate Phase-14 AssetRecord identity.
 
-Result: **PASS**.
+Obligor/beneficiary references continue to use campaign-scoped Phase-12 party authority. Valuations continue to use stable Phase-13 currency identity. PAYMENT settlements resolve exact same-campaign immutable FinancialTransaction evidence.
 
----
+Same UID strings across campaigns remain isolated. Unknown/nonexistent/wrong-campaign/inactive targets are rejected by FKs and/or SQLite trigger guards.
 
-## 6. Exact valuation / fractional ownership — PASS
-
-Valuation amount is exact SQLite INTEGER / Kotlin `Long`. No Float/Double/REAL monetary authority is introduced. Fractional ownership attribution calls `AssetLiabilityPolicy.exactShareValue`, which multiplies exact amount and Phase-12 fixed-scale share using `BigInteger`, requires exact representability in minor units and returns checked `Long`.
-
-The persistence suite validates 50% attribution and >1000 valuation-history rows without bounded authoritative truncation.
+The hotfix modifies none of these identity/reference contracts.
 
 Result: **PASS**.
 
 ---
 
-## 7. Obligation / settlement semantics — PASS
+## 6. Generic asset extensibility — PASS
 
-A monetary obligation stores stable obligor, beneficiary, currency and positive principal. Outstanding is rebuilt from principal minus append-preserved settlement history with checked arithmetic.
+The normalization is narrow:
 
-SQLite settlement guard prevents over-settlement, settlement against terminal state and forged PAYMENT linkage. A PAYMENT settlement must match the exact Phase-13 ledger amount/currency and direction from obligor-held account to beneficiary-held account. Financial transaction and Ownership operation evidence UIDs have unique campaign-scoped settlement-link indexes in V14 hardening.
+- `ASSET_KIND_RECEIVABLE` still exists;
+- it can still be created, owned, valued and historically queried;
+- generic PROPERTY/LAND/BUSINESS/COMPANY/SHARES/STAKE/VEHICLE/RARE_ASSET/INFRASTRUCTURE and World-Pack registered kinds remain unaffected;
+- non-receivable owned assets continue to contribute through valuation x exact OwnershipRecord share.
+
+Therefore the fix does not reduce Phase 14 to obligation-only assets or player-only wealth semantics.
 
 Result: **PASS**.
 
 ---
 
-## 8. Derived-only net worth — FAIL
+## 7. Valuation semantics — PASS
 
-The projection is correctly non-authoritative, but its composition permits double counting of a single receivable claim.
+Valuation remains separate from ownership and asset identity.
 
-The runtime explicitly registers:
+Canonical monetary value continues to use SQLite INTEGER / Kotlin Long minor units with stable Phase-13 currency UID. Historical valuations remain append-preserved and immutable. Backdating/current-basis conflicts remain guarded by V14 hardening.
+
+Missing valuation remains explicit incomplete state rather than fabricated zero for normal owned assets. RECEIVABLE asset valuations are preserved as domain history even though they are not independently added to net-worth `assetsMinor` under the normalization rule.
+
+Purchase/payment evidence is not automatically promoted to valuation.
+
+Result: **PASS**.
+
+---
+
+## 8. Fractional ownership interaction — PASS
+
+Phase-12 OwnershipRecord remains the sole title/share authority.
+
+Non-receivable asset attribution still uses `AssetLiabilityPolicy.exactShareValue()` with exact Phase-12 fixed-scale share and BigInteger intermediate arithmetic. The runtime requires exact representability in currency minor units and checked Long output; no Float/Double share authority is introduced.
+
+Existing persistence coverage with 50% ownership and >1000 valuation-history rows still requires exact attribution after reopen.
+
+The receivable exclusion does not change ownership records or shares; it changes only which semantic representation contributes to the net-worth aggregate.
+
+Result: **PASS**.
+
+---
+
+## 9. Liabilities / obligations / settlements — PASS
+
+Monetary obligations retain stable parties, currency and positive principal. Obligation identity remains immutable; status and settlement history are append-preserved.
+
+Outstanding amount remains derived from exact principal minus authorized settlement history using checked arithmetic.
+
+SQLite write-boundary guards still prevent:
+
+- unresolved party/type/currency references;
+- over-settlement;
+- settlement against invalid terminal state;
+- forged PAYMENT evidence;
+- PAYMENT with wrong amount/currency/direction;
+- duplicate reuse of financial-transaction or ownership-operation evidence where prohibited;
+- settlement/status backdating.
+
+Forgiveness/write-off remain semantically distinct from PAYMENT.
+
+Result: **PASS**.
+
+---
+
+## 10. Temporal/history/provenance/lifecycle — PASS
+
+Asset lifecycle remains stable identity + legal ACTIVE-to-terminal transition. Terminal transition guards preserve consistency with ownership, valuations and encumbrances.
+
+Valuation, obligation status and settlement history remain append-only/immutable. As-of reads use deterministic effective order. Obligation settlements and status changes cannot be inserted behind later committed history under the hardened contract.
+
+Asset/valuation/obligation/settlement records retain explicit provenance/source fields. The hotfix touches only net-worth aggregation logic and the regression test; it does not rewrite historical authority.
+
+Result: **PASS**.
+
+---
+
+## 11. Derived-only net worth — PASS
+
+There is no authoritative mutable net-worth table. `netWorth()` remains a pure reconstruction over canonical inputs.
+
+Current normalized contribution model is:
 
 ```text
-RPGOS-ASSET-KIND:RECEIVABLE
+non-RECEIVABLE owned valued assets (exact ownership share)
++ Phase-13 cash/account history as-of
++ beneficiary monetary ObligationRecord outstanding
+- obligor monetary ObligationRecord outstanding
+= net worth
 ```
 
-as a normal Phase-14 asset kind. Such an asset may receive a valuation and may be owned through Phase-12 `OwnershipRecord`.
+`ASSET_KIND_RECEIVABLE` is intentionally excluded from `assetsMinor`, while its identity/valuation/history remain legal domain facts.
 
-`AssetLiabilityStore.netWorth()` first sums every owned active Phase-14 AssetRecord using its valuation and exact ownership share into `assetsMinor`.
+This closes the previous duplicate-representation path while leaving unrelated assets and obligations independently countable.
 
-It then separately scans every live monetary `ObligationRecord` and, when the queried party is the beneficiary, adds the obligation's outstanding amount into `receivablesMinor`.
+The existing general persistence test continues to demonstrate an ordinary Property asset value + cash - debt, and beneficiary receivable behavior. The new regression test demonstrates exactly-once receivable contribution.
 
-There is no canonical claim/link identity, exclusion rule or normalization layer that prevents an `ASSET_KIND_RECEIVABLE` AssetRecord and an Obligation beneficiary receivable from representing the same underlying claim.
-
-Therefore one economic receivable can be added once as `assetsMinor` and again as `receivablesMinor`.
-
-This violates WORK-059 / WORK-062 / WORK-065 anti-double-count semantics and MASTER's requirement that net worth be a correct derived projection rather than a sum of duplicate representations.
-
-### Minimal reproducer
-
-Within one campaign `C`, with parties `A` and `B` and currency `CUR`:
-
-1. Create Phase-14 asset `R` with `assetKindUid = RPGOS-ASSET-KIND:RECEIVABLE`.
-2. Record valuation `R = 100 CUR`.
-3. Give party `B` 100% `R` through Phase-12 `OwnershipRecord` with `OWNERSHIP_TYPE_ECONOMIC`.
-4. Create `ObligationRecord O`: obligor `A`, beneficiary `B`, principal `100 CUR`, status ACTIVE.
-5. Treat `R` and `O` as the same economic receivable claim — the model has no field/constraint forbidding this or identifying canonical equivalence.
-6. Call `AssetLiabilityStore.netWorth(B, "CUR", asOf)`.
-
-### Expected
-
-The same economic receivable contributes **100** total to B's wealth under a canonical anti-double-count policy, either through the receivable Asset representation or through the beneficiary obligation view, but not both.
-
-### Actual
-
-`assetsMinor += 100` from owned `R`.
-
-`receivablesMinor += 100` from outstanding `O`.
-
-Derived net worth receives **200** from one economic claim.
-
-### Exact path
-
-- `AssetLiabilityModel.kt`: `ASSET_KIND_RECEIVABLE` exists as a generic Phase-14 asset kind.
-- `Phase14Hardening.kt`: registers `RPGOS-ASSET-KIND:RECEIVABLE` as an active Phase-14 asset definition.
-- `AssetLiabilityStore.kt::netWorth()`:
-  - first loop sums all owned valued assets without excluding/normalizing receivable assets;
-  - second loop independently adds beneficiary obligation outstanding to `receivablesMinor`.
-
-### Violated invariant
-
-```text
-One economic claim must contribute to net worth exactly once.
-Receivable represented as AssetRecord must not also be independently counted from the same ObligationRecord.
-```
-
-This is explicitly anticipated by WORK-065: "count receivable both as AssetRecord and Obligation receivable if both represent same canonical claim" is an adversarial double-count attack that must not succeed.
-
-### Minimal correction scope
-
-Correction should remain inside Phase-14 semantics. Do not redesign Ownership or Financial Ledger.
-
-Minimum acceptable scope is one canonical normalization rule, for example:
-
-- make `ObligationRecord` the sole canonical receivable authority and do not include `ASSET_KIND_RECEIVABLE` AssetRecords in `assetsMinor`; or
-- add an explicit stable claim/economic-interest linkage proving when a receivable AssetRecord corresponds to an Obligation and make net-worth projection count exactly one representation; or
-- remove canonical `ASSET_KIND_RECEIVABLE` from ownable/valued asset aggregation if it is not intended as an independent wealth object.
-
-Add a regression test creating both representations for one claim and requiring exactly one economic contribution.
-
-No Phase-12 ownership or Phase-13 ledger semantic change is required.
-
-Result: **FAIL / RELEASE BLOCKER**.
-
----
-
-## 9. StatePatch / legacy / preservation — PASS
-
-`SourceOfTruthRegistry` blocks generic StatePatch writes to all canonical Phase-14 tables: asset definitions/records/valuations, obligation types/records/status/settlements and encumbrances.
-
-Migration is additive and states zero automatic legacy aggregate promotion. Tests prove legacy `debt`, `property_value` and `investment_value` survive while canonical assets/obligations remain empty. No possession/equipment/labels are promoted into canonical authority.
-
-`CurrentSchema.ensure()` routes to V14 hardening on top of accepted V13. Phase-14 stores do not rewrite accepted Inventory, Equipment, Ownership or Financial Ledger authorities.
+No separate double-count route was found in the hotfix delta.
 
 Result: **PASS**.
 
 ---
 
-## 10. Scale / reopen / campaign isolation — PASS with no separate semantic blocker
+## 12. StatePatch isolation — PASS
 
-Authoritative net-worth loops do not use presentation `LIMIT 1000` sources. Valuation history test stores and reopens 1001 entries and obtains the same fractional-ownership result. Asset/obligation queries are campaign-scoped; same stable asset UID can coexist independently across campaigns.
+`SourceOfTruthRegistry` continues to deny generic StatePatch writes to canonical Phase-14 authority tables including:
 
-No separate semantic release blocker was found in these paths. Migration/integrity completeness remains independently owned by WORK-063.
+- asset kinds/records/valuations;
+- obligation types/records/status history/settlements;
+- asset encumbrances.
+
+The hotfix does not alter SourceOfTruth routing or create a writable net-worth authority.
+
+Result: **PASS**.
+
+---
+
+## 13. Legacy zero-synthesis — PASS
+
+V14 migration remains additive and conservative.
+
+Legacy aggregate fields such as:
+
+```text
+debt
+property_value
+investment_value
+```
+
+remain evidence only. CurrentSchema/V14 does not synthesize detailed canonical assets, creditors, obligations, valuations or title from these summaries, Inventory possession, Equipment state or labels.
+
+Existing persistence test still requires legacy aggregate values to survive while `asset_records` and `obligation_records` remain empty after migration.
+
+Result: **PASS**.
+
+---
+
+## 14. Scale / authoritative completeness — PASS for semantic scope
+
+Authoritative net-worth reconstruction does not use a bounded presentation/context reader or hidden `LIMIT 1000` for portfolio/obligation completeness.
+
+Existing scale coverage stores 1001 valuations, closes/reopens, reruns latest schema and obtains the same exact fractional-ownership result.
+
+No hotfix change introduces truncation or ContextReader authority.
+
+Migration/integrity stress breadth remains independently owned by WORK-063, but no semantic completeness blocker is present.
+
+Result: **PASS**.
+
+---
+
+## 15. Reopen / restore / campaign switch — PASS for semantic contract
+
+CurrentSchema continues routing to V14 hardening. Stable records survive reopen; same asset UID strings can exist independently across campaigns with campaign-scoped reads.
+
+The hotfix changes no persistence schema, migration marker, campaign key or reference identity. Therefore reopen/restore/campaign-switch semantics are unchanged except that recomputed net worth now applies the corrected receivable normalization deterministically after any reopen/restore.
+
+No cross-campaign semantic leakage was found.
+
+Result: **PASS**.
+
+---
+
+## 16. Phase 3–13 regression — PASS
+
+The hotfix changes only:
+
+- `AssetLiabilityStore.netWorth()` asset aggregation filter/comment;
+- one focused Phase-14 persistence regression test.
+
+It does not modify Phase 3–13 schemas, stores or mutation contracts.
+
+Required separation remains true:
+
+```text
+Inventory possession
+!= Equipment
+!= OwnershipRecord
+!= Financial Ledger
+!= Asset/Liability domain
+```
+
+Stats, Resources, Modifier/Resolver, Talent/Potential, Skills, Techniques, Innate/Racial, Inventory, Equipment, Ownership and Financial Ledger authority remain untouched by the hotfix.
+
+Result: **PASS**.
 
 ---
 
 # FINAL VERDICT
 
-`PHASE 14 SEMANTIC REVALIDATION: FAIL`
+`PHASE 14 SEMANTIC REVALIDATION: PASS`
 
 for exactly:
 
-`0ddae36008b13c6d3ac20cde3eb19d0e2859afd9`
+`cace545627b2de41295bacb9e70a0e017a7b49a2`
 
-Reason: net-worth projection can double-count the same receivable through the active `ASSET_KIND_RECEIVABLE` asset path and the beneficiary `ObligationRecord` receivable path.
+Exact CI:
 
-The final CI syntax fix changed only the concurrency test file relative to its production-runtime parent and did not change Phase-14 production semantics; therefore it neither caused nor repairs this semantic blocker.
+`GitHub Actions #293 / run ID 31488698595 / SUCCESS`
 
-Phase 15 was not started.
+The previous receivable double-count blocker is closed by making `ObligationRecord` the sole monetary-receivable contribution to derived net worth while preserving `ASSET_KIND_RECEIVABLE` as a legal generic asset identity/history type.
+
+No new semantic release blocker was found. Phase 15 was not started.
