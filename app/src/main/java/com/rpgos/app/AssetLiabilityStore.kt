@@ -106,7 +106,7 @@ class AssetLiabilityStore(private val db: SQLiteDatabase, private val campaignId
     private fun encumbranceCreationMatches(uid:String,asset:OwnedAssetRef,obligationUid:String,typeUid:String,priority:Int,at:Long,provenance:String)=count("SELECT COUNT(*) FROM asset_encumbrances WHERE campaign_id=? AND encumbrance_uid=? AND asset_kind_uid=? AND asset_uid=? AND obligation_uid=? AND encumbrance_type_uid=? AND priority=? AND valid_from_order=? AND provenance=?",arrayOf(campaignId,uid,asset.assetKindUid,asset.assetUid,obligationUid,typeUid,priority.toString(),at.toString(),provenance))==1L
     private fun requireAsset(a:OwnedAssetRef):AssetRecord=requireNotNull(existingAsset(a)){"Phase14 asset not found"}
     private fun <T> stableUidWrite(domain:String,uid:String,block:()->T):T=synchronized(replayLock(domain,uid)){block()}
-    private fun replayLock(domain:String,uid:String):Any{val key="${db.path}|$campaignId|$domain|$uid";return replayLocks[(key.hashCode() and Int.MAX_VALUE)%REPLAY_LOCK_STRIPES]}
+    private fun replayLock(domain:String,uid:String):Any{val key="$campaignId|$domain|$uid";return replayLocks[(key.hashCode() and Int.MAX_VALUE)%REPLAY_LOCK_STRIPES]}
     private fun count(sql:String,args:Array<out String?>)=db.rawQuery(sql,args).use{c->c.moveToFirst();c.getLong(0)}
     private fun tx(block:()->Unit){if(db.inTransaction()){block();return};db.beginTransaction();try{block();db.setTransactionSuccessful()}finally{db.endTransaction()}}
 }
