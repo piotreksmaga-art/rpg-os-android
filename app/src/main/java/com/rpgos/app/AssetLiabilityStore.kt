@@ -3,6 +3,11 @@ package com.rpgos.app
 import android.database.sqlite.SQLiteDatabase
 
 class AssetLiabilityStore(private val db: SQLiteDatabase, private val campaignId: String) {
+    companion object {
+        private const val REPLAY_LOCK_STRIPES = 64
+        private val replayLocks = Array(REPLAY_LOCK_STRIPES) { Any() }
+    }
+
     init { require(campaignId.isNotBlank()); MigrationManager().ensureV14Hardening(db,campaignId) }
 
     fun registerAssetKind(d:AssetKindDefinition){AssetLiabilityPolicy.validateAssetKind(d);tx{
@@ -12,15 +17,15 @@ class AssetLiabilityStore(private val db: SQLiteDatabase, private val campaignId
         else require(count("SELECT COUNT(*) FROM asset_kind_definitions WHERE asset_kind_uid=? AND asset_class=? AND display_name=? AND definition_status=? AND definition_version=? AND provenance=? AND world_pack_uid IS ?",arrayOf(d.assetKindUid,d.assetClass.name,d.displayName,d.status,d.version.toString(),d.provenance,d.worldPackUid))==1L){"asset kind UID semantic conflict"}
     }}
 
-    fun createAsset(a:AssetRecord):AssetRecord{
+    fun createAsset(a:AssetRecord):AssetRecord=stableUidWrite("asset:${a.assetKindUid}",a.assetUid){
         AssetLiabilityPolicy.validateAsset(a);require(a.campaignId==campaignId)
-        existingAsset(a.ref)?.let{canonical->require(assetCreationMatches(canonical,a)){"asset UID semantic conflict"};return canonical}
+        existingAsset(a.ref)?.let{canonical->require(assetCreationMatches(canonical,a)){"asset UID semantic conflict"};return@stableUidWrite canonical}
         try{tx{
             existingAsset(a.ref)?.let{canonical->require(assetCreationMatches(canonical,a)){"asset UID semantic conflict"};return@tx}
             OwnershipReferenceRegistry(db,campaignId).registerAsset(a.ref,a.provenance)
             db.execSQL("INSERT INTO asset_records(campaign_id,asset_uid,asset_kind_uid,lifecycle_status,created_order,retired_order,source_event_uid,record_version,provenance,metadata_json) VALUES(?,?,?,?,?,?,?,?,?,?)",arrayOf<Any?>(campaignId,a.assetUid,a.assetKindUid,a.lifecycle.name,a.createdOrder,a.retiredOrder,a.sourceEventUid,a.version,a.provenance,a.metadataJson))
-        }}catch(t:Throwable){existingAsset(a.ref)?.let{canonical->if(assetCreationMatches(canonical,a))return canonical};throw t}
-        return requireAsset(a.ref)
+        }}catch(t:Throwable){existingAsset(a.ref)?.let{canonical->if(assetCreationMatches(canonical,a))return@stableUidWrite canonical};throw t}
+        requireAsset(a.ref)
     }
 
     fun retireAsset(ref:OwnedAssetRef,at:Long,lifecycle:AssetLifecycle,provenance:String):AssetRecord{require(lifecycle!=AssetLifecycle.ACTIVE&&provenance.isNotBlank());tx{
@@ -30,48 +35,48 @@ class AssetLiabilityStore(private val db: SQLiteDatabase, private val campaignId
         OwnershipReferenceRegistry(db,campaignId).retireAsset(ref,provenance)
     };return requireAsset(ref)}
 
-    fun recordValuation(v:AssetValuation):AssetValuation{
+    fun recordValuation(v:AssetValuation):AssetValuation=stableUidWrite("valuation",v.valuationUid){
         AssetLiabilityPolicy.validateValuation(v);require(v.campaignId==campaignId)
-        existingValuation(v.valuationUid)?.let{canonical->require(canonical==v){"valuation UID semantic conflict"};return canonical}
+        existingValuation(v.valuationUid)?.let{canonical->require(canonical==v){"valuation UID semantic conflict"};return@stableUidWrite canonical}
         try{db.execSQL("INSERT INTO asset_valuations(campaign_id,valuation_uid,asset_kind_uid,asset_uid,currency_uid,amount_minor,valuation_type,effective_order,valid_until_order,source_event_uid,confidence_ppm,valuation_version,provenance) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",arrayOf<Any?>(campaignId,v.valuationUid,v.asset.assetKindUid,v.asset.assetUid,v.currencyUid,v.amountMinor,v.valuationType.name,v.effectiveOrder,v.validUntilOrder,v.sourceEventUid,v.confidencePpm,v.version,v.provenance))}
-        catch(t:Throwable){existingValuation(v.valuationUid)?.let{canonical->if(canonical==v)return canonical};throw t}
-        return requireNotNull(existingValuation(v.valuationUid))
+        catch(t:Throwable){existingValuation(v.valuationUid)?.let{canonical->if(canonical==v)return@stableUidWrite canonical};throw t}
+        requireNotNull(existingValuation(v.valuationUid))
     }
 
-    fun createObligation(o:ObligationRecord,initialStatusEventUid:String):ObligationRecord{
+    fun createObligation(o:ObligationRecord,initialStatusEventUid:String):ObligationRecord=stableUidWrite("obligation",o.obligationUid){
         AssetLiabilityPolicy.validateObligation(o);require(o.campaignId==campaignId&&initialStatusEventUid.isNotBlank())
-        existingObligation(o.obligationUid)?.let{canonical->require(canonical==o&&initialStatusMatches(o,initialStatusEventUid)){"obligation UID semantic conflict"};return canonical}
+        existingObligation(o.obligationUid)?.let{canonical->require(canonical==o&&initialStatusMatches(o,initialStatusEventUid)){"obligation UID semantic conflict"};return@stableUidWrite canonical}
         try{tx{
             existingObligation(o.obligationUid)?.let{canonical->require(canonical==o&&initialStatusMatches(o,initialStatusEventUid)){"obligation UID semantic conflict"};return@tx}
             db.execSQL("INSERT INTO obligation_records(campaign_id,obligation_uid,obligation_type_uid,obligation_class,obligor_kind_uid,obligor_uid,beneficiary_kind_uid,beneficiary_uid,currency_uid,principal_minor,asset_kind_uid,asset_uid,created_order,due_order,valid_until_order,source_event_uid,source_contract_uid,record_version,provenance,metadata_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",arrayOf<Any?>(campaignId,o.obligationUid,o.obligationTypeUid,o.obligationClass.name,o.obligor.ownerKindUid,o.obligor.ownerUid,o.beneficiary.ownerKindUid,o.beneficiary.ownerUid,o.currencyUid,o.principalMinor,o.asset?.assetKindUid,o.asset?.assetUid,o.createdOrder,o.dueOrder,o.validUntilOrder,o.sourceEventUid,o.sourceContractUid,o.version,o.provenance,o.metadataJson))
             db.execSQL("INSERT INTO obligation_status_history(campaign_id,status_event_uid,obligation_uid,status,effective_order,source_event_uid,provenance) VALUES(?,?,?,'ACTIVE',?,?,?)",arrayOf<Any?>(campaignId,initialStatusEventUid,o.obligationUid,o.createdOrder,o.sourceEventUid,o.provenance))
-        }}catch(t:Throwable){existingObligation(o.obligationUid)?.let{canonical->if(canonical==o&&initialStatusMatches(o,initialStatusEventUid))return canonical};throw t}
-        return requireNotNull(existingObligation(o.obligationUid))
+        }}catch(t:Throwable){existingObligation(o.obligationUid)?.let{canonical->if(canonical==o&&initialStatusMatches(o,initialStatusEventUid))return@stableUidWrite canonical};throw t}
+        requireNotNull(existingObligation(o.obligationUid))
     }
 
-    fun settle(s:ObligationSettlement):ObligationSettlement{
+    fun settle(s:ObligationSettlement):ObligationSettlement=stableUidWrite("settlement",s.settlementUid){
         require(s.campaignId==campaignId&&s.settlementUid.isNotBlank()&&s.obligationUid.isNotBlank()&&s.provenance.isNotBlank());require(s.amountMinor==null||s.amountMinor>0)
-        existingSettlement(s.settlementUid)?.let{canonical->require(canonical==s){"settlement UID semantic conflict"};return canonical}
+        existingSettlement(s.settlementUid)?.let{canonical->require(canonical==s){"settlement UID semantic conflict"};return@stableUidWrite canonical}
         try{db.execSQL("INSERT INTO obligation_settlements(campaign_id,settlement_uid,obligation_uid,settlement_kind,amount_minor,financial_transaction_uid,ownership_operation_uid,effective_order,source_event_uid,provenance) VALUES(?,?,?,?,?,?,?,?,?,?)",arrayOf<Any?>(campaignId,s.settlementUid,s.obligationUid,s.kind.name,s.amountMinor,s.financialTransactionUid,s.ownershipOperationUid,s.effectiveOrder,s.sourceEventUid,s.provenance))}
-        catch(t:Throwable){existingSettlement(s.settlementUid)?.let{canonical->if(canonical==s)return canonical};throw t}
-        return requireNotNull(existingSettlement(s.settlementUid))
+        catch(t:Throwable){existingSettlement(s.settlementUid)?.let{canonical->if(canonical==s)return@stableUidWrite canonical};throw t}
+        requireNotNull(existingSettlement(s.settlementUid))
     }
 
-    fun changeObligationStatus(obligationUid:String,eventUid:String,status:ObligationStatus,at:Long,provenance:String,sourceEventUid:String?=null){
+    fun changeObligationStatus(obligationUid:String,eventUid:String,status:ObligationStatus,at:Long,provenance:String,sourceEventUid:String?=null)=stableUidWrite("status",eventUid){
         require(obligationUid.isNotBlank()&&eventUid.isNotBlank()&&provenance.isNotBlank())
-        if(statusEventExists(eventUid)){require(statusEventMatches(obligationUid,eventUid,status,at,provenance,sourceEventUid)){"status event UID semantic conflict"};return}
+        if(statusEventExists(eventUid)){require(statusEventMatches(obligationUid,eventUid,status,at,provenance,sourceEventUid)){"status event UID semantic conflict"};return@stableUidWrite}
         try{db.execSQL("INSERT INTO obligation_status_history(campaign_id,status_event_uid,obligation_uid,status,effective_order,source_event_uid,provenance) VALUES(?,?,?,?,?,?,?)",arrayOf<Any?>(campaignId,eventUid,obligationUid,status.name,at,sourceEventUid,provenance))}
-        catch(t:Throwable){if(statusEventExists(eventUid)&&statusEventMatches(obligationUid,eventUid,status,at,provenance,sourceEventUid))return;throw t}
+        catch(t:Throwable){if(statusEventExists(eventUid)&&statusEventMatches(obligationUid,eventUid,status,at,provenance,sourceEventUid))return@stableUidWrite;throw t}
     }
 
     fun outstandingMinor(uid:String,at:Long=Long.MAX_VALUE):Long?{val principal=db.rawQuery("SELECT principal_minor FROM obligation_records WHERE campaign_id=? AND obligation_uid=?",arrayOf(campaignId,uid)).use{c->if(!c.moveToFirst())error("obligation not found") else if(c.isNull(0))return null else c.getLong(0)};var paid=0L;db.rawQuery("SELECT amount_minor FROM obligation_settlements WHERE campaign_id=? AND obligation_uid=? AND amount_minor IS NOT NULL AND effective_order<=? ORDER BY effective_order,settlement_uid",arrayOf(campaignId,uid,at.toString())).use{c->while(c.moveToNext())paid=Math.addExact(paid,c.getLong(0))};return Math.subtractExact(principal,paid)}
     fun currentStatus(uid:String,at:Long=Long.MAX_VALUE):ObligationStatus?=db.rawQuery("SELECT status FROM obligation_status_history WHERE campaign_id=? AND obligation_uid=? AND effective_order<=? ORDER BY effective_order DESC,status_event_uid DESC LIMIT 1",arrayOf(campaignId,uid,at.toString())).use{c->if(c.moveToFirst())ObligationStatus.valueOf(c.getString(0)) else null}
 
-    fun addEncumbrance(uid:String,asset:OwnedAssetRef,obligationUid:String,typeUid:String,priority:Int,at:Long,provenance:String){
+    fun addEncumbrance(uid:String,asset:OwnedAssetRef,obligationUid:String,typeUid:String,priority:Int,at:Long,provenance:String)=stableUidWrite("encumbrance",uid){
         require(uid.isNotBlank()&&typeUid.isNotBlank()&&provenance.isNotBlank())
-        if(encumbranceExists(uid)){require(encumbranceCreationMatches(uid,asset,obligationUid,typeUid,priority,at,provenance)){"encumbrance UID semantic conflict"};return}
+        if(encumbranceExists(uid)){require(encumbranceCreationMatches(uid,asset,obligationUid,typeUid,priority,at,provenance)){"encumbrance UID semantic conflict"};return@stableUidWrite}
         try{db.execSQL("INSERT INTO asset_encumbrances(campaign_id,encumbrance_uid,asset_kind_uid,asset_uid,obligation_uid,encumbrance_type_uid,priority,valid_from_order,record_version,provenance) VALUES(?,?,?,?,?,?,?,?,1,?)",arrayOf(campaignId,uid,asset.assetKindUid,asset.assetUid,obligationUid,typeUid,priority,at,provenance))}
-        catch(t:Throwable){if(encumbranceExists(uid)&&encumbranceCreationMatches(uid,asset,obligationUid,typeUid,priority,at,provenance))return;throw t}
+        catch(t:Throwable){if(encumbranceExists(uid)&&encumbranceCreationMatches(uid,asset,obligationUid,typeUid,priority,at,provenance))return@stableUidWrite;throw t}
     }
     fun releaseEncumbrance(uid:String,at:Long,provenance:String){require(uid.isNotBlank()&&provenance.isNotBlank());val s=db.compileStatement("UPDATE asset_encumbrances SET released_order=?,record_version=record_version+1,release_provenance=? WHERE campaign_id=? AND encumbrance_uid=? AND released_order IS NULL");s.use{it.bindLong(1,at);it.bindString(2,provenance);it.bindString(3,campaignId);it.bindString(4,uid);require(it.executeUpdateDelete()==1){"active encumbrance not found"}}}
 
@@ -100,6 +105,8 @@ class AssetLiabilityStore(private val db: SQLiteDatabase, private val campaignId
     private fun encumbranceExists(uid:String)=count("SELECT COUNT(*) FROM asset_encumbrances WHERE campaign_id=? AND encumbrance_uid=?",arrayOf(campaignId,uid))>0
     private fun encumbranceCreationMatches(uid:String,asset:OwnedAssetRef,obligationUid:String,typeUid:String,priority:Int,at:Long,provenance:String)=count("SELECT COUNT(*) FROM asset_encumbrances WHERE campaign_id=? AND encumbrance_uid=? AND asset_kind_uid=? AND asset_uid=? AND obligation_uid=? AND encumbrance_type_uid=? AND priority=? AND valid_from_order=? AND provenance=?",arrayOf(campaignId,uid,asset.assetKindUid,asset.assetUid,obligationUid,typeUid,priority.toString(),at.toString(),provenance))==1L
     private fun requireAsset(a:OwnedAssetRef):AssetRecord=requireNotNull(existingAsset(a)){"Phase14 asset not found"}
+    private fun <T> stableUidWrite(domain:String,uid:String,block:()->T):T=synchronized(replayLock(domain,uid)){block()}
+    private fun replayLock(domain:String,uid:String):Any{val key="${db.path}|$campaignId|$domain|$uid";return replayLocks[(key.hashCode() and Int.MAX_VALUE)%REPLAY_LOCK_STRIPES]}
     private fun count(sql:String,args:Array<out String?>)=db.rawQuery(sql,args).use{c->c.moveToFirst();c.getLong(0)}
     private fun tx(block:()->Unit){if(db.inTransaction()){block();return};db.beginTransaction();try{block();db.setTransactionSuccessful()}finally{db.endTransaction()}}
 }
