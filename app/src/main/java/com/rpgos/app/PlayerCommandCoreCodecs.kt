@@ -162,6 +162,6 @@ private fun <P : PlayerCommandPayload> codec(
     validate: (P) -> List<String>
 ): TypedCommandCodec<P> = object : TypedCommandCodec<P>(type) {
     override fun encode(payload: P): JsonObject = encode(payload)
-    override fun decode(obj: JsonObject): P = decode(obj)
+    override fun decodeKnownFields(obj: JsonObject): P = decode(obj)
     override fun validate(payload: P): List<String> = validate(payload)
 }
