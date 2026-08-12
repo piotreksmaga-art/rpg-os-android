@@ -5,10 +5,12 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
 class PlayerCommandContractTest {
     private val registry = PlayerCommandKindRegistry.core()
     private val actor = CommandActorRef("CHARACTER", "ACTOR-1")
