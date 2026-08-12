@@ -335,7 +335,7 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
                 if (it.proposedLifecycleStateUid.isBlank()) add("INVALID_ASSET_CHANGE")
             }
         },
-        conflicts = { setOf("ASSET:${it.asset.assetKindUid}:${it.asset.assetUid}") }
+        conflicts = { setOf(assetConflictKey(it.asset)) }
     ),
     PlayerChangeKinds.OWNERSHIP to simpleCodec(
         OwnershipChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
@@ -566,6 +566,13 @@ private fun refAndUidErrors(ref: DomainRef, uid: String): List<String> = buildLi
 }
 
 private fun blankError(value: String): List<String> = if (value.isBlank()) listOf("INVALID_TARGET_UID") else emptyList()
+
+private fun assetConflictKey(asset: OwnedAssetRef): String {
+    if (':' !in asset.assetUid) return "ASSET:${asset.assetKindUid}:${asset.assetUid}"
+    val kind = asset.assetKindUid
+    val uid = asset.assetUid
+    return "ASSET|${kind.length}:$kind|${uid.length}:$uid"
+}
 
 private fun validateFinancialTerms(
     fromAccountUid: String,
