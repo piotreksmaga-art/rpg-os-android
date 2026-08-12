@@ -18,6 +18,7 @@ import kotlinx.serialization.json.long
 
 private const val NAMESPACED_TEXT_EXTENSION_SCHEMA_VERSION = 1
 private const val UNKNOWN_COMMAND_FIELD = "UNKNOWN_COMMAND_FIELD"
+private const val INVALID_JSON_STRING_TYPE = "INVALID_JSON_STRING_TYPE"
 
 abstract class TypedCommandCodec<P : PlayerCommandPayload>(
     val payloadType: KClass<P>,
@@ -69,8 +70,11 @@ class PlayerCommandKindRegistry private constructor(
     }
 
     fun decode(serialized: String): PlayerCommand<out PlayerCommandPayload> {
+        rejectDuplicateJsonObjectKeys(serialized)
         val root = try {
             Json.parseToJsonElement(serialized).jsonObject
+        } catch (e: PlayerCommandStructuralException) {
+            throw e
         } catch (_: Throwable) {
             throw PlayerCommandStructuralException("INVALID_COMMAND_SERIALIZATION")
         }
@@ -243,10 +247,22 @@ internal fun JsonObject.requireOnlyKeys(allowedKeys: Set<String>): JsonObject {
     if (keys.any { it !in allowedKeys }) throw PlayerCommandStructuralException(UNKNOWN_COMMAND_FIELD)
     return this
 }
-internal fun JsonObject.reqString(k: String): String = this[k]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content ?: throw PlayerCommandStructuralException("MISSING_$k")
+internal fun JsonObject.reqString(k: String): String {
+    val element = this[k] ?: throw PlayerCommandStructuralException("MISSING_$k")
+    if (element is JsonNull) throw PlayerCommandStructuralException("MISSING_$k")
+    val primitive = element as? JsonPrimitive ?: throw PlayerCommandStructuralException(INVALID_JSON_STRING_TYPE)
+    if (!primitive.isString) throw PlayerCommandStructuralException(INVALID_JSON_STRING_TYPE)
+    return primitive.content
+}
 internal fun JsonObject.reqInt(k: String): Int = try { this[k]?.jsonPrimitive?.int ?: error("missing") } catch (_: Throwable) { throw PlayerCommandStructuralException("MISSING_$k") }
 internal fun JsonObject.reqLong(k: String): Long = try { this[k]?.jsonPrimitive?.long ?: error("missing") } catch (_: Throwable) { throw PlayerCommandStructuralException("MISSING_$k") }
-internal fun JsonObject.optString(k: String): String? = this[k]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content
+internal fun JsonObject.optString(k: String): String? {
+    val element = this[k] ?: return null
+    if (element is JsonNull) return null
+    val primitive = element as? JsonPrimitive ?: throw PlayerCommandStructuralException(INVALID_JSON_STRING_TYPE)
+    if (!primitive.isString) throw PlayerCommandStructuralException(INVALID_JSON_STRING_TYPE)
+    return primitive.content
+}
 internal fun JsonObject.optLong(k: String): Long? = this[k]?.takeUnless { it is JsonNull }?.jsonPrimitive?.long
 internal fun JsonObject.reqObject(k: String): JsonObject = this[k]?.takeUnless { it is JsonNull }?.jsonObject ?: throw PlayerCommandStructuralException("MISSING_$k")
 internal fun JsonObject.optObject(k: String): JsonObject? = this[k]?.takeUnless { it is JsonNull }?.jsonObject
