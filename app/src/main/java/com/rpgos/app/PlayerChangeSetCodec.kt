@@ -141,7 +141,7 @@ object PlayerChangeSetValidator {
                 payload.currencyUid, payload.transactionTypeUid, "INVALID_LEDGER_INTENT"
             )
 
-            var matchingFinancialCauseFound = false
+            var matchingFinancialCauseFound = intent.causalChangeUids.isEmpty()
             intent.causalChangeUids.forEach { causalUid ->
                 val causalChange = changesByUid.getValue(causalUid)
                 if (causalChange.changeKindUid == PlayerChangeKinds.FINANCIAL) {
