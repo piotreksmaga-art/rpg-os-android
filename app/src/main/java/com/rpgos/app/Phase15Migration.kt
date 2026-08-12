@@ -176,7 +176,8 @@ private fun installPhase15Triggers(db: SQLiteDatabase) {
     db.execSQL("CREATE TRIGGER trg_p15_milestone_immutable BEFORE UPDATE ON project_milestone_definitions BEGIN SELECT RAISE(ABORT,'project milestone definition is immutable'); END")
     db.execSQL("""CREATE TRIGGER trg_p15_achievement_insert BEFORE INSERT ON project_milestone_achievements WHEN
       NOT EXISTS(SELECT 1 FROM project_milestone_definitions m WHERE m.campaign_id=NEW.campaign_id AND m.project_uid=NEW.project_uid AND m.milestone_uid=NEW.milestone_uid) OR
-      NEW.achieved_order < (SELECT created_order FROM development_projects p WHERE p.campaign_id=NEW.campaign_id AND p.project_uid=NEW.project_uid)
+      NEW.achieved_order < (SELECT created_order FROM development_projects p WHERE p.campaign_id=NEW.campaign_id AND p.project_uid=NEW.project_uid) OR
+      (NEW.source_work_record_uid IS NOT NULL AND NOT EXISTS(SELECT 1 FROM project_work_records w WHERE w.campaign_id=NEW.campaign_id AND w.project_uid=NEW.project_uid AND w.work_record_uid=NEW.source_work_record_uid AND w.effective_order<=NEW.achieved_order))
       BEGIN SELECT RAISE(ABORT,'milestone achievement reference/order invalid'); END""")
 
     db.execSQL("""CREATE TRIGGER trg_p15_work_insert BEFORE INSERT ON project_work_records WHEN
@@ -203,7 +204,8 @@ private fun installPhase15Triggers(db: SQLiteDatabase) {
       (NEW.output_kind_uid='$PROJECT_OUTPUT_SKILL' AND NOT EXISTS(SELECT 1 FROM development_projects p JOIN player_skills_v2 s ON s.campaign_id=p.campaign_id AND s.character_uid=COALESCE(p.beneficiary_uid,p.initiator_uid) AND s.skill_uid=NEW.output_uid WHERE p.campaign_id=NEW.campaign_id AND p.project_uid=NEW.project_uid AND COALESCE(p.beneficiary_kind_uid,p.initiator_kind_uid)='CHARACTER')) OR
       (NEW.output_kind_uid='$PROJECT_OUTPUT_ITEM_INSTANCE' AND NOT EXISTS(SELECT 1 FROM item_instances i WHERE i.campaign_id=NEW.campaign_id AND i.item_instance_uid=NEW.output_uid)) OR
       (NEW.output_kind_uid='$PROJECT_OUTPUT_ASSET' AND (NEW.output_ref_kind_uid IS NULL OR NOT EXISTS(SELECT 1 FROM asset_records a WHERE a.campaign_id=NEW.campaign_id AND a.asset_kind_uid=NEW.output_ref_kind_uid AND a.asset_uid=NEW.output_uid))) OR
-      NEW.output_kind_uid NOT IN ('$PROJECT_OUTPUT_TECHNIQUE','$PROJECT_OUTPUT_SKILL','$PROJECT_OUTPUT_ITEM_INSTANCE','$PROJECT_OUTPUT_ASSET')
+      (NEW.output_kind_uid='$PROJECT_OUTPUT_TRUTH' AND NOT EXISTS(SELECT 1 FROM campaign_truth_records t WHERE t.campaign_id=NEW.campaign_id AND t.truth_uid=NEW.output_uid AND (NEW.output_ref_kind_uid IS NULL OR t.truth_kind=NEW.output_ref_kind_uid))) OR
+      NEW.output_kind_uid NOT IN ('$PROJECT_OUTPUT_TECHNIQUE','$PROJECT_OUTPUT_SKILL','$PROJECT_OUTPUT_ITEM_INSTANCE','$PROJECT_OUTPUT_ASSET','$PROJECT_OUTPUT_TRUTH')
       BEGIN SELECT RAISE(ABORT,'project outcome unresolved, wrong kind, or project not ready'); END""")
     db.execSQL("CREATE TRIGGER trg_p15_outcome_immutable BEFORE UPDATE ON project_outcomes BEGIN SELECT RAISE(ABORT,'project outcome history is immutable'); END")
 
