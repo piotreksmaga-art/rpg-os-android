@@ -16,7 +16,13 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 
-abstract class TypedCommandCodec<P : PlayerCommandPayload>(val payloadType: KClass<P>) {
+private const val NAMESPACED_TEXT_EXTENSION_SCHEMA_VERSION = 1
+private const val UNKNOWN_COMMAND_FIELD = "UNKNOWN_COMMAND_FIELD"
+
+abstract class TypedCommandCodec<P : PlayerCommandPayload>(
+    val payloadType: KClass<P>,
+    val allowedKeys: Set<String> = corePayloadAllowedKeys(payloadType)
+) {
     abstract fun encode(payload: P): JsonObject
     abstract fun decode(obj: JsonObject): P
     open fun validate(payload: P): List<String> = emptyList()
@@ -68,11 +74,19 @@ class PlayerCommandKindRegistry private constructor(
         } catch (_: Throwable) {
             throw PlayerCommandStructuralException("INVALID_COMMAND_SERIALIZATION")
         }
+        root.requireOnlyKeys(
+            setOf(
+                "schemaVersion", "commandUid", "campaignUid", "actor", "commandKindUid", "payload",
+                "provenance", "causationUid", "correlationUid", "requestedEffectiveOrder", "preconditions", "extensions"
+            )
+        )
         val schema = root.reqInt("schemaVersion")
         if (schema != PLAYER_COMMAND_SCHEMA_VERSION) throw PlayerCommandStructuralException("UNSUPPORTED_COMMAND_SCHEMA_VERSION")
         val kind = root.reqString("commandKindUid")
+        val commandCodec = codec(kind)
+        val payloadObject = root.reqObject("payload").requireOnlyKeys(commandCodec.allowedKeys)
         val payload = try {
-            codec(kind).decode(root.reqObject("payload"))
+            commandCodec.decode(payloadObject)
         } catch (e: PlayerCommandStructuralException) {
             throw e
         } catch (_: Throwable) {
@@ -152,8 +166,10 @@ private fun validatePrecondition(p: CommandPrecondition): List<String> = when (p
 
 private fun validateExtension(x: TypedCommandExtension): List<String> = buildList {
     if (x.extensionKindUid.isBlank()) add("INVALID_EXTENSION_KIND")
-    if (x.schemaVersion <= 0) add("INVALID_EXTENSION_VERSION")
-    if (x is NamespacedTextCommandExtension && x.value.isBlank()) add("INVALID_EXTENSION_VALUE")
+    if (x is NamespacedTextCommandExtension) {
+        if (x.schemaVersion != NAMESPACED_TEXT_EXTENSION_SCHEMA_VERSION) add("UNSUPPORTED_EXTENSION_SCHEMA_VERSION")
+        if (x.value.isBlank()) add("INVALID_EXTENSION_VALUE")
+    }
 }
 
 internal fun validRef(r: DomainRef): Boolean = r.kindUid.isNotBlank() && r.uid.isNotBlank()
@@ -163,24 +179,43 @@ internal fun refsErrors(refs: List<DomainRef>, code: String): List<String> = if 
 internal fun errorIf(condition: Boolean, code: String): List<String> = if (condition) listOf(code) else emptyList()
 
 private fun encodeActor(x: CommandActorRef) = jobj("actorKindUid" to j(x.actorKindUid), "actorUid" to j(x.actorUid))
-private fun decodeActor(x: JsonObject) = CommandActorRef(x.reqString("actorKindUid"), x.reqString("actorUid"))
+private fun decodeActor(x: JsonObject): CommandActorRef {
+    x.requireOnlyKeys(setOf("actorKindUid", "actorUid"))
+    return CommandActorRef(x.reqString("actorKindUid"), x.reqString("actorUid"))
+}
+
 internal fun encodeRef(x: DomainRef) = jobj("kindUid" to j(x.kindUid), "uid" to j(x.uid))
-internal fun decodeRef(x: JsonObject) = DomainRef(x.reqString("kindUid"), x.reqString("uid"))
+internal fun decodeRef(x: JsonObject): DomainRef {
+    x.requireOnlyKeys(setOf("kindUid", "uid"))
+    return DomainRef(x.reqString("kindUid"), x.reqString("uid"))
+}
+
 private fun encodeProvenance(x: CommandProvenance) = jobj(
     "sourceKindUid" to j(x.sourceKindUid),
     "sourceUid" to jn(x.sourceUid),
     "detail" to jn(x.detail)
 )
-private fun decodeProvenance(x: JsonObject) = CommandProvenance(x.reqString("sourceKindUid"), x.optString("sourceUid"), x.optString("detail"))
+private fun decodeProvenance(x: JsonObject): CommandProvenance {
+    x.requireOnlyKeys(setOf("sourceKindUid", "sourceUid", "detail"))
+    return CommandProvenance(x.reqString("sourceKindUid"), x.optString("sourceUid"), x.optString("detail"))
+}
+
 private fun encodePrecondition(x: CommandPrecondition): JsonObject = when (x) {
     is ExpectedRecordVersion -> jobj("kind" to j("EXPECTED_RECORD_VERSION"), "target" to encodeRef(x.target), "expectedVersion" to j(x.expectedVersion))
     is ExpectedLifecycleState -> jobj("kind" to j("EXPECTED_LIFECYCLE_STATE"), "target" to encodeRef(x.target), "expectedStateUid" to j(x.expectedStateUid))
 }
 private fun decodePrecondition(x: JsonObject): CommandPrecondition = when (x.reqString("kind")) {
-    "EXPECTED_RECORD_VERSION" -> ExpectedRecordVersion(decodeRef(x.reqObject("target")), x.reqLong("expectedVersion"))
-    "EXPECTED_LIFECYCLE_STATE" -> ExpectedLifecycleState(decodeRef(x.reqObject("target")), x.reqString("expectedStateUid"))
+    "EXPECTED_RECORD_VERSION" -> {
+        x.requireOnlyKeys(setOf("kind", "target", "expectedVersion"))
+        ExpectedRecordVersion(decodeRef(x.reqObject("target")), x.reqLong("expectedVersion"))
+    }
+    "EXPECTED_LIFECYCLE_STATE" -> {
+        x.requireOnlyKeys(setOf("kind", "target", "expectedStateUid"))
+        ExpectedLifecycleState(decodeRef(x.reqObject("target")), x.reqString("expectedStateUid"))
+    }
     else -> throw PlayerCommandStructuralException("UNKNOWN_PRECONDITION_KIND")
 }
+
 private fun encodeExtension(x: TypedCommandExtension): JsonObject = when (x) {
     is NamespacedTextCommandExtension -> jobj(
         "kind" to j("NAMESPACED_TEXT"), "extensionKindUid" to j(x.extensionKindUid),
@@ -188,7 +223,14 @@ private fun encodeExtension(x: TypedCommandExtension): JsonObject = when (x) {
     )
 }
 private fun decodeExtension(x: JsonObject): TypedCommandExtension = when (x.reqString("kind")) {
-    "NAMESPACED_TEXT" -> NamespacedTextCommandExtension(x.reqString("extensionKindUid"), x.reqInt("schemaVersion"), x.reqString("value"))
+    "NAMESPACED_TEXT" -> {
+        x.requireOnlyKeys(setOf("kind", "extensionKindUid", "schemaVersion", "value"))
+        val schemaVersion = x.reqInt("schemaVersion")
+        if (schemaVersion != NAMESPACED_TEXT_EXTENSION_SCHEMA_VERSION) {
+            throw PlayerCommandStructuralException("UNSUPPORTED_EXTENSION_SCHEMA_VERSION")
+        }
+        NamespacedTextCommandExtension(x.reqString("extensionKindUid"), schemaVersion, x.reqString("value"))
+    }
     else -> throw PlayerCommandStructuralException("UNKNOWN_EXTENSION_KIND")
 }
 
@@ -197,6 +239,10 @@ internal fun j(v: Long): JsonPrimitive = JsonPrimitive(v)
 internal fun jn(v: String?): JsonElement = v?.let(::JsonPrimitive) ?: JsonNull
 internal fun jobj(vararg pairs: Pair<String, JsonElement>): JsonObject = JsonObject(linkedMapOf(*pairs))
 internal fun refsJson(refs: List<DomainRef>): JsonArray = JsonArray(refs.map(::encodeRef))
+internal fun JsonObject.requireOnlyKeys(allowedKeys: Set<String>): JsonObject {
+    if (keys.any { it !in allowedKeys }) throw PlayerCommandStructuralException(UNKNOWN_COMMAND_FIELD)
+    return this
+}
 internal fun JsonObject.reqString(k: String): String = this[k]?.takeUnless { it is JsonNull }?.jsonPrimitive?.content ?: throw PlayerCommandStructuralException("MISSING_$k")
 internal fun JsonObject.reqInt(k: String): Int = try { this[k]?.jsonPrimitive?.int ?: error("missing") } catch (_: Throwable) { throw PlayerCommandStructuralException("MISSING_$k") }
 internal fun JsonObject.reqLong(k: String): Long = try { this[k]?.jsonPrimitive?.long ?: error("missing") } catch (_: Throwable) { throw PlayerCommandStructuralException("MISSING_$k") }
@@ -205,3 +251,36 @@ internal fun JsonObject.optLong(k: String): Long? = this[k]?.takeUnless { it is 
 internal fun JsonObject.reqObject(k: String): JsonObject = this[k]?.takeUnless { it is JsonNull }?.jsonObject ?: throw PlayerCommandStructuralException("MISSING_$k")
 internal fun JsonObject.optObject(k: String): JsonObject? = this[k]?.takeUnless { it is JsonNull }?.jsonObject
 internal fun JsonObject.reqArray(k: String): JsonArray = this[k]?.takeUnless { it is JsonNull }?.jsonArray ?: throw PlayerCommandStructuralException("MISSING_$k")
+
+private fun corePayloadAllowedKeys(type: KClass<*>): Set<String> = when (type) {
+    TrainCommandPayload::class -> setOf("focus", "effortUnits", "methodUid")
+    UseResourceActionCommandPayload::class -> setOf("resource", "requestedAmount", "methodUid")
+    RecoverCommandPayload::class -> setOf("resource", "effortUnits")
+    LearnSkillCommandPayload::class -> setOf("skillUid", "methodUid")
+    PracticeSkillCommandPayload::class -> setOf("skillUid", "effortUnits", "methodUid")
+    LearnTechniqueCommandPayload::class -> setOf("techniqueUid", "methodUid")
+    UseTechniqueCommandPayload::class -> setOf("techniqueUid", "target")
+    AcquireItemCommandPayload::class -> setOf("itemDefinitionUid", "requestedQuantity", "sourceRef")
+    TransferItemCommandPayload::class -> setOf("item", "toParty", "requestedQuantity")
+    ConsumeItemCommandPayload::class -> setOf("item", "requestedQuantity")
+    EquipItemCommandPayload::class -> setOf("item", "requestedSlotUid")
+    UnequipSlotCommandPayload::class -> setOf("requestedSlotUid")
+    TransferOwnershipCommandPayload::class -> setOf("subject", "toParty", "requestedShareBasisPoints")
+    TransferFundsCommandPayload::class -> setOf("fromAccountUid", "toAccountUid", "amountMinor", "currencyUid")
+    AcquireAssetCommandPayload::class -> setOf("assetKindUid", "requestedTermsRef")
+    EnterObligationCommandPayload::class -> setOf("obligationTypeUid", "counterparty", "principalMinor", "currencyUid")
+    SettleObligationCommandPayload::class -> setOf("obligationUid", "requestedAmountMinor")
+    StartProjectCommandPayload::class -> setOf(
+        "projectTypeUid", "titleIntent", "objectiveIntent", "beneficiaryRef", "targetDomainUid", "targetRef",
+        "intendedOutputKindUid", "requestedProgressCapUnits"
+    )
+    RecordProjectWorkCommandPayload::class -> setOf(
+        "projectUid", "workKindUid", "effortUnitsIntent", "methodUid", "evidenceRefs", "requestedResourceUse"
+    )
+    SatisfyProjectRequirementCommandPayload::class -> setOf("projectUid", "requirementUid", "evidenceRefs")
+    AchieveProjectMilestoneCommandPayload::class -> setOf("projectUid", "milestoneUid", "evidenceRefs", "sourceWorkRef")
+    ChangeProjectLifecycleCommandPayload::class -> setOf("projectUid", "requestedStatusUid", "successorProjectUid")
+    CompleteProjectCommandPayload::class -> setOf("projectUid", "completionEvidenceRefs")
+    CancelProjectCommandPayload::class -> setOf("projectUid", "reasonUid", "reasonText")
+    else -> emptySet()
+}
