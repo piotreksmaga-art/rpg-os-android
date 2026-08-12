@@ -74,7 +74,17 @@ class SourceOfTruthRegistry(private val coreDb: SQLiteDatabase) {
             "obligation_records",
             "obligation_status_history",
             "obligation_settlements",
-            "asset_encumbrances"
+            "asset_encumbrances",
+            "project_type_definitions",
+            "development_projects",
+            "project_status_history",
+            "project_requirements",
+            "project_requirement_satisfactions",
+            "project_milestone_definitions",
+            "project_milestone_achievements",
+            "project_work_records",
+            "project_dependencies",
+            "project_outcomes"
         )
     }
 }
