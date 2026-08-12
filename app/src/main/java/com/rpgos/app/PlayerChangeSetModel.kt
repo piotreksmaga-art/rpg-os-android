@@ -86,7 +86,7 @@ data class FinancialChange(
 ) : PlayerDomainChangePayload
 
 data class AssetChange(
-    val assetUid: String,
+    val asset: OwnedAssetRef,
     val proposedLifecycleStateUid: String
 ) : PlayerDomainChangePayload
 
