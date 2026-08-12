@@ -131,6 +131,7 @@ object PlayerChangeSetValidator {
         }
 
         val ledgerIds = HashSet<String>()
+        val representedFinancialChangeUids = HashSet<String>()
         changeSet.ledgerIntents.forEach { intent ->
             if (intent.ledgerIntentUid.isBlank() || !ledgerIds.add(intent.ledgerIntentUid)) fail("INVALID_LEDGER_INTENT")
             if (intent.ledgerKindUid != PlayerLedgerIntentKinds.FINANCIAL_TRANSFER) fail("UNKNOWN_LEDGER_INTENT_KIND")
@@ -142,15 +143,20 @@ object PlayerChangeSetValidator {
             )
 
             var matchingFinancialCauseFound = intent.causalChangeUids.isEmpty()
+            val financialCausesThisIntent = LinkedHashSet<String>()
             intent.causalChangeUids.forEach { causalUid ->
                 val causalChange = changesByUid.getValue(causalUid)
                 if (causalChange.changeKindUid == PlayerChangeKinds.FINANCIAL) {
                     val financial = causalChange.payload as? FinancialChange ?: fail("CHANGE_PAYLOAD_TYPE_MISMATCH")
                     if (!financialTermsMatch(financial, payload)) fail("FINANCIAL_LEDGER_TERMS_MISMATCH")
+                    financialCausesThisIntent.add(causalUid)
                     matchingFinancialCauseFound = true
                 }
             }
             if (!matchingFinancialCauseFound) fail("FINANCIAL_LEDGER_CAUSAL_CHANGE_REQUIRED")
+            financialCausesThisIntent.forEach { causalUid ->
+                if (!representedFinancialChangeUids.add(causalUid)) fail("DUPLICATE_FINANCIAL_LEDGER_CAUSAL_CHANGE")
+            }
         }
 
         changeSet.warnings.forEach { warning ->
