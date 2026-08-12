@@ -3,6 +3,7 @@ package com.rpgos.app
 import android.database.sqlite.SQLiteDatabase
 
 const val PHASE15_HARDENING_MIGRATION_ID = "RPGOS-15.1-DEVELOPMENT-PROJECT-GUARDS"
+const val PHASE15_RELEASE_BLOCKER_HOTFIX_MIGRATION_ID = "RPGOS-15.2-DEVELOPMENT-PROJECT-RELEASE-BLOCKER-HOTFIX"
 
 /** Release-boundary guards for target identity, temporal ordering and complete standard lifecycle. */
 fun MigrationManager.ensureV15Hardening(db:SQLiteDatabase,campaignId:String){
@@ -46,6 +47,7 @@ fun MigrationManager.ensureV15Hardening(db:SQLiteDatabase,campaignId:String){
           BEGIN SELECT RAISE(ABORT,'illegal DevelopmentProject lifecycle transition'); END""")
 
         db.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('$PHASE15_HARDENING_MIGRATION_ID',strftime('%s','now'),'Phase15 target identity, stable UID and temporal lifecycle hardening; no Phase16 command/orchestration implementation')")
+        db.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('$PHASE15_RELEASE_BLOCKER_HOTFIX_MIGRATION_ID',strftime('%s','now'),'Phase15 release-blocker hotfix: canonical Truth outcome links plus milestone source-work same-project and temporal-causality guards; no Phase16 implementation')")
         db.setTransactionSuccessful()
     }finally{db.endTransaction()}
 }
