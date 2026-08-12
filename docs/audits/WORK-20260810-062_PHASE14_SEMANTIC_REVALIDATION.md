@@ -4,22 +4,36 @@ Status: FINAL SEMANTIC REVALIDATION — PASS
 
 Work ID: `WORK-20260810-062`
 Worker: `CHAT-2`
-Role: `FINAL PHASE 14 SEMANTIC REVALIDATION`
+Role: `PHASE 14 SEMANTIC REVALIDATION AUDITOR`
 Repository: `piotreksmaga-art/rpg-os-android`
-Validated runtime SHA: `7cb0bcdbbb823721fc9e6d3ef1feeb8ffa562154`
-Exact CI: GitHub Actions `#303`, run ID `31521701493`, head SHA `7cb0bcdbbb823721fc9e6d3ef1feeb8ffa562154`, `SUCCESS`
+Validated runtime SHA: `8d78398462c7d9f748fc3dc002c01458b7656baf`
+Exact CI: GitHub Actions `#307`, run ID `31564146274`, head SHA `8d78398462c7d9f748fc3dc002c01458b7656baf`, `SUCCESS`
 Accepted Phase-13 baseline: `be10d7f1b6bf0f6a2cd0522b1dac577d0f398790`
 Allowed write scope: this report only.
 
 # PHASE 14 SEMANTIC REVALIDATION: PASS
 
-The exact candidate satisfies the WORK-062 semantic oracle. The previous receivable-normalization issue is now resolved with stable claim-aware linkage rather than blanket exclusion, exact immutable replay returns the persisted canonical fact, conflicting replay is rejected, and the final null-safe fix changes only nullable initial-status replay matching. No Phase-14 semantic release blocker was found.
+The exact runtime candidate satisfies the WORK-062 semantic oracle. Previous final revalidations were not carried forward automatically; the exact candidate source, new nullable replay tests, CI, canonical architecture documents and earlier WORK-062/063/065 evidence were re-read and re-evaluated.
 
-Fresh master was checked before this report write and resolved exactly to `7cb0bcdbbb823721fc9e6d3ef1feeb8ffa562154`. No later WORK-061 runtime candidate was present.
+The new hotfix closes the remaining nullable status-event replay defect and the analogous nullable asset-kind replay path without changing Phase-14 domain semantics. No new semantic release blocker was found. No runtime/schema/test correction was implemented by CHAT-2. Phase 15 was not started.
 
 ---
 
-## 1. Sources and scope
+## 1. Freshness and exact CI — PASS
+
+The requested runtime is:
+
+`8d78398462c7d9f748fc3dc002c01458b7656baf`
+
+Exact GitHub Actions run `31564146274`, run number `307`, completed with conclusion `SUCCESS` and exact head SHA `8d78398462c7d9f748fc3dc002c01458b7656baf`.
+
+During this audit `master` advanced to report-only commit `f477875729d5bde811db549732d1ae8bcf810db0`, whose parent is the validated runtime and whose only changed file is the WORK-065 adversarial report for the same runtime. No newer WORK-061 runtime candidate appeared, therefore semantic validation remains pinned to the requested SHA.
+
+Result: **PASS**.
+
+---
+
+## 2. Sources inspected
 
 Revalidation used current repository truth and inspected:
 
@@ -28,185 +42,330 @@ Revalidation used current repository truth and inspected:
 - `docs/PARALLEL_WORK_COORDINATION.md`;
 - `docs/audits/WORK-20260810-059_PHASE14_ASSETS_DEBTS_OBLIGATIONS_NET_WORTH_ARCHITECTURE.md`;
 - `docs/audits/WORK-20260810-062_PHASE14_ASSETS_LIABILITIES_SEMANTIC_ORACLE.md`;
-- prior WORK-062 Phase-14 semantic revalidation reports;
-- accepted Phase-12 Ownership and Phase-13 Financial Ledger contracts;
-- exact Phase-14 runtime/store/tests at the validated SHA;
-- exact GitHub Actions run #303 metadata.
+- prior WORK-062 semantic revalidations;
+- prior WORK-063 migration/integrity revalidation;
+- prior WORK-065 adversarial FAIL identifying the remaining nullable status replay path;
+- the newer report-only WORK-065 PASS for the exact candidate as independent supporting evidence, not as a substitute for this audit;
+- WORK-061 commit lineage and exact candidate delta;
+- `AssetLiabilityStore.kt` at the exact candidate;
+- `AssetLiabilityPersistenceTest.kt` at the exact candidate;
+- new `AssetLiabilityNullReplayTest.kt` at the exact candidate;
+- exact Actions #307 metadata.
 
-No runtime/schema/test correction was implemented by CHAT-2.
-
----
-
-## 2. Candidate freshness / exact CI — PASS
-
-Fresh master was exactly the requested candidate. Exact GitHub Actions run `31521701493`, run number `303`, completed with conclusion `success` and exact head SHA `7cb0bcdbbb823721fc9e6d3ef1feeb8ffa562154`.
-
-Result: **PASS**.
+No standalone WORK-061 implementation report was found in indexed repository search; the authoritative WORK-061 implementation evidence used here is the actual commit lineage, candidate diff, runtime source and tests.
 
 ---
 
-## 3. Stable UID + exact immutable replay — PASS
+## 3. Hotfix scope and semantic containment — PASS
 
-`AssetLiabilityStore` applies stable-UID replay handling to canonical Phase-14 writes including asset creation, valuation recording, obligation creation, settlement, obligation status events and encumbrance creation.
+Compared with the prior runtime, production code changes are limited to `app/src/main/java/com/rpgos/app/AssetLiabilityStore.kt`:
 
-Required behavior is present:
-
-- first legal write persists one canonical fact;
-- exact replay reads and returns/accepts the persisted canonical fact rather than creating a second effect;
-- complete immutable payload participates in equality/match checks;
-- reuse of the same stable UID with conflicting immutable semantics is deterministically rejected;
-- retry after a competing insert re-reads the persisted row and succeeds only when the persisted canonical fact is semantically identical.
-
-Persistence coverage explicitly verifies exact replay for valuation, obligation, settlement and status history and verifies that changed amount, currency, type, effective order, asset link, due order, source/provenance evidence or status semantics are rejected as conflicts.
-
-Result: **PASS**.
-
----
-
-## 4. Null-safe exact obligation replay fix — PASS
-
-The final candidate's direct runtime delta changes only `initialStatusMatches()` in `AssetLiabilityStore`.
-
-Previous logic attempted nullable matching through `source_event_uid IS ?`. The candidate now branches explicitly:
+1. `statusEventMatches()` now branches nullable `sourceEventUid` explicitly:
 
 ```text
 sourceEventUid == null  -> source_event_uid IS NULL
 sourceEventUid != null  -> source_event_uid = ?
 ```
 
-All other immutable obligation replay fields, initial status event UID, status `ACTIVE`, effective order and provenance remain part of the match. The fix removes an invalid/unsafe nullable bind path; it does not change obligation identity, lifecycle, net-worth rules, schema, ownership semantics, valuation semantics or settlement semantics.
-
-Result: **PASS**.
-
----
-
-## 5. Claim-aware receivable normalization — PASS
-
-The current net-worth rule is claim-aware and keyed by stable canonical linkage.
-
-For an owned `ASSET_KIND_RECEIVABLE`, `netWorth()` checks for a matching beneficiary obligation using the exact tuple:
+2. `registerAssetKind()` now branches nullable `worldPackUid` explicitly:
 
 ```text
-campaign
-+ assetKindUid
-+ assetUid
-+ beneficiary kind/UID
-+ currency
-+ as-of temporal validity
+worldPackUid == null  -> world_pack_uid IS NULL
+worldPackUid != null  -> world_pack_uid = ?
 ```
 
-Only when that exact linked beneficiary obligation exists is the receivable AssetRecord skipped from `assetsMinor`; the monetary claim then contributes through the Obligation path. No label, amount-only or kind-only heuristic is used.
+The candidate also adds `AssetLiabilityNullReplayTest.kt`.
 
-Mandatory cases are covered and semantically correct:
+The delta does not modify schema, migration routing, Ownership, Inventory, Equipment, Financial Ledger, valuation calculation, obligation settlement logic, claim-aware net-worth logic, SourceOfTruth policy, or accepted Phase 3–13 production authorities.
 
-1. **Linked RECEIVABLE + matching Obligation = exactly 1 claim** — owned receivable asset is not added to `assetsMinor`; matching beneficiary obligation contributes once to `receivablesMinor`.
-2. **Independent RECEIVABLE = exactly 1 claim** — with no linked beneficiary obligation, the receivable AssetRecord is valued through normal ownership and contributes once to `assetsMinor`.
-3. **RECEIVABLE + unrelated Obligation = 2 claims** — unrelated obligation does not suppress the asset; asset and separate obligation each contribute once.
-
-The persistence tests require respectively `100`, `100`, and `200` total economic contribution for the canonical 100-unit fixtures.
+Both changes are comparison-mechanics fixes for nullable immutable fields. They preserve the same semantic equality contract while removing invalid/unsafe nullable selection-argument behavior.
 
 Result: **PASS**.
 
 ---
 
-## 6. Hard domain separation — PASS
+## 4. Hard domain separation — PASS
 
-Required invariant remains true:
+The canonical invariant remains:
 
 ```text
 Asset / Liability
 != OwnershipRecord
 != Inventory possession
-!= Equipment
+!= Equipment state
 != Financial Ledger
 ```
 
-AssetRecord is economic-object identity/lifecycle; OwnershipRecord remains legal title/share authority; Inventory and Equipment remain possession/loadout authorities; AssetValuation remains separate value history; FinancialTransaction remains payment/cash authority; ObligationRecord remains contract/claim authority. No inspected Phase-14 path promotes possession, equipment, payment or valuation into ownership automatically.
+The exact candidate preserves the intended authority split:
+
+- `AssetRecord` represents economic-object identity/lifecycle;
+- `OwnershipRecord` remains the legal/right share authority;
+- Inventory is possession/content state, not ownership or wealth authority;
+- Equipment is loadout/use state, not ownership or wealth authority;
+- `AssetValuation` remains separate historical value evidence;
+- `FinancialTransaction` remains monetary movement/ledger authority;
+- `ObligationRecord` remains claim/debt/contract authority;
+- net worth remains a derived projection.
+
+No hotfix path promotes possession, equipment, payment, valuation or a display label into title or Asset/Liability authority.
 
 Result: **PASS**.
 
 ---
 
-## 7. Valuation / history / provenance / fractional ownership — PASS
+## 5. Generic asset identity — PASS
 
-Valuation remains separate append-preserved evidence with stable UID, stable currency identity, exact integer minor-unit amount, valuation type, effective order and provenance/source fields.
+Phase-14 asset identity remains campaign-scoped and owner/value/location independent through stable `(campaignId, assetKindUid, assetUid)` semantics.
 
-Non-receivable owned asset attribution continues to use Phase-12 exact ownership shares with checked `BigInteger` intermediate arithmetic and exact conversion to `Long` minor units. No Float/Double monetary or ownership authority is introduced.
+`createAsset()` continues to register the same generic asset reference into accepted Phase-12 ownership reference authority. Ownership transfer or valuation change does not regenerate the asset UID. Same stable UID strings may exist in different campaigns without cross-campaign leakage.
 
-The persistence suite retains >1000 valuation-history coverage: 1001 valuation rows survive reopen and yield the same exact fractional-ownership result.
-
-Result: **PASS**.
-
----
-
-## 8. Obligations / settlement / temporal semantics — PASS
-
-Monetary obligations retain stable campaign-scoped identity, generic obligor/beneficiary party references, currency, positive principal and provenance. Contract rows are immutable; status and settlement histories are append-preserved.
-
-Outstanding amount is derived from principal minus authoritative settlement history with checked arithmetic. Existing SQLite guards preserve reference validity, over-settlement protection, legal status transitions, payment-evidence matching, evidence uniqueness and backdating/order invariants.
-
-The exact replay changes do not weaken those guards.
+The nullable `worldPackUid` hotfix is confined to exact replay of `AssetKindDefinition`; it does not redefine asset identity, asset-kind namespace authority or World Pack extensibility.
 
 Result: **PASS**.
 
 ---
 
-## 9. Derived-only net worth — PASS
+## 6. Generic party/reference semantics — PASS
 
-Net worth remains a reconstruction, not a mutable authoritative fact. There is no canonical writable net-worth table.
+Obligor and beneficiary remain generic `OwnershipOwnerRef` party references rather than display names or arbitrary unvalidated identities. Phase-14 reference handling continues to consume accepted Phase-12 party/asset registries and accepted Phase-13 currency/financial evidence.
 
-Current contribution model is equivalent to:
+Existing persistence coverage still rejects an unresolved beneficiary such as `GHOST`. The hotfix touches no party-reference lookup, lifecycle or campaign scope.
+
+Result: **PASS**.
+
+---
+
+## 7. Claim-aware receivable normalization — PASS
+
+The exact candidate retains stable-link claim normalization in `netWorth()`.
+
+For an owned `ASSET_KIND_RECEIVABLE`, the asset contribution is suppressed only when a same-campaign beneficiary obligation is explicitly linked to the exact same asset reference, with matching beneficiary identity, currency and as-of validity.
+
+The normalization is not based on amount, label, name, generic type similarity or party similarity.
+
+Required semantic cases remain executable and unchanged:
+
+### Linked RECEIVABLE + matching Obligation = one claim
+
+Fixture expectation:
 
 ```text
-owned valued assets, using exact ownership share
-  except a RECEIVABLE asset that is canonically linked to the same beneficiary obligation claim
-+ Phase-13 cash as-of
-+ beneficiary monetary obligation outstanding
-- obligor monetary obligation outstanding
+assetsMinor = 0
+receivablesMinor = 100
+netWorthMinor = 100
+```
+
+The linked AssetRecord and beneficiary Obligation are two representations of one economic claim, counted exactly once.
+
+### Independent RECEIVABLE = one claim
+
+Fixture expectation:
+
+```text
+assetsMinor = 100
+receivablesMinor = 0
+netWorthMinor = 100
+```
+
+An independent receivable asset without a linked beneficiary obligation remains a normal valued owned asset and is not undercounted.
+
+### Unrelated RECEIVABLE + Obligation = two claims
+
+Fixture expectation:
+
+```text
+assetsMinor = 100
+receivablesMinor = 100
+netWorthMinor = 200
+```
+
+An unrelated obligation does not suppress the asset merely because amount, beneficiary or currency are similar.
+
+Result: **PASS**.
+
+---
+
+## 8. Valuation semantics — PASS
+
+Valuation remains separate from asset identity and ownership.
+
+The authoritative representation remains exact Phase-13-compatible integer minor units with stable currency UID, valuation type, effective order, optional validity/source/confidence fields, version and provenance.
+
+Exact replay uses the complete persisted `AssetValuation` data-class payload. A replay changing amount, currency, valuation type, effective order or source event is rejected. Historical valuations remain append-preserved and are not rewritten by current-value changes.
+
+The new hotfix does not touch valuation storage or selection.
+
+Result: **PASS**.
+
+---
+
+## 9. Obligation and settlement semantics — PASS
+
+Obligation identity remains a stable campaign-scoped contract fact with generic obligor/beneficiary references, exact currency/principal semantics, optional asset link, temporal terms, source contract/event, version and provenance.
+
+`createObligation()` continues to compare the complete persisted immutable `ObligationRecord` payload plus exact initial-status identity. Exact replay returns the persisted canonical record; changed principal, currency, asset, due order, source contract or initial status event is rejected.
+
+Settlement remains a separate append-preserved operation. Outstanding value remains derived from principal minus legal settlement history. PAYMENT evidence remains tied to accepted Financial Ledger authority rather than acting as an independent balance mutation.
+
+The candidate's nullable changes do not alter obligation terms, settlement arithmetic, over-settlement rules, terminal-state semantics or payment evidence semantics.
+
+Result: **PASS**.
+
+---
+
+## 10. Net worth remains derived — PASS
+
+There is still no authoritative mutable net-worth table.
+
+Current projection remains equivalent to:
+
+```text
+owned valued assets using exact ownership share
+  minus duplicate asset-side representation of an explicitly linked receivable claim
++ Phase-13 cash/account history as-of
++ beneficiary outstanding obligations
+- obligor outstanding obligations
 = derived net worth
 ```
 
-This preserves both anti-double-counting and independent generic receivable assets.
+The generic asset, ownership, valuation, ledger and obligation histories remain authoritative inputs. Net worth is reconstructable output.
 
 Result: **PASS**.
 
 ---
 
-## 10. StatePatch isolation / legacy zero-synthesis — PASS
+## 11. Stable UID replay semantics — PASS
 
-`SourceOfTruthRegistry` continues to block generic StatePatch writes to Phase-14 authoritative tables including asset definitions/records/valuations, obligation definitions/records/status/settlements and encumbrances.
+The exact candidate preserves stable-UID replay behavior for Phase-14 canonical facts:
 
-Legacy aggregate fields such as `debt`, `property_value` and `investment_value`, as well as Inventory possession/equipment/labels, do not synthesize canonical Phase-14 assets, valuations, creditors, obligations or ownership history. Existing legacy values are preserved as legacy evidence/state rather than fabricated detailed history.
+- exact immutable replay is idempotent;
+- same UID does not produce duplicate effect;
+- canonical persisted rows are re-read/returned where the API returns a record;
+- same UID with conflicting immutable payload is deterministically rejected;
+- concurrent retry handling remains scoped by process-wide stable-UID replay locks while SQLite constraints remain authoritative persistence guards.
 
-Result: **PASS**.
-
----
-
-## 11. Campaign isolation / scale / reopen / restore / switch — PASS for semantic scope
-
-All inspected authoritative reads and claim-link resolution are campaign-scoped. Same stable asset UID strings remain legal in separate campaigns without cross-campaign matching.
-
-The 1001-row persistence fixture survives reopen and latest-schema ensure without truncation. `CurrentSchema.ensure()` still routes through `ensureV14Hardening`; the final null-safe replay commit introduces no schema/migration change, so restore and campaign-switch semantics remain those of the already hardened V14 persistence contract. No bounded presentation reader is used as net-worth authority.
+`AssetLiabilityPersistenceTest.stableUidReplayRequiresCompleteImmutablePayloadAndReturnsCanonicalFact()` continues to cover valuation, obligation, settlement and status replay semantics.
 
 Result: **PASS**.
 
 ---
 
-## 12. Phase 3–13 regression — PASS
+## 12. Status-event exact replay with `sourceEventUid = null` — PASS
 
-The final direct candidate delta is limited to null-safe initial obligation status replay matching. The broader second-hotfix state retains claim-aware net-worth/replay changes inside Phase 14 and does not modify Phase 3–13 authoritative schemas or stores.
+The previous WORK-065 blocker is closed.
 
-Required separation remains:
+`statusEventMatches()` no longer sends a nullable selection argument through `source_event_uid IS ?`.
+
+The new dedicated test verifies sequential exact replay:
 
 ```text
-Inventory possession
-!= Equipment
-!= OwnershipRecord
-!= Financial Ledger
-!= Asset/Liability domain
+same statusEventUid
+same obligation/status/effectiveOrder/provenance
+sourceEventUid = null
+-> two logical calls
+-> exactly one canonical status row
 ```
 
-No semantic regression was found in accepted Stats, Resources, Modifier/Resolver, Talent/Potential, Skills, Techniques, Innate/Racial, Inventory, Equipment, Ownership or Financial Ledger authority.
+It also verifies concurrent exact replay from two separate SQLite connections:
+
+```text
+2 logical successes
+0 failures
+1 canonical status event
+```
+
+This is exact idempotent replay rather than duplicate insertion.
+
+Result: **PASS**.
+
+---
+
+## 13. Null/non-null `sourceEventUid` conflict — PASS
+
+A persisted status event with `sourceEventUid = null` replayed under the same stable event UID with a non-null source event is rejected by the dedicated test.
+
+The reverse direction is also semantically rejected by the implementation: when the persisted row contains a non-null source event and replay requests null, the null branch requires `source_event_uid IS NULL`, which cannot match the persisted non-null canonical row, so `status event UID semantic conflict` is raised.
+
+Therefore nullable source-event identity participates in immutable replay equality in both directions.
+
+Result: **PASS**.
+
+---
+
+## 14. Asset-kind exact replay with `worldPackUid = null` — PASS
+
+`registerAssetKind()` now compares nullable `worldPackUid` without a nullable bind:
+
+```text
+null     -> world_pack_uid IS NULL
+non-null -> world_pack_uid = ?
+```
+
+The new test creates an asset kind with `worldPackUid = null`, replays the exact same stable asset-kind definition, and requires exactly one canonical definition.
+
+It then reuses the same `assetKindUid` with a conflicting non-null world-pack UID and requires deterministic rejection while the original null-world-pack row remains canonical.
+
+The same SQL branching also rejects the reverse non-null-to-null conflict.
+
+Result: **PASS**.
+
+---
+
+## 15. No legacy synthesis — PASS
+
+Legacy aggregate values remain evidence only.
+
+The existing persistence fixture confirms that legacy `debt`, `property_value`, `investment_value` and Inventory labels do not fabricate canonical Phase-14 assets or obligations during current-schema ensure.
+
+The candidate changes no migration/bootstrap logic and therefore introduces no new synthesis path.
+
+Result: **PASS**.
+
+---
+
+## 16. StatePatch is not a second authority — PASS
+
+`SourceOfTruthRegistry` continues to deny generic StatePatch writes to canonical Phase-14 authority tables, including asset definitions/records/valuations, obligation definitions/records/status/settlements and encumbrances.
+
+The final hotfix does not modify SourceOfTruth routing or add any generic writable shortcut.
+
+Result: **PASS**.
+
+---
+
+## 17. History, scale, reopen, restore, campaign isolation — PASS for semantic scope
+
+Existing Phase-14 persistence coverage remains unchanged and green under exact CI #307:
+
+- valuation/history is append-preserved;
+- 1001 valuation rows are retained;
+- exact fractional ownership projection remains deterministic after reopen;
+- same stable UID strings remain isolated between campaigns;
+- latest-schema ensure remains compatible with persisted Phase-14 facts;
+- restore/campaign-switch production routing was not modified by this hotfix.
+
+The hotfix introduces no bounded read path into net-worth authority.
+
+Result: **PASS**.
+
+---
+
+## 18. Phase 3–13 semantic preservation — PASS
+
+The exact runtime delta does not modify accepted Phase 3–13 production domains.
+
+In particular it does not modify:
+
+```text
+Inventory
+Equipment
+OwnershipRecord
+Financial Ledger
+```
+
+and does not alter their relation to Phase-14 Asset/Liability authority.
+
+No semantic regression was found in the previously accepted stable-UID, ownership-share, financial-ledger, reference or persistence contracts that Phase 14 consumes.
 
 Result: **PASS**.
 
@@ -214,16 +373,18 @@ Result: **PASS**.
 
 # FINAL VERDICT
 
-`PHASE 14 SEMANTIC REVALIDATION: PASS`
+# PHASE 14 SEMANTIC REVALIDATION: PASS
 
 for exactly:
 
-`7cb0bcdbbb823721fc9e6d3ef1feeb8ffa562154`
+`8d78398462c7d9f748fc3dc002c01458b7656baf`
 
 Exact CI:
 
-`GitHub Actions #303 / run ID 31521701493 / SUCCESS`
+`GitHub Actions #307 / run ID 31564146274 / head 8d78398462c7d9f748fc3dc002c01458b7656baf / SUCCESS`
 
-Exact immutable replay, claim-aware receivable normalization and the null-safe initial-status replay fix satisfy the WORK-062 semantic gates. No new Phase-14 semantic release blocker was found.
+The final nullable replay hotfix closes the remaining status-event and asset-kind null replay defects while preserving the complete Phase-14 semantic contract: domain separation, generic stable identities/references, claim-aware receivables, valuation/obligation semantics, derived-only net worth, exact immutable stable-UID replay, no legacy synthesis and typed Source-of-Truth isolation.
+
+No new Phase-14 semantic release blocker was found.
 
 Phase 15 was not started.
