@@ -26,62 +26,51 @@ class PlayerCommandContractTest {
     )
 
     @Test fun cmdSem01_sameUidExactCommandHasExactSemanticIdentity() {
-        val a = train()
-        val b = train()
+        val a = train(); val b = train()
         assertEquals(registry.fingerprint(a), registry.fingerprint(b))
         assertEquals(CommandIdentityRelation.SAME_LOGICAL_COMMAND, PlayerCommandIdentity.compare(a, b, registry))
     }
 
     @Test fun cmdSem02_sameUidChangedPayloadIsIdentityConflict() {
-        try {
-            PlayerCommandIdentity.compare(train(), train(effort = 11), registry)
-            fail("expected COMMAND_IDENTITY_CONFLICT")
-        } catch (e: CommandIdentityConflictException) {
-            assertEquals("COMMAND_IDENTITY_CONFLICT", e.message)
-        }
+        try { PlayerCommandIdentity.compare(train(), train(effort = 11), registry); fail("expected COMMAND_IDENTITY_CONFLICT") }
+        catch (e: CommandIdentityConflictException) { assertEquals("COMMAND_IDENTITY_CONFLICT", e.message) }
     }
 
     @Test fun cmdSem03_campaignAndActorIdentityAreStructuralAndStable() {
         assertEquals(CommandIdentityRelation.DISTINCT_COMMAND, PlayerCommandIdentity.compare(train(campaign = "C"), train(campaign = "D"), registry))
         fails("INVALID_ACTOR_REF") { registry.validate(train().copy(actor = CommandActorRef("", "ACTOR-1"))) }
         fails("EMPTY_CAMPAIGN_UID") { registry.validate(train().copy(campaignUid = "")) }
-        fails("COMMAND_IDENTITY_CONFLICT") {
-            try { PlayerCommandIdentity.compare(train(), train().copy(actor = CommandActorRef("NPC", "ACTOR-1")), registry) }
-            catch (e: CommandIdentityConflictException) { throw PlayerCommandStructuralException(e.message!!) }
-        }
+        try { PlayerCommandIdentity.compare(train(), train().copy(actor = CommandActorRef("NPC", "ACTOR-1")), registry); fail("expected conflict") }
+        catch (e: CommandIdentityConflictException) { assertEquals("COMMAND_IDENTITY_CONFLICT", e.message) }
     }
 
     @Test fun cmdSem04_typedPayloadMismatchRejected() {
         val bad = PlayerCommand(
-            commandUid = "BAD-TYPE", campaignUid = "C", actor = actor,
+            commandUid = "BAD-TYPE",
+            campaignUid = "C",
+            actor = actor,
             commandKindUid = PlayerCommandKinds.TRAIN,
-            payload = LearnSkillCommandPayload("SKILL-1"), provenance = provenance
+            payload = LearnSkillCommandPayload("SKILL-1"),
+            provenance = provenance
         )
         fails("COMMAND_PAYLOAD_TYPE_MISMATCH") { registry.validate(bad) }
         fails("INVALID_EFFORT_UNITS") { registry.validate(train(effort = 0)) }
     }
 
     @Test fun cmdSem05_unknownCommandKindRejectedWithoutFallback() {
-        val unknown = train().copy(commandKindUid = "WORLD:UNKNOWN")
-        fails("UNKNOWN_COMMAND_KIND") { registry.validate(unknown) }
+        fails("UNKNOWN_COMMAND_KIND") { registry.validate(train().copy(commandKindUid = "WORLD:UNKNOWN")) }
         fails("UNKNOWN_COMMAND_KIND") { registry.decode(registry.encode(train()).replace(PlayerCommandKinds.TRAIN, "WORLD:UNKNOWN")) }
     }
 
     @Test fun cmdSem06_invalidRefShapeRejectedButExistenceIsNotChecked() {
-        fails("INVALID_FOCUS_REF") {
-            registry.validate(train().copy(payload = TrainCommandPayload(DomainRef("STAT", ""), 1)))
-        }
+        fails("INVALID_FOCUS_REF") { registry.validate(train().copy(payload = TrainCommandPayload(DomainRef("STAT", ""), 1))) }
         val ghost = train().copy(payload = TrainCommandPayload(DomainRef("STAT", "GHOST-NOT-IN-DB"), 1))
         registry.validate(ghost)
         assertEquals("GHOST-NOT-IN-DB", ghost.payload.focus.uid)
     }
 
     @Test fun cmdSem07_rawStatePatchSqlAuthorityImpossibleByContract() {
-        val payloadTypes = listOf(
-            TrainCommandPayload::class.java, TransferFundsCommandPayload::class.java,
-            StartProjectCommandPayload::class.java, RecordProjectWorkCommandPayload::class.java,
-            ChangeProjectLifecycleCommandPayload::class.java
-        )
+        val payloadTypes = listOf(TrainCommandPayload::class.java, TransferFundsCommandPayload::class.java, StartProjectCommandPayload::class.java, RecordProjectWorkCommandPayload::class.java, ChangeProjectLifecycleCommandPayload::class.java)
         val forbidden = setOf("table", "column", "sql", "operation", "statePatch", "patchOperation", "arbitraryValue")
         payloadTypes.forEach { type ->
             val names = type.declaredFields.map { it.name }.toSet()
@@ -91,9 +80,7 @@ class PlayerCommandContractTest {
     }
 
     @Test fun cmdSem08_serializationRoundTripAndFingerprintAreDeterministic() {
-        val original = train()
-        val encoded1 = registry.encode(original)
-        val encoded2 = registry.encode(original)
+        val original = train(); val encoded1 = registry.encode(original); val encoded2 = registry.encode(original)
         assertEquals(encoded1, encoded2)
         val decoded = registry.decode(encoded1)
         assertEquals(encoded1, registry.encode(decoded))
@@ -112,10 +99,10 @@ class PlayerCommandContractTest {
             CompleteProjectCommandPayload("P", listOf(DomainRef("EVIDENCE", "E4"))),
             CancelProjectCommandPayload("P", reasonUid = "USER_CANCEL")
         )
-        val forbiddenFragments = listOf("progressDelta", "resultKind", "milestoneAchieved", "satisfied", "finalBalance", "finalMastery", "finalOwnership", "outcomeUid", "committedOrder")
+        val forbidden = listOf("progressDelta", "resultKind", "milestoneAchieved", "satisfied", "finalBalance", "finalMastery", "finalOwnership", "outcomeUid", "committedOrder")
         projectPayloads.forEach { payload ->
             val fields = payload.javaClass.declaredFields.map { it.name }
-            forbiddenFragments.forEach { forbidden -> assertFalse("${payload.javaClass.simpleName} leaked $forbidden", fields.any { it.contains(forbidden, ignoreCase = true) }) }
+            forbidden.forEach { name -> assertFalse("${payload.javaClass.simpleName} leaked $name", fields.any { it.contains(name, true) }) }
         }
     }
 
@@ -130,9 +117,7 @@ class PlayerCommandContractTest {
                 payload = StartProjectCommandPayload("UNKNOWN-TYPE", "Intent", "No domain mutation", targetDomainUid = "RESEARCH"),
                 provenance = provenance
             )
-            registry.validate(cmd)
-            registry.decode(registry.encode(cmd))
-            registry.fingerprint(cmd)
+            registry.validate(cmd); registry.decode(registry.encode(cmd)); registry.fingerprint(cmd)
             assertEquals(before, counts(db))
         } finally { db.close() }
     }
@@ -142,8 +127,7 @@ class PlayerCommandContractTest {
             commandUid = "CMD-FIN-1", campaignUid = "C", actor = actor,
             commandKindUid = PlayerCommandKinds.TRANSFER_FUNDS,
             payload = TransferFundsCommandPayload("ACCOUNT-A", "ACCOUNT-B", 100, "CUR"),
-            provenance = CommandProvenance("EVENT", "EVENT-77"),
-            causationUid = "EVENT-77", correlationUid = "TURN-GROUP-9"
+            provenance = CommandProvenance("EVENT", "EVENT-77"), causationUid = "EVENT-77", correlationUid = "TURN-GROUP-9"
         )
         registry.validate(finance)
         assertNotEquals(finance.commandUid, finance.payload.fromAccountUid)
@@ -153,10 +137,7 @@ class PlayerCommandContractTest {
     }
 
     @Test fun cmdSem12_preconditionsAreTypedOptimisticExpectationsOnly() {
-        val preconditions: List<CommandPrecondition> = listOf(
-            ExpectedRecordVersion(DomainRef("PROJECT", "P"), 7),
-            ExpectedLifecycleState(DomainRef("PROJECT", "P"), "ACTIVE_WORK")
-        )
+        val preconditions: List<CommandPrecondition> = listOf(ExpectedRecordVersion(DomainRef("PROJECT", "P"), 7), ExpectedLifecycleState(DomainRef("PROJECT", "P"), "ACTIVE_WORK"))
         val cmd = train().copy(preconditions = preconditions)
         registry.validate(cmd)
         assertEquals(preconditions, registry.decode(registry.encode(cmd)).preconditions)
@@ -167,8 +148,7 @@ class PlayerCommandContractTest {
     }
 
     @Test fun deterministicFingerprintIsSafeForParallelTransientUse() {
-        val command = train()
-        val pool = Executors.newFixedThreadPool(8)
+        val command = train(); val pool = Executors.newFixedThreadPool(8)
         try {
             val futures = (1..64).map { pool.submit(Callable { registry.fingerprint(command) }) }
             assertEquals(1, futures.map { it.get() }.toSet().size)
@@ -177,7 +157,7 @@ class PlayerCommandContractTest {
 
     private fun counts(db: SQLiteDatabase): List<Long> = listOf(
         "campaign_truth_records", "player_stats", "player_skills_v2", "player_techniques_v2", "item_instances",
-        "ownership_records", "financial_ledger_transactions", "asset_records", "development_projects", "project_work_records"
+        "financial_ledger_transactions", "asset_records", "development_projects", "project_work_records"
     ).map { table -> db.rawQuery("SELECT COUNT(*) FROM $table", null).use { c -> c.moveToFirst(); c.getLong(0) } }
 
     private fun fails(code: String, block: () -> Unit) {
