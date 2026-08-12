@@ -45,7 +45,14 @@ class PlayerCommandContractTest {
     }
 
     @Test fun cmdSem04_typedPayloadMismatchRejected() {
-        val bad = PlayerCommand("BAD-TYPE", "C", actor, PlayerCommandKinds.TRAIN, LearnSkillCommandPayload("SKILL-1"), provenance = provenance)
+        val bad = PlayerCommand(
+            commandUid = "BAD-TYPE",
+            campaignUid = "C",
+            actor = actor,
+            commandKindUid = PlayerCommandKinds.TRAIN,
+            payload = LearnSkillCommandPayload("SKILL-1"),
+            provenance = provenance
+        )
         fails("COMMAND_PAYLOAD_TYPE_MISMATCH") { registry.validate(bad) }
         fails("INVALID_EFFORT_UNITS") { registry.validate(train(effort = 0)) }
     }
