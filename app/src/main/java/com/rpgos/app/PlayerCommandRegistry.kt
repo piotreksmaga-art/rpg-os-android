@@ -27,7 +27,11 @@ abstract class TypedCommandCodec<P : PlayerCommandPayload>(
     val allowedKeys: Set<String> = corePayloadAllowedKeys(payloadType)
 ) {
     abstract fun encode(payload: P): JsonObject
-    abstract fun decode(obj: JsonObject): P
+
+    fun decode(obj: JsonObject): P = decodeKnownFields(obj.requireOnlyKeys(allowedKeys))
+
+    protected abstract fun decodeKnownFields(obj: JsonObject): P
+
     open fun validate(payload: P): List<String> = emptyList()
 
     fun encodeUntyped(payload: PlayerCommandPayload): JsonObject {
