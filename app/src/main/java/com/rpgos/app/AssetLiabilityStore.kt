@@ -14,7 +14,12 @@ class AssetLiabilityStore(private val db: SQLiteDatabase, private val campaignId
         OwnershipReferenceRegistry(db,campaignId).registerAssetKind(d.assetKindUid,d.provenance)
         val exists=count("SELECT COUNT(*) FROM asset_kind_definitions WHERE asset_kind_uid=?",arrayOf(d.assetKindUid))>0
         if(!exists) db.execSQL("INSERT INTO asset_kind_definitions(asset_kind_uid,asset_class,display_name,world_pack_uid,definition_status,definition_version,provenance) VALUES(?,?,?,?,?,?,?)",arrayOf<Any?>(d.assetKindUid,d.assetClass.name,d.displayName,d.worldPackUid,d.status,d.version,d.provenance))
-        else require(count("SELECT COUNT(*) FROM asset_kind_definitions WHERE asset_kind_uid=? AND asset_class=? AND display_name=? AND definition_status=? AND definition_version=? AND provenance=? AND world_pack_uid IS ?",arrayOf(d.assetKindUid,d.assetClass.name,d.displayName,d.status,d.version.toString(),d.provenance,d.worldPackUid))==1L){"asset kind UID semantic conflict"}
+        else {
+            val base="SELECT COUNT(*) FROM asset_kind_definitions WHERE asset_kind_uid=? AND asset_class=? AND display_name=? AND definition_status=? AND definition_version=? AND provenance=? AND "
+            val args=arrayOf(d.assetKindUid,d.assetClass.name,d.displayName,d.status,d.version.toString(),d.provenance)
+            val matches=if(d.worldPackUid==null) count(base+"world_pack_uid IS NULL",args) else count(base+"world_pack_uid=?",args+d.worldPackUid)
+            require(matches==1L){"asset kind UID semantic conflict"}
+        }
     }}
 
     fun createAsset(a:AssetRecord):AssetRecord=stableUidWrite("asset:${a.assetKindUid}",a.assetUid){
@@ -105,7 +110,11 @@ class AssetLiabilityStore(private val db: SQLiteDatabase, private val campaignId
         return if(o.sourceEventUid==null) count(base+"source_event_uid IS NULL",args)==1L else count(base+"source_event_uid=?",args+o.sourceEventUid)==1L
     }
     private fun statusEventExists(uid:String)=count("SELECT COUNT(*) FROM obligation_status_history WHERE campaign_id=? AND status_event_uid=?",arrayOf(campaignId,uid))>0
-    private fun statusEventMatches(obligationUid:String,eventUid:String,status:ObligationStatus,at:Long,provenance:String,sourceEventUid:String?)=count("SELECT COUNT(*) FROM obligation_status_history WHERE campaign_id=? AND status_event_uid=? AND obligation_uid=? AND status=? AND effective_order=? AND provenance=? AND source_event_uid IS ?",arrayOf(campaignId,eventUid,obligationUid,status.name,at.toString(),provenance,sourceEventUid))==1L
+    private fun statusEventMatches(obligationUid:String,eventUid:String,status:ObligationStatus,at:Long,provenance:String,sourceEventUid:String?):Boolean{
+        val base="SELECT COUNT(*) FROM obligation_status_history WHERE campaign_id=? AND status_event_uid=? AND obligation_uid=? AND status=? AND effective_order=? AND provenance=? AND "
+        val args=arrayOf(campaignId,eventUid,obligationUid,status.name,at.toString(),provenance)
+        return if(sourceEventUid==null) count(base+"source_event_uid IS NULL",args)==1L else count(base+"source_event_uid=?",args+sourceEventUid)==1L
+    }
     private fun encumbranceExists(uid:String)=count("SELECT COUNT(*) FROM asset_encumbrances WHERE campaign_id=? AND encumbrance_uid=?",arrayOf(campaignId,uid))>0
     private fun encumbranceCreationMatches(uid:String,asset:OwnedAssetRef,obligationUid:String,typeUid:String,priority:Int,at:Long,provenance:String)=count("SELECT COUNT(*) FROM asset_encumbrances WHERE campaign_id=? AND encumbrance_uid=? AND asset_kind_uid=? AND asset_uid=? AND obligation_uid=? AND encumbrance_type_uid=? AND priority=? AND valid_from_order=? AND provenance=?",arrayOf(campaignId,uid,asset.assetKindUid,asset.assetUid,obligationUid,typeUid,priority.toString(),at.toString(),provenance))==1L
     private fun requireAsset(a:OwnedAssetRef):AssetRecord=requireNotNull(existingAsset(a)){"Phase14 asset not found"}
