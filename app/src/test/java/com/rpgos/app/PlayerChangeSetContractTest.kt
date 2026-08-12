@@ -106,7 +106,10 @@ class PlayerChangeSetContractTest {
         assertEquals(ChangeIntentClassification.LEDGER_APPEND_INTENT, TypedPlayerChangeRegistry.core().classificationFor(PlayerChangeKinds.FINANCIAL))
     }
 
-    @Test fun p17_15_assetChange() = assertRoundTrip(change(kind = PlayerChangeKinds.ASSET, payload = AssetChange("ASSET-1", "ACTIVE")))
+    @Test fun p17_15_assetChange() = assertRoundTrip(change(
+        kind = PlayerChangeKinds.ASSET,
+        payload = AssetChange(OwnedAssetRef("RPGOS-ASSET-KIND:PROPERTY", "ASSET-1"), "ACTIVE")
+    ))
 
     @Test fun p17_16_ownershipChange() = assertRoundTrip(change(
         kind = PlayerChangeKinds.OWNERSHIP,
