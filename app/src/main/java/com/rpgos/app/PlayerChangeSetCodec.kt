@@ -96,11 +96,11 @@ object PlayerChangeSetValidator {
         if (changeSet.correlationUid?.isBlank() == true) fail("INVALID_CORRELATION_UID")
         if (changeSet.changes.isEmpty() && changeSet.eventIntents.isEmpty() && changeSet.ledgerIntents.isEmpty()) fail("EMPTY_CHANGESET_PROPOSAL")
 
-        val changeUids = HashSet<String>()
+        val changesByUid = LinkedHashMap<String, PlayerDomainChange>()
         val semanticTargets = HashSet<String>()
         changeSet.changes.forEach { change ->
             registry.validateChange(change)
-            if (!changeUids.add(change.changeUid)) fail("DUPLICATE_CHANGE_UID")
+            if (changesByUid.put(change.changeUid, change) != null) fail("DUPLICATE_CHANGE_UID")
             registry.conflictKeys(change).forEach { key ->
                 if (!semanticTargets.add(key)) fail("CONFLICTING_CHANGE_TARGET")
             }
@@ -125,7 +125,7 @@ object PlayerChangeSetValidator {
             if (intent.eventKindUid != PlayerEventIntentKinds.DOMAIN_EFFECT) fail("UNKNOWN_EVENT_INTENT_KIND")
             if (intent.actorRef != null && !validRef(intent.actorRef)) fail("INVALID_EVENT_INTENT")
             if (intent.targetRefs.any { !validRef(it) }) fail("INVALID_EVENT_INTENT")
-            if (intent.causalChangeUids.any { it.isBlank() || it !in changeUids }) fail("INVALID_EVENT_INTENT")
+            if (intent.causalChangeUids.any { it.isBlank() || it !in changesByUid }) fail("INVALID_EVENT_INTENT")
             val payload = intent.payload as? DomainEffectEventIntentPayload ?: fail("EVENT_PAYLOAD_TYPE_MISMATCH")
             if (!validRef(payload.subject) || payload.effectKindUid.isBlank()) fail("INVALID_EVENT_INTENT")
         }
@@ -134,18 +134,29 @@ object PlayerChangeSetValidator {
         changeSet.ledgerIntents.forEach { intent ->
             if (intent.ledgerIntentUid.isBlank() || !ledgerIds.add(intent.ledgerIntentUid)) fail("INVALID_LEDGER_INTENT")
             if (intent.ledgerKindUid != PlayerLedgerIntentKinds.FINANCIAL_TRANSFER) fail("UNKNOWN_LEDGER_INTENT_KIND")
-            if (intent.causalChangeUids.any { it.isBlank() || it !in changeUids }) fail("INVALID_LEDGER_INTENT")
+            if (intent.causalChangeUids.any { it.isBlank() || it !in changesByUid }) fail("INVALID_LEDGER_INTENT")
             val payload = intent.payload as? FinancialTransferLedgerIntentPayload ?: fail("LEDGER_PAYLOAD_TYPE_MISMATCH")
             validateFinancialTerms(
                 payload.fromAccountUid, payload.toAccountUid, payload.amountMinor,
                 payload.currencyUid, payload.transactionTypeUid, "INVALID_LEDGER_INTENT"
             )
+
+            var matchingFinancialCauseFound = false
+            intent.causalChangeUids.forEach { causalUid ->
+                val causalChange = changesByUid.getValue(causalUid)
+                if (causalChange.changeKindUid == PlayerChangeKinds.FINANCIAL) {
+                    val financial = causalChange.payload as? FinancialChange ?: fail("CHANGE_PAYLOAD_TYPE_MISMATCH")
+                    if (!financialTermsMatch(financial, payload)) fail("FINANCIAL_LEDGER_TERMS_MISMATCH")
+                    matchingFinancialCauseFound = true
+                }
+            }
+            if (!matchingFinancialCauseFound) fail("FINANCIAL_LEDGER_CAUSAL_CHANGE_REQUIRED")
         }
 
         changeSet.warnings.forEach { warning ->
             if (warning.warningKindUid.isBlank()) fail("INVALID_WARNING")
             if (warning.relatedChangeUid?.isBlank() == true) fail("INVALID_WARNING")
-            if (warning.relatedChangeUid != null && warning.relatedChangeUid !in changeUids) fail("INVALID_WARNING")
+            if (warning.relatedChangeUid != null && warning.relatedChangeUid !in changesByUid) fail("INVALID_WARNING")
         }
     }
 
@@ -309,11 +320,16 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
     ),
     PlayerChangeKinds.ASSET to simpleCodec(
         AssetChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
-        setOf("assetUid", "proposedLifecycleStateUid"),
-        encode = { pcsObj("assetUid" to pcsJ(it.assetUid), "proposedLifecycleStateUid" to pcsJ(it.proposedLifecycleStateUid)) },
-        decode = { AssetChange(it.pcsReqString("assetUid"), it.pcsReqString("proposedLifecycleStateUid")) },
-        validate = { blankError(it.assetUid) + blankError(it.proposedLifecycleStateUid) },
-        conflicts = { setOf("ASSET:${it.assetUid}") }
+        setOf("asset", "proposedLifecycleStateUid"),
+        encode = { pcsObj("asset" to encodeOwnedAsset(it.asset), "proposedLifecycleStateUid" to pcsJ(it.proposedLifecycleStateUid)) },
+        decode = { AssetChange(decodeOwnedAsset(it.pcsReqObject("asset")), it.pcsReqString("proposedLifecycleStateUid")) },
+        validate = {
+            buildList {
+                if (it.asset.assetKindUid.isBlank() || it.asset.assetUid.isBlank()) add("INVALID_ASSET_CHANGE")
+                if (it.proposedLifecycleStateUid.isBlank()) add("INVALID_ASSET_CHANGE")
+            }
+        },
+        conflicts = { setOf("ASSET:${it.asset.assetKindUid}:${it.asset.assetUid}") }
     ),
     PlayerChangeKinds.OWNERSHIP to simpleCodec(
         OwnershipChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
@@ -556,6 +572,15 @@ private fun validateFinancialTerms(
     if (fromAccountUid.isBlank() || toAccountUid.isBlank() || fromAccountUid == toAccountUid || amountMinor <= 0L ||
         currencyUid.isBlank() || transactionTypeUid.isBlank()) throw PlayerChangeSetStructuralException(code)
 }
+
+private fun financialTermsMatch(
+    financial: FinancialChange,
+    ledger: FinancialTransferLedgerIntentPayload
+): Boolean = financial.fromAccountUid == ledger.fromAccountUid &&
+    financial.toAccountUid == ledger.toAccountUid &&
+    financial.amountMinor == ledger.amountMinor &&
+    financial.currencyUid == ledger.currencyUid &&
+    financial.transactionTypeUid == ledger.transactionTypeUid
 
 private inline fun <reified T : Enum<T>> enumValue(value: String, code: String): T = try {
     enumValueOf<T>(value)
