@@ -30,7 +30,6 @@ class SourceOfTruthRegistry(private val coreDb: SQLiteDatabase) {
     }
 
     fun canWrite(table: String): Boolean {
-        // Typed authorities cannot be bypassed by generic AI StatePatch writes.
         if (table == "campaign_truth_records") return false
         if (table in TYPED_ONLY_TABLES) return false
         if (table in readOnlyTables) return false
@@ -39,42 +38,21 @@ class SourceOfTruthRegistry(private val coreDb: SQLiteDatabase) {
 
     private fun isExplicitRuntimeTable(table: String): Boolean {
         return table in setOf(
-            "chapter_manifests_v2",
-            "story_threads",
-            "story_beats",
-            "decision_points",
-            "consequence_links",
-            "narrative_memory_index",
-            "information_knowledge",
-            "information_facts",
-            "entity_positions",
-            "npc_memories_v2",
-            "npc_decisions",
-            "npc_action_candidates",
-            "timeline_divergences",
-            "gm_timeline_alerts",
-            "mission_outcomes",
-            "mission_participants"
+            "chapter_manifests_v2","story_threads","story_beats","decision_points","consequence_links",
+            "narrative_memory_index","information_knowledge","information_facts","entity_positions","npc_memories_v2",
+            "npc_decisions","npc_action_candidates","timeline_divergences","gm_timeline_alerts","mission_outcomes","mission_participants"
         )
     }
 
     companion object {
         private val TYPED_ONLY_TABLES = setOf(
-            "financial_transactions",
-            "financial_ledger_transactions",
-            "financial_accounts",
-            "financial_account_balances",
-            "currency_definitions",
-            "financial_transaction_type_definitions",
-            "legacy_financial_evidence",
-            "asset_kind_definitions",
-            "asset_records",
-            "asset_valuations",
-            "obligation_type_definitions",
-            "obligation_records",
-            "obligation_status_history",
-            "obligation_settlements",
-            "asset_encumbrances"
+            "financial_transactions","financial_ledger_transactions","financial_accounts","financial_account_balances",
+            "currency_definitions","financial_transaction_type_definitions","legacy_financial_evidence",
+            "asset_kind_definitions","asset_records","asset_valuations","obligation_type_definitions","obligation_records",
+            "obligation_status_history","obligation_settlements","asset_encumbrances",
+            "project_type_definitions","development_projects","project_status_history","project_requirements",
+            "project_requirement_satisfactions","project_milestone_definitions","project_milestone_achievements",
+            "project_work_records","project_dependencies","project_outcomes"
         )
     }
 }
