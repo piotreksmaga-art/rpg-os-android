@@ -3,9 +3,12 @@ package com.rpgos.app
 import android.database.sqlite.SQLiteDatabase
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 
+@RunWith(RobolectricTestRunner::class)
 class PlayerCommandContractTest {
     private val registry = PlayerCommandKindRegistry.core()
     private val actor = CommandActorRef("CHARACTER", "ACTOR-1")
