@@ -16,6 +16,17 @@ data class CampaignScopedDomainRef(
     val ref: DomainRef
 )
 
+internal object PlayerResolutionReferenceKinds {
+    const val FINANCIAL_ACCOUNT = "FINANCIAL_ACCOUNT"
+    const val CURRENCY = "CURRENCY"
+    const val OBLIGATION = "OBLIGATION"
+    const val PROJECT = "PROJECT"
+    const val PROJECT_REQUIREMENT = "PROJECT_REQUIREMENT"
+    const val PROJECT_MILESTONE = "PROJECT_MILESTONE"
+    const val SKILL = "SKILL"
+    const val TECHNIQUE = "TECHNIQUE"
+}
+
 data class ResolutionEntropyEvidence(
     val evidenceUid: String,
     val exactValue: Long
@@ -177,6 +188,11 @@ internal sealed interface PlayerResolutionComponentOutcome {
     data class Rejected(val rejection: PlayerResolutionRejection) : PlayerResolutionComponentOutcome
 }
 
+/**
+ * Trusted internal Core extension point. Phase 18 constrains injected and retained capabilities/state;
+ * canonical supported APIs expose only deterministic read-only context. Arbitrary malicious JVM
+ * process-global/static code is outside this architectural contract and is not treated as a sandbox target.
+ */
 internal abstract class PlayerResolutionComponent<P : PlayerCommandPayload>(
     val commandKindUid: String,
     val payloadType: KClass<P>,
@@ -402,7 +418,7 @@ private fun validateReferences(
     return null
 }
 
-private fun commandReferences(command: PlayerCommand<out PlayerCommandPayload>): List<DomainRef> = buildList {
+internal fun commandReferences(command: PlayerCommand<out PlayerCommandPayload>): List<DomainRef> = buildList {
     command.preconditions.forEach {
         when (it) {
             is ExpectedRecordVersion -> add(it.target)
@@ -414,40 +430,63 @@ private fun commandReferences(command: PlayerCommand<out PlayerCommandPayload>):
         is UseResourceActionCommandPayload -> add(payload.resource)
         is RecoverCommandPayload -> payload.resource?.let(::add)
         is LearnSkillCommandPayload -> Unit
-        is PracticeSkillCommandPayload -> Unit
+        is PracticeSkillCommandPayload -> add(DomainRef(PlayerResolutionReferenceKinds.SKILL, payload.skillUid))
         is LearnTechniqueCommandPayload -> Unit
-        is UseTechniqueCommandPayload -> payload.target?.let(::add)
+        is UseTechniqueCommandPayload -> {
+            add(DomainRef(PlayerResolutionReferenceKinds.TECHNIQUE, payload.techniqueUid))
+            payload.target?.let(::add)
+        }
         is AcquireItemCommandPayload -> payload.sourceRef?.let(::add)
         is TransferItemCommandPayload -> { add(payload.item); add(payload.toParty) }
         is ConsumeItemCommandPayload -> add(payload.item)
         is EquipItemCommandPayload -> add(payload.item)
         is UnequipSlotCommandPayload -> Unit
         is TransferOwnershipCommandPayload -> { add(payload.subject); add(payload.toParty) }
-        is TransferFundsCommandPayload -> Unit
+        is TransferFundsCommandPayload -> {
+            add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.fromAccountUid))
+            add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.toAccountUid))
+            add(DomainRef(PlayerResolutionReferenceKinds.CURRENCY, payload.currencyUid))
+        }
         is AcquireAssetCommandPayload -> payload.requestedTermsRef?.let(::add)
-        is EnterObligationCommandPayload -> add(payload.counterparty)
-        is SettleObligationCommandPayload -> Unit
+        is EnterObligationCommandPayload -> {
+            add(payload.counterparty)
+            payload.currencyUid?.let { add(DomainRef(PlayerResolutionReferenceKinds.CURRENCY, it)) }
+        }
+        is SettleObligationCommandPayload -> add(DomainRef(PlayerResolutionReferenceKinds.OBLIGATION, payload.obligationUid))
         is StartProjectCommandPayload -> {
             payload.beneficiaryRef?.let(::add)
             payload.targetRef?.let(::add)
         }
         is RecordProjectWorkCommandPayload -> {
+            add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
             addAll(payload.evidenceRefs)
             addAll(payload.requestedResourceUse)
         }
-        is SatisfyProjectRequirementCommandPayload -> addAll(payload.evidenceRefs)
+        is SatisfyProjectRequirementCommandPayload -> {
+            add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
+            add(DomainRef(PlayerResolutionReferenceKinds.PROJECT_REQUIREMENT, payload.requirementUid))
+            addAll(payload.evidenceRefs)
+        }
         is AchieveProjectMilestoneCommandPayload -> {
+            add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
+            add(DomainRef(PlayerResolutionReferenceKinds.PROJECT_MILESTONE, payload.milestoneUid))
             addAll(payload.evidenceRefs)
             payload.sourceWorkRef?.let(::add)
         }
-        is ChangeProjectLifecycleCommandPayload -> Unit
-        is CompleteProjectCommandPayload -> addAll(payload.completionEvidenceRefs)
-        is CancelProjectCommandPayload -> Unit
+        is ChangeProjectLifecycleCommandPayload -> {
+            add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
+            payload.successorProjectUid?.let { add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, it)) }
+        }
+        is CompleteProjectCommandPayload -> {
+            add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
+            addAll(payload.completionEvidenceRefs)
+        }
+        is CancelProjectCommandPayload -> add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
         else -> Unit
     }
 }
 
-private fun draftReferences(draft: PlayerResolutionDraft): List<DomainRef> = buildList {
+internal fun draftReferences(draft: PlayerResolutionDraft): List<DomainRef> = buildList {
     draft.changes.forEach { change ->
         when (val payload = change.payload) {
             is StatChange -> { add(payload.subject); add(DomainRef("STAT", payload.statUid)) }
@@ -461,13 +500,17 @@ private fun draftReferences(draft: PlayerResolutionDraft): List<DomainRef> = bui
                 add(DomainRef("EQUIPMENT_SLOT", payload.slotUid))
                 payload.itemInstanceUid?.let { add(DomainRef("ITEM_INSTANCE", it)) }
             }
-            is FinancialChange -> Unit
+            is FinancialChange -> {
+                add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.fromAccountUid))
+                add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.toAccountUid))
+                add(DomainRef(PlayerResolutionReferenceKinds.CURRENCY, payload.currencyUid))
+            }
             is AssetChange -> Unit
             is OwnershipChange -> Unit
             is ConditionChange -> { add(payload.subject); add(DomainRef("CONDITION", payload.conditionUid)) }
             is RuntimeChange -> { add(payload.subject); add(DomainRef("RUNTIME_COUNTER", payload.runtimeCounterUid)) }
             is DevelopmentProjectChange -> {
-                add(DomainRef("PROJECT", payload.projectUid))
+                add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
                 addAll(payload.evidenceRefs)
             }
         }
@@ -477,6 +520,14 @@ private fun draftReferences(draft: PlayerResolutionDraft): List<DomainRef> = bui
         addAll(intent.targetRefs)
         val payload = intent.payload
         if (payload is DomainEffectEventIntentPayload) add(payload.subject)
+    }
+    draft.ledgerIntents.forEach { intent ->
+        val payload = intent.payload
+        if (payload is FinancialTransferLedgerIntentPayload) {
+            add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.fromAccountUid))
+            add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.toAccountUid))
+            add(DomainRef(PlayerResolutionReferenceKinds.CURRENCY, payload.currencyUid))
+        }
     }
 }
 
