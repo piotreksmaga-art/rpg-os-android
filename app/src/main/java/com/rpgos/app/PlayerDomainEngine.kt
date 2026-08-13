@@ -202,7 +202,7 @@ internal class PlayerResolutionComponentRegistry private constructor(
             if (component.componentKindUid.isBlank() || component.componentVersion.isBlank()) {
                 fail("INVALID_RESOLUTION_COMPONENT_IDENTITY")
             }
-            validateComponentState(component)
+            PlayerResolutionComponentStateValidator.validate(component)
             if (collected.put(component.commandKindUid, component) != null) {
                 fail("DUPLICATE_COMMAND_RESOLUTION_COMPONENT")
             }
