@@ -293,6 +293,26 @@ class PlayerDomainEngineTest {
         failsChangeSet("CONFLICTING_CHANGE_TARGET") { baseProposal(c, listOf(a, b)) }
     }
 
+    @Test fun p18Engine25_resolverReceivesExactCanonicalPayloadWithoutLoss() {
+        val command = projectWork(listOf(DomainRef("EVIDENCE", "A:B"), DomainRef("EVIDENCE", "C")))
+        var seen: RecordProjectWorkCommandPayload? = null
+        val engine = engine(resolver(PlayerCommandKinds.RECORD_PROJECT_WORK, RecordProjectWorkCommandPayload::class) {
+            seen = it.payload
+            projectProposal(it, ProjectProgressDelta.of(0), "NO_PROGRESS")
+        })
+        engine.resolve(command)
+        assertEquals(command.payload, seen)
+    }
+
+    @Test fun p18Engine26_semanticallyDifferentCommandInputCanProduceDifferentProposal() {
+        val engine = engine(resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) {
+            statProposal(it, "CH-INPUT", DomainRef("PLAYER", "P1"), "STAT:STR", it.payload.effortUnits)
+        })
+        val a = engine.resolve(train())
+        val b = engine.resolve(train().copy(payload = TrainCommandPayload(DomainRef("STAT", "STR"), 11, "METHOD")))
+        assertNotEquals(a, b)
+    }
+
     private fun train() = PlayerCommand(
         commandUid = "CMD-TRAIN", campaignUid = "C1", actor = actor, commandKindUid = PlayerCommandKinds.TRAIN,
         payload = TrainCommandPayload(DomainRef("STAT", "STR"), 10, "METHOD"), provenance = CommandProvenance("TEST"),
