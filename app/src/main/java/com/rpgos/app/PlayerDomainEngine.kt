@@ -188,7 +188,11 @@ internal sealed interface PlayerResolutionComponentOutcome {
     data class Rejected(val rejection: PlayerResolutionRejection) : PlayerResolutionComponentOutcome
 }
 
-/** Trusted internal Core extension point. Phase 18 constrains injected and retained capabilities/state. */
+/**
+ * Trusted internal Core extension point. Phase 18 constrains injected and retained capabilities/state;
+ * canonical supported APIs expose only deterministic read-only context. Arbitrary malicious JVM
+ * process-global/static code is outside this architectural contract and is not treated as a sandbox target.
+ */
 internal abstract class PlayerResolutionComponent<P : PlayerCommandPayload>(
     val commandKindUid: String,
     val payloadType: KClass<P>,
@@ -211,20 +215,47 @@ internal class PlayerResolutionComponentRegistry private constructor(
         val collected = LinkedHashMap<String, PlayerResolutionComponent<out PlayerCommandPayload>>()
         components.forEach { component ->
             if (component.commandKindUid.isBlank()) fail("EMPTY_RESOLUTION_COMPONENT_KIND")
-            if (component.componentKindUid.isBlank() || component.componentVersion.isBlank()) fail("INVALID_RESOLUTION_COMPONENT_IDENTITY")
+            if (component.componentKindUid.isBlank() || component.componentVersion.isBlank()) {
+                fail("INVALID_RESOLUTION_COMPONENT_IDENTITY")
+            }
             PlayerResolutionComponentStateValidator.validate(component)
-            if (collected.put(component.commandKindUid, component) != null) fail("DUPLICATE_COMMAND_RESOLUTION_COMPONENT")
+            if (collected.put(component.commandKindUid, component) != null) {
+                fail("DUPLICATE_COMMAND_RESOLUTION_COMPONENT")
+            }
         }
         byKind = Collections.unmodifiableMap(LinkedHashMap(collected))
         commandKindUids = Collections.unmodifiableSet(LinkedHashSet(collected.keys))
     }
 
-    fun componentFor(commandKindUid: String): PlayerResolutionComponent<out PlayerCommandPayload>? = byKind[commandKindUid]
+    fun componentFor(commandKindUid: String): PlayerResolutionComponent<out PlayerCommandPayload>? =
+        byKind[commandKindUid]
 
     companion object {
-        fun of(components: List<PlayerResolutionComponent<out PlayerCommandPayload>>): PlayerResolutionComponentRegistry = PlayerResolutionComponentRegistry(ArrayList(components))
+        fun of(components: List<PlayerResolutionComponent<out PlayerCommandPayload>>): PlayerResolutionComponentRegistry =
+            PlayerResolutionComponentRegistry(ArrayList(components))
+
         fun empty(): PlayerResolutionComponentRegistry = PlayerResolutionComponentRegistry(emptyList())
     }
+
+    private fun validateComponentState(component: PlayerResolutionComponent<out PlayerCommandPayload>) {
+        component.javaClass.declaredFields
+            .filterNot { Modifier.isStatic(it.modifiers) }
+            .forEach { field ->
+                if (!Modifier.isFinal(field.modifiers)) fail("MUTABLE_RESOLUTION_COMPONENT_STATE")
+                if (!safeComponentFieldType(field.type)) fail("UNSAFE_RESOLUTION_COMPONENT_STATE")
+            }
+    }
+
+    private fun safeComponentFieldType(type: Class<*>): Boolean =
+        type.isPrimitive ||
+            type == java.lang.Long::class.java ||
+            type == java.lang.Integer::class.java ||
+            type == java.lang.Boolean::class.java ||
+            type == java.lang.Short::class.java ||
+            type == java.lang.Byte::class.java ||
+            type == java.lang.Character::class.java ||
+            type == String::class.java ||
+            type.isEnum
 
     private fun fail(code: String): Nothing = throw PlayerDomainEngineStructuralException(code)
 }
@@ -234,61 +265,166 @@ class PlayerDomainEngine internal constructor(
     private val commandRegistry: PlayerCommandKindRegistry = PlayerCommandKindRegistry.core(),
     private val changeRegistry: TypedPlayerChangeRegistry = TypedPlayerChangeRegistry.core()
 ) {
-    fun resolve(command: PlayerCommand<out PlayerCommandPayload>, context: PlayerResolutionContext): PlayerResolutionOutcome {
+    fun resolve(
+        command: PlayerCommand<out PlayerCommandPayload>,
+        context: PlayerResolutionContext
+    ): PlayerResolutionOutcome {
         commandRegistry.validate(command)
         val canonicalCommand = commandRegistry.decode(commandRegistry.encode(command))
         val commandFingerprint = commandRegistry.fingerprint(canonicalCommand)
         val contextFingerprint = context.deterministicFingerprint()
-        if (context.campaignUid != canonicalCommand.campaignUid) return rejected(PlayerResolutionRejection.create(PlayerResolutionRejectionReason.CONTEXT_CAMPAIGN_MISMATCH), contextFingerprint, context, null)
-        if (context.actor != canonicalCommand.actor) return rejected(PlayerResolutionRejection.create(PlayerResolutionRejectionReason.CONTEXT_ACTOR_MISMATCH), contextFingerprint, context, null)
-        validateReferences(context, commandReferences(canonicalCommand))?.let { return rejected(it, contextFingerprint, context, null) }
-        val component = componentRegistry.componentFor(canonicalCommand.commandKindUid) ?: fail("UNKNOWN_COMMAND_RESOLUTION_COMPONENT")
-        val outcome = try { resolveTyped(component, canonicalCommand, context) } catch (e: PlayerDomainEngineStructuralException) { throw e } catch (e: Throwable) { throw PlayerDomainEngineStructuralException("RESOLUTION_COMPONENT_FAILURE", e) }
-        if (commandRegistry.fingerprint(canonicalCommand) != commandFingerprint) fail("COMMAND_MUTATED_DURING_RESOLUTION")
+
+        if (context.campaignUid != canonicalCommand.campaignUid) {
+            return rejected(
+                PlayerResolutionRejection.create(PlayerResolutionRejectionReason.CONTEXT_CAMPAIGN_MISMATCH),
+                contextFingerprint,
+                context,
+                null
+            )
+        }
+        if (context.actor != canonicalCommand.actor) {
+            return rejected(
+                PlayerResolutionRejection.create(PlayerResolutionRejectionReason.CONTEXT_ACTOR_MISMATCH),
+                contextFingerprint,
+                context,
+                null
+            )
+        }
+
+        validateReferences(context, commandReferences(canonicalCommand))?.let {
+            return rejected(it, contextFingerprint, context, null)
+        }
+
+        val component = componentRegistry.componentFor(canonicalCommand.commandKindUid)
+            ?: fail("UNKNOWN_COMMAND_RESOLUTION_COMPONENT")
+
+        val outcome = try {
+            resolveTyped(component, canonicalCommand, context)
+        } catch (e: PlayerDomainEngineStructuralException) {
+            throw e
+        } catch (e: Throwable) {
+            throw PlayerDomainEngineStructuralException("RESOLUTION_COMPONENT_FAILURE", e)
+        }
+
+        if (commandRegistry.fingerprint(canonicalCommand) != commandFingerprint) {
+            fail("COMMAND_MUTATED_DURING_RESOLUTION")
+        }
+
         val evidence = evidence(contextFingerprint, context, component)
         return when (outcome) {
-            is PlayerResolutionComponentOutcome.Rejected -> PlayerResolutionOutcome.Rejected(outcome.rejection, evidence)
+            is PlayerResolutionComponentOutcome.Rejected ->
+                PlayerResolutionOutcome.Rejected(outcome.rejection, evidence)
+
             is PlayerResolutionComponentOutcome.Resolved -> {
-                validateReferences(context, draftReferences(outcome.draft))?.let { return PlayerResolutionOutcome.Rejected(it, evidence) }
-                val proposal = assembleProposal(canonicalCommand, contextFingerprint, component, outcome.draft)
+                validateReferences(context, draftReferences(outcome.draft))?.let {
+                    return PlayerResolutionOutcome.Rejected(it, evidence)
+                }
+                val proposal = assembleProposal(
+                    canonicalCommand,
+                    contextFingerprint,
+                    component,
+                    outcome.draft
+                )
                 PlayerChangeSetValidator.validate(proposal, changeRegistry)
                 PlayerResolutionOutcome.Resolved(proposal, evidence)
             }
         }
     }
 
-    private fun assembleProposal(command: PlayerCommand<out PlayerCommandPayload>, contextFingerprint: String, component: PlayerResolutionComponent<out PlayerCommandPayload>, draft: PlayerResolutionDraft): PlayerChangeSet {
-        val changeSetUid = "RPGOS-CS18:" + sha256(buildString { appendToken(commandRegistry.encode(command)); appendToken(contextFingerprint); appendToken(component.componentKindUid); appendToken(component.componentVersion) })
+    private fun assembleProposal(
+        command: PlayerCommand<out PlayerCommandPayload>,
+        contextFingerprint: String,
+        component: PlayerResolutionComponent<out PlayerCommandPayload>,
+        draft: PlayerResolutionDraft
+    ): PlayerChangeSet {
+        val changeSetUid = "RPGOS-CS18:" + sha256(
+            buildString {
+                appendToken(commandRegistry.encode(command))
+                appendToken(contextFingerprint)
+                appendToken(component.componentKindUid)
+                appendToken(component.componentVersion)
+            }
+        )
         return PlayerChangeSet.create(
-            changeSetUid = changeSetUid, campaignUid = command.campaignUid, sourceCommandUid = command.commandUid, actor = command.actor,
-            changes = draft.changes, eventIntents = draft.eventIntents, ledgerIntents = draft.ledgerIntents,
+            changeSetUid = changeSetUid,
+            campaignUid = command.campaignUid,
+            sourceCommandUid = command.commandUid,
+            actor = command.actor,
+            changes = draft.changes,
+            eventIntents = draft.eventIntents,
+            ledgerIntents = draft.ledgerIntents,
             preconditions = command.preconditions.map(::toChangeSetPrecondition),
-            provenance = ChangeSetProvenance(sourceCommandUid = command.commandUid, resolverKindUid = component.componentKindUid, resolverVersion = component.componentVersion),
-            causationUid = command.causationUid, correlationUid = command.correlationUid, requestedEffectiveOrder = command.requestedEffectiveOrder,
-            warnings = draft.warnings, registry = changeRegistry
+            provenance = ChangeSetProvenance(
+                sourceCommandUid = command.commandUid,
+                resolverKindUid = component.componentKindUid,
+                resolverVersion = component.componentVersion
+            ),
+            causationUid = command.causationUid,
+            correlationUid = command.correlationUid,
+            requestedEffectiveOrder = command.requestedEffectiveOrder,
+            warnings = draft.warnings,
+            registry = changeRegistry
         )
     }
 
-    private fun evidence(contextFingerprint: String, context: PlayerResolutionContext, component: PlayerResolutionComponent<out PlayerCommandPayload>) = PlayerResolutionEvidence(contextFingerprint, context.entropy, component.componentKindUid, component.componentVersion)
-    private fun rejected(rejection: PlayerResolutionRejection, contextFingerprint: String, context: PlayerResolutionContext, component: PlayerResolutionComponent<out PlayerCommandPayload>?) = PlayerResolutionOutcome.Rejected(rejection, PlayerResolutionEvidence(contextFingerprint, context.entropy, component?.componentKindUid, component?.componentVersion))
+    private fun evidence(
+        contextFingerprint: String,
+        context: PlayerResolutionContext,
+        component: PlayerResolutionComponent<out PlayerCommandPayload>
+    ): PlayerResolutionEvidence = PlayerResolutionEvidence(
+        contextFingerprint = contextFingerprint,
+        entropy = context.entropy,
+        componentKindUid = component.componentKindUid,
+        componentVersion = component.componentVersion
+    )
+
+    private fun rejected(
+        rejection: PlayerResolutionRejection,
+        contextFingerprint: String,
+        context: PlayerResolutionContext,
+        component: PlayerResolutionComponent<out PlayerCommandPayload>?
+    ): PlayerResolutionOutcome.Rejected = PlayerResolutionOutcome.Rejected(
+        rejection,
+        PlayerResolutionEvidence(
+            contextFingerprint = contextFingerprint,
+            entropy = context.entropy,
+            componentKindUid = component?.componentKindUid,
+            componentVersion = component?.componentVersion
+        )
+    )
+
     private fun fail(code: String): Nothing = throw PlayerDomainEngineStructuralException(code)
 }
 
 internal enum class ResolutionReferenceStatus { RESOLVED, UNKNOWN, WRONG_CAMPAIGN }
 
-private fun validateReferences(context: PlayerResolutionContext, refs: List<DomainRef>): PlayerResolutionRejection? {
+private fun validateReferences(
+    context: PlayerResolutionContext,
+    refs: List<DomainRef>
+): PlayerResolutionRejection? {
     refs.forEach { ref ->
         when (context.referenceStatus(ref)) {
             ResolutionReferenceStatus.RESOLVED -> Unit
-            ResolutionReferenceStatus.UNKNOWN -> return PlayerResolutionRejection.create(PlayerResolutionRejectionReason.UNKNOWN_REFERENCE, listOf(ref))
-            ResolutionReferenceStatus.WRONG_CAMPAIGN -> return PlayerResolutionRejection.create(PlayerResolutionRejectionReason.WRONG_CAMPAIGN_REFERENCE, listOf(ref))
+            ResolutionReferenceStatus.UNKNOWN -> return PlayerResolutionRejection.create(
+                PlayerResolutionRejectionReason.UNKNOWN_REFERENCE,
+                listOf(ref)
+            )
+            ResolutionReferenceStatus.WRONG_CAMPAIGN -> return PlayerResolutionRejection.create(
+                PlayerResolutionRejectionReason.WRONG_CAMPAIGN_REFERENCE,
+                listOf(ref)
+            )
         }
     }
     return null
 }
 
 internal fun commandReferences(command: PlayerCommand<out PlayerCommandPayload>): List<DomainRef> = buildList {
-    command.preconditions.forEach { when (it) { is ExpectedRecordVersion -> add(it.target); is ExpectedLifecycleState -> add(it.target) } }
+    command.preconditions.forEach {
+        when (it) {
+            is ExpectedRecordVersion -> add(it.target)
+            is ExpectedLifecycleState -> add(it.target)
+        }
+    }
     when (val payload = command.payload) {
         is TrainCommandPayload -> add(payload.focus)
         is UseResourceActionCommandPayload -> add(payload.resource)
@@ -296,23 +432,55 @@ internal fun commandReferences(command: PlayerCommand<out PlayerCommandPayload>)
         is LearnSkillCommandPayload -> Unit
         is PracticeSkillCommandPayload -> add(DomainRef(PlayerResolutionReferenceKinds.SKILL, payload.skillUid))
         is LearnTechniqueCommandPayload -> Unit
-        is UseTechniqueCommandPayload -> { add(DomainRef(PlayerResolutionReferenceKinds.TECHNIQUE, payload.techniqueUid)); payload.target?.let(::add) }
+        is UseTechniqueCommandPayload -> {
+            add(DomainRef(PlayerResolutionReferenceKinds.TECHNIQUE, payload.techniqueUid))
+            payload.target?.let(::add)
+        }
         is AcquireItemCommandPayload -> payload.sourceRef?.let(::add)
         is TransferItemCommandPayload -> { add(payload.item); add(payload.toParty) }
         is ConsumeItemCommandPayload -> add(payload.item)
         is EquipItemCommandPayload -> add(payload.item)
         is UnequipSlotCommandPayload -> Unit
         is TransferOwnershipCommandPayload -> { add(payload.subject); add(payload.toParty) }
-        is TransferFundsCommandPayload -> { add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.fromAccountUid)); add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.toAccountUid)); add(DomainRef(PlayerResolutionReferenceKinds.CURRENCY, payload.currencyUid)) }
+        is TransferFundsCommandPayload -> {
+            add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.fromAccountUid))
+            add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.toAccountUid))
+            add(DomainRef(PlayerResolutionReferenceKinds.CURRENCY, payload.currencyUid))
+        }
         is AcquireAssetCommandPayload -> payload.requestedTermsRef?.let(::add)
-        is EnterObligationCommandPayload -> { add(payload.counterparty); payload.currencyUid?.let { add(DomainRef(PlayerResolutionReferenceKinds.CURRENCY, it)) } }
+        is EnterObligationCommandPayload -> {
+            add(payload.counterparty)
+            payload.currencyUid?.let { add(DomainRef(PlayerResolutionReferenceKinds.CURRENCY, it)) }
+        }
         is SettleObligationCommandPayload -> add(DomainRef(PlayerResolutionReferenceKinds.OBLIGATION, payload.obligationUid))
-        is StartProjectCommandPayload -> { payload.beneficiaryRef?.let(::add); payload.targetRef?.let(::add) }
-        is RecordProjectWorkCommandPayload -> { add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid)); addAll(payload.evidenceRefs); addAll(payload.requestedResourceUse) }
-        is SatisfyProjectRequirementCommandPayload -> { add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid)); add(DomainRef(PlayerResolutionReferenceKinds.PROJECT_REQUIREMENT, payload.requirementUid)); addAll(payload.evidenceRefs) }
-        is AchieveProjectMilestoneCommandPayload -> { add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid)); add(DomainRef(PlayerResolutionReferenceKinds.PROJECT_MILESTONE, payload.milestoneUid)); addAll(payload.evidenceRefs); payload.sourceWorkRef?.let(::add) }
-        is ChangeProjectLifecycleCommandPayload -> { add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid)); payload.successorProjectUid?.let { add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, it)) } }
-        is CompleteProjectCommandPayload -> { add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid)); addAll(payload.completionEvidenceRefs) }
+        is StartProjectCommandPayload -> {
+            payload.beneficiaryRef?.let(::add)
+            payload.targetRef?.let(::add)
+        }
+        is RecordProjectWorkCommandPayload -> {
+            add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
+            addAll(payload.evidenceRefs)
+            addAll(payload.requestedResourceUse)
+        }
+        is SatisfyProjectRequirementCommandPayload -> {
+            add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
+            add(DomainRef(PlayerResolutionReferenceKinds.PROJECT_REQUIREMENT, payload.requirementUid))
+            addAll(payload.evidenceRefs)
+        }
+        is AchieveProjectMilestoneCommandPayload -> {
+            add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
+            add(DomainRef(PlayerResolutionReferenceKinds.PROJECT_MILESTONE, payload.milestoneUid))
+            addAll(payload.evidenceRefs)
+            payload.sourceWorkRef?.let(::add)
+        }
+        is ChangeProjectLifecycleCommandPayload -> {
+            add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
+            payload.successorProjectUid?.let { add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, it)) }
+        }
+        is CompleteProjectCommandPayload -> {
+            add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
+            addAll(payload.completionEvidenceRefs)
+        }
         is CancelProjectCommandPayload -> add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
         else -> Unit
     }
@@ -327,27 +495,69 @@ internal fun draftReferences(draft: PlayerResolutionDraft): List<DomainRef> = bu
             is TechniqueChange -> { add(payload.subject); add(DomainRef("TECHNIQUE", payload.techniqueUid)) }
             is InnateChange -> { add(payload.subject); add(DomainRef("INNATE", payload.innateUid)) }
             is InventoryChange -> { add(payload.subject); add(DomainRef("ITEM_INSTANCE", payload.itemInstanceUid)) }
-            is EquipmentChange -> { add(payload.subject); payload.itemInstanceUid?.let { add(DomainRef("ITEM_INSTANCE", it)) } }
-            is FinancialChange -> { add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.fromAccountUid)); add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.toAccountUid)); add(DomainRef(PlayerResolutionReferenceKinds.CURRENCY, payload.currencyUid)) }
+            is EquipmentChange -> {
+                add(payload.subject)
+                payload.itemInstanceUid?.let { add(DomainRef("ITEM_INSTANCE", it)) }
+            }
+            is FinancialChange -> {
+                add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.fromAccountUid))
+                add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.toAccountUid))
+                add(DomainRef(PlayerResolutionReferenceKinds.CURRENCY, payload.currencyUid))
+            }
             is AssetChange -> Unit
-            is OwnershipChange -> { add(DomainRef(payload.asset.assetKindUid, payload.asset.assetUid)); add(DomainRef(payload.fromOwner.ownerKindUid, payload.fromOwner.ownerUid)); add(DomainRef(payload.toOwner.ownerKindUid, payload.toOwner.ownerUid)) }
+            is OwnershipChange -> {
+                add(DomainRef(payload.asset.assetKindUid, payload.asset.assetUid))
+                add(DomainRef(payload.fromOwner.ownerKindUid, payload.fromOwner.ownerUid))
+                add(DomainRef(payload.toOwner.ownerKindUid, payload.toOwner.ownerUid))
+            }
             is ConditionChange -> { add(payload.subject); add(DomainRef("CONDITION", payload.conditionUid)) }
             is RuntimeChange -> { add(payload.subject); add(DomainRef("RUNTIME_COUNTER", payload.runtimeCounterUid)) }
-            is DevelopmentProjectChange -> { add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid)); addAll(payload.evidenceRefs) }
+            is DevelopmentProjectChange -> {
+                add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
+                addAll(payload.evidenceRefs)
+            }
         }
     }
-    draft.eventIntents.forEach { intent -> intent.actorRef?.let(::add); addAll(intent.targetRefs); val payload = intent.payload; if (payload is DomainEffectEventIntentPayload) add(payload.subject) }
-    draft.ledgerIntents.forEach { intent -> val payload = intent.payload; if (payload is FinancialTransferLedgerIntentPayload) { add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.fromAccountUid)); add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.toAccountUid)); add(DomainRef(PlayerResolutionReferenceKinds.CURRENCY, payload.currencyUid)) } }
+    draft.eventIntents.forEach { intent ->
+        intent.actorRef?.let(::add)
+        addAll(intent.targetRefs)
+        val payload = intent.payload
+        if (payload is DomainEffectEventIntentPayload) add(payload.subject)
+    }
+    draft.ledgerIntents.forEach { intent ->
+        val payload = intent.payload
+        if (payload is FinancialTransferLedgerIntentPayload) {
+            add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.fromAccountUid))
+            add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.toAccountUid))
+            add(DomainRef(PlayerResolutionReferenceKinds.CURRENCY, payload.currencyUid))
+        }
+    }
 }
 
-private fun toChangeSetPrecondition(precondition: CommandPrecondition): ChangeSetPrecondition = when (precondition) { is ExpectedRecordVersion -> ChangeSetExpectedRecordVersion(precondition.target, precondition.expectedVersion); is ExpectedLifecycleState -> ChangeSetExpectedLifecycleState(precondition.target, precondition.expectedStateUid) }
+private fun toChangeSetPrecondition(precondition: CommandPrecondition): ChangeSetPrecondition = when (precondition) {
+    is ExpectedRecordVersion -> ChangeSetExpectedRecordVersion(precondition.target, precondition.expectedVersion)
+    is ExpectedLifecycleState -> ChangeSetExpectedLifecycleState(precondition.target, precondition.expectedStateUid)
+}
 
-private fun resolveTyped(component: PlayerResolutionComponent<out PlayerCommandPayload>, command: PlayerCommand<out PlayerCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome {
-    if (!component.payloadType.isInstance(command.payload)) throw PlayerDomainEngineStructuralException("COMMAND_RESOLUTION_COMPONENT_PAYLOAD_TYPE_MISMATCH")
-    @Suppress("UNCHECKED_CAST") val typedComponent = component as PlayerResolutionComponent<PlayerCommandPayload>
-    @Suppress("UNCHECKED_CAST") val typedCommand = command as PlayerCommand<PlayerCommandPayload>
+private fun resolveTyped(
+    component: PlayerResolutionComponent<out PlayerCommandPayload>,
+    command: PlayerCommand<out PlayerCommandPayload>,
+    context: PlayerResolutionContext
+): PlayerResolutionComponentOutcome {
+    if (!component.payloadType.isInstance(command.payload)) {
+        throw PlayerDomainEngineStructuralException("COMMAND_RESOLUTION_COMPONENT_PAYLOAD_TYPE_MISMATCH")
+    }
+    @Suppress("UNCHECKED_CAST")
+    val typedComponent = component as PlayerResolutionComponent<PlayerCommandPayload>
+    @Suppress("UNCHECKED_CAST")
+    val typedCommand = command as PlayerCommand<PlayerCommandPayload>
     return typedComponent.resolve(typedCommand, context)
 }
 
-private fun StringBuilder.appendToken(value: String) { append(value.length).append(':').append(value).append('|') }
-private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+private fun StringBuilder.appendToken(value: String) {
+    append(value.length).append(':').append(value).append('|')
+}
+
+private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
+    .digest(value.toByteArray(Charsets.UTF_8))
+    .joinToString("") { "%02x".format(it) }
