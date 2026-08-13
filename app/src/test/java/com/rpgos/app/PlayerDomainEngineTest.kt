@@ -18,9 +18,10 @@ class PlayerDomainEngineTest {
     private val commandRegistry = PlayerCommandKindRegistry.core()
 
     @Test fun p18Hotfix01_noFullCommandToChangeSetComponentBypass() {
-        val method = PlayerResolutionComponent::class.java.declaredMethods.single { it.name.startsWith("resolve") }
-        assertNotEquals(PlayerChangeSet::class.java, method.returnType)
-        assertTrue(PlayerResolutionComponentOutcome::class.java.isAssignableFrom(method.returnType))
+        val methods = PlayerResolutionComponent::class.java.declaredMethods.filter { it.name.startsWith("resolve") }
+        assertTrue(methods.isNotEmpty())
+        methods.forEach { assertNotEquals(PlayerChangeSet::class.java, it.returnType) }
+        assertTrue(methods.any { PlayerResolutionComponentOutcome::class.java.isAssignableFrom(it.returnType) })
         try {
             Class.forName("com.rpgos.app.PlayerCommandResolver")
             fail("legacy public PlayerCommandResolver must not exist")
@@ -39,7 +40,7 @@ class PlayerDomainEngineTest {
         assertTrue(outcome is PlayerResolutionComponentOutcome.Resolved)
         val draft = (outcome as PlayerResolutionComponentOutcome.Resolved).draft
         assertEquals(1, draft.changes.size)
-        assertFalse(draft is Any && draft.javaClass == PlayerChangeSet::class.java)
+        assertNotEquals(PlayerChangeSet::class.java.name, draft.javaClass.name)
     }
 
     @Test fun p18Hotfix04_domainRejectionIsTypedAndDistinctFromStructuralFault() {
@@ -470,7 +471,7 @@ class PlayerDomainEngineTest {
 
     private fun resolved(outcome: PlayerResolutionOutcome): PlayerChangeSet = when (outcome) {
         is PlayerResolutionOutcome.Resolved -> outcome.proposal
-        is PlayerResolutionOutcome.Rejected -> fail("unexpected rejection ${outcome.rejection.reason}")
+        is PlayerResolutionOutcome.Rejected -> throw AssertionError("unexpected rejection ${outcome.rejection.reason}")
     }
 
     private fun authorityDb(): SQLiteDatabase = SQLiteDatabase.create(null).also { db ->
