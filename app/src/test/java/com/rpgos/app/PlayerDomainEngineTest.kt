@@ -1,11 +1,9 @@
 package com.rpgos.app
 
 import android.database.sqlite.SQLiteDatabase
-import kotlin.reflect.KClass
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -19,182 +17,249 @@ class PlayerDomainEngineTest {
     private val actor = CommandActorRef("PLAYER", "P1")
     private val commandRegistry = PlayerCommandKindRegistry.core()
 
-    @Test fun p18Engine01_canonicalCommandEntersPlayerDomainEngine() {
-        var seen: PlayerCommand<TrainCommandPayload>? = null
-        val command = train()
-        val engine = engine(resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) {
-            seen = it
-            statProposal(it, "CH-1", DomainRef("PLAYER", "P1"), "STAT:STR", 1)
-        })
-        val result = engine.resolve(command)
-        assertEquals(command.commandUid, seen!!.commandUid)
-        assertNotSame(command, seen)
-        assertEquals(command.commandUid, result.sourceCommandUid)
-    }
-
-    @Test fun p18Engine02_correctHandlerResolutionPathSelected() {
-        var trainHits = 0
-        var financeHits = 0
-        val engine = engine(
-            resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) { trainHits++; statProposal(it, "CH-TRAIN", DomainRef("PLAYER", "P1"), "STAT:STR", 1) },
-            resolver(PlayerCommandKinds.TRANSFER_FUNDS, TransferFundsCommandPayload::class) { financeHits++; financeProposal(it) }
-        )
-        engine.resolve(train())
-        assertEquals(1, trainHits)
-        assertEquals(0, financeHits)
-    }
-
-    @Test fun p18Engine03_exactlyOnePathHandlesOneCommand() {
-        var a = 0
-        var b = 0
-        val engine = engine(
-            resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) { a++; statProposal(it, "CH-A", DomainRef("PLAYER", "P1"), "STAT:A", 1) },
-            resolver(PlayerCommandKinds.RECOVER, RecoverCommandPayload::class) { b++; statProposal(it, "CH-B", DomainRef("PLAYER", "P1"), "STAT:B", 1) }
-        )
-        engine.resolve(train())
-        assertEquals(1, a)
-        assertEquals(0, b)
-        failsEngine("DUPLICATE_COMMAND_RESOLVER") {
-            PlayerCommandResolverRegistry.of(listOf(
-                resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) { statProposal(it, "X", DomainRef("PLAYER", "P1"), "A", 1) },
-                resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) { statProposal(it, "Y", DomainRef("PLAYER", "P1"), "B", 1) }
-            ))
+    @Test fun p18Hotfix01_noFullCommandToChangeSetComponentBypass() {
+        val method = PlayerResolutionComponent::class.java.declaredMethods.single { it.name.startsWith("resolve") }
+        assertNotEquals(PlayerChangeSet::class.java, method.returnType)
+        assertTrue(PlayerResolutionComponentOutcome::class.java.isAssignableFrom(method.returnType))
+        try {
+            Class.forName("com.rpgos.app.PlayerCommandResolver")
+            fail("legacy public PlayerCommandResolver must not exist")
+        } catch (_: ClassNotFoundException) {
         }
     }
 
-    @Test fun p18Engine04_unsupportedCommandFailsClosed() {
-        failsEngine("UNKNOWN_COMMAND_RESOLVER") { PlayerDomainEngine(PlayerCommandResolverRegistry.empty()).resolve(train()) }
+    @Test fun p18Hotfix02_canonicalPublicEntryIsPlayerDomainEngine() {
+        val publicResolve = PlayerDomainEngine::class.java.methods.filter { it.name == "resolve" }
+        assertEquals(1, publicResolve.size)
+        assertEquals(PlayerResolutionOutcome::class.java, publicResolve.single().returnType)
     }
 
-    @Test fun p18Engine05_validProposalReturnsAsPlayerChangeSet() {
-        val proposal = engine(resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) {
-            statProposal(it, "CH-VALID", DomainRef("PLAYER", "P1"), "STAT:STR", 4)
-        }).resolve(train())
-        assertTrue(proposal.changes.single().payload is StatChange)
-        PlayerChangeSetValidator.validate(proposal)
+    @Test fun p18Hotfix03_componentReturnsTypedDraftNotFinalProposal() {
+        val outcome = StatComponent(3).resolve(train(), context())
+        assertTrue(outcome is PlayerResolutionComponentOutcome.Resolved)
+        val draft = (outcome as PlayerResolutionComponentOutcome.Resolved).draft
+        assertEquals(1, draft.changes.size)
+        assertFalse(draft is Any && draft.javaClass == PlayerChangeSet::class.java)
     }
 
-    @Test fun p18Engine06_invalidProposalCannotEscapePhase17Validation() {
-        val command = train()
-        val duplicate = PlayerDomainChange.create("CH-DUP", PlayerChangeKinds.STAT, StatChange(DomainRef("PLAYER", "P1"), "STAT:STR", ExactLongDelta.of(1)))
-        val engine = engine(resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) {
-            PlayerChangeSet.create(
-                changeSetUid = "CS-BAD", campaignUid = it.campaignUid, sourceCommandUid = it.commandUid, actor = it.actor,
-                changes = listOf(duplicate, duplicate), provenance = provenance(it),
-                causationUid = it.causationUid, correlationUid = it.correlationUid,
-                requestedEffectiveOrder = it.requestedEffectiveOrder, preconditions = mappedPreconditions(it)
-            )
-        })
-        failsChangeSet("DUPLICATE_CHANGE_UID") { engine.resolve(command) }
+    @Test fun p18Hotfix04_domainRejectionIsTypedAndDistinctFromStructuralFault() {
+        val result = engine(RejectingTrainComponent()).resolve(train(), context())
+        assertTrue(result is PlayerResolutionOutcome.Rejected)
+        val rejection = (result as PlayerResolutionOutcome.Rejected).rejection
+        assertEquals(PlayerResolutionRejectionReason.DOMAIN_REJECTED, rejection.reason)
+        assertEquals("RPGOS-RESOLUTION-REJECTION:DOMAIN_REJECTED", rejection.reason.reasonUid)
+
+        failsEngine("DUPLICATE_COMMAND_RESOLUTION_COMPONENT") {
+            PlayerResolutionComponentRegistry.of(listOf(StatComponent(1), StatComponent(2)))
+        }
     }
 
-    @Test fun p18Engine07_sameInputsAndDependencyResultAreDeterministic() {
-        val command = train()
-        val engine = engine(resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) {
-            statProposal(it, "CH-DET", DomainRef("PLAYER", "P1"), "STAT:STR", 3)
-        })
-        assertEquals(engine.resolve(command), engine.resolve(command))
+    @Test fun p18Hotfix05_hiddenWriterCannotBeRegisteredAsSupportedComponentState() {
+        val db = authorityDb()
+        try {
+            failsEngine("UNSAFE_RESOLUTION_COMPONENT_STATE") {
+                PlayerResolutionComponentRegistry.of(listOf(DbCapturingTrainComponent(db)))
+            }
+            assertEquals(7L, authorityValue(db))
+        } finally {
+            db.close()
+        }
     }
 
-    @Test fun p18Engine08_fingerprintStableForEquivalentOrchestration() {
-        val command = train()
-        val engine = engine(resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) {
-            statProposal(it, "CH-FP", DomainRef("PLAYER", "P1"), "STAT:STR", 3)
-        })
-        val a = PlayerChangeSetCodec.fingerprint(engine.resolve(command))
-        val b = PlayerChangeSetCodec.fingerprint(engine.resolve(command))
+    @Test fun p18Hotfix06_resolutionContextIsImmutableDataOnly() {
+        val ctx = context()
+        val forbiddenTypeTokens = listOf("SQLite", "Room", "Dao", "Store", "Repository", "Transaction", "StatePatch", "Random", "Clock")
+        PlayerResolutionContext::class.java.declaredFields.forEach { field ->
+            forbiddenTypeTokens.forEach { token ->
+                assertFalse("context field ${field.name} leaked $token", field.type.name.contains(token, ignoreCase = true))
+            }
+        }
+        try {
+            @Suppress("UNCHECKED_CAST")
+            (ctx.knownReferences as MutableSet<CampaignScopedDomainRef>).clear()
+            fail("knownReferences must be immutable")
+        } catch (_: UnsupportedOperationException) {
+        }
+        try {
+            @Suppress("UNCHECKED_CAST")
+            (ctx.dependencyVersions as MutableMap<String, String>).clear()
+            fail("dependencyVersions must be immutable")
+        } catch (_: UnsupportedOperationException) {
+        }
+    }
+
+    @Test fun p18Hotfix07_sideEffectBeforeFailureAttackIsRejectedAtRegistration() {
+        val db = authorityDb()
+        try {
+            val before = authorityValue(db)
+            failsEngine("UNSAFE_RESOLUTION_COMPONENT_STATE") {
+                engine(DbCapturingTrainComponent(db))
+            }
+            assertEquals(before, authorityValue(db))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun p18Hotfix08_mutableComponentAliasIsRejectedAtRegistration() {
+        val component = MutableTrainComponent(1)
+        failsEngine("MUTABLE_RESOLUTION_COMPONENT_STATE") {
+            PlayerResolutionComponentRegistry.of(listOf(component))
+        }
+        component.delta = 9
+        assertEquals(9L, component.delta)
+    }
+
+    @Test fun p18Hotfix09_sameCommandAndContextAreDeterministic() {
+        val engine = engine(StatComponent(3))
+        val a = resolved(engine.resolve(train(), context()))
+        val b = resolved(engine.resolve(train(), context()))
         assertEquals(a, b)
+        assertEquals(PlayerChangeSetCodec.fingerprint(a), PlayerChangeSetCodec.fingerprint(b))
     }
 
-    @Test fun p18Engine09_callerCommandRemainsUnchangedAndResolverGetsDetachedCopy() {
-        val evidence = mutableListOf(DomainRef("EVIDENCE", "E1"))
-        val command = projectWork(evidence)
-        val before = commandRegistry.fingerprint(command)
-        var resolverCommand: PlayerCommand<RecordProjectWorkCommandPayload>? = null
-        val engine = engine(resolver(PlayerCommandKinds.RECORD_PROJECT_WORK, RecordProjectWorkCommandPayload::class) {
-            resolverCommand = it
-            projectProposal(it, ProjectProgressDelta.of(0), "FAILURE")
-        })
-        engine.resolve(command)
-        assertNotSame(command, resolverCommand)
-        assertEquals(before, commandRegistry.fingerprint(command))
-        assertEquals(listOf(DomainRef("EVIDENCE", "E1")), evidence)
+    @Test fun p18Hotfix10_sameExplicitEntropyProducesSameResultAndEvidence() {
+        val ctxA = context(entropy = ResolutionEntropyEvidence("TEST-SEED", 7))
+        val ctxB = context(entropy = ResolutionEntropyEvidence("TEST-SEED", 7))
+        val engine = engine(EntropyTrainComponent())
+        val a = engine.resolve(train(), ctxA) as PlayerResolutionOutcome.Resolved
+        val b = engine.resolve(train(), ctxB) as PlayerResolutionOutcome.Resolved
+        assertEquals(a, b)
+        assertEquals(7L, a.evidence.entropy.exactValue)
     }
 
-    @Test fun p18Engine10_returnedProposalHasNoMutableAliasToResolverInput() {
-        val evidence = mutableListOf(DomainRef("EVIDENCE", "E1"))
-        val command = projectWork(evidence)
-        val proposal = engine(resolver(PlayerCommandKinds.RECORD_PROJECT_WORK, RecordProjectWorkCommandPayload::class) {
-            val local = mutableListOf(DomainRef("EVIDENCE", "E1"))
-            val change = DevelopmentProjectChange.create(it.payload.projectUid, "FAILURE", ProjectProgressDelta.of(0), local)
-            val result = baseProposal(it, listOf(PlayerDomainChange.create("CH-P", PlayerChangeKinds.DEVELOPMENT_PROJECT, change)))
-            local.clear()
-            result
-        }).resolve(command)
-        evidence.clear()
-        val project = proposal.changes.single().payload as DevelopmentProjectChange
-        assertEquals(listOf(DomainRef("EVIDENCE", "E1")), project.evidenceRefs)
+    @Test fun p18Hotfix11_differentExplicitEntropyCanChangeProposalAndEvidence() {
+        val engine = engine(EntropyTrainComponent())
+        val a = engine.resolve(train(), context(entropy = ResolutionEntropyEvidence("TEST-SEED", 7))) as PlayerResolutionOutcome.Resolved
+        val b = engine.resolve(train(), context(entropy = ResolutionEntropyEvidence("TEST-SEED", 8))) as PlayerResolutionOutcome.Resolved
+        assertNotEquals(a.proposal, b.proposal)
+        assertNotEquals(a.evidence, b.evidence)
+        assertEquals(7L, (a.proposal.changes.single().payload as StatChange).delta.units)
+        assertEquals(8L, (b.proposal.changes.single().payload as StatChange).delta.units)
     }
 
-    @Test fun p18Engine11_resolverFailureCausesNoAuthoritativeMutation() {
-        val db = authorityDb()
-        try {
-            val before = authorityValue(db)
-            val engine = engine(resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) {
-                throw PlayerDomainEngineStructuralException("DOMAIN_REJECTED")
-            })
-            failsEngine("DOMAIN_REJECTED") { engine.resolve(train()) }
-            assertEquals(before, authorityValue(db))
-        } finally { db.close() }
-    }
-
-    @Test fun p18Engine12_successfulProposalGenerationCausesNoAuthoritativeMutation() {
-        val db = authorityDb()
-        try {
-            val before = authorityValue(db)
-            engine(resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) {
-                statProposal(it, "CH-NO-WRITE", DomainRef("PLAYER", "P1"), "STAT:STR", 1)
-            }).resolve(train())
-            assertEquals(before, authorityValue(db))
-        } finally { db.close() }
-    }
-
-    @Test fun p18Engine13_noDirectTurnTransactionOrCommitExecutionSurface() {
-        val types = listOf(PlayerDomainEngine::class.java, PlayerCommandResolverRegistry::class.java, PlayerCommandResolver::class.java)
-        val forbiddenTypes = listOf("SQLite", "Room", "Dao", "Store", "Repository", "TurnTransaction", "StatePatch", "PlayerSnapshotBuilder")
+    @Test fun p18Hotfix12_noHiddenEntropyCapabilityOnEngineOrContext() {
+        val types = listOf(PlayerDomainEngine::class.java, PlayerResolutionContext::class.java, ResolutionEntropyEvidence::class.java)
+        val forbidden = listOf("Random", "Clock", "UUID", "Instant")
         types.flatMap { it.declaredFields.toList() }.forEach { field ->
-            forbiddenTypes.forEach { token -> assertFalse("${field.name} leaked $token", field.type.name.contains(token, ignoreCase = true)) }
+            forbidden.forEach { token -> assertFalse(field.type.name.contains(token, ignoreCase = true)) }
         }
-        val forbiddenMethods = setOf("apply", "commit", "execute", "persist", "save", "insert", "update", "delete")
-        assertTrue(types.flatMap { it.methods.toList() }.none { it.name in forbiddenMethods })
+        assertTrue(ResolutionEntropyEvidence::class.java.declaredFields.any { it.name == "exactValue" })
     }
 
-    @Test fun p18Engine14_representativeCommandFamiliesRouteCorrectly() {
-        val seen = mutableListOf<String>()
-        val engine = engine(
-            resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) { seen += it.commandKindUid; statProposal(it, "CH-T", DomainRef("PLAYER", "P1"), "STAT:STR", 1) },
-            resolver(PlayerCommandKinds.TRANSFER_FUNDS, TransferFundsCommandPayload::class) { seen += it.commandKindUid; financeProposal(it) },
-            resolver(PlayerCommandKinds.ACQUIRE_ASSET, AcquireAssetCommandPayload::class) { seen += it.commandKindUid; assetProposal(it) },
-            resolver(PlayerCommandKinds.RECORD_PROJECT_WORK, RecordProjectWorkCommandPayload::class) { seen += it.commandKindUid; projectProposal(it, ProjectProgressDelta.of(0), "NO_PROGRESS") }
-        )
-        engine.resolve(train())
-        engine.resolve(financeCommand())
-        engine.resolve(assetCommand())
-        engine.resolve(projectWork())
-        assertEquals(listOf(PlayerCommandKinds.TRAIN, PlayerCommandKinds.TRANSFER_FUNDS, PlayerCommandKinds.ACQUIRE_ASSET, PlayerCommandKinds.RECORD_PROJECT_WORK), seen)
+    @Test fun p18Hotfix13_unknownOrWrongCampaignReferenceIsTypedRejection() {
+        val ghostCommand = train().copy(payload = TrainCommandPayload(DomainRef("PLAYER", "GHOST-NOT-IN-CAMPAIGN"), 10, "METHOD"))
+        val unknown = engine(StatComponent(1)).resolve(ghostCommand, context()) as PlayerResolutionOutcome.Rejected
+        assertEquals(PlayerResolutionRejectionReason.UNKNOWN_REFERENCE, unknown.rejection.reason)
+
+        val wrongCtx = context(extraRefs = setOf(scoped("OTHER", "PLAYER", "GHOST-NOT-IN-CAMPAIGN")))
+        val wrong = engine(StatComponent(1)).resolve(ghostCommand, wrongCtx) as PlayerResolutionOutcome.Rejected
+        assertEquals(PlayerResolutionRejectionReason.WRONG_CAMPAIGN_REFERENCE, wrong.rejection.reason)
     }
 
-    @Test fun p18Engine15_projectZeroProgressSemanticsSurviveOrchestration() {
-        val proposal = engine(resolver(PlayerCommandKinds.RECORD_PROJECT_WORK, RecordProjectWorkCommandPayload::class) {
-            projectProposal(it, ProjectProgressDelta.of(0), "FAILURE")
-        }).resolve(projectWork())
+    @Test fun p18Hotfix14_validSameCampaignReferenceIsAccepted() {
+        val result = engine(StatComponent(1)).resolve(train(), context())
+        assertTrue(result is PlayerResolutionOutcome.Resolved)
+    }
+
+    @Test fun p18Hotfix15_referenceValidationWritesNothing() {
+        val db = authorityDb()
+        try {
+            val before = authorityValue(db)
+            val ghostCommand = train().copy(payload = TrainCommandPayload(DomainRef("PLAYER", "GHOST-NOT-IN-CAMPAIGN"), 10, "METHOD"))
+            val result = engine(StatComponent(1)).resolve(ghostCommand, context())
+            assertTrue(result is PlayerResolutionOutcome.Rejected)
+            assertEquals(before, authorityValue(db))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun p18Hotfix16_componentRejectionCausesZeroAuthoritativeMutation() {
+        val db = authorityDb()
+        try {
+            val before = authorityValue(db)
+            val result = engine(RejectingTrainComponent()).resolve(train(), context())
+            assertTrue(result is PlayerResolutionOutcome.Rejected)
+            assertEquals(before, authorityValue(db))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun p18Hotfix17_componentThrowCausesZeroAuthoritativeMutation() {
+        val db = authorityDb()
+        try {
+            val before = authorityValue(db)
+            failsEngine("RESOLUTION_COMPONENT_FAILURE") {
+                engine(ThrowingTrainComponent()).resolve(train(), context())
+            }
+            assertEquals(before, authorityValue(db))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun p18Hotfix18_changeSetValidationFailureCausesZeroAuthoritativeMutation() {
+        val db = authorityDb()
+        try {
+            val before = authorityValue(db)
+            failsChangeSet("DUPLICATE_CHANGE_UID") {
+                engine(DuplicateDraftTrainComponent()).resolve(train(), context())
+            }
+            assertEquals(before, authorityValue(db))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun p18Hotfix19_singleHandlerRoutingRegression() {
+        val engine = engine(StatComponent(5), FinanceComponent())
+        val trainProposal = resolved(engine.resolve(train(), context()))
+        assertTrue(trainProposal.changes.single().payload is StatChange)
+        assertEquals(5L, (trainProposal.changes.single().payload as StatChange).delta.units)
+    }
+
+    @Test fun p18Hotfix20_duplicateKindRegistrationFailsClosed() {
+        failsEngine("DUPLICATE_COMMAND_RESOLUTION_COMPONENT") {
+            PlayerResolutionComponentRegistry.of(listOf(StatComponent(1), StatComponent(2)))
+        }
+    }
+
+    @Test fun p18Hotfix21_unsupportedCommandFailsClosed() {
+        failsEngine("UNKNOWN_COMMAND_RESOLUTION_COMPONENT") {
+            PlayerDomainEngine(PlayerResolutionComponentRegistry.empty()).resolve(train(), context())
+        }
+    }
+
+    @Test fun p18Hotfix22_projectFailureWithZeroProgressIsPreserved() {
+        val proposal = resolved(engine(ProjectComponent("FAILURE")).resolve(projectWork(), context()))
         val project = proposal.changes.single().payload as DevelopmentProjectChange
         assertEquals(0L, project.progressDelta.units)
         assertEquals("FAILURE", project.workResultKindUid)
     }
 
-    @Test fun p18Engine16_financialLedgerProposalSemanticsSurviveOrchestration() {
-        val proposal = engine(resolver(PlayerCommandKinds.TRANSFER_FUNDS, TransferFundsCommandPayload::class, ::financeProposal)).resolve(financeCommand())
+    @Test fun p18Hotfix23_exactLongDeltaZeroStillRejected() {
+        failsChangeSet("ZERO_DELTA") { ExactLongDelta.of(0) }
+        assertEquals(Long.MIN_VALUE, ExactLongDelta.of(Long.MIN_VALUE).units)
+        assertEquals(Long.MAX_VALUE, ExactLongDelta.of(Long.MAX_VALUE).units)
+    }
+
+    @Test fun p18Hotfix24_compositeConflictIdentityIsPreserved() {
+        val proposal = resolved(engine(CompositeStatComponent()).resolve(train(), compositeContext()))
+        assertEquals(2, proposal.changes.size)
+        PlayerChangeSetValidator.validate(proposal)
+    }
+
+    @Test fun p18Hotfix25_assetIdentityIsPreserved() {
+        val proposal = resolved(engine(AssetComponent()).resolve(assetCommand(), context()))
+        val asset = (proposal.changes.single().payload as AssetChange).asset
+        assertEquals("RPGOS-ASSET-KIND:PROPERTY:BUSINESS", asset.assetKindUid)
+        assertEquals("BUSINESS:A-1", asset.assetUid)
+    }
+
+    @Test fun p18Hotfix26_financialLedgerTermsArePreserved() {
+        val proposal = resolved(engine(FinanceComponent()).resolve(financeCommand(), context()))
         val change = proposal.changes.single().payload as FinancialChange
         val ledger = proposal.ledgerIntents.single().payload as FinancialTransferLedgerIntentPayload
         assertEquals(change.fromAccountUid, ledger.fromAccountUid)
@@ -204,200 +269,208 @@ class PlayerDomainEngineTest {
         assertEquals(change.transactionTypeUid, ledger.transactionTypeUid)
     }
 
-    @Test fun p18Engine17_fullAssetIdentitySurvivesOrchestration() {
-        val proposal = engine(resolver(PlayerCommandKinds.ACQUIRE_ASSET, AcquireAssetCommandPayload::class, ::assetProposal)).resolve(assetCommand())
-        val asset = (proposal.changes.single().payload as AssetChange).asset
-        assertEquals("RPGOS-ASSET-KIND:PROPERTY:BUSINESS", asset.assetKindUid)
-        assertEquals("BUSINESS:A-1", asset.assetUid)
-    }
-
-    @Test fun p18Engine18_compositeConflictIdentitySurvivesOrchestration() {
-        val command = train()
-        val engine = engine(resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) {
-            val a = PlayerDomainChange.create("CH-A", PlayerChangeKinds.STAT, StatChange(DomainRef("PLAYER", "X:Y"), "Z", ExactLongDelta.of(1)))
-            val b = PlayerDomainChange.create("CH-B", PlayerChangeKinds.STAT, StatChange(DomainRef("PLAYER", "X"), "Y:Z", ExactLongDelta.of(1)))
-            baseProposal(it, listOf(a, b))
-        })
-        val proposal = engine.resolve(command)
-        assertEquals(2, proposal.changes.size)
-        PlayerChangeSetValidator.validate(proposal)
-    }
-
-    @Test fun p18Engine19_phase3To16RepresentativeRegression() {
-        val command = train()
-        assertEquals(commandRegistry.encode(command), commandRegistry.encode(commandRegistry.decode(commandRegistry.encode(command))))
-        assertEquals(OWNERSHIP_SHARE_SCALE, OwnershipShare.full().units)
-        assertEquals(1L, ExactLongDelta.of(1).units)
-        assertEquals(0L, ProjectProgressDelta.of(0).units)
-    }
-
-    @Test fun p18Engine20_engineProposalSupportsCanonicalEncodeDecodeFingerprintPath() {
-        val proposal = engine(resolver(PlayerCommandKinds.RECORD_PROJECT_WORK, RecordProjectWorkCommandPayload::class) {
-            projectProposal(it, ProjectProgressDelta.of(0), "NO_PROGRESS")
-        }).resolve(projectWork())
+    @Test fun p18Hotfix27_canonicalSerializationClosure() {
+        val proposal = resolved(engine(ProjectComponent("NO_PROGRESS")).resolve(projectWork(), context()))
         val encoded = PlayerChangeSetCodec.encode(proposal)
         val decoded = PlayerChangeSetCodec.decode(encoded)
         assertEquals(proposal, decoded)
         assertEquals(encoded, PlayerChangeSetCodec.encode(decoded))
-        assertEquals(PlayerChangeSetCodec.fingerprint(proposal), PlayerChangeSetCodec.fingerprint(decoded))
     }
 
-    @Test fun p18Engine21_commandProposalLinkageFailsClosed() {
-        val engine = engine(resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) {
-            PlayerChangeSet.create(
-                changeSetUid = "CS-WRONG", campaignUid = "OTHER", sourceCommandUid = it.commandUid, actor = it.actor,
-                changes = listOf(PlayerDomainChange.create("CH", PlayerChangeKinds.STAT, StatChange(DomainRef("PLAYER", "P1"), "STAT:STR", ExactLongDelta.of(1)))),
-                provenance = provenance(it), causationUid = it.causationUid, correlationUid = it.correlationUid,
-                requestedEffectiveOrder = it.requestedEffectiveOrder, preconditions = mappedPreconditions(it)
-            )
-        })
-        failsEngine("CHANGESET_CAMPAIGN_MISMATCH") { engine.resolve(train()) }
+    @Test fun p18Hotfix28_fingerprintDeterminism() {
+        val engine = engine(StatComponent(3))
+        val a = resolved(engine.resolve(train(), context()))
+        val b = resolved(engine.resolve(train(), context()))
+        assertEquals(PlayerChangeSetCodec.fingerprint(a), PlayerChangeSetCodec.fingerprint(b))
     }
 
-    @Test fun p18Engine22_resolverPayloadMismatchFailsClosed() {
-        @Suppress("UNCHECKED_CAST")
-        val wrong = object : PlayerCommandResolver<LearnSkillCommandPayload> {
-            override val commandKindUid = PlayerCommandKinds.TRAIN
-            override val payloadType = LearnSkillCommandPayload::class
-            override fun resolve(command: PlayerCommand<LearnSkillCommandPayload>): PlayerChangeSet =
-                throw AssertionError("mismatched resolver must not execute")
+    @Test fun p18Hotfix29_phase17RepresentativeRegressionLock() {
+        assertEquals(commandRegistry.encode(train()), commandRegistry.encode(commandRegistry.decode(commandRegistry.encode(train()))))
+        assertEquals(OWNERSHIP_SHARE_SCALE, OwnershipShare.full().units)
+        assertEquals(0L, ProjectProgressDelta.of(0).units)
+        try {
+            ProjectProgressDelta.of(-1)
+            fail("negative project progress must fail")
+        } catch (_: PlayerChangeSetStructuralException) {
         }
-        failsEngine("COMMAND_RESOLVER_PAYLOAD_TYPE_MISMATCH") {
-            PlayerDomainEngine(PlayerCommandResolverRegistry.of(listOf(wrong))).resolve(train())
+        try {
+            OwnershipShare.full().copy(units = 0)
+            fail("ownership invariant must fail")
+        } catch (_: IllegalArgumentException) {
         }
     }
 
-    @Test fun p18Engine23_registryIsDefensivelyCopiedAndExternallyImmutable() {
-        val list = mutableListOf<PlayerCommandResolver<out PlayerCommandPayload>>(
-            resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) { statProposal(it, "CH", DomainRef("PLAYER", "P1"), "STAT:STR", 1) }
-        )
-        val registry = PlayerCommandResolverRegistry.of(list)
-        list.clear()
+    @Test fun p18Hotfix30_realIndependentAuthorityFixtureNeverChangesAcrossResolution() {
+        val db = authorityDb()
+        try {
+            val before = authorityValue(db)
+            resolved(engine(StatComponent(2)).resolve(train(), context()))
+            resolved(engine(ProjectComponent("FAILURE")).resolve(projectWork(), context()))
+            val rejected = engine(RejectingTrainComponent()).resolve(train(), context())
+            assertTrue(rejected is PlayerResolutionOutcome.Rejected)
+            assertEquals(before, authorityValue(db))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun componentPayloadTypeMismatchFailsBeforeExecution() {
+        failsEngine("COMMAND_RESOLUTION_COMPONENT_PAYLOAD_TYPE_MISMATCH") {
+            engine(WrongPayloadComponent()).resolve(train(), context())
+        }
+    }
+
+    @Test fun registryInputListAndKindSetAreDefensivelyImmutable() {
+        val components = mutableListOf<PlayerResolutionComponent<out PlayerCommandPayload>>(StatComponent(1))
+        val registry = PlayerResolutionComponentRegistry.of(components)
+        components.clear()
         assertTrue(PlayerCommandKinds.TRAIN in registry.commandKindUids)
         try {
             @Suppress("UNCHECKED_CAST")
             (registry.commandKindUids as MutableSet<String>).clear()
-            fail("expected immutable set")
+            fail("kind set must be immutable")
         } catch (_: UnsupportedOperationException) {
         }
     }
 
-    @Test fun p18Engine24_phase17ValueAndConflictRegressionsRemainEnforced() {
-        failsChangeSet("ZERO_DELTA") { ExactLongDelta.of(0) }
-        try { ProjectProgressDelta.of(-1); fail("expected negative project progress rejection") } catch (_: PlayerChangeSetStructuralException) {}
-        try { OwnershipShare.full().copy(units = 0); fail("expected ownership invariant") } catch (_: IllegalArgumentException) {}
-
-        val c = train()
-        val a = PlayerDomainChange.create("A", PlayerChangeKinds.STAT, StatChange(DomainRef("PLAYER", "P1"), "STAT:SAME", ExactLongDelta.of(1)))
-        val b = PlayerDomainChange.create("B", PlayerChangeKinds.STAT, StatChange(DomainRef("PLAYER", "P1"), "STAT:SAME", ExactLongDelta.of(2)))
-        failsChangeSet("CONFLICTING_CHANGE_TARGET") { baseProposal(c, listOf(a, b)) }
+    @Test fun exactCommandPayloadDrivesDraftWithoutLossyConversion() {
+        val proposal = resolved(engine(EffortTrainComponent()).resolve(train(), context()))
+        assertEquals(10L, (proposal.changes.single().payload as StatChange).delta.units)
     }
 
-    @Test fun p18Engine25_resolverReceivesExactCanonicalPayloadWithoutLoss() {
-        val command = projectWork(listOf(DomainRef("EVIDENCE", "A:B"), DomainRef("EVIDENCE", "C")))
-        var seen: RecordProjectWorkCommandPayload? = null
-        val engine = engine(resolver(PlayerCommandKinds.RECORD_PROJECT_WORK, RecordProjectWorkCommandPayload::class) {
-            seen = it.payload
-            projectProposal(it, ProjectProgressDelta.of(0), "NO_PROGRESS")
-        })
-        engine.resolve(command)
-        assertEquals(command.payload, seen)
-    }
-
-    @Test fun p18Engine26_semanticallyDifferentCommandInputCanProduceDifferentProposal() {
-        val engine = engine(resolver(PlayerCommandKinds.TRAIN, TrainCommandPayload::class) {
-            statProposal(it, "CH-INPUT", DomainRef("PLAYER", "P1"), "STAT:STR", it.payload.effortUnits)
-        })
-        val a = engine.resolve(train())
-        val b = engine.resolve(train().copy(payload = TrainCommandPayload(DomainRef("STAT", "STR"), 11, "METHOD")))
+    @Test fun semanticallyRelevantInputCanProduceDifferentProposal() {
+        val engine = engine(EffortTrainComponent())
+        val a = resolved(engine.resolve(train(), context()))
+        val b = resolved(engine.resolve(train().copy(payload = TrainCommandPayload(DomainRef("STAT", "STR"), 11, "METHOD")), context()))
         assertNotEquals(a, b)
+        assertEquals(10L, (a.changes.single().payload as StatChange).delta.units)
+        assertEquals(11L, (b.changes.single().payload as StatChange).delta.units)
+    }
+
+    @Test fun contextCampaignAndActorMismatchAreTypedRejections() {
+        val wrongCampaign = context(campaignUid = "OTHER")
+        val a = engine(StatComponent(1)).resolve(train(), wrongCampaign) as PlayerResolutionOutcome.Rejected
+        assertEquals(PlayerResolutionRejectionReason.CONTEXT_CAMPAIGN_MISMATCH, a.rejection.reason)
+
+        val wrongActor = PlayerResolutionContext.create(
+            campaignUid = "C1",
+            actor = CommandActorRef("PLAYER", "P2"),
+            knownReferences = baseRefs()
+        )
+        val b = engine(StatComponent(1)).resolve(train(), wrongActor) as PlayerResolutionOutcome.Rejected
+        assertEquals(PlayerResolutionRejectionReason.CONTEXT_ACTOR_MISMATCH, b.rejection.reason)
+    }
+
+    @Test fun unknownDraftTargetIsRejectedBeforePlayerChangeSetLeavesEngine() {
+        val result = engine(GhostOutputTrainComponent()).resolve(train(), context())
+        assertTrue(result is PlayerResolutionOutcome.Rejected)
+        assertEquals(PlayerResolutionRejectionReason.UNKNOWN_REFERENCE, (result as PlayerResolutionOutcome.Rejected).rejection.reason)
+    }
+
+    @Test fun engineOwnsCommandProposalLinkageAndProvenance() {
+        val proposal = resolved(engine(StatComponent(1)).resolve(train(), context()))
+        assertEquals("C1", proposal.campaignUid)
+        assertEquals("CMD-TRAIN", proposal.sourceCommandUid)
+        assertEquals(actor, proposal.actor)
+        assertEquals("CAUSE", proposal.causationUid)
+        assertEquals("CORR", proposal.correlationUid)
+        assertEquals(17L, proposal.requestedEffectiveOrder)
+        assertEquals("RPGOS-COMPONENT:STAT", proposal.provenance.resolverKindUid)
+        assertEquals("1", proposal.provenance.resolverVersion)
+        assertTrue(proposal.preconditions.contains(ChangeSetExpectedRecordVersion(DomainRef("PLAYER", "P1"), 3)))
+    }
+
+    @Test fun projectEvidenceListsRemainImmutableAcrossDraftAndProposal() {
+        val external = mutableListOf(DomainRef("EVIDENCE", "E1"))
+        val command = projectWork(external)
+        val proposal = resolved(engine(ProjectComponent("FAILURE")).resolve(command, context()))
+        external.clear()
+        val project = proposal.changes.single().payload as DevelopmentProjectChange
+        assertEquals(listOf(DomainRef("EVIDENCE", "E1")), project.evidenceRefs)
     }
 
     private fun train() = PlayerCommand(
-        commandUid = "CMD-TRAIN", campaignUid = "C1", actor = actor, commandKindUid = PlayerCommandKinds.TRAIN,
-        payload = TrainCommandPayload(DomainRef("STAT", "STR"), 10, "METHOD"), provenance = CommandProvenance("TEST"),
-        causationUid = "CAUSE", correlationUid = "CORR", requestedEffectiveOrder = 17,
+        commandUid = "CMD-TRAIN",
+        campaignUid = "C1",
+        actor = actor,
+        commandKindUid = PlayerCommandKinds.TRAIN,
+        payload = TrainCommandPayload(DomainRef("STAT", "STR"), 10, "METHOD"),
+        provenance = CommandProvenance("TEST"),
+        causationUid = "CAUSE",
+        correlationUid = "CORR",
+        requestedEffectiveOrder = 17,
         preconditions = listOf(ExpectedRecordVersion(DomainRef("PLAYER", "P1"), 3))
     )
 
     private fun financeCommand() = PlayerCommand(
-        commandUid = "CMD-FIN", campaignUid = "C1", actor = actor, commandKindUid = PlayerCommandKinds.TRANSFER_FUNDS,
-        payload = TransferFundsCommandPayload("ACCOUNT:A", "ACCOUNT:B", 125, "CUR:PLN"), provenance = CommandProvenance("TEST"),
-        causationUid = "CAUSE-F", correlationUid = "CORR-F", requestedEffectiveOrder = 18
+        commandUid = "CMD-FIN",
+        campaignUid = "C1",
+        actor = actor,
+        commandKindUid = PlayerCommandKinds.TRANSFER_FUNDS,
+        payload = TransferFundsCommandPayload("ACCOUNT:A", "ACCOUNT:B", 125, "CUR:PLN"),
+        provenance = CommandProvenance("TEST"),
+        causationUid = "CAUSE-F",
+        correlationUid = "CORR-F",
+        requestedEffectiveOrder = 18
     )
 
     private fun assetCommand() = PlayerCommand(
-        commandUid = "CMD-ASSET", campaignUid = "C1", actor = actor, commandKindUid = PlayerCommandKinds.ACQUIRE_ASSET,
-        payload = AcquireAssetCommandPayload("RPGOS-ASSET-KIND:PROPERTY:BUSINESS"), provenance = CommandProvenance("TEST")
+        commandUid = "CMD-ASSET",
+        campaignUid = "C1",
+        actor = actor,
+        commandKindUid = PlayerCommandKinds.ACQUIRE_ASSET,
+        payload = AcquireAssetCommandPayload("RPGOS-ASSET-KIND:PROPERTY:BUSINESS"),
+        provenance = CommandProvenance("TEST")
     )
 
     private fun projectWork(evidence: List<DomainRef> = listOf(DomainRef("EVIDENCE", "E1"))) = PlayerCommand(
-        commandUid = "CMD-PROJECT", campaignUid = "C1", actor = actor, commandKindUid = PlayerCommandKinds.RECORD_PROJECT_WORK,
-        payload = RecordProjectWorkCommandPayload("PROJECT:P1", "EXPERIMENT", 10, "METHOD", evidence), provenance = CommandProvenance("TEST"),
-        causationUid = "CAUSE-P", correlationUid = "CORR-P", requestedEffectiveOrder = 19
+        commandUid = "CMD-PROJECT",
+        campaignUid = "C1",
+        actor = actor,
+        commandKindUid = PlayerCommandKinds.RECORD_PROJECT_WORK,
+        payload = RecordProjectWorkCommandPayload("PROJECT:P1", "EXPERIMENT", 10, "METHOD", evidence),
+        provenance = CommandProvenance("TEST"),
+        causationUid = "CAUSE-P",
+        correlationUid = "CORR-P",
+        requestedEffectiveOrder = 19
     )
 
-    private fun statProposal(command: PlayerCommand<out PlayerCommandPayload>, uid: String, subject: DomainRef, statUid: String, units: Long): PlayerChangeSet =
-        baseProposal(command, listOf(PlayerDomainChange.create(uid, PlayerChangeKinds.STAT, StatChange(subject, statUid, ExactLongDelta.of(units)))))
-
-    private fun financeProposal(command: PlayerCommand<TransferFundsCommandPayload>): PlayerChangeSet {
-        val p = command.payload
-        val change = PlayerDomainChange.create("CH-FIN", PlayerChangeKinds.FINANCIAL, FinancialChange(p.fromAccountUid, p.toAccountUid, p.amountMinor, p.currencyUid, "TRANSFER"))
-        val ledger = PlayerLedgerIntent.create(
-            "LED-FIN", PlayerLedgerIntentKinds.FINANCIAL_TRANSFER, listOf(change.changeUid),
-            FinancialTransferLedgerIntentPayload(p.fromAccountUid, p.toAccountUid, p.amountMinor, p.currencyUid, "TRANSFER")
-        )
-        return baseProposal(command, listOf(change), listOf(ledger))
-    }
-
-    private fun assetProposal(command: PlayerCommand<AcquireAssetCommandPayload>): PlayerChangeSet {
-        val change = PlayerDomainChange.create(
-            "CH-ASSET", PlayerChangeKinds.ASSET,
-            AssetChange(OwnedAssetRef(command.payload.assetKindUid, "BUSINESS:A-1"), "PROPOSED")
-        )
-        return baseProposal(command, listOf(change))
-    }
-
-    private fun projectProposal(command: PlayerCommand<RecordProjectWorkCommandPayload>, delta: ProjectProgressDelta, result: String): PlayerChangeSet {
-        val change = PlayerDomainChange.create(
-            "CH-PROJECT", PlayerChangeKinds.DEVELOPMENT_PROJECT,
-            DevelopmentProjectChange.create(command.payload.projectUid, result, delta, command.payload.evidenceRefs)
-        )
-        return baseProposal(command, listOf(change))
-    }
-
-    private fun baseProposal(
-        command: PlayerCommand<out PlayerCommandPayload>,
-        changes: List<PlayerDomainChange>,
-        ledgers: List<PlayerLedgerIntent> = emptyList()
-    ): PlayerChangeSet = PlayerChangeSet.create(
-        changeSetUid = "CS-${command.commandUid}", campaignUid = command.campaignUid, sourceCommandUid = command.commandUid,
-        actor = command.actor, changes = changes, ledgerIntents = ledgers, preconditions = mappedPreconditions(command),
-        provenance = provenance(command), causationUid = command.causationUid, correlationUid = command.correlationUid,
-        requestedEffectiveOrder = command.requestedEffectiveOrder
+    private fun context(
+        campaignUid: String = "C1",
+        extraRefs: Set<CampaignScopedDomainRef> = emptySet(),
+        entropy: ResolutionEntropyEvidence = ResolutionEntropyEvidence.none()
+    ): PlayerResolutionContext = PlayerResolutionContext.create(
+        campaignUid = campaignUid,
+        actor = actor,
+        knownReferences = baseRefs() + extraRefs,
+        dependencyVersions = mapOf("RPGOS-DEPENDENCY:REFERENCE-SNAPSHOT" to "1"),
+        entropy = entropy
     )
 
-    private fun mappedPreconditions(command: PlayerCommand<out PlayerCommandPayload>): List<ChangeSetPrecondition> = command.preconditions.map {
-        when (it) {
-            is ExpectedRecordVersion -> ChangeSetExpectedRecordVersion(it.target, it.expectedVersion)
-            is ExpectedLifecycleState -> ChangeSetExpectedLifecycleState(it.target, it.expectedStateUid)
-        }
-    }
+    private fun compositeContext(): PlayerResolutionContext = context(extraRefs = setOf(
+        scoped("C1", "PLAYER", "X:Y"),
+        scoped("C1", "STAT", "Z"),
+        scoped("C1", "PLAYER", "X"),
+        scoped("C1", "STAT", "Y:Z")
+    ))
 
-    private fun provenance(command: PlayerCommand<out PlayerCommandPayload>) =
-        ChangeSetProvenance(command.commandUid, "RPGOS-RESOLVER:PHASE18-TEST", "1")
+    private fun baseRefs(): Set<CampaignScopedDomainRef> = setOf(
+        scoped("C1", "PLAYER", "P1"),
+        scoped("C1", "STAT", "STR"),
+        scoped("C1", "STAT", "STAT:STR"),
+        scoped("C1", "PROJECT", "PROJECT:P1"),
+        scoped("C1", "EVIDENCE", "E1")
+    )
 
-    private fun engine(vararg resolvers: PlayerCommandResolver<out PlayerCommandPayload>) =
-        PlayerDomainEngine(PlayerCommandResolverRegistry.of(resolvers.toList()))
+    private fun scoped(campaign: String, kind: String, uid: String) =
+        CampaignScopedDomainRef(campaign, DomainRef(kind, uid))
 
-    private fun <P : PlayerCommandPayload> resolver(
-        kind: String,
-        type: KClass<P>,
-        block: (PlayerCommand<P>) -> PlayerChangeSet
-    ): PlayerCommandResolver<P> = object : PlayerCommandResolver<P> {
-        override val commandKindUid = kind
-        override val payloadType = type
-        override fun resolve(command: PlayerCommand<P>): PlayerChangeSet = block(command)
+    private fun engine(vararg components: PlayerResolutionComponent<out PlayerCommandPayload>): PlayerDomainEngine =
+        PlayerDomainEngine(PlayerResolutionComponentRegistry.of(components.toList()))
+
+    private fun resolved(outcome: PlayerResolutionOutcome): PlayerChangeSet = when (outcome) {
+        is PlayerResolutionOutcome.Resolved -> outcome.proposal
+        is PlayerResolutionOutcome.Rejected -> fail("unexpected rejection ${outcome.rejection.reason}")
     }
 
     private fun authorityDb(): SQLiteDatabase = SQLiteDatabase.create(null).also { db ->
@@ -405,17 +478,222 @@ class PlayerDomainEngineTest {
         db.execSQL("INSERT INTO authority_fixture(uid,value) VALUES('A',7)")
     }
 
-    private fun authorityValue(db: SQLiteDatabase): Long = db.rawQuery("SELECT value FROM authority_fixture WHERE uid='A'", null).use {
-        assertTrue(it.moveToFirst()); it.getLong(0)
+    private fun authorityValue(db: SQLiteDatabase): Long = db.rawQuery(
+        "SELECT value FROM authority_fixture WHERE uid='A'",
+        null
+    ).use {
+        assertTrue(it.moveToFirst())
+        it.getLong(0)
     }
 
     private fun failsEngine(code: String, block: () -> Unit) {
-        try { block(); fail("expected PlayerDomainEngineStructuralException($code)") }
-        catch (e: PlayerDomainEngineStructuralException) { assertEquals(code, e.code) }
+        try {
+            block()
+            fail("expected PlayerDomainEngineStructuralException($code)")
+        } catch (e: PlayerDomainEngineStructuralException) {
+            assertEquals(code, e.code)
+        }
     }
 
     private fun failsChangeSet(code: String, block: () -> Unit) {
-        try { block(); fail("expected PlayerChangeSetStructuralException($code)") }
-        catch (e: PlayerChangeSetStructuralException) { assertEquals(code, e.code) }
+        try {
+            block()
+            fail("expected PlayerChangeSetStructuralException($code)")
+        } catch (e: PlayerChangeSetStructuralException) {
+            assertEquals(code, e.code)
+        }
+    }
+
+    private class StatComponent(private val delta: Long) : PlayerResolutionComponent<TrainCommandPayload>(
+        PlayerCommandKinds.TRAIN,
+        TrainCommandPayload::class,
+        "RPGOS-COMPONENT:STAT",
+        "1"
+    ) {
+        override fun resolve(command: PlayerCommand<TrainCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome =
+            resolvedDraft(statChange("CH-STAT", "P1", "STAT:STR", delta))
+    }
+
+    private class EffortTrainComponent : PlayerResolutionComponent<TrainCommandPayload>(
+        PlayerCommandKinds.TRAIN,
+        TrainCommandPayload::class,
+        "RPGOS-COMPONENT:EFFORT",
+        "1"
+    ) {
+        override fun resolve(command: PlayerCommand<TrainCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome =
+            resolvedDraft(statChange("CH-EFFORT", "P1", "STAT:STR", command.payload.effortUnits))
+    }
+
+    private class EntropyTrainComponent : PlayerResolutionComponent<TrainCommandPayload>(
+        PlayerCommandKinds.TRAIN,
+        TrainCommandPayload::class,
+        "RPGOS-COMPONENT:ENTROPY",
+        "1"
+    ) {
+        override fun resolve(command: PlayerCommand<TrainCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome =
+            resolvedDraft(statChange("CH-ENTROPY", "P1", "STAT:STR", context.entropy.exactValue))
+    }
+
+    private class RejectingTrainComponent : PlayerResolutionComponent<TrainCommandPayload>(
+        PlayerCommandKinds.TRAIN,
+        TrainCommandPayload::class,
+        "RPGOS-COMPONENT:REJECT",
+        "1"
+    ) {
+        override fun resolve(command: PlayerCommand<TrainCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome =
+            PlayerResolutionComponentOutcome.Rejected(
+                PlayerResolutionRejection.create(
+                    PlayerResolutionRejectionReason.DOMAIN_REJECTED,
+                    detailUid = "RPGOS-TEST:EXPECTED_REJECTION"
+                )
+            )
+    }
+
+    private class ThrowingTrainComponent : PlayerResolutionComponent<TrainCommandPayload>(
+        PlayerCommandKinds.TRAIN,
+        TrainCommandPayload::class,
+        "RPGOS-COMPONENT:THROW",
+        "1"
+    ) {
+        override fun resolve(command: PlayerCommand<TrainCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome =
+            throw IllegalStateException("test fault")
+    }
+
+    private class MutableTrainComponent(var delta: Long) : PlayerResolutionComponent<TrainCommandPayload>(
+        PlayerCommandKinds.TRAIN,
+        TrainCommandPayload::class,
+        "RPGOS-COMPONENT:MUTABLE",
+        "1"
+    ) {
+        override fun resolve(command: PlayerCommand<TrainCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome =
+            resolvedDraft(statChange("CH-MUT", "P1", "STAT:STR", delta))
+    }
+
+    private class DbCapturingTrainComponent(private val authority: SQLiteDatabase) : PlayerResolutionComponent<TrainCommandPayload>(
+        PlayerCommandKinds.TRAIN,
+        TrainCommandPayload::class,
+        "RPGOS-COMPONENT:DB",
+        "1"
+    ) {
+        override fun resolve(command: PlayerCommand<TrainCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome {
+            authority.execSQL("UPDATE authority_fixture SET value=99 WHERE uid='A'")
+            throw IllegalStateException("must never execute")
+        }
+    }
+
+    private class DuplicateDraftTrainComponent : PlayerResolutionComponent<TrainCommandPayload>(
+        PlayerCommandKinds.TRAIN,
+        TrainCommandPayload::class,
+        "RPGOS-COMPONENT:DUP",
+        "1"
+    ) {
+        override fun resolve(command: PlayerCommand<TrainCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome {
+            val change = statChange("CH-DUP", "P1", "STAT:STR", 1)
+            return PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(changes = listOf(change, change)))
+        }
+    }
+
+    private class GhostOutputTrainComponent : PlayerResolutionComponent<TrainCommandPayload>(
+        PlayerCommandKinds.TRAIN,
+        TrainCommandPayload::class,
+        "RPGOS-COMPONENT:GHOST",
+        "1"
+    ) {
+        override fun resolve(command: PlayerCommand<TrainCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome =
+            resolvedDraft(statChange("CH-GHOST", "GHOST-NOT-IN-CAMPAIGN", "STAT:STR", 1))
+    }
+
+    private class CompositeStatComponent : PlayerResolutionComponent<TrainCommandPayload>(
+        PlayerCommandKinds.TRAIN,
+        TrainCommandPayload::class,
+        "RPGOS-COMPONENT:COMPOSITE",
+        "1"
+    ) {
+        override fun resolve(command: PlayerCommand<TrainCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome =
+            PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(changes = listOf(
+                statChange("CH-A", "X:Y", "Z", 1),
+                statChange("CH-B", "X", "Y:Z", 1)
+            )))
+    }
+
+    private class ProjectComponent(private val resultKindUid: String) : PlayerResolutionComponent<RecordProjectWorkCommandPayload>(
+        PlayerCommandKinds.RECORD_PROJECT_WORK,
+        RecordProjectWorkCommandPayload::class,
+        "RPGOS-COMPONENT:PROJECT",
+        "1"
+    ) {
+        override fun resolve(command: PlayerCommand<RecordProjectWorkCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome {
+            val payload = DevelopmentProjectChange.create(
+                command.payload.projectUid,
+                resultKindUid,
+                ProjectProgressDelta.of(0),
+                command.payload.evidenceRefs
+            )
+            val change = PlayerDomainChange.create("CH-PROJECT", PlayerChangeKinds.DEVELOPMENT_PROJECT, payload)
+            return resolvedDraft(change)
+        }
+    }
+
+    private class FinanceComponent : PlayerResolutionComponent<TransferFundsCommandPayload>(
+        PlayerCommandKinds.TRANSFER_FUNDS,
+        TransferFundsCommandPayload::class,
+        "RPGOS-COMPONENT:FINANCE",
+        "1"
+    ) {
+        override fun resolve(command: PlayerCommand<TransferFundsCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome {
+            val p = command.payload
+            val change = PlayerDomainChange.create(
+                "CH-FIN",
+                PlayerChangeKinds.FINANCIAL,
+                FinancialChange(p.fromAccountUid, p.toAccountUid, p.amountMinor, p.currencyUid, "TRANSFER")
+            )
+            val ledger = PlayerLedgerIntent.create(
+                "LED-FIN",
+                PlayerLedgerIntentKinds.FINANCIAL_TRANSFER,
+                listOf(change.changeUid),
+                FinancialTransferLedgerIntentPayload(p.fromAccountUid, p.toAccountUid, p.amountMinor, p.currencyUid, "TRANSFER")
+            )
+            return PlayerResolutionComponentOutcome.Resolved(
+                PlayerResolutionDraft.create(changes = listOf(change), ledgerIntents = listOf(ledger))
+            )
+        }
+    }
+
+    private class AssetComponent : PlayerResolutionComponent<AcquireAssetCommandPayload>(
+        PlayerCommandKinds.ACQUIRE_ASSET,
+        AcquireAssetCommandPayload::class,
+        "RPGOS-COMPONENT:ASSET",
+        "1"
+    ) {
+        override fun resolve(command: PlayerCommand<AcquireAssetCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome {
+            val change = PlayerDomainChange.create(
+                "CH-ASSET",
+                PlayerChangeKinds.ASSET,
+                AssetChange(OwnedAssetRef(command.payload.assetKindUid, "BUSINESS:A-1"), "PROPOSED")
+            )
+            return resolvedDraft(change)
+        }
+    }
+
+    private class WrongPayloadComponent : PlayerResolutionComponent<LearnSkillCommandPayload>(
+        PlayerCommandKinds.TRAIN,
+        LearnSkillCommandPayload::class,
+        "RPGOS-COMPONENT:WRONG",
+        "1"
+    ) {
+        override fun resolve(command: PlayerCommand<LearnSkillCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome =
+            throw AssertionError("payload mismatch component must not execute")
+    }
+
+    companion object {
+        private fun statChange(uid: String, subjectUid: String, statUid: String, delta: Long): PlayerDomainChange =
+            PlayerDomainChange.create(
+                uid,
+                PlayerChangeKinds.STAT,
+                StatChange(DomainRef("PLAYER", subjectUid), statUid, ExactLongDelta.of(delta))
+            )
+
+        private fun resolvedDraft(change: PlayerDomainChange): PlayerResolutionComponentOutcome =
+            PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(changes = listOf(change)))
     }
 }
