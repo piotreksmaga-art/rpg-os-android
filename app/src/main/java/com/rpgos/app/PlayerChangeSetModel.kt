@@ -18,6 +18,10 @@ enum class ChangeIntentClassification {
 }
 
 data class ExactLongDelta private constructor(val units: Long) {
+    init {
+        if (units == 0L) throw PlayerChangeSetStructuralException("ZERO_DELTA")
+    }
+
     fun plus(other: ExactLongDelta): ExactLongDelta = of(Math.addExact(units, other.units))
 
     companion object {
