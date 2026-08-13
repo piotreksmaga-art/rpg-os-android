@@ -254,7 +254,7 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
         encode = { pcsObj("subject" to encodeChangeSetRef(it.subject), "statUid" to pcsJ(it.statUid), "deltaUnits" to pcsJ(it.delta.units)) },
         decode = { StatChange(decodeChangeSetRef(it.pcsReqObject("subject")), it.pcsReqString("statUid"), ExactLongDelta.of(it.pcsReqLong("deltaUnits"))) },
         validate = { refAndUidErrors(it.subject, it.statUid) },
-        conflicts = { setOf("STAT:${it.subject.kindUid}:${it.subject.uid}:${it.statUid}") }
+        conflicts = { setOf(compositeConflictKey("STAT", it.subject.kindUid, it.subject.uid, it.statUid)) }
     ),
     PlayerChangeKinds.RESOURCE to simpleCodec(
         ResourceChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
@@ -262,7 +262,7 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
         encode = { pcsObj("subject" to encodeChangeSetRef(it.subject), "resourceUid" to pcsJ(it.resourceUid), "deltaUnits" to pcsJ(it.delta.units)) },
         decode = { ResourceChange(decodeChangeSetRef(it.pcsReqObject("subject")), it.pcsReqString("resourceUid"), ExactLongDelta.of(it.pcsReqLong("deltaUnits"))) },
         validate = { refAndUidErrors(it.subject, it.resourceUid) },
-        conflicts = { setOf("RESOURCE:${it.subject.kindUid}:${it.subject.uid}:${it.resourceUid}") }
+        conflicts = { setOf(compositeConflictKey("RESOURCE", it.subject.kindUid, it.subject.uid, it.resourceUid)) }
     ),
     PlayerChangeKinds.SKILL to simpleCodec(
         SkillChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
@@ -270,7 +270,7 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
         encode = { pcsObj("subject" to encodeChangeSetRef(it.subject), "skillUid" to pcsJ(it.skillUid), "progressDeltaUnits" to pcsJ(it.progressDelta.units)) },
         decode = { SkillChange(decodeChangeSetRef(it.pcsReqObject("subject")), it.pcsReqString("skillUid"), ExactLongDelta.of(it.pcsReqLong("progressDeltaUnits"))) },
         validate = { refAndUidErrors(it.subject, it.skillUid) },
-        conflicts = { setOf("SKILL:${it.subject.kindUid}:${it.subject.uid}:${it.skillUid}") }
+        conflicts = { setOf(compositeConflictKey("SKILL", it.subject.kindUid, it.subject.uid, it.skillUid)) }
     ),
     PlayerChangeKinds.TECHNIQUE to simpleCodec(
         TechniqueChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
@@ -278,7 +278,7 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
         encode = { pcsObj("subject" to encodeChangeSetRef(it.subject), "techniqueUid" to pcsJ(it.techniqueUid), "progressDeltaUnits" to pcsJ(it.progressDelta.units)) },
         decode = { TechniqueChange(decodeChangeSetRef(it.pcsReqObject("subject")), it.pcsReqString("techniqueUid"), ExactLongDelta.of(it.pcsReqLong("progressDeltaUnits"))) },
         validate = { refAndUidErrors(it.subject, it.techniqueUid) },
-        conflicts = { setOf("TECHNIQUE:${it.subject.kindUid}:${it.subject.uid}:${it.techniqueUid}") }
+        conflicts = { setOf(compositeConflictKey("TECHNIQUE", it.subject.kindUid, it.subject.uid, it.techniqueUid)) }
     ),
     PlayerChangeKinds.INNATE to simpleCodec(
         InnateChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
@@ -286,7 +286,7 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
         encode = { pcsObj("subject" to encodeChangeSetRef(it.subject), "innateUid" to pcsJ(it.innateUid), "proposedStateUid" to pcsJ(it.proposedStateUid)) },
         decode = { InnateChange(decodeChangeSetRef(it.pcsReqObject("subject")), it.pcsReqString("innateUid"), it.pcsReqString("proposedStateUid")) },
         validate = { refAndUidErrors(it.subject, it.innateUid) + blankError(it.proposedStateUid) },
-        conflicts = { setOf("INNATE:${it.subject.kindUid}:${it.subject.uid}:${it.innateUid}") }
+        conflicts = { setOf(compositeConflictKey("INNATE", it.subject.kindUid, it.subject.uid, it.innateUid)) }
     ),
     PlayerChangeKinds.INVENTORY to simpleCodec(
         InventoryChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
@@ -294,7 +294,7 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
         encode = { pcsObj("subject" to encodeChangeSetRef(it.subject), "itemInstanceUid" to pcsJ(it.itemInstanceUid), "quantityDeltaUnits" to pcsJ(it.quantityDelta.units)) },
         decode = { InventoryChange(decodeChangeSetRef(it.pcsReqObject("subject")), it.pcsReqString("itemInstanceUid"), ExactLongDelta.of(it.pcsReqLong("quantityDeltaUnits"))) },
         validate = { refAndUidErrors(it.subject, it.itemInstanceUid) },
-        conflicts = { setOf("INVENTORY:${it.subject.kindUid}:${it.subject.uid}:${it.itemInstanceUid}") }
+        conflicts = { setOf(compositeConflictKey("INVENTORY", it.subject.kindUid, it.subject.uid, it.itemInstanceUid)) }
     ),
     PlayerChangeKinds.EQUIPMENT to simpleCodec(
         EquipmentChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
@@ -311,7 +311,7 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
                 if (it.operation == EquipmentOperation.UNEQUIP && it.itemInstanceUid != null) add("INVALID_EQUIPMENT_CHANGE")
             }
         },
-        conflicts = { setOf("EQUIPMENT:${it.subject.kindUid}:${it.subject.uid}:${it.slotUid}") }
+        conflicts = { setOf(compositeConflictKey("EQUIPMENT", it.subject.kindUid, it.subject.uid, it.slotUid)) }
     ),
     PlayerChangeKinds.FINANCIAL to simpleCodec(
         FinancialChange::class, ChangeIntentClassification.LEDGER_APPEND_INTENT,
@@ -335,7 +335,7 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
                 if (it.proposedLifecycleStateUid.isBlank()) add("INVALID_ASSET_CHANGE")
             }
         },
-        conflicts = { setOf(assetConflictKey(it.asset)) }
+        conflicts = { setOf(compositeConflictKey("ASSET", it.asset.assetKindUid, it.asset.assetUid)) }
     ),
     PlayerChangeKinds.OWNERSHIP to simpleCodec(
         OwnershipChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
@@ -350,7 +350,7 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
                 if (it.toOwner.ownerKindUid.isBlank() || it.toOwner.ownerUid.isBlank() || it.fromOwner == it.toOwner) add("INVALID_OWNERSHIP_CHANGE")
             }
         },
-        conflicts = { setOf("OWNERSHIP:${it.ownershipRecordUid}", "OWNED_ASSET:${it.asset.assetKindUid}:${it.asset.assetUid}") }
+        conflicts = { setOf("OWNERSHIP:${it.ownershipRecordUid}", compositeConflictKey("OWNED_ASSET", it.asset.assetKindUid, it.asset.assetUid)) }
     ),
     PlayerChangeKinds.CONDITION to simpleCodec(
         ConditionChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
@@ -358,7 +358,7 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
         encode = { pcsObj("subject" to encodeChangeSetRef(it.subject), "conditionUid" to pcsJ(it.conditionUid), "operation" to pcsJ(it.operation.name)) },
         decode = { ConditionChange(decodeChangeSetRef(it.pcsReqObject("subject")), it.pcsReqString("conditionUid"), enumValue(it.pcsReqString("operation"), "INVALID_CONDITION_OPERATION")) },
         validate = { refAndUidErrors(it.subject, it.conditionUid) },
-        conflicts = { setOf("CONDITION:${it.subject.kindUid}:${it.subject.uid}:${it.conditionUid}") }
+        conflicts = { setOf(compositeConflictKey("CONDITION", it.subject.kindUid, it.subject.uid, it.conditionUid)) }
     ),
     PlayerChangeKinds.RUNTIME to simpleCodec(
         RuntimeChange::class, ChangeIntentClassification.RUNTIME_MUTATION_INTENT,
@@ -366,7 +366,7 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
         encode = { pcsObj("subject" to encodeChangeSetRef(it.subject), "runtimeCounterUid" to pcsJ(it.runtimeCounterUid), "deltaUnits" to pcsJ(it.delta.units)) },
         decode = { RuntimeChange(decodeChangeSetRef(it.pcsReqObject("subject")), it.pcsReqString("runtimeCounterUid"), ExactLongDelta.of(it.pcsReqLong("deltaUnits"))) },
         validate = { refAndUidErrors(it.subject, it.runtimeCounterUid) },
-        conflicts = { setOf("RUNTIME:${it.subject.kindUid}:${it.subject.uid}:${it.runtimeCounterUid}") }
+        conflicts = { setOf(compositeConflictKey("RUNTIME", it.subject.kindUid, it.subject.uid, it.runtimeCounterUid)) }
     ),
     PlayerChangeKinds.DEVELOPMENT_PROJECT to simpleCodec(
         DevelopmentProjectChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
@@ -567,11 +567,25 @@ private fun refAndUidErrors(ref: DomainRef, uid: String): List<String> = buildLi
 
 private fun blankError(value: String): List<String> = if (value.isBlank()) listOf("INVALID_TARGET_UID") else emptyList()
 
-private fun assetConflictKey(asset: OwnedAssetRef): String {
-    if (':' !in asset.assetUid) return "ASSET:${asset.assetKindUid}:${asset.assetUid}"
-    val kind = asset.assetKindUid
-    val uid = asset.assetUid
-    return "ASSET|${kind.length}:$kind|${uid.length}:$uid"
+private fun compositeConflictKey(discriminator: String, vararg components: String): String {
+    if (components.drop(1).all { ':' !in it }) {
+        return "$discriminator:${components.joinToString(":")}" 
+    }
+    return buildString {
+        append("CK1|")
+        append(discriminator.length)
+        append(':')
+        append(discriminator)
+        append('|')
+        append(components.size)
+        append('|')
+        components.forEach { component ->
+            append(component.length)
+            append(':')
+            append(component)
+            append('|')
+        }
+    }
 }
 
 private fun validateFinancialTerms(
