@@ -119,7 +119,7 @@ data class RuntimeChange(
 class DevelopmentProjectChange private constructor(
     val projectUid: String,
     val workResultKindUid: String,
-    val progressDelta: ExactLongDelta,
+    val progressDelta: ProjectProgressDelta,
     evidenceRefs: List<DomainRef>
 ) : PlayerDomainChangePayload {
     val evidenceRefs: List<DomainRef> = immutableList(evidenceRefs)
@@ -136,7 +136,7 @@ class DevelopmentProjectChange private constructor(
         fun create(
             projectUid: String,
             workResultKindUid: String,
-            progressDelta: ExactLongDelta,
+            progressDelta: ProjectProgressDelta,
             evidenceRefs: List<DomainRef> = emptyList()
         ): DevelopmentProjectChange = DevelopmentProjectChange(projectUid, workResultKindUid, progressDelta, evidenceRefs)
     }
