@@ -1,4 +1,0 @@
-PATCH
-REMOVE: add(DomainRef("EQUIPMENT_SLOT", payload.slotUid))
-REPLACE: is OwnershipChange -> Unit
-WITH: asset/fromOwner/toOwner full kind+uid DomainRef extraction
