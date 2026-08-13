@@ -262,6 +262,7 @@ class PlayerDomainEngine internal constructor(
             return rejected(
                 PlayerResolutionRejection.create(PlayerResolutionRejectionReason.CONTEXT_CAMPAIGN_MISMATCH),
                 contextFingerprint,
+                context,
                 null
             )
         }
@@ -269,12 +270,13 @@ class PlayerDomainEngine internal constructor(
             return rejected(
                 PlayerResolutionRejection.create(PlayerResolutionRejectionReason.CONTEXT_ACTOR_MISMATCH),
                 contextFingerprint,
+                context,
                 null
             )
         }
 
         validateReferences(context, commandReferences(canonicalCommand))?.let {
-            return rejected(it, contextFingerprint, null)
+            return rejected(it, contextFingerprint, context, null)
         }
 
         val component = componentRegistry.componentFor(canonicalCommand.commandKindUid)
@@ -363,12 +365,13 @@ class PlayerDomainEngine internal constructor(
     private fun rejected(
         rejection: PlayerResolutionRejection,
         contextFingerprint: String,
+        context: PlayerResolutionContext,
         component: PlayerResolutionComponent<out PlayerCommandPayload>?
     ): PlayerResolutionOutcome.Rejected = PlayerResolutionOutcome.Rejected(
         rejection,
         PlayerResolutionEvidence(
             contextFingerprint = contextFingerprint,
-            entropy = ResolutionEntropyEvidence.none(),
+            entropy = context.entropy,
             componentKindUid = component?.componentKindUid,
             componentVersion = component?.componentVersion
         )
@@ -377,7 +380,7 @@ class PlayerDomainEngine internal constructor(
     private fun fail(code: String): Nothing = throw PlayerDomainEngineStructuralException(code)
 }
 
-private enum class ResolutionReferenceStatus { RESOLVED, UNKNOWN, WRONG_CAMPAIGN }
+internal enum class ResolutionReferenceStatus { RESOLVED, UNKNOWN, WRONG_CAMPAIGN }
 
 private fun validateReferences(
     context: PlayerResolutionContext,
