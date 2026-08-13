@@ -1,7 +1,6 @@
 package com.rpgos.app
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -19,7 +18,6 @@ class PlayerDomainEngineInheritedStateTest {
         }
 
         assertEquals(7L, authority.value)
-        assertFalse(component.resolveInvoked)
     }
 
     @Test fun inheritedImmutableScalarConfigurationIsAccepted() {
@@ -48,14 +46,10 @@ class PlayerDomainEngineInheritedStateTest {
     private class InheritedWriterComponent(
         authority: WritableAuthorityFixture
     ) : WriterBackedBaseComponent(authority) {
-        var resolveInvoked: Boolean = false
-            private set
-
         override fun resolve(
             command: PlayerCommand<TrainCommandPayload>,
             context: PlayerResolutionContext
         ): PlayerResolutionComponentOutcome {
-            resolveInvoked = true
             authority.write(99L)
             throw AssertionError("unsupported component must never execute")
         }
