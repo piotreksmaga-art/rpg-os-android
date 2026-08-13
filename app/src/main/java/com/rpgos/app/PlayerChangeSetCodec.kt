@@ -372,7 +372,7 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
         DevelopmentProjectChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
         setOf("projectUid", "workResultKindUid", "progressDeltaUnits", "evidenceRefs"),
         encode = { pcsObj("projectUid" to pcsJ(it.projectUid), "workResultKindUid" to pcsJ(it.workResultKindUid), "progressDeltaUnits" to pcsJ(it.progressDelta.units), "evidenceRefs" to JsonArray(it.evidenceRefs.map(::encodeChangeSetRef))) },
-        decode = { DevelopmentProjectChange.create(it.pcsReqString("projectUid"), it.pcsReqString("workResultKindUid"), ExactLongDelta.of(it.pcsReqLong("progressDeltaUnits")), it.pcsReqArray("evidenceRefs").map { e -> decodeChangeSetRef(e.jsonObject) }) },
+        decode = { DevelopmentProjectChange.create(it.pcsReqString("projectUid"), it.pcsReqString("workResultKindUid"), ProjectProgressDelta.of(it.pcsReqLong("progressDeltaUnits")), it.pcsReqArray("evidenceRefs").map { e -> decodeChangeSetRef(e.jsonObject) }) },
         validate = { blankError(it.projectUid) + blankError(it.workResultKindUid) + if (it.evidenceRefs.any { ref -> !validRef(ref) }) listOf("INVALID_PROJECT_EVIDENCE_REF") else emptyList() },
         conflicts = { setOf("PROJECT:${it.projectUid}") }
     )
