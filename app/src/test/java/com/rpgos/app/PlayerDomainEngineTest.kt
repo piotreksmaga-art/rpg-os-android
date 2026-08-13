@@ -259,7 +259,8 @@ class PlayerDomainEngineTest {
         val wrong = object : PlayerCommandResolver<LearnSkillCommandPayload> {
             override val commandKindUid = PlayerCommandKinds.TRAIN
             override val payloadType = LearnSkillCommandPayload::class
-            override fun resolve(command: PlayerCommand<LearnSkillCommandPayload>): PlayerChangeSet = fail("must not execute")
+            override fun resolve(command: PlayerCommand<LearnSkillCommandPayload>): PlayerChangeSet =
+                throw AssertionError("mismatched resolver must not execute")
         }
         failsEngine("COMMAND_RESOLVER_PAYLOAD_TYPE_MISMATCH") {
             PlayerDomainEngine(PlayerCommandResolverRegistry.of(listOf(wrong))).resolve(train())
