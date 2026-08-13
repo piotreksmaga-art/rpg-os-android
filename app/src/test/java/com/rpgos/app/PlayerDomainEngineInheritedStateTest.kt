@@ -2,6 +2,7 @@ package com.rpgos.app
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -19,6 +20,11 @@ class PlayerDomainEngineInheritedStateTest {
 
         assertEquals(7L, authority.value)
         assertFalse(component.resolveInvoked)
+    }
+
+    @Test fun inheritedImmutableScalarConfigurationIsAccepted() {
+        val registry = PlayerResolutionComponentRegistry.of(listOf(InheritedImmutableConfigComponent(3L)))
+        assertTrue(PlayerCommandKinds.TRAIN in registry.commandKindUids)
     }
 
     private class WritableAuthorityFixture(initialValue: Long) {
@@ -53,5 +59,24 @@ class PlayerDomainEngineInheritedStateTest {
             authority.write(99L)
             throw AssertionError("unsupported component must never execute")
         }
+    }
+
+    private abstract class ImmutableConfigBaseComponent(
+        protected val configuredDelta: Long
+    ) : PlayerResolutionComponent<TrainCommandPayload>(
+        PlayerCommandKinds.TRAIN,
+        TrainCommandPayload::class,
+        "RPGOS-COMPONENT:INHERITED-IMMUTABLE",
+        "1"
+    )
+
+    private class InheritedImmutableConfigComponent(
+        configuredDelta: Long
+    ) : ImmutableConfigBaseComponent(configuredDelta) {
+        override fun resolve(
+            command: PlayerCommand<TrainCommandPayload>,
+            context: PlayerResolutionContext
+        ): PlayerResolutionComponentOutcome =
+            PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create())
     }
 }
