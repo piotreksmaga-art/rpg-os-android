@@ -31,10 +31,7 @@ data class ResolutionEntropyEvidence(
     val evidenceUid: String,
     val exactValue: Long
 ) {
-    init {
-        require(evidenceUid.isNotBlank())
-    }
-
+    init { require(evidenceUid.isNotBlank()) }
     companion object {
         fun none(): ResolutionEntropyEvidence = ResolutionEntropyEvidence("RPGOS-ENTROPY:NONE", 0L)
     }
@@ -45,7 +42,8 @@ class PlayerResolutionContext private constructor(
     val actor: CommandActorRef,
     knownReferences: Set<CampaignScopedDomainRef>,
     dependencyVersions: Map<String, String>,
-    val entropy: ResolutionEntropyEvidence
+    val entropy: ResolutionEntropyEvidence,
+    val worldPackBinding: WorldPackRuleBinding?
 ) {
     val knownReferences: Set<CampaignScopedDomainRef> =
         Collections.unmodifiableSet(LinkedHashSet(knownReferences))
@@ -86,6 +84,8 @@ class PlayerResolutionContext private constructor(
             }
             appendToken(entropy.evidenceUid)
             appendToken(entropy.exactValue.toString())
+            appendToken(worldPackBinding?.worldPackUid ?: "RPGOS-WORLD-PACK:NONE")
+            appendToken(worldPackBinding?.worldPackVersion ?: "RPGOS-WORLD-PACK-VERSION:NONE")
         }
     )
 
@@ -95,13 +95,15 @@ class PlayerResolutionContext private constructor(
             actor: CommandActorRef,
             knownReferences: Set<CampaignScopedDomainRef>,
             dependencyVersions: Map<String, String> = emptyMap(),
-            entropy: ResolutionEntropyEvidence = ResolutionEntropyEvidence.none()
+            entropy: ResolutionEntropyEvidence = ResolutionEntropyEvidence.none(),
+            worldPackBinding: WorldPackRuleBinding? = null
         ): PlayerResolutionContext = PlayerResolutionContext(
             campaignUid,
             actor,
             LinkedHashSet(knownReferences),
             TreeMap(dependencyVersions),
-            entropy
+            entropy,
+            worldPackBinding
         )
     }
 }
@@ -111,7 +113,8 @@ enum class PlayerResolutionRejectionReason(val reasonUid: String) {
     CONTEXT_CAMPAIGN_MISMATCH("RPGOS-RESOLUTION-REJECTION:CONTEXT_CAMPAIGN_MISMATCH"),
     CONTEXT_ACTOR_MISMATCH("RPGOS-RESOLUTION-REJECTION:CONTEXT_ACTOR_MISMATCH"),
     UNKNOWN_REFERENCE("RPGOS-RESOLUTION-REJECTION:UNKNOWN_REFERENCE"),
-    WRONG_CAMPAIGN_REFERENCE("RPGOS-RESOLUTION-REJECTION:WRONG_CAMPAIGN_REFERENCE")
+    WRONG_CAMPAIGN_REFERENCE("RPGOS-RESOLUTION-REJECTION:WRONG_CAMPAIGN_REFERENCE"),
+    WORLD_RULE_REJECTED("RPGOS-RESOLUTION-REJECTION:WORLD_RULE_REJECTED")
 }
 
 class PlayerResolutionRejection private constructor(
@@ -123,7 +126,6 @@ class PlayerResolutionRejection private constructor(
 
     override fun equals(other: Any?): Boolean = other is PlayerResolutionRejection &&
         reason == other.reason && relatedRefs == other.relatedRefs && detailUid == other.detailUid
-
     override fun hashCode(): Int = arrayOf(reason, relatedRefs, detailUid).contentHashCode()
 
     companion object {
@@ -138,23 +140,27 @@ class PlayerResolutionRejection private constructor(
     }
 }
 
-data class PlayerResolutionEvidence(
+class PlayerResolutionEvidence(
     val contextFingerprint: String,
     val entropy: ResolutionEntropyEvidence,
     val componentKindUid: String?,
-    val componentVersion: String?
-)
+    val componentVersion: String?,
+    worldRuleDecisions: List<WorldRuleDecisionRecord> = emptyList()
+) {
+    val worldRuleDecisions: List<WorldRuleDecisionRecord> = immutableList(worldRuleDecisions)
+
+    override fun equals(other: Any?): Boolean = other is PlayerResolutionEvidence &&
+        contextFingerprint == other.contextFingerprint && entropy == other.entropy &&
+        componentKindUid == other.componentKindUid && componentVersion == other.componentVersion &&
+        worldRuleDecisions == other.worldRuleDecisions
+    override fun hashCode(): Int = arrayOf(
+        contextFingerprint, entropy, componentKindUid, componentVersion, worldRuleDecisions
+    ).contentHashCode()
+}
 
 sealed interface PlayerResolutionOutcome {
-    data class Resolved(
-        val proposal: PlayerChangeSet,
-        val evidence: PlayerResolutionEvidence
-    ) : PlayerResolutionOutcome
-
-    data class Rejected(
-        val rejection: PlayerResolutionRejection,
-        val evidence: PlayerResolutionEvidence
-    ) : PlayerResolutionOutcome
+    data class Resolved(val proposal: PlayerChangeSet, val evidence: PlayerResolutionEvidence) : PlayerResolutionOutcome
+    data class Rejected(val rejection: PlayerResolutionRejection, val evidence: PlayerResolutionEvidence) : PlayerResolutionOutcome
 }
 
 internal class PlayerResolutionDraft private constructor(
@@ -174,12 +180,7 @@ internal class PlayerResolutionDraft private constructor(
             eventIntents: List<PlayerEventIntent> = emptyList(),
             ledgerIntents: List<PlayerLedgerIntent> = emptyList(),
             warnings: List<ChangeSetWarning> = emptyList()
-        ): PlayerResolutionDraft = PlayerResolutionDraft(
-            changes,
-            eventIntents,
-            ledgerIntents,
-            warnings
-        )
+        ): PlayerResolutionDraft = PlayerResolutionDraft(changes, eventIntents, ledgerIntents, warnings)
     }
 }
 
@@ -188,11 +189,7 @@ internal sealed interface PlayerResolutionComponentOutcome {
     data class Rejected(val rejection: PlayerResolutionRejection) : PlayerResolutionComponentOutcome
 }
 
-/**
- * Trusted internal Core extension point. Phase 18 constrains injected and retained capabilities/state;
- * canonical supported APIs expose only deterministic read-only context. Arbitrary malicious JVM
- * process-global/static code is outside this architectural contract and is not treated as a sandbox target.
- */
+/** Trusted internal Core extension point with read-only deterministic context only. */
 internal abstract class PlayerResolutionComponent<P : PlayerCommandPayload>(
     val commandKindUid: String,
     val payloadType: KClass<P>,
@@ -227,35 +224,13 @@ internal class PlayerResolutionComponentRegistry private constructor(
         commandKindUids = Collections.unmodifiableSet(LinkedHashSet(collected.keys))
     }
 
-    fun componentFor(commandKindUid: String): PlayerResolutionComponent<out PlayerCommandPayload>? =
-        byKind[commandKindUid]
+    fun componentFor(commandKindUid: String): PlayerResolutionComponent<out PlayerCommandPayload>? = byKind[commandKindUid]
 
     companion object {
         fun of(components: List<PlayerResolutionComponent<out PlayerCommandPayload>>): PlayerResolutionComponentRegistry =
             PlayerResolutionComponentRegistry(ArrayList(components))
-
         fun empty(): PlayerResolutionComponentRegistry = PlayerResolutionComponentRegistry(emptyList())
     }
-
-    private fun validateComponentState(component: PlayerResolutionComponent<out PlayerCommandPayload>) {
-        component.javaClass.declaredFields
-            .filterNot { Modifier.isStatic(it.modifiers) }
-            .forEach { field ->
-                if (!Modifier.isFinal(field.modifiers)) fail("MUTABLE_RESOLUTION_COMPONENT_STATE")
-                if (!safeComponentFieldType(field.type)) fail("UNSAFE_RESOLUTION_COMPONENT_STATE")
-            }
-    }
-
-    private fun safeComponentFieldType(type: Class<*>): Boolean =
-        type.isPrimitive ||
-            type == java.lang.Long::class.java ||
-            type == java.lang.Integer::class.java ||
-            type == java.lang.Boolean::class.java ||
-            type == java.lang.Short::class.java ||
-            type == java.lang.Byte::class.java ||
-            type == java.lang.Character::class.java ||
-            type == String::class.java ||
-            type.isEnum
 
     private fun fail(code: String): Nothing = throw PlayerDomainEngineStructuralException(code)
 }
@@ -263,7 +238,8 @@ internal class PlayerResolutionComponentRegistry private constructor(
 class PlayerDomainEngine internal constructor(
     private val componentRegistry: PlayerResolutionComponentRegistry,
     private val commandRegistry: PlayerCommandKindRegistry = PlayerCommandKindRegistry.core(),
-    private val changeRegistry: TypedPlayerChangeRegistry = TypedPlayerChangeRegistry.core()
+    private val changeRegistry: TypedPlayerChangeRegistry = TypedPlayerChangeRegistry.core(),
+    private val worldRuleRegistry: WorldRuleProviderRegistry = WorldRuleProviderRegistry.empty()
 ) {
     fun resolve(
         command: PlayerCommand<out PlayerCommandPayload>,
@@ -273,26 +249,43 @@ class PlayerDomainEngine internal constructor(
         val canonicalCommand = commandRegistry.decode(commandRegistry.encode(command))
         val commandFingerprint = commandRegistry.fingerprint(canonicalCommand)
         val contextFingerprint = context.deterministicFingerprint()
+        val ruleTrace = ArrayList<WorldRuleDecisionRecord>()
 
         if (context.campaignUid != canonicalCommand.campaignUid) {
             return rejected(
                 PlayerResolutionRejection.create(PlayerResolutionRejectionReason.CONTEXT_CAMPAIGN_MISMATCH),
-                contextFingerprint,
-                context,
-                null
+                contextFingerprint, context, null, ruleTrace
             )
         }
         if (context.actor != canonicalCommand.actor) {
             return rejected(
                 PlayerResolutionRejection.create(PlayerResolutionRejectionReason.CONTEXT_ACTOR_MISMATCH),
-                contextFingerprint,
-                context,
-                null
+                contextFingerprint, context, null, ruleTrace
             )
         }
 
         validateReferences(context, commandReferences(canonicalCommand))?.let {
-            return rejected(it, contextFingerprint, context, null)
+            return rejected(it, contextFingerprint, context, null, ruleTrace)
+        }
+
+        evaluateWorldRules(
+            stage = WorldRuleEvaluationStage.COMMAND_PRECHECK,
+            canonicalCommand = canonicalCommand,
+            commandFingerprint = commandFingerprint,
+            context = context,
+            contextFingerprint = contextFingerprint,
+            effects = null
+        )?.let { evaluation ->
+            ruleTrace += evaluation.record
+            if (!evaluation.record.allowed) {
+                return rejected(
+                    PlayerResolutionRejection.create(
+                        PlayerResolutionRejectionReason.WORLD_RULE_REJECTED,
+                        detailUid = evaluation.record.reasonUid
+                    ),
+                    contextFingerprint, context, null, ruleTrace
+                )
+            }
         }
 
         val component = componentRegistry.componentFor(canonicalCommand.commandKindUid)
@@ -310,32 +303,109 @@ class PlayerDomainEngine internal constructor(
             fail("COMMAND_MUTATED_DURING_RESOLUTION")
         }
 
-        val evidence = evidence(contextFingerprint, context, component)
         return when (outcome) {
             is PlayerResolutionComponentOutcome.Rejected ->
-                PlayerResolutionOutcome.Rejected(outcome.rejection, evidence)
+                PlayerResolutionOutcome.Rejected(
+                    outcome.rejection,
+                    evidence(contextFingerprint, context, component, ruleTrace)
+                )
 
             is PlayerResolutionComponentOutcome.Resolved -> {
                 validateReferences(context, draftReferences(outcome.draft))?.let {
-                    return PlayerResolutionOutcome.Rejected(it, evidence)
+                    return PlayerResolutionOutcome.Rejected(
+                        it,
+                        evidence(contextFingerprint, context, component, ruleTrace)
+                    )
                 }
+
+                val effectSnapshot = WorldRuleEffectSnapshot.create(outcome.draft)
+                evaluateWorldRules(
+                    stage = WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK,
+                    canonicalCommand = canonicalCommand,
+                    commandFingerprint = commandFingerprint,
+                    context = context,
+                    contextFingerprint = contextFingerprint,
+                    effects = effectSnapshot
+                )?.let { evaluation ->
+                    ruleTrace += evaluation.record
+                    if (!evaluation.record.allowed) {
+                        return PlayerResolutionOutcome.Rejected(
+                            PlayerResolutionRejection.create(
+                                PlayerResolutionRejectionReason.WORLD_RULE_REJECTED,
+                                detailUid = evaluation.record.reasonUid
+                            ),
+                            evidence(contextFingerprint, context, component, ruleTrace)
+                        )
+                    }
+                }
+
                 val proposal = assembleProposal(
                     canonicalCommand,
                     contextFingerprint,
                     component,
-                    outcome.draft
+                    outcome.draft,
+                    ruleTrace
                 )
                 PlayerChangeSetValidator.validate(proposal, changeRegistry)
-                PlayerResolutionOutcome.Resolved(proposal, evidence)
+                PlayerResolutionOutcome.Resolved(
+                    proposal,
+                    evidence(contextFingerprint, context, component, ruleTrace)
+                )
             }
         }
+    }
+
+    private fun evaluateWorldRules(
+        stage: WorldRuleEvaluationStage,
+        canonicalCommand: PlayerCommand<out PlayerCommandPayload>,
+        commandFingerprint: String,
+        context: PlayerResolutionContext,
+        contextFingerprint: String,
+        effects: WorldRuleEffectSnapshot?
+    ): WorldRuleEvaluation? {
+        val binding = context.worldPackBinding ?: return null
+        val provider = worldRuleRegistry.providerFor(binding)
+            ?: fail("WORLD_RULE_PROVIDER_MISSING")
+        val providerCommand = commandRegistry.decode(commandRegistry.encode(canonicalCommand))
+        val request = when (stage) {
+            WorldRuleEvaluationStage.COMMAND_PRECHECK -> WorldRuleRequest.commandPrecheck(
+                binding, context.campaignUid, context.actor, providerCommand,
+                commandFingerprint, contextFingerprint
+            )
+            WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK -> WorldRuleRequest.draftEffectCheck(
+                binding, context.campaignUid, context.actor, providerCommand,
+                commandFingerprint, contextFingerprint,
+                effects ?: fail("WORLD_RULE_DRAFT_EFFECTS_MISSING")
+            )
+        }
+        val effectsFingerprint = effects?.deterministicFingerprint()
+        val decision = try {
+            provider.evaluate(request)
+        } catch (e: PlayerDomainEngineStructuralException) {
+            throw e
+        } catch (e: Throwable) {
+            throw PlayerDomainEngineStructuralException("WORLD_RULE_PROVIDER_FAILURE", e)
+        }
+        if (commandRegistry.fingerprint(providerCommand) != commandFingerprint) {
+            fail("WORLD_RULE_PROVIDER_INPUT_MUTATED")
+        }
+        if (effects != null && effects.deterministicFingerprint() != effectsFingerprint) {
+            fail("WORLD_RULE_PROVIDER_INPUT_MUTATED")
+        }
+        val record = try {
+            WorldRuleDecisionRecord.create(provider, request, decision)
+        } catch (e: IllegalArgumentException) {
+            throw PlayerDomainEngineStructuralException("WORLD_RULE_PROVIDER_MALFORMED_DECISION", e)
+        }
+        return WorldRuleEvaluation(record)
     }
 
     private fun assembleProposal(
         command: PlayerCommand<out PlayerCommandPayload>,
         contextFingerprint: String,
         component: PlayerResolutionComponent<out PlayerCommandPayload>,
-        draft: PlayerResolutionDraft
+        draft: PlayerResolutionDraft,
+        ruleDecisions: List<WorldRuleDecisionRecord>
     ): PlayerChangeSet {
         val changeSetUid = "RPGOS-CS18:" + sha256(
             buildString {
@@ -343,6 +413,7 @@ class PlayerDomainEngine internal constructor(
                 appendToken(contextFingerprint)
                 appendToken(component.componentKindUid)
                 appendToken(component.componentVersion)
+                ruleDecisions.forEach { appendToken(it.decisionFingerprint) }
             }
         )
         return PlayerChangeSet.create(
@@ -357,7 +428,8 @@ class PlayerDomainEngine internal constructor(
             provenance = ChangeSetProvenance(
                 sourceCommandUid = command.commandUid,
                 resolverKindUid = component.componentKindUid,
-                resolverVersion = component.componentVersion
+                resolverVersion = component.componentVersion,
+                worldRuleProviderUid = ruleDecisions.lastOrNull()?.providerUid
             ),
             causationUid = command.causationUid,
             correlationUid = command.correlationUid,
@@ -370,31 +442,37 @@ class PlayerDomainEngine internal constructor(
     private fun evidence(
         contextFingerprint: String,
         context: PlayerResolutionContext,
-        component: PlayerResolutionComponent<out PlayerCommandPayload>
+        component: PlayerResolutionComponent<out PlayerCommandPayload>,
+        ruleDecisions: List<WorldRuleDecisionRecord>
     ): PlayerResolutionEvidence = PlayerResolutionEvidence(
-        contextFingerprint = contextFingerprint,
-        entropy = context.entropy,
-        componentKindUid = component.componentKindUid,
-        componentVersion = component.componentVersion
+        contextFingerprint,
+        context.entropy,
+        component.componentKindUid,
+        component.componentVersion,
+        ruleDecisions
     )
 
     private fun rejected(
         rejection: PlayerResolutionRejection,
         contextFingerprint: String,
         context: PlayerResolutionContext,
-        component: PlayerResolutionComponent<out PlayerCommandPayload>?
+        component: PlayerResolutionComponent<out PlayerCommandPayload>?,
+        ruleDecisions: List<WorldRuleDecisionRecord>
     ): PlayerResolutionOutcome.Rejected = PlayerResolutionOutcome.Rejected(
         rejection,
         PlayerResolutionEvidence(
-            contextFingerprint = contextFingerprint,
-            entropy = context.entropy,
-            componentKindUid = component?.componentKindUid,
-            componentVersion = component?.componentVersion
+            contextFingerprint,
+            context.entropy,
+            component?.componentKindUid,
+            component?.componentVersion,
+            ruleDecisions
         )
     )
 
     private fun fail(code: String): Nothing = throw PlayerDomainEngineStructuralException(code)
 }
+
+private data class WorldRuleEvaluation(val record: WorldRuleDecisionRecord)
 
 internal enum class ResolutionReferenceStatus { RESOLVED, UNKNOWN, WRONG_CAMPAIGN }
 
