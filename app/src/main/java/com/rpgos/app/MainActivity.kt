@@ -258,11 +258,18 @@ fun RpgOsApp(vm: RpgOsViewModel) {
                 route = AppRoute.CAMPAIGN
             }
         )
-
         AppRoute.SAVES -> StandardPage(
-            title = "Zapisy i kampanie",
-            onBack = { route = AppRoute.HOME }
-        ) { PackagesScreen(vm) }
+    title = "Zapisy i kampanie",
+    onBack = { route = AppRoute.HOME }
+) {
+    PackagesScreen(
+        vm = vm,
+        onContinueCampaign = { dirName ->
+            vm.activateCampaign(dirName)
+            route = AppRoute.CAMPAIGN
+        }
+    )
+}
 
         AppRoute.GALLERY -> StandardPage(
             title = "Galeria",
@@ -1832,8 +1839,24 @@ private fun FullStatusScreen(vm:RpgOsViewModel){
     }
 }
 
+internal fun handleCampaignCardAction(
+    active: Boolean,
+    dirName: String,
+    activateCampaign: (String) -> Unit,
+    continueCampaign: ((String) -> Unit)?
+) {
+    if (active && continueCampaign != null) {
+        continueCampaign(dirName)
+    } else {
+        activateCampaign(dirName)
+    }
+}
+
 @Composable
-private fun PackagesScreen(vm:RpgOsViewModel){
+private fun PackagesScreen(
+    vm: RpgOsViewModel,
+    onContinueCampaign: ((String) -> Unit)? = null
+) {
     val campaigns by vm.campaigns.collectAsState()
     val activeCampaign by vm.activeCampaign.collectAsState()
     val worlds by vm.worldPacks.collectAsState()
@@ -1963,7 +1986,14 @@ private fun PackagesScreen(vm:RpgOsViewModel){
 
                             GradientActionButton(
                                 text = if(active) "Kontynuuj" else "Aktywuj kampanię",
-                                onClick = { vm.activateCampaign(dirName) },
+                                onClick = {
+                            handleCampaignCardAction(
+                                active = active,
+                                dirName = dirName,
+                                activateCampaign = vm::activateCampaign,
+                                continueCampaign = onContinueCampaign
+                            )
+                        },
                                 modifier = Modifier.fillMaxWidth(),
                                 brush = if(active) TealGradient else BlueGradient
                             )
