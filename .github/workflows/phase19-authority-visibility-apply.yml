@@ -1,0 +1,25 @@
+name: Phase 19 authority visibility apply
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - scripts/phase19_authority_visibility_apply.py
+      - .github/workflows/phase19-authority-visibility-apply.yml
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+      - run: python3 scripts/phase19_authority_visibility_apply.py
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/rpgos/app/WorldRuleProvider.kt app/src/main/java/com/rpgos/app/PlayerDomainEngine.kt
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: restrict generic world-rule mode to Core"
+          git push origin HEAD:master
