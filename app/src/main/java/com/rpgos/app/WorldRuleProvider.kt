@@ -17,17 +17,22 @@ sealed interface WorldRuleMode {
 
 internal data object UnboundGenericWorldRuleMode : WorldRuleMode
 
+/** Read-only World Pack authority lookup. Implementations must not mutate canonical selection. */
+internal fun interface WorldPackAuthorityResolver {
+    fun bindingForCampaign(campaignUid: String): WorldPackRuleBinding?
+}
+
 /**
- * Immutable read-only snapshot of the canonical campaign -> active World Pack selection.
- * It is derived from CampaignSelectionManager and is not a second persisted authority.
+ * Immutable read-only authority fixture/snapshot. It is not a persisted source of truth.
+ * Production canonical authority should be resolved live from CampaignSelectionManager.
  */
 internal class WorldPackAuthoritySnapshot private constructor(
     bindings: Map<String, WorldPackRuleBinding>
-) {
+) : WorldPackAuthorityResolver {
     private val byCampaignUid: Map<String, WorldPackRuleBinding> =
         Collections.unmodifiableMap(LinkedHashMap(bindings))
 
-    fun bindingForCampaign(campaignUid: String): WorldPackRuleBinding? = byCampaignUid[campaignUid]
+    override fun bindingForCampaign(campaignUid: String): WorldPackRuleBinding? = byCampaignUid[campaignUid]
 
     companion object {
         fun empty(): WorldPackAuthoritySnapshot = WorldPackAuthoritySnapshot(emptyMap())

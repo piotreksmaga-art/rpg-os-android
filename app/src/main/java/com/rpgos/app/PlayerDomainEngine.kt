@@ -269,7 +269,7 @@ class PlayerDomainEngine internal constructor(
     private val commandRegistry: PlayerCommandKindRegistry = PlayerCommandKindRegistry.core(),
     private val changeRegistry: TypedPlayerChangeRegistry = TypedPlayerChangeRegistry.core(),
     private val worldRuleRegistry: WorldRuleProviderRegistry = WorldRuleProviderRegistry.empty(),
-    private val worldPackAuthority: WorldPackAuthoritySnapshot = WorldPackAuthoritySnapshot.empty()
+    private val worldPackAuthority: WorldPackAuthorityResolver = WorldPackAuthoritySnapshot.empty()
 ) {
     fun resolve(
         command: PlayerCommand<out PlayerCommandPayload>,
@@ -388,7 +388,13 @@ class PlayerDomainEngine internal constructor(
     }
 
     private fun validateWorldRuleAuthority(context: PlayerResolutionContext) {
-        val authoritative = worldPackAuthority.bindingForCampaign(context.campaignUid)
+        val authoritative = try {
+            worldPackAuthority.bindingForCampaign(context.campaignUid)
+        } catch (e: PlayerDomainEngineStructuralException) {
+            throw e
+        } catch (e: Throwable) {
+            throw PlayerDomainEngineStructuralException("WORLD_RULE_AUTHORITY_READ_FAILED", e)
+        }
         when (val mode = context.worldRuleMode) {
             is WorldRuleMode.Bound -> {
                 if (authoritative == null) fail("WORLD_RULE_AUTHORITY_MISSING")
