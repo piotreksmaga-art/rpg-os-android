@@ -98,7 +98,7 @@ class PlayerResolutionContext private constructor(
                     field("WORLD_PACK_UID", mode.binding.worldPackUid)
                     field("WORLD_PACK_VERSION", mode.binding.worldPackVersion)
                 }
-                WorldRuleMode.UnboundGeneric -> field("MODE", "UNBOUND_GENERIC")
+                UnboundGenericWorldRuleMode -> field("MODE", "UNBOUND_GENERIC")
             }
         }
     }
@@ -132,7 +132,7 @@ class PlayerResolutionContext private constructor(
             knownReferences,
             dependencyVersions,
             entropy,
-            WorldRuleMode.UnboundGeneric
+            UnboundGenericWorldRuleMode
         )
     }
 }
@@ -394,7 +394,7 @@ class PlayerDomainEngine internal constructor(
     ): WorldRuleEvaluation? {
         val binding = when (val mode = context.worldRuleMode) {
             is WorldRuleMode.Bound -> mode.binding
-            WorldRuleMode.UnboundGeneric -> return null
+            UnboundGenericWorldRuleMode -> return null
         }
         val provider = worldRuleRegistry.providerFor(binding)
             ?: fail("WORLD_RULE_PROVIDER_MISSING")

@@ -299,7 +299,7 @@ class WorldRuleProviderPhase19Test {
         setOf(scoped("C1", "PLAYER", "P1"), scoped("C1", "STAT", "STR")) + extra,
         mapOf("RPGOS-DEPENDENCY:REFERENCE-SNAPSHOT" to "1"),
         ResolutionEntropyEvidence.none(),
-        if (worldRules) WorldRuleMode.Bound(binding) else WorldRuleMode.UnboundGeneric
+        if (worldRules) WorldRuleMode.Bound(binding) else UnboundGenericWorldRuleMode
     )
 
     private fun financeContext() = PlayerResolutionContext.create(
