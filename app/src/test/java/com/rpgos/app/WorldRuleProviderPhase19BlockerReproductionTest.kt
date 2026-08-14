@@ -11,7 +11,8 @@ class WorldRuleProviderPhase19BlockerReproductionTest {
         val provider = RejectingProvider()
         val engine = PlayerDomainEngine(
             PlayerResolutionComponentRegistry.of(listOf(TrainComponent())),
-            worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(provider))
+            worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(provider)),
+            worldPackAuthority = WorldPackAuthoritySnapshot.single("C1", binding)
         )
         val result = engine.resolve(train(), context(WorldRuleMode.Bound(binding)))
         assertTrue("bound-world omission must not bypass world rules", result is PlayerResolutionOutcome.Rejected)

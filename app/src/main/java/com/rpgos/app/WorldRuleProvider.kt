@@ -2,6 +2,7 @@ package com.rpgos.app
 
 import java.lang.reflect.Modifier
 import java.util.Collections
+import java.util.IdentityHashMap
 
 data class WorldPackRuleBinding(val worldPackUid: String, val worldPackVersion: String) {
     init {
@@ -15,6 +16,28 @@ sealed interface WorldRuleMode {
 }
 
 internal data object UnboundGenericWorldRuleMode : WorldRuleMode
+
+/**
+ * Immutable read-only snapshot of the canonical campaign -> active World Pack selection.
+ * It is derived from CampaignSelectionManager and is not a second persisted authority.
+ */
+internal class WorldPackAuthoritySnapshot private constructor(
+    bindings: Map<String, WorldPackRuleBinding>
+) {
+    private val byCampaignUid: Map<String, WorldPackRuleBinding> =
+        Collections.unmodifiableMap(LinkedHashMap(bindings))
+
+    fun bindingForCampaign(campaignUid: String): WorldPackRuleBinding? = byCampaignUid[campaignUid]
+
+    companion object {
+        fun empty(): WorldPackAuthoritySnapshot = WorldPackAuthoritySnapshot(emptyMap())
+
+        fun single(campaignUid: String, binding: WorldPackRuleBinding): WorldPackAuthoritySnapshot {
+            require(campaignUid.isNotBlank()) { "campaignUid must not be blank" }
+            return WorldPackAuthoritySnapshot(mapOf(campaignUid to binding))
+        }
+    }
+}
 
 enum class WorldRuleEvaluationStage { COMMAND_PRECHECK, DRAFT_EFFECT_CHECK }
 
@@ -268,11 +291,16 @@ private fun validateProviderState(provider: WorldRuleProvider) {
     val safe = scalarSafeTypes()
     var type: Class<*>? = provider.javaClass
     while (type != null && type != WorldRuleProvider::class.java) {
-        type.declaredFields.filterNot { Modifier.isStatic(it.modifiers) }.forEach { field ->
+        type.declaredFields.filterNot { Modifier.isStatic(it.modifiers) || it.isSynthetic }.forEach { field ->
             if (!Modifier.isFinal(field.modifiers)) failRule("MUTABLE_WORLD_RULE_PROVIDER_STATE")
             when {
                 field.type.isPrimitive || field.type in safe -> Unit
-                field.type.isEnum -> validateEnumRetainedState(field.type, safe)
+                field.type.isEnum -> {
+                    val value = readRetainedField(field, provider) as? Enum<*>
+                        ?: failRule("UNSAFE_WORLD_RULE_PROVIDER_STATE")
+                    val visited = Collections.newSetFromMap(IdentityHashMap<Enum<*>, Boolean>())
+                    validateEnumRetainedState(value, safe, visited)
+                }
                 else -> failRule("UNSAFE_WORLD_RULE_PROVIDER_STATE")
             }
         }
@@ -286,15 +314,37 @@ private fun scalarSafeTypes(): Set<Class<*>> = setOf(
     java.lang.Character::class.java, java.lang.Double::class.java, java.lang.Float::class.java
 )
 
-private fun validateEnumRetainedState(enumType: Class<*>, safe: Set<Class<*>>) {
-    enumType.declaredFields.filterNot { Modifier.isStatic(it.modifiers) || it.isSynthetic }.forEach { field ->
-        if (!Modifier.isFinal(field.modifiers)) failRule("MUTABLE_WORLD_RULE_PROVIDER_STATE")
-        when {
-            field.type.isPrimitive || field.type in safe -> Unit
-            field.type.isEnum && field.type != enumType -> validateEnumRetainedState(field.type, safe)
-            else -> failRule("UNSAFE_WORLD_RULE_PROVIDER_STATE")
+private fun validateEnumRetainedState(
+    enumValue: Enum<*>,
+    safe: Set<Class<*>>,
+    visited: MutableSet<Enum<*>>
+) {
+    if (!visited.add(enumValue)) return
+    var type: Class<*>? = enumValue.javaClass
+    while (type != null && type != Enum::class.java) {
+        type.declaredFields.filterNot { Modifier.isStatic(it.modifiers) || it.isSynthetic }.forEach { field ->
+            if (!Modifier.isFinal(field.modifiers)) failRule("MUTABLE_WORLD_RULE_PROVIDER_STATE")
+            when {
+                field.type.isPrimitive || field.type in safe -> Unit
+                field.type.isEnum -> {
+                    val nested = readRetainedField(field, enumValue) as? Enum<*>
+                        ?: failRule("UNSAFE_WORLD_RULE_PROVIDER_STATE")
+                    validateEnumRetainedState(nested, safe, visited)
+                }
+                else -> failRule("UNSAFE_WORLD_RULE_PROVIDER_STATE")
+            }
         }
+        type = type.superclass
     }
+}
+
+private fun readRetainedField(field: java.lang.reflect.Field, target: Any): Any? = try {
+    field.isAccessible = true
+    field.get(target)
+} catch (e: ReflectiveOperationException) {
+    throw PlayerDomainEngineStructuralException("UNSAFE_WORLD_RULE_PROVIDER_STATE", e)
+} catch (e: SecurityException) {
+    throw PlayerDomainEngineStructuralException("UNSAFE_WORLD_RULE_PROVIDER_STATE", e)
 }
 
 private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainChange) {

@@ -20,11 +20,12 @@ class WorldRuleProviderPhase19HardeningTest {
         assertFalse(PlayerResolutionContext::class.java.declaredFields.any { it.name == "worldPackBinding" })
     }
     @Test fun p19H1_03_explicitUnboundGenericIsLegalForCoreGenericMode() {
-        assertTrue(engine(null).resolve(train(), unboundContext()) is PlayerResolutionOutcome.Resolved)
+        assertTrue(engine(null, WorldPackAuthoritySnapshot.empty()).resolve(train(), unboundContext()) is PlayerResolutionOutcome.Resolved)
     }
     @Test fun p19H1_04_boundMissingProviderFailsClosed() = fails("WORLD_RULE_PROVIDER_MISSING") { engine(null).resolve(train(), boundContext()) }
     @Test fun p19H1_05_boundWrongProviderVersionFailsClosed() = fails("WORLD_RULE_PROVIDER_VERSION_MISMATCH") {
-        engine(AllowAllProvider()).resolve(train(), boundContext(WorldPackRuleBinding("TEST-WORLD", "2")))
+        val v2 = WorldPackRuleBinding("TEST-WORLD", "2")
+        engine(AllowAllProvider(), WorldPackAuthoritySnapshot.single("C1", v2)).resolve(train(), boundContext(v2))
     }
     @Test fun p19H1_06_noImplicitNullableDowngradeSurfaceExists() {
         assertFalse(PlayerResolutionContext.Companion::class.java.methods.any { m ->
@@ -216,7 +217,14 @@ class WorldRuleProviderPhase19HardeningTest {
         payload=TrainCommandPayload(DomainRef("STAT","STR"),10L,"METHOD"),
         provenance=CommandProvenance("TEST")
     )
-    private fun engine(provider:WorldRuleProvider?)=PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(TrainComponent())),worldRuleRegistry=if(provider==null)WorldRuleProviderRegistry.empty() else WorldRuleProviderRegistry.of(listOf(provider)))
+    private fun engine(
+        provider: WorldRuleProvider?,
+        authority: WorldPackAuthoritySnapshot = WorldPackAuthoritySnapshot.single("C1", binding)
+    ) = PlayerDomainEngine(
+        PlayerResolutionComponentRegistry.of(listOf(TrainComponent())),
+        worldRuleRegistry = if (provider == null) WorldRuleProviderRegistry.empty() else WorldRuleProviderRegistry.of(listOf(provider)),
+        worldPackAuthority = authority
+    )
     private fun fails(code:String,block:()->Unit){try{block();fail("expected $code")}catch(e:PlayerDomainEngineStructuralException){assertEquals(code,e.code)}}
 
     private class TrainComponent:PlayerResolutionComponent<TrainCommandPayload>(PlayerCommandKinds.TRAIN,TrainCommandPayload::class,"HARDEN-COMP","1"){

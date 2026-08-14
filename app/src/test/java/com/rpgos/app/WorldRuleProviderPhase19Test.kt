@@ -78,16 +78,21 @@ class WorldRuleProviderPhase19Test {
 
     @Test fun p19_09_missingRequiredProviderFailsClosed() {
         fails("WORLD_RULE_PROVIDER_MISSING") {
-            PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(TrainComponent())))
-                .resolve(train(), context())
+            PlayerDomainEngine(
+                PlayerResolutionComponentRegistry.of(listOf(TrainComponent())),
+                worldPackAuthority = authority()
+            ).resolve(train(), context())
         }
     }
 
     @Test fun p19_10_providerWorldPackVersionMismatchRejected() {
         val registry = WorldRuleProviderRegistry.of(listOf(GenericProvider(Mode.ALLOW, worldVersion = "2")))
         fails("WORLD_RULE_PROVIDER_VERSION_MISMATCH") {
-            PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(TrainComponent())), worldRuleRegistry = registry)
-                .resolve(train(), context())
+            PlayerDomainEngine(
+                PlayerResolutionComponentRegistry.of(listOf(TrainComponent())),
+                worldRuleRegistry = registry,
+                worldPackAuthority = authority()
+            ).resolve(train(), context())
         }
     }
 
@@ -268,13 +273,18 @@ class WorldRuleProviderPhase19Test {
 
     private fun engine(provider: WorldRuleProvider): PlayerDomainEngine = PlayerDomainEngine(
         PlayerResolutionComponentRegistry.of(listOf(TrainComponent())),
-        worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(provider))
+        worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(provider)),
+        worldPackAuthority = authority()
     )
 
     private fun financeEngine(): PlayerDomainEngine = PlayerDomainEngine(
         PlayerResolutionComponentRegistry.of(listOf(FinanceComponent())),
-        worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(GenericProvider(Mode.ALLOW)))
+        worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(GenericProvider(Mode.ALLOW))),
+        worldPackAuthority = authority()
     )
+
+    private fun authority(b: WorldPackRuleBinding = binding): WorldPackAuthoritySnapshot =
+        WorldPackAuthoritySnapshot.single("C1", b)
 
     private fun train() = PlayerCommand(
         commandUid = "CMD-P19", campaignUid = "C1", actor = actor,

@@ -35,6 +35,10 @@ class CampaignSelectionManager(private val context: Context) {
         return WorldRuleMode.Bound(WorldPackRuleBinding(uid, version))
     }
 
+    /** Read-only Phase-19 authority snapshot derived from canonical app selection. */
+    internal fun activeWorldPackAuthoritySnapshot(): WorldPackAuthoritySnapshot =
+        WorldPackAuthoritySnapshot.single(activeCampaignId(), activeWorldRuleMode().binding)
+
     fun setActiveCampaign(dirName: String) {
         require(File(saves, dirName).isDirectory) { "Nie istnieje kampania $dirName" }
         val ref = ActiveCampaignRef.resolve(saves, dirName)

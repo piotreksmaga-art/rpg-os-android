@@ -268,7 +268,8 @@ class PlayerDomainEngine internal constructor(
     private val componentRegistry: PlayerResolutionComponentRegistry,
     private val commandRegistry: PlayerCommandKindRegistry = PlayerCommandKindRegistry.core(),
     private val changeRegistry: TypedPlayerChangeRegistry = TypedPlayerChangeRegistry.core(),
-    private val worldRuleRegistry: WorldRuleProviderRegistry = WorldRuleProviderRegistry.empty()
+    private val worldRuleRegistry: WorldRuleProviderRegistry = WorldRuleProviderRegistry.empty(),
+    private val worldPackAuthority: WorldPackAuthoritySnapshot = WorldPackAuthoritySnapshot.empty()
 ) {
     fun resolve(
         command: PlayerCommand<out PlayerCommandPayload>,
@@ -296,6 +297,8 @@ class PlayerDomainEngine internal constructor(
         validateReferences(context, commandReferences(canonicalCommand))?.let {
             return rejected(it, contextFingerprint, context, null, ruleTrace)
         }
+
+        validateWorldRuleAuthority(context)
 
         evaluateWorldRules(
             stage = WorldRuleEvaluationStage.COMMAND_PRECHECK,
@@ -380,6 +383,19 @@ class PlayerDomainEngine internal constructor(
                     proposal,
                     evidence(contextFingerprint, context, component, ruleTrace)
                 )
+            }
+        }
+    }
+
+    private fun validateWorldRuleAuthority(context: PlayerResolutionContext) {
+        val authoritative = worldPackAuthority.bindingForCampaign(context.campaignUid)
+        when (val mode = context.worldRuleMode) {
+            is WorldRuleMode.Bound -> {
+                if (authoritative == null) fail("WORLD_RULE_AUTHORITY_MISSING")
+                if (authoritative != mode.binding) fail("WORLD_RULE_BINDING_AUTHORITY_MISMATCH")
+            }
+            UnboundGenericWorldRuleMode -> {
+                if (authoritative != null) fail("WORLD_RULE_GENERIC_MODE_AUTHORITY_MISMATCH")
             }
         }
     }
