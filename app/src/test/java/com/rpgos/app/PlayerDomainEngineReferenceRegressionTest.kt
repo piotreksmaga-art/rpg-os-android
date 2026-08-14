@@ -86,7 +86,7 @@ class PlayerDomainEngineReferenceRegressionTest {
         commandUid="CMD-REF-LOCK", campaignUid="C1", actor=actor, commandKindUid=PlayerCommandKinds.TRAIN,
         payload=TrainCommandPayload(focus,1,"METHOD"), provenance=CommandProvenance("TEST")
     )
-    private fun context(refs:Set<DomainRef>)=PlayerResolutionContext.create("C1",actor,refs.map{CampaignScopedDomainRef("C1",it)}.toSet())
+    private fun context(refs:Set<DomainRef>)=PlayerResolutionContext.createUnboundGeneric("C1",actor,refs.map{CampaignScopedDomainRef("C1",it)}.toSet())
     private fun value(db:SQLiteDatabase)=db.rawQuery("SELECT v FROM ref_fixture",null).use{assertTrue(it.moveToFirst());it.getLong(0)}
 
     private class StatelessTrainComponent:PlayerResolutionComponent<TrainCommandPayload>(PlayerCommandKinds.TRAIN,TrainCommandPayload::class,"RPGOS-COMPONENT:REF-STATELESS","1"){

@@ -108,7 +108,7 @@ class PlayerDomainEngineReferenceFinanceTest {
         provenance = CommandProvenance("TEST")
     )
 
-    private fun context(current: Set<DomainRef>, other: Set<DomainRef> = emptySet()) = PlayerResolutionContext.create(
+    private fun context(current: Set<DomainRef>, other: Set<DomainRef> = emptySet()) = PlayerResolutionContext.createUnboundGeneric(
         campaignUid = "C1", actor = actor,
         knownReferences = current.map { CampaignScopedDomainRef("C1", it) }.toSet() + other.map { CampaignScopedDomainRef("C2", it) }
     )

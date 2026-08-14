@@ -35,12 +35,12 @@ class WorldRuleProviderPhase19HardeningTest {
     @Test fun p19H1_07_commandPrecheckCannotBeSkippedWhenBound() {
         val r = engine(RejectCommandProvider()).resolve(train(), boundContext()) as PlayerResolutionOutcome.Rejected
         assertEquals(PlayerResolutionRejectionReason.WORLD_RULE_REJECTED, r.rejection.reason)
-        assertEquals(WorldRuleEvaluationStage.COMMAND_PRECHECK, r.rejection.worldRuleDecision!!.stage)
+        assertEquals(WorldRuleEvaluationStage.COMMAND_PRECHECK, r.evidence.worldRuleDecisions.single().stage)
     }
     @Test fun p19H1_08_draftCheckCannotBeSkippedWhenBound() {
         val r = engine(RejectDraftProvider()).resolve(train(), boundContext()) as PlayerResolutionOutcome.Rejected
         assertEquals(PlayerResolutionRejectionReason.WORLD_RULE_REJECTED, r.rejection.reason)
-        assertEquals(WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK, r.rejection.worldRuleDecision!!.stage)
+        assertEquals(WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK, r.evidence.worldRuleDecisions.last().stage)
     }
     @Test fun p19H1_09_unknownReferenceStillRejectsBeforeProvider() {
         val cmd = train().copy(payload = TrainCommandPayload(DomainRef("STAT", "UNKNOWN"), 10L, "METHOD"))
@@ -210,14 +210,19 @@ class WorldRuleProviderPhase19HardeningTest {
         "C1",actor,setOf(scoped("C1","PLAYER","P1"),scoped("C1","STAT","STR"))+extra,mapOf("REFS" to "1"),ResolutionEntropyEvidence.none(),WorldRuleMode.Bound(b))
     private fun unboundContext()=PlayerResolutionContext.createUnboundGeneric("C1",actor,setOf(scoped("C1","PLAYER","P1"),scoped("C1","STAT","STR")),mapOf("REFS" to "1"))
     private fun rawContext(refs:Set<CampaignScopedDomainRef>,deps:Map<String,String>,campaign:String="C1",who:CommandActorRef=actor)=PlayerResolutionContext.create(campaign,who,refs,deps,ResolutionEntropyEvidence.none(),WorldRuleMode.Bound(binding))
-    private fun train()=PlayerCommand("CMD-HARDEN","C1",actor,PlayerCommandKinds.TRAIN,TrainCommandPayload(DomainRef("STAT","STR"),10L,"METHOD"),CommandProvenance("TEST"))
+    private fun train()=PlayerCommand(
+        commandUid="CMD-HARDEN", campaignUid="C1", actor=actor,
+        commandKindUid=PlayerCommandKinds.TRAIN,
+        payload=TrainCommandPayload(DomainRef("STAT","STR"),10L,"METHOD"),
+        provenance=CommandProvenance("TEST")
+    )
     private fun engine(provider:WorldRuleProvider?)=PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(TrainComponent())),worldRuleRegistry=if(provider==null)WorldRuleProviderRegistry.empty() else WorldRuleProviderRegistry.of(listOf(provider)))
     private fun fails(code:String,block:()->Unit){try{block();fail("expected $code")}catch(e:PlayerDomainEngineStructuralException){assertEquals(code,e.code)}}
 
     private class TrainComponent:PlayerResolutionComponent<TrainCommandPayload>(PlayerCommandKinds.TRAIN,TrainCommandPayload::class,"HARDEN-COMP","1"){
         override fun resolve(command:PlayerCommand<TrainCommandPayload>,context:PlayerResolutionContext)=PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(changes=listOf(PlayerDomainChange.create("CH-H",PlayerChangeKinds.STAT,StatChange(DomainRef("PLAYER","P1"),"STR",ExactLongDelta.of(1))))))
     }
-    private open class BaseProvider(uid:String="HARDEN-P",version:String="1"):WorldRuleProvider(uid,version,"TEST-WORLD","1")
+    private abstract class BaseProvider(uid:String="HARDEN-P",version:String="1"):WorldRuleProvider(uid,version,"TEST-WORLD","1")
     private class AllowAllProvider(version:String="1"):BaseProvider("HARDEN-P",version){ override fun evaluate(request:WorldRuleRequest)=WorldRuleDecision.Allowed.create("RULE") }
     private class RejectCommandProvider:BaseProvider(){ override fun evaluate(request:WorldRuleRequest)=if(request.stage==WorldRuleEvaluationStage.COMMAND_PRECHECK)WorldRuleDecision.Rejected.create("RULE","DENY") else WorldRuleDecision.Allowed.create("RULE") }
     private class RejectDraftProvider:BaseProvider(){ override fun evaluate(request:WorldRuleRequest)=if(request.stage==WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK)WorldRuleDecision.Rejected.create("RULE","DENY-DRAFT") else WorldRuleDecision.Allowed.create("RULE") }
