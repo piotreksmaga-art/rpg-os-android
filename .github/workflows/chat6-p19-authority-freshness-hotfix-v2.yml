@@ -1,0 +1,92 @@
+name: CHAT-6 P19 authority freshness hotfix v2
+
+on:
+  push:
+    branches: [ "chat6/p19-authority-freshness-hotfix" ]
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: chat6/p19-authority-freshness-hotfix
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Install Android SDK 36
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Apply reviewed hotfix recipe with corrected test fixture
+        shell: bash
+        run: |
+          git show 67df03223cb7763409f8a08bd1406d71f5fd55f5:.github/workflows/chat6-p19-authority-freshness-hotfix.yml > /tmp/p19-recipe.yml
+          python3 - <<'PY'
+          from pathlib import Path
+
+          recipe = Path('/tmp/p19-recipe.yml').read_text()
+          marker = "          python3 - <<'PY'\n"
+          start = recipe.index(marker) + len(marker)
+          end = recipe.index("\n          PY\n", start)
+          script = recipe[start:end]
+          script = "\n".join(line[10:] if line.startswith("          ") else line for line in script.splitlines())
+
+          script = script.replace('    private val a2 = WorldPackRuleBinding("WORLD-A", "2")\n', '')
+          script = script.replace('        Probe.a2 = 0\n', '')
+          script = script.replace('                listOf(ProviderA1(), ProviderA2(), ProviderB1())', '                listOf(ProviderA1(), ProviderB1())')
+          script = script.replace('        var a2 = 0\n', '')
+          script = script.replace('''    private class ProviderA2 : WorldRuleProvider("P19-AUTH-FRESH-A2", "1", "WORLD-A", "2") {
+        override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
+            Probe.a2++
+            return WorldRuleDecision.Allowed.create("P19-AUTH-FRESH-A2")
+        }
+    }
+
+''', '')
+
+          exec(compile(script, '<p19-hotfix-recipe>', 'exec'))
+          PY
+
+      - name: Focused Phase 19 authority tests
+        run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.WorldRuleProviderPhase19*' --stacktrace
+
+      - name: Full JVM regression
+        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+
+      - name: Assemble debug
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
+
+      - name: Commit tested hotfix without temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/chat6-p19-authority-freshness-hotfix-v2.yml
+          git config user.name "CHAT-6"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/src/main/java/com/rpgos/app/WorldRuleProvider.kt \
+                  app/src/main/java/com/rpgos/app/CampaignSelectionManager.kt \
+                  app/src/main/java/com/rpgos/app/PlayerDomainEngine.kt \
+                  app/src/test/java/com/rpgos/app/WorldRuleProviderPhase19AuthorityFreshnessTest.kt \
+                  .github/workflows/chat6-p19-authority-freshness-hotfix-v2.yml
+          git commit -m "fix: resolve current World Pack authority per resolution"
+          git push origin HEAD:chat6/p19-authority-freshness-hotfix
