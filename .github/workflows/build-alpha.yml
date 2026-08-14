@@ -3,7 +3,7 @@ name: Build & Release RPG OS ALPHA
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "release/phase18-cumulative-141" ]
 
 permissions:
   contents: write
@@ -98,7 +98,7 @@ jobs:
             "version_code": ${{ steps.version.outputs.code }},
             "sha256": "$SHA",
             "mandatory": false,
-            "notes": "RPG OS ALPHA ${{ steps.version.outputs.name }}"
+            "notes": "RPG OS — cumulative accepted implementation through Phase 18"
           }
           EOF
 
@@ -136,10 +136,14 @@ jobs:
             "${{ steps.version.outputs.apk }}.sha256" \
             update.json \
             --title "RPG OS ALPHA ${{ steps.version.outputs.name }}" \
-            --notes "Automatyczne wydanie RPG OS ALPHA.
+            --notes "RPG OS — cumulative accepted implementation through Phase 18.
+
+          This release synchronizes the published application with the globally accepted cumulative runtime Phase 3–18.
+          It intentionally excludes Phase 19 and all Phase 20+ development.
 
           Wersja: ${{ steps.version.outputs.name }}
           VersionCode: ${{ steps.version.outputs.code }}
+          Accepted runtime: b53ae2c5b765cba49f31a0f88e7865cf1df8d5a7
 
           Kanał aktualizacji:
           https://api.github.com/repos/piotreksmaga-art/rpg-os-android/releases/latest"
