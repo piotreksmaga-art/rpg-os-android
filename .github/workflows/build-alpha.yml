@@ -1,4 +1,4 @@
-name: Build & Release RPG OS ALPHA
+name: Validate RPG OS ALPHA
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     branches: [ "main", "master" ]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -51,7 +51,6 @@ jobs:
 
           echo "name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "apk=RPG-OS-ALPHA-$VERSION_NAME.apk" >> "$GITHUB_OUTPUT"
 
       - name: Restore permanent signing key
@@ -63,7 +62,6 @@ jobs:
         run: |
           if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_PASSWORD" ]; then
             echo "::error::Missing RPG OS signing secrets."
-            echo "::error::Run tools/setup_github_signing_termux.sh once before building alpha3."
             exit 1
           fi
 
@@ -74,16 +72,19 @@ jobs:
           echo "RPGOS_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
           echo "RPGOS_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
 
+      - name: Validate release workflow separation
+        run: python3 tools/validate_release_workflows.py
+
       - name: Validate project
         run: gradle --no-daemon :app:tasks --stacktrace
 
       - name: Run JVM unit tests
         run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
 
-      - name: Build signed ALPHA APK
+      - name: Build signed validation APK
         run: gradle --no-daemon :app:assembleRelease --stacktrace
 
-      - name: Prepare release files
+      - name: Prepare immutable validation artifact
         shell: bash
         run: |
           cp app/build/outputs/apk/release/app-release.apk "${{ steps.version.outputs.apk }}"
@@ -91,72 +92,25 @@ jobs:
           printf '%s  %s\n' "$SHA" "${{ steps.version.outputs.apk }}" \
             > "${{ steps.version.outputs.apk }}.sha256"
 
-          cat > update.json <<EOF
+          cat > build-provenance.json <<EOF
           {
             "schema": 1,
+            "head_sha": "${{ github.sha }}",
+            "workflow_run_id": "${{ github.run_id }}",
             "version_name": "${{ steps.version.outputs.name }}",
             "version_code": ${{ steps.version.outputs.code }},
-            "sha256": "$SHA",
-            "mandatory": false,
-            "notes": "RPG OS ALPHA ${{ steps.version.outputs.name }}"
+            "apk_sha256": "$SHA",
+            "publication": false
           }
           EOF
 
-      - name: Upload Actions artifact
+      - name: Upload immutable Actions artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RPG-OS-ALPHA-${{ steps.version.outputs.name }}
+          name: RPG-OS-VALIDATION-${{ steps.version.outputs.name }}-${{ github.sha }}
           path: |
             ${{ steps.version.outputs.apk }}
             ${{ steps.version.outputs.apk }}.sha256
-            update.json
+            build-provenance.json
           if-no-files-found: error
           retention-days: 14
-
-      - name: Check if release already exists
-        id: release_check
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create GitHub Release
-        if: steps.release_check.outputs.exists == 'false'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          gh release create "${{ steps.version.outputs.tag }}" \
-            "${{ steps.version.outputs.apk }}" \
-            "${{ steps.version.outputs.apk }}.sha256" \
-            update.json \
-            --title "RPG OS ALPHA ${{ steps.version.outputs.name }}" \
-            --notes "Automatyczne wydanie RPG OS ALPHA.
-
-          Wersja: ${{ steps.version.outputs.name }}
-          VersionCode: ${{ steps.version.outputs.code }}
-
-          Kanał aktualizacji:
-          https://api.github.com/repos/piotreksmaga-art/rpg-os-android/releases/latest"
-
-      - name: Update existing GitHub Release assets
-        if: steps.release_check.outputs.exists == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          gh release upload "${{ steps.version.outputs.tag }}" \
-            "${{ steps.version.outputs.apk }}" \
-            "${{ steps.version.outputs.apk }}.sha256" \
-            update.json \
-            --clobber
-
-      - name: Show release information
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release view "${{ steps.version.outputs.tag }}"
