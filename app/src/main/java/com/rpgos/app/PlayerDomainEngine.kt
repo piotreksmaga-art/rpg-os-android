@@ -1,7 +1,6 @@
 package com.rpgos.app
 
 import java.lang.reflect.Modifier
-import java.security.MessageDigest
 import java.util.Collections
 import java.util.TreeMap
 import kotlin.reflect.KClass
@@ -440,15 +439,19 @@ class PlayerDomainEngine internal constructor(
         draft: PlayerResolutionDraft,
         ruleDecisions: List<WorldRuleDecisionRecord>
     ): PlayerChangeSet {
-        val changeSetUid = "RPGOS-CS18:" + sha256(
-            buildString {
-                appendToken(commandRegistry.encode(command))
-                appendToken(contextFingerprint)
-                appendToken(component.componentKindUid)
-                appendToken(component.componentVersion)
-                ruleDecisions.forEach { appendToken(it.decisionFingerprint) }
+        val changeSetUid = "RPGOS-CS18:" + WorldRuleCanonicalWriter.fingerprint("PLAYER_DOMAIN_PROPOSAL") {
+            field("COMMAND_ENCODING", commandRegistry.encode(command))
+            field("CONTEXT_FINGERPRINT", contextFingerprint)
+            section("COMPONENT") {
+                field("KIND_UID", component.componentKindUid)
+                field("VERSION", component.componentVersion)
             }
-        )
+            list("WORLD_RULE_DECISIONS", ruleDecisions) { decision ->
+                record("WORLD_RULE_DECISION_FINGERPRINT") {
+                    field("FINGERPRINT", decision.decisionFingerprint)
+                }
+            }
+        }
         return PlayerChangeSet.create(
             changeSetUid = changeSetUid,
             campaignUid = command.campaignUid,
@@ -665,10 +668,3 @@ private fun resolveTyped(
     return typedComponent.resolve(typedCommand, context)
 }
 
-private fun StringBuilder.appendToken(value: String) {
-    append(value.length).append(':').append(value).append('|')
-}
-
-private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
-    .digest(value.toByteArray(Charsets.UTF_8))
-    .joinToString("") { "%02x".format(it) }
