@@ -173,11 +173,11 @@ class WorldRuleProviderPhase19FinalHotfixTest {
     }
 
     private class ProbeProvider(
-        private val binding: WorldPackRuleBinding,
+        binding: WorldPackRuleBinding,
         private val allow: Boolean
     ) : WorldRuleProvider("PROBE-${binding.worldPackUid}", "1", binding.worldPackUid, binding.worldPackVersion) {
         override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
-            if (binding.worldPackUid == "WORLD-A") InvocationProbe.worldACalls++ else InvocationProbe.worldBCalls++
+            if (worldPackUid == "WORLD-A") InvocationProbe.worldACalls++ else InvocationProbe.worldBCalls++
             return if (allow) WorldRuleDecision.Allowed.create("RULE")
             else WorldRuleDecision.Rejected.create("RULE", "DENY")
         }
