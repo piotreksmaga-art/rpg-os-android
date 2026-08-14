@@ -1,0 +1,407 @@
+name: CHAT-6 P19 authority freshness hotfix
+
+on:
+  push:
+    branches: [ "chat6/p19-authority-freshness-hotfix" ]
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: chat6/p19-authority-freshness-hotfix
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Install Android SDK 36
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Apply minimal authority freshness hotfix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # WorldPackAuthoritySnapshot becomes one implementation of a read-only authority resolver.
+          p = Path('app/src/main/java/com/rpgos/app/WorldRuleProvider.kt')
+          s = p.read_text()
+          old = '''/**
+           * Immutable read-only snapshot of the canonical campaign -> active World Pack selection.
+           * It is derived from CampaignSelectionManager and is not a second persisted authority.
+           */
+          internal class WorldPackAuthoritySnapshot private constructor(
+              bindings: Map<String, WorldPackRuleBinding>
+          ) {
+              private val byCampaignUid: Map<String, WorldPackRuleBinding> =
+                  Collections.unmodifiableMap(LinkedHashMap(bindings))
+
+              fun bindingForCampaign(campaignUid: String): WorldPackRuleBinding? = byCampaignUid[campaignUid]
+          '''
+          new = '''/** Read-only World Pack authority lookup. Implementations must not mutate canonical selection. */
+          internal fun interface WorldPackAuthorityResolver {
+              fun bindingForCampaign(campaignUid: String): WorldPackRuleBinding?
+          }
+
+          /**
+           * Immutable read-only authority fixture/snapshot. It is not a persisted source of truth.
+           * Production canonical authority should be resolved live from CampaignSelectionManager.
+           */
+          internal class WorldPackAuthoritySnapshot private constructor(
+              bindings: Map<String, WorldPackRuleBinding>
+          ) : WorldPackAuthorityResolver {
+              private val byCampaignUid: Map<String, WorldPackRuleBinding> =
+                  Collections.unmodifiableMap(LinkedHashMap(bindings))
+
+              override fun bindingForCampaign(campaignUid: String): WorldPackRuleBinding? = byCampaignUid[campaignUid]
+          '''
+          assert s.count(old) == 1, f'WorldPackAuthoritySnapshot pattern count={s.count(old)}'
+          p.write_text(s.replace(old, new, 1))
+
+          # CampaignSelectionManager remains the sole canonical persisted selection authority.
+          p = Path('app/src/main/java/com/rpgos/app/CampaignSelectionManager.kt')
+          s = p.read_text()
+          old = '''    /** Read-only Phase-19 authority snapshot derived from canonical app selection. */
+              internal fun activeWorldPackAuthoritySnapshot(): WorldPackAuthoritySnapshot =
+                  WorldPackAuthoritySnapshot.single(activeCampaignId(), activeWorldRuleMode().binding)
+          '''
+          new = '''    /**
+               * Read-only Phase-19 authority resolver backed by the canonical app selection.
+               * The current campaign and World Pack are re-read for every authority lookup.
+               */
+              internal fun activeWorldPackAuthorityResolver(): WorldPackAuthorityResolver =
+                  WorldPackAuthorityResolver { campaignUid ->
+                      val currentCampaignUid = activeCampaignId()
+                      if (campaignUid != currentCampaignUid) null else activeWorldRuleMode().binding
+                  }
+
+              /**
+               * Compatibility entry point retained for existing callers. Despite the historical name,
+               * this now returns the live canonical resolver so long-lived engines cannot retain stale authority.
+               */
+              internal fun activeWorldPackAuthoritySnapshot(): WorldPackAuthorityResolver =
+                  activeWorldPackAuthorityResolver()
+          '''
+          assert s.count(old) == 1, f'CampaignSelection authority pattern count={s.count(old)}'
+          p.write_text(s.replace(old, new, 1))
+
+          # PlayerDomainEngine resolves authority once at the start of every resolution and fails closed on read errors.
+          p = Path('app/src/main/java/com/rpgos/app/PlayerDomainEngine.kt')
+          s = p.read_text()
+          old = '''    private val worldRuleRegistry: WorldRuleProviderRegistry = WorldRuleProviderRegistry.empty(),
+              private val worldPackAuthority: WorldPackAuthoritySnapshot = WorldPackAuthoritySnapshot.empty()
+          ) {'''
+          new = '''    private val worldRuleRegistry: WorldRuleProviderRegistry = WorldRuleProviderRegistry.empty(),
+              private val worldPackAuthority: WorldPackAuthorityResolver = WorldPackAuthoritySnapshot.empty()
+          ) {'''
+          assert s.count(old) == 1, f'PlayerDomainEngine constructor pattern count={s.count(old)}'
+          s = s.replace(old, new, 1)
+
+          old = '''    private fun validateWorldRuleAuthority(context: PlayerResolutionContext) {
+                  val authoritative = worldPackAuthority.bindingForCampaign(context.campaignUid)
+                  when (val mode = context.worldRuleMode) {'''
+          new = '''    private fun validateWorldRuleAuthority(context: PlayerResolutionContext) {
+                  val authoritative = try {
+                      worldPackAuthority.bindingForCampaign(context.campaignUid)
+                  } catch (e: PlayerDomainEngineStructuralException) {
+                      throw e
+                  } catch (e: Throwable) {
+                      throw PlayerDomainEngineStructuralException("WORLD_RULE_AUTHORITY_READ_FAILED", e)
+                  }
+                  when (val mode = context.worldRuleMode) {'''
+          assert s.count(old) == 1, f'validateWorldRuleAuthority pattern count={s.count(old)}'
+          p.write_text(s.replace(old, new, 1))
+
+          # Focused freshness regression suite.
+          test = Path('app/src/test/java/com/rpgos/app/WorldRuleProviderPhase19AuthorityFreshnessTest.kt')
+          test.write_text(r'''package com.rpgos.app
+
+          import android.database.sqlite.SQLiteDatabase
+          import org.junit.Assert.assertEquals
+          import org.junit.Assert.assertTrue
+          import org.junit.Assert.fail
+          import org.junit.Before
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import org.robolectric.RobolectricTestRunner
+          import org.robolectric.RuntimeEnvironment
+          import org.robolectric.annotation.Config
+          import java.io.File
+
+          @RunWith(RobolectricTestRunner::class)
+          @Config(sdk = [35])
+          class WorldRuleProviderPhase19AuthorityFreshnessTest {
+              private val actor = CommandActorRef("PLAYER", "P1")
+              private val campaignUid = ActiveCampaignRef.DEFAULT_CAMPAIGN_ID
+              private val a1 = WorldPackRuleBinding("WORLD-A", "1")
+              private val a2 = WorldPackRuleBinding("WORLD-A", "2")
+              private val b1 = WorldPackRuleBinding("WORLD-B", "1")
+
+              @Before
+              fun reset() {
+                  Probe.a = 0
+                  Probe.a2 = 0
+                  Probe.b = 0
+              }
+
+              @Test
+              fun P19_AUTH_FRESH_01_staleAAfterAtoBIsRejected() {
+                  val selection = canonicalSelection()
+                  selection.setActiveWorldPack("A.worldpack")
+                  val engine = liveEngine(selection)
+                  selection.setActiveWorldPack("B.worldpack")
+
+                  assertStructural("WORLD_RULE_BINDING_AUTHORITY_MISMATCH") {
+                      engine.resolve(train("01"), context(WorldRuleMode.Bound(a1)))
+                  }
+              }
+
+              @Test
+              fun P19_AUTH_FRESH_02_staleAProviderInvocationAfterAtoBIsZero() {
+                  val selection = canonicalSelection()
+                  selection.setActiveWorldPack("A.worldpack")
+                  val engine = liveEngine(selection)
+                  selection.setActiveWorldPack("B.worldpack")
+
+                  runCatching { engine.resolve(train("02"), context(WorldRuleMode.Bound(a1))) }
+                  assertEquals(0, Probe.a)
+              }
+
+              @Test
+              fun P19_AUTH_FRESH_03_currentBoundBAfterAtoBIsAccepted() {
+                  val selection = canonicalSelection()
+                  selection.setActiveWorldPack("A.worldpack")
+                  val engine = liveEngine(selection)
+                  selection.setActiveWorldPack("B.worldpack")
+
+                  val outcome = engine.resolve(train("03"), context(WorldRuleMode.Bound(b1)))
+                  assertTrue(outcome is PlayerResolutionOutcome.Resolved)
+                  assertTrue(Probe.b > 0)
+                  assertEquals(0, Probe.a)
+              }
+
+              @Test
+              fun P19_AUTH_FRESH_04_staleVersionIsRejectedBeforeProvider() {
+                  val selection = canonicalSelection(aVersion = "2")
+                  selection.setActiveWorldPack("A.worldpack")
+                  val engine = liveEngine(selection)
+
+                  assertStructural("WORLD_RULE_BINDING_AUTHORITY_MISMATCH") {
+                      engine.resolve(train("04"), context(WorldRuleMode.Bound(a1)))
+                  }
+                  assertEquals(0, Probe.a)
+              }
+
+              @Test
+              fun P19_AUTH_FRESH_05_missingAuthorityFailsClosed() {
+                  val engine = engineWithResolver(WorldPackAuthorityResolver { null })
+
+                  assertStructural("WORLD_RULE_AUTHORITY_MISSING") {
+                      engine.resolve(train("05"), context(WorldRuleMode.Bound(a1)))
+                  }
+                  assertEquals(0, Probe.a)
+              }
+
+              @Test
+              fun P19_AUTH_FRESH_06_AtoBtoAUsesCurrentCanonicalStateOnSameEngine() {
+                  val selection = canonicalSelection()
+                  selection.setActiveWorldPack("A.worldpack")
+                  val engine = liveEngine(selection)
+
+                  assertTrue(engine.resolve(train("06A"), context(WorldRuleMode.Bound(a1))) is PlayerResolutionOutcome.Resolved)
+                  selection.setActiveWorldPack("B.worldpack")
+                  assertTrue(engine.resolve(train("06B"), context(WorldRuleMode.Bound(b1))) is PlayerResolutionOutcome.Resolved)
+                  selection.setActiveWorldPack("A.worldpack")
+                  assertTrue(engine.resolve(train("06C"), context(WorldRuleMode.Bound(a1))) is PlayerResolutionOutcome.Resolved)
+                  assertTrue(Probe.a > 0)
+                  assertTrue(Probe.b > 0)
+              }
+
+              @Test
+              fun P19_AUTH_FRESH_07_authorityReadFailureFailsClosedBeforeProvider() {
+                  val engine = engineWithResolver(WorldPackAuthorityResolver {
+                      throw IllegalStateException("simulated canonical authority read failure")
+                  })
+
+                  assertStructural("WORLD_RULE_AUTHORITY_READ_FAILED") {
+                      engine.resolve(train("07"), context(WorldRuleMode.Bound(a1)))
+                  }
+                  assertEquals(0, Probe.a)
+                  assertEquals(0, Probe.b)
+              }
+
+              @Test
+              fun P19_AUTH_FRESH_08_resolutionDoesNotMutateCanonicalAuthority() {
+                  val selection = canonicalSelection()
+                  selection.setActiveWorldPack("B.worldpack")
+                  val app = RuntimeEnvironment.getApplication()
+                  val prefs = app.getSharedPreferences("rpgos_selection", android.content.Context.MODE_PRIVATE)
+                  val beforePrefs = LinkedHashMap(prefs.all)
+                  val root = File(app.filesDir, "rpgos/worldpacks/B.worldpack")
+                  val manifest = File(root, "worldpack.json")
+                  val db = File(root, "world.db")
+                  val beforeManifest = manifest.readBytes()
+                  val beforeDb = db.readBytes()
+                  val engine = liveEngine(selection)
+
+                  assertTrue(engine.resolve(train("08"), context(WorldRuleMode.Bound(b1))) is PlayerResolutionOutcome.Resolved)
+
+                  assertEquals(beforePrefs, LinkedHashMap(prefs.all))
+                  assertTrue(beforeManifest.contentEquals(manifest.readBytes()))
+                  assertTrue(beforeDb.contentEquals(db.readBytes()))
+                  assertEquals("B.worldpack", selection.activeWorldPackDirName())
+                  assertEquals(b1, selection.activeWorldRuleMode().binding)
+              }
+
+              private fun canonicalSelection(aVersion: String = "1"): CampaignSelectionManager {
+                  val app = RuntimeEnvironment.getApplication()
+                  val root = File(app.filesDir, "rpgos")
+                  root.deleteRecursively()
+                  File(root, "saves/${ActiveCampaignRef.DEFAULT_DIRECTORY}").mkdirs()
+                  createWorldPack(File(root, "worldpacks/A.worldpack"), WorldPackRuleBinding("WORLD-A", aVersion))
+                  createWorldPack(File(root, "worldpacks/B.worldpack"), b1)
+                  return CampaignSelectionManager(app)
+              }
+
+              private fun createWorldPack(dir: File, binding: WorldPackRuleBinding) {
+                  dir.mkdirs()
+                  SQLiteDatabase.openOrCreateDatabase(File(dir, "world.db"), null).close()
+                  File(dir, "worldpack.json").writeText(
+                      """{"id":"${binding.worldPackUid}","version":"${binding.worldPackVersion}","engine_api":"1"}"""
+                  )
+              }
+
+              private fun liveEngine(selection: CampaignSelectionManager): PlayerDomainEngine =
+                  engineWithResolver(selection.activeWorldPackAuthoritySnapshot())
+
+              private fun engineWithResolver(resolver: WorldPackAuthorityResolver): PlayerDomainEngine =
+                  PlayerDomainEngine(
+                      PlayerResolutionComponentRegistry.of(listOf(TrainComponent())),
+                      worldRuleRegistry = WorldRuleProviderRegistry.of(
+                          listOf(ProviderA1(), ProviderA2(), ProviderB1())
+                      ),
+                      worldPackAuthority = resolver
+                  )
+
+              private fun train(suffix: String) = PlayerCommand(
+                  commandUid = "CMD-P19-AUTH-FRESH-$suffix",
+                  campaignUid = campaignUid,
+                  actor = actor,
+                  commandKindUid = PlayerCommandKinds.TRAIN,
+                  payload = TrainCommandPayload(DomainRef("STAT", "STR"), 10L, "METHOD"),
+                  provenance = CommandProvenance("P19-AUTH-FRESH")
+              )
+
+              private fun context(mode: WorldRuleMode) = PlayerResolutionContext.create(
+                  campaignUid,
+                  actor,
+                  setOf(
+                      CampaignScopedDomainRef(campaignUid, DomainRef("PLAYER", "P1")),
+                      CampaignScopedDomainRef(campaignUid, DomainRef("STAT", "STR"))
+                  ),
+                  worldRuleMode = mode
+              )
+
+              private fun assertStructural(code: String, block: () -> Unit) {
+                  try {
+                      block()
+                      fail("Expected structural failure $code")
+                  } catch (e: PlayerDomainEngineStructuralException) {
+                      assertEquals(code, e.code)
+                  }
+              }
+
+              private class TrainComponent : PlayerResolutionComponent<TrainCommandPayload>(
+                  PlayerCommandKinds.TRAIN,
+                  TrainCommandPayload::class,
+                  "P19-AUTH-FRESH-COMPONENT",
+                  "1"
+              ) {
+                  override fun resolve(
+                      command: PlayerCommand<TrainCommandPayload>,
+                      context: PlayerResolutionContext
+                  ): PlayerResolutionComponentOutcome = PlayerResolutionComponentOutcome.Resolved(
+                      PlayerResolutionDraft.create(
+                          changes = listOf(
+                              PlayerDomainChange.create(
+                                  "P19-AUTH-FRESH-CHANGE-${command.commandUid}",
+                                  PlayerChangeKinds.STAT,
+                                  StatChange(DomainRef("PLAYER", "P1"), "STR", ExactLongDelta.of(1L))
+                              )
+                          )
+                      )
+                  )
+              }
+
+              private object Probe {
+                  var a = 0
+                  var a2 = 0
+                  var b = 0
+              }
+
+              private class ProviderA1 : WorldRuleProvider("P19-AUTH-FRESH-A1", "1", "WORLD-A", "1") {
+                  override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
+                      Probe.a++
+                      return WorldRuleDecision.Allowed.create("P19-AUTH-FRESH-A1")
+                  }
+              }
+
+              private class ProviderA2 : WorldRuleProvider("P19-AUTH-FRESH-A2", "1", "WORLD-A", "2") {
+                  override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
+                      Probe.a2++
+                      return WorldRuleDecision.Allowed.create("P19-AUTH-FRESH-A2")
+                  }
+              }
+
+              private class ProviderB1 : WorldRuleProvider("P19-AUTH-FRESH-B1", "1", "WORLD-B", "1") {
+                  override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
+                      Probe.b++
+                      return WorldRuleDecision.Allowed.create("P19-AUTH-FRESH-B1")
+                  }
+              }
+          }
+          ''')
+          PY
+
+      - name: Focused Phase 19 authority tests
+        run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.WorldRuleProviderPhase19*' --stacktrace
+
+      - name: Full JVM regression
+        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+
+      - name: Assemble debug
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
+
+      - name: Commit tested hotfix without temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/chat6-p19-authority-freshness-hotfix.yml
+          git config user.name "CHAT-6"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/src/main/java/com/rpgos/app/WorldRuleProvider.kt \
+                  app/src/main/java/com/rpgos/app/CampaignSelectionManager.kt \
+                  app/src/main/java/com/rpgos/app/PlayerDomainEngine.kt \
+                  app/src/test/java/com/rpgos/app/WorldRuleProviderPhase19AuthorityFreshnessTest.kt \
+                  .github/workflows/chat6-p19-authority-freshness-hotfix.yml
+          git commit -m "fix: resolve current World Pack authority per resolution"
+          git push origin HEAD:chat6/p19-authority-freshness-hotfix
