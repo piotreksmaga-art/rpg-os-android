@@ -13,7 +13,7 @@ class WorldRuleProviderPhase19BlockerReproductionTest {
             PlayerResolutionComponentRegistry.of(listOf(TrainComponent())),
             worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(provider))
         )
-        val result = engine.resolve(train(), context(worldPackBinding = null))
+        val result = engine.resolve(train(), context(WorldRuleMode.Bound(binding)))
         assertTrue("bound-world omission must not bypass world rules", result is PlayerResolutionOutcome.Rejected)
     }
 
@@ -41,7 +41,7 @@ class WorldRuleProviderPhase19BlockerReproductionTest {
         val command = train()
         val registry = PlayerCommandKindRegistry.core()
         val fp = registry.fingerprint(command)
-        val ctx = context(binding)
+        val ctx = context(WorldRuleMode.Bound(binding))
         val request = WorldRuleRequest.commandPrecheck(binding, "C1", actor, command, fp, ctx.deterministicFingerprint())
         val allowed = WorldRuleDecisionRecord.create(provider, request, WorldRuleDecision.Allowed.create("RULE"))
         val rejected = WorldRuleDecisionRecord.create(
@@ -79,12 +79,12 @@ class WorldRuleProviderPhase19BlockerReproductionTest {
                 CampaignScopedDomainRef("A", DomainRef("B", "C")),
                 CampaignScopedDomainRef("D", DomainRef("E", "F"))
             ),
-            emptyMap(), ResolutionEntropyEvidence.none(), binding
+            emptyMap(), ResolutionEntropyEvidence.none(), WorldRuleMode.Bound(binding)
         )
         val b = PlayerResolutionContext.create(
             "C1", actor, emptySet(),
             linkedMapOf("A" to "B", "C" to "D", "E" to "F"),
-            ResolutionEntropyEvidence.none(), binding
+            ResolutionEntropyEvidence.none(), WorldRuleMode.Bound(binding)
         )
         assertNotEquals(a.deterministicFingerprint(), b.deterministicFingerprint())
     }
@@ -96,13 +96,13 @@ class WorldRuleProviderPhase19BlockerReproductionTest {
         provenance = CommandProvenance("TEST")
     )
 
-    private fun context(worldPackBinding: WorldPackRuleBinding?) = PlayerResolutionContext.create(
+    private fun context(worldRuleMode: WorldRuleMode) = PlayerResolutionContext.create(
         "C1", actor,
         setOf(
             CampaignScopedDomainRef("C1", DomainRef("PLAYER", "P1")),
             CampaignScopedDomainRef("C1", DomainRef("STAT", "STR"))
         ),
-        worldPackBinding = worldPackBinding
+        worldRuleMode = worldRuleMode
     )
 
     private class TrainComponent : PlayerResolutionComponent<TrainCommandPayload>(

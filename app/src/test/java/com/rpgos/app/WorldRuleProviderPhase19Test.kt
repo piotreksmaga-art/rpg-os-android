@@ -299,7 +299,7 @@ class WorldRuleProviderPhase19Test {
         setOf(scoped("C1", "PLAYER", "P1"), scoped("C1", "STAT", "STR")) + extra,
         mapOf("RPGOS-DEPENDENCY:REFERENCE-SNAPSHOT" to "1"),
         ResolutionEntropyEvidence.none(),
-        if (worldRules) binding else null
+        if (worldRules) WorldRuleMode.Bound(binding) else WorldRuleMode.UnboundGeneric
     )
 
     private fun financeContext() = PlayerResolutionContext.create(
@@ -309,7 +309,7 @@ class WorldRuleProviderPhase19Test {
             scoped("C1", PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, "ACCOUNT:B"),
             scoped("C1", PlayerResolutionReferenceKinds.CURRENCY, "CUR:PLN")
         ),
-        worldPackBinding = binding
+        worldRuleMode = WorldRuleMode.Bound(binding)
     )
 
     private fun scoped(campaign: String, kind: String, uid: String) = CampaignScopedDomainRef(campaign, DomainRef(kind, uid))

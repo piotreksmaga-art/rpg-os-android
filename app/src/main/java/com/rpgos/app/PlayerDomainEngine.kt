@@ -43,7 +43,7 @@ class PlayerResolutionContext private constructor(
     knownReferences: Set<CampaignScopedDomainRef>,
     dependencyVersions: Map<String, String>,
     val entropy: ResolutionEntropyEvidence,
-    val worldPackBinding: WorldPackRuleBinding?
+    val worldRuleMode: WorldRuleMode
 ) {
     val knownReferences: Set<CampaignScopedDomainRef> =
         Collections.unmodifiableSet(LinkedHashSet(knownReferences))
@@ -66,28 +66,43 @@ class PlayerResolutionContext private constructor(
         return if (elsewhere) ResolutionReferenceStatus.WRONG_CAMPAIGN else ResolutionReferenceStatus.UNKNOWN
     }
 
-    internal fun deterministicFingerprint(): String = sha256(
-        buildString {
-            appendToken(campaignUid)
-            appendToken(actor.actorKindUid)
-            appendToken(actor.actorUid)
-            knownReferences
-                .sortedWith(compareBy({ it.campaignUid }, { it.ref.kindUid }, { it.ref.uid }))
-                .forEach {
-                    appendToken(it.campaignUid)
-                    appendToken(it.ref.kindUid)
-                    appendToken(it.ref.uid)
-                }
-            dependencyVersions.forEach { (key, value) ->
-                appendToken(key)
-                appendToken(value)
-            }
-            appendToken(entropy.evidenceUid)
-            appendToken(entropy.exactValue.toString())
-            appendToken(worldPackBinding?.worldPackUid ?: "RPGOS-WORLD-PACK:NONE")
-            appendToken(worldPackBinding?.worldPackVersion ?: "RPGOS-WORLD-PACK-VERSION:NONE")
+    internal fun deterministicFingerprint(): String = WorldRuleCanonicalWriter.fingerprint("PLAYER_RESOLUTION_CONTEXT") {
+        field("CONTEXT_VERSION", "1")
+        field("CAMPAIGN_UID", campaignUid)
+        section("ACTOR") {
+            field("KIND_UID", actor.actorKindUid)
+            field("UID", actor.actorUid)
         }
-    )
+        val refs = knownReferences.sortedWith(compareBy({ it.campaignUid }, { it.ref.kindUid }, { it.ref.uid }))
+        list("KNOWN_REFERENCES", refs) { scoped ->
+            record("CAMPAIGN_SCOPED_DOMAIN_REF") {
+                field("CAMPAIGN_UID", scoped.campaignUid)
+                field("KIND_UID", scoped.ref.kindUid)
+                field("UID", scoped.ref.uid)
+            }
+        }
+        val dependencies = dependencyVersions.entries.toList()
+        list("DEPENDENCY_VERSIONS", dependencies) { entry ->
+            record("DEPENDENCY_VERSION") {
+                field("KEY", entry.key)
+                field("VALUE", entry.value)
+            }
+        }
+        section("ENTROPY") {
+            field("EVIDENCE_UID", entropy.evidenceUid)
+            longField("EXACT_VALUE", entropy.exactValue)
+        }
+        section("WORLD_RULE_MODE") {
+            when (val mode = worldRuleMode) {
+                is WorldRuleMode.Bound -> {
+                    field("MODE", "BOUND")
+                    field("WORLD_PACK_UID", mode.binding.worldPackUid)
+                    field("WORLD_PACK_VERSION", mode.binding.worldPackVersion)
+                }
+                WorldRuleMode.UnboundGeneric -> field("MODE", "UNBOUND_GENERIC")
+            }
+        }
+    }
 
     companion object {
         fun create(
@@ -96,14 +111,29 @@ class PlayerResolutionContext private constructor(
             knownReferences: Set<CampaignScopedDomainRef>,
             dependencyVersions: Map<String, String> = emptyMap(),
             entropy: ResolutionEntropyEvidence = ResolutionEntropyEvidence.none(),
-            worldPackBinding: WorldPackRuleBinding? = null
+            worldRuleMode: WorldRuleMode
         ): PlayerResolutionContext = PlayerResolutionContext(
             campaignUid,
             actor,
             LinkedHashSet(knownReferences),
             TreeMap(dependencyVersions),
             entropy,
-            worldPackBinding
+            worldRuleMode
+        )
+
+        fun createUnboundGeneric(
+            campaignUid: String,
+            actor: CommandActorRef,
+            knownReferences: Set<CampaignScopedDomainRef>,
+            dependencyVersions: Map<String, String> = emptyMap(),
+            entropy: ResolutionEntropyEvidence = ResolutionEntropyEvidence.none()
+        ): PlayerResolutionContext = create(
+            campaignUid,
+            actor,
+            knownReferences,
+            dependencyVersions,
+            entropy,
+            WorldRuleMode.UnboundGeneric
         )
     }
 }
@@ -363,7 +393,10 @@ class PlayerDomainEngine internal constructor(
         contextFingerprint: String,
         effects: WorldRuleEffectSnapshot?
     ): WorldRuleEvaluation? {
-        val binding = context.worldPackBinding ?: return null
+        val binding = when (val mode = context.worldRuleMode) {
+            is WorldRuleMode.Bound -> mode.binding
+            WorldRuleMode.UnboundGeneric -> return null
+        }
         val provider = worldRuleRegistry.providerFor(binding)
             ?: fail("WORLD_RULE_PROVIDER_MISSING")
         val providerCommand = commandRegistry.decode(commandRegistry.encode(canonicalCommand))

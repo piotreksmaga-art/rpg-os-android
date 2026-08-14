@@ -23,6 +23,18 @@ class CampaignSelectionManager(private val context: Context) {
     fun activeWorldPackDirName(): String =
         prefs.getString("active_worldpack", "Naruto.worldpack") ?: "Naruto.worldpack"
 
+    /** Canonical app-level authority for the active World Pack rule mode. */
+    fun activeWorldRuleMode(): WorldRuleMode.Bound {
+        val dir = File(worldpacks, activeWorldPackDirName())
+        val validation = PackageValidator().validateWorldPack(dir)
+        require(validation.ok) { "Active World Pack is invalid: ${validation.message}" }
+        val uid = validation.packageId?.takeIf { it.isNotBlank() }
+            ?: error("Active World Pack manifest has no id")
+        val version = validation.version?.takeIf { it.isNotBlank() }
+            ?: error("Active World Pack manifest has no version")
+        return WorldRuleMode.Bound(WorldPackRuleBinding(uid, version))
+    }
+
     fun setActiveCampaign(dirName: String) {
         require(File(saves, dirName).isDirectory) { "Nie istnieje kampania $dirName" }
         val ref = ActiveCampaignRef.resolve(saves, dirName)
