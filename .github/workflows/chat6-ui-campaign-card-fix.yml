@@ -42,16 +42,18 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           p = Path('app/src/main/java/com/rpgos/app/MainActivity.kt')
           s = p.read_text()
 
-          old = '''        AppRoute.SAVES -> StandardPage(
-              title = "Zapisy i kampanie",
-              onBack = { route = AppRoute.HOME }
-          ) { PackagesScreen(vm) }
-          '''
-          new = '''        AppRoute.SAVES -> StandardPage(
+          saves_pattern = re.compile(
+              r'(?m)^\s*AppRoute\.SAVES -> StandardPage\(\n'
+              r'\s*title = "Zapisy i kampanie",\n'
+              r'\s*onBack = \{ route = AppRoute\.HOME \}\n'
+              r'\s*\) \{ PackagesScreen\(vm\) \}'
+          )
+          saves_replacement = '''        AppRoute.SAVES -> StandardPage(
               title = "Zapisy i kampanie",
               onBack = { route = AppRoute.HOME }
           ) {
@@ -62,15 +64,14 @@ jobs:
                       route = AppRoute.CAMPAIGN
                   }
               )
-          }
-          '''
-          assert s.count(old) == 1, f'SAVES route pattern count={s.count(old)}'
-          s = s.replace(old, new, 1)
+          }'''
+          s, n = saves_pattern.subn(saves_replacement, s, count=1)
+          assert n == 1, f'SAVES route pattern count={n}'
 
-          old = '''@Composable
-          private fun PackagesScreen(vm:RpgOsViewModel){
-          '''
-          new = '''internal fun handleCampaignCardAction(
+          signature_pattern = re.compile(
+              r'@Composable\nprivate fun PackagesScreen\(vm\s*:\s*RpgOsViewModel\)\s*\{'
+          )
+          signature_replacement = '''internal fun handleCampaignCardAction(
               active: Boolean,
               dirName: String,
               activateCampaign: (String) -> Unit,
@@ -87,34 +88,24 @@ jobs:
           private fun PackagesScreen(
               vm: RpgOsViewModel,
               onContinueCampaign: ((String) -> Unit)? = null
-          ){
-          '''
-          assert s.count(old) == 1, f'PackagesScreen signature pattern count={s.count(old)}'
-          s = s.replace(old, new, 1)
+          ) {'''
+          s, n = signature_pattern.subn(signature_replacement, s, count=1)
+          assert n == 1, f'PackagesScreen signature pattern count={n}'
 
-          old = '''                            GradientActionButton(
-                                  text = if(active) "Kontynuuj" else "Aktywuj kampanię",
-                                  onClick = { vm.activateCampaign(dirName) },
-                                  modifier = Modifier.fillMaxWidth(),
-                                  brush = if(active) TealGradient else BlueGradient
-                              )
-          '''
-          new = '''                            GradientActionButton(
-                                  text = if(active) "Kontynuuj" else "Aktywuj kampanię",
-                                  onClick = {
+          button_pattern = re.compile(
+              r'(text\s*=\s*if\(active\)\s*"Kontynuuj"\s*else\s*"Aktywuj kampanię",\n\s*)'
+              r'onClick\s*=\s*\{\s*vm\.activateCampaign\(dirName\)\s*\},'
+          )
+          button_replacement = r'''\1onClick = {
                                       handleCampaignCardAction(
                                           active = active,
                                           dirName = dirName,
                                           activateCampaign = vm::activateCampaign,
                                           continueCampaign = onContinueCampaign
                                       )
-                                  },
-                                  modifier = Modifier.fillMaxWidth(),
-                                  brush = if(active) TealGradient else BlueGradient
-                              )
-          '''
-          assert s.count(old) == 1, f'campaign button pattern count={s.count(old)}'
-          s = s.replace(old, new, 1)
+                                  },'''
+          s, n = button_pattern.subn(button_replacement, s, count=1)
+          assert n == 1, f'campaign button pattern count={n}'
           p.write_text(s)
 
           test = Path('app/src/test/java/com/rpgos/app/CampaignCardContinueNavigationTest.kt')
@@ -174,6 +165,9 @@ jobs:
 
       - name: Run full JVM regression
         run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+
+      - name: Build debug APK
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
 
       - name: Commit tested fix without temporary workflow
         shell: bash
