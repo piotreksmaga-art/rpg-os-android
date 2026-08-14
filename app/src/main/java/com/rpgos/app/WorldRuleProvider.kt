@@ -25,16 +25,14 @@ internal class WorldRuleEffectSnapshot private constructor(
     val warnings: List<ChangeSetWarning> = frozen(warnings)
 
     internal fun deterministicFingerprint(): String = ruleSha256(buildString {
-        changes.forEach {
-            token(it.changeUid); token(it.changeKindUid); token(it.payload.javaClass.name); token(it.payload.toString())
+        changes.forEach { appendCanonicalChange(it) }
+        eventIntents.forEach { appendCanonicalEventIntent(it) }
+        ledgerIntents.forEach { appendCanonicalLedgerIntent(it) }
+        warnings.forEach {
+            token(it.warningKindUid)
+            nullableToken(it.detail)
+            nullableToken(it.relatedChangeUid)
         }
-        eventIntents.forEach {
-            token(it.eventIntentUid); token(it.eventKindUid); token(it.payload.javaClass.name); token(it.payload.toString())
-        }
-        ledgerIntents.forEach {
-            token(it.ledgerIntentUid); token(it.ledgerKindUid); token(it.payload.javaClass.name); token(it.payload.toString())
-        }
-        warnings.forEach { token(it.warningKindUid); token(it.detail ?: ""); token(it.relatedChangeUid ?: "") }
     })
 
     companion object {
@@ -241,6 +239,67 @@ private fun validateProviderState(provider: WorldRuleProvider) {
     }
 }
 
+private fun StringBuilder.appendCanonicalChange(change: PlayerDomainChange) {
+    token(change.changeUid)
+    token(change.changeKindUid)
+    nullableToken(change.sourceRuleUid)
+    when (val payload = change.payload) {
+        is StatChange -> { domainRef(payload.subject); token(payload.statUid); longToken(payload.delta.units) }
+        is ResourceChange -> { domainRef(payload.subject); token(payload.resourceUid); longToken(payload.delta.units) }
+        is SkillChange -> { domainRef(payload.subject); token(payload.skillUid); longToken(payload.progressDelta.units) }
+        is TechniqueChange -> { domainRef(payload.subject); token(payload.techniqueUid); longToken(payload.progressDelta.units) }
+        is InnateChange -> { domainRef(payload.subject); token(payload.innateUid); token(payload.proposedStateUid) }
+        is InventoryChange -> { domainRef(payload.subject); token(payload.itemInstanceUid); longToken(payload.quantityDelta.units) }
+        is EquipmentChange -> {
+            domainRef(payload.subject); token(payload.slotUid); token(payload.operation.name); nullableToken(payload.itemInstanceUid)
+        }
+        is FinancialChange -> {
+            token(payload.fromAccountUid); token(payload.toAccountUid); longToken(payload.amountMinor)
+            token(payload.currencyUid); token(payload.transactionTypeUid)
+        }
+        is AssetChange -> {
+            token(payload.asset.assetKindUid); token(payload.asset.assetUid); token(payload.proposedLifecycleStateUid)
+        }
+        is OwnershipChange -> {
+            token(payload.ownershipRecordUid)
+            token(payload.asset.assetKindUid); token(payload.asset.assetUid)
+            token(payload.fromOwner.ownerKindUid); token(payload.fromOwner.ownerUid)
+            token(payload.toOwner.ownerKindUid); token(payload.toOwner.ownerUid)
+            longToken(payload.share.units)
+        }
+        is ConditionChange -> { domainRef(payload.subject); token(payload.conditionUid); token(payload.operation.name) }
+        is RuntimeChange -> { domainRef(payload.subject); token(payload.runtimeCounterUid); longToken(payload.delta.units) }
+        is DevelopmentProjectChange -> {
+            token(payload.projectUid); token(payload.workResultKindUid); longToken(payload.progressDelta.units)
+            payload.evidenceRefs.forEach { domainRef(it) }
+        }
+    }
+}
+
+private fun StringBuilder.appendCanonicalEventIntent(intent: PlayerEventIntent) {
+    token(intent.eventIntentUid)
+    token(intent.eventKindUid)
+    nullableDomainRef(intent.actorRef)
+    intent.targetRefs.forEach { domainRef(it) }
+    intent.causalChangeUids.forEach { token(it) }
+    nullableLongToken(intent.proposedEffectiveOrder)
+    when (val payload = intent.payload) {
+        is DomainEffectEventIntentPayload -> { domainRef(payload.subject); token(payload.effectKindUid) }
+    }
+}
+
+private fun StringBuilder.appendCanonicalLedgerIntent(intent: PlayerLedgerIntent) {
+    token(intent.ledgerIntentUid)
+    token(intent.ledgerKindUid)
+    intent.causalChangeUids.forEach { token(it) }
+    when (val payload = intent.payload) {
+        is FinancialTransferLedgerIntentPayload -> {
+            token(payload.fromAccountUid); token(payload.toAccountUid); longToken(payload.amountMinor)
+            token(payload.currencyUid); token(payload.transactionTypeUid)
+        }
+    }
+}
+
 private fun validateDecision(ruleUid: String, reasonUid: String?, evidenceUids: List<String>) {
     require(ruleUid.isNotBlank())
     require(reasonUid?.isBlank() != true)
@@ -251,5 +310,12 @@ private fun validateDecision(ruleUid: String, reasonUid: String?, evidenceUids: 
 private fun failRule(code: String): Nothing = throw PlayerDomainEngineStructuralException(code)
 private fun <T> frozen(values: List<T>): List<T> = Collections.unmodifiableList(ArrayList(values))
 private fun StringBuilder.token(value: String) { append(value.length).append(':').append(value).append('|') }
+private fun StringBuilder.nullableToken(value: String?) { token(value ?: "RPGOS-NULL") }
+private fun StringBuilder.longToken(value: Long) { token(value.toString()) }
+private fun StringBuilder.nullableLongToken(value: Long?) { token(value?.toString() ?: "RPGOS-NULL") }
+private fun StringBuilder.domainRef(ref: DomainRef) { token(ref.kindUid); token(ref.uid) }
+private fun StringBuilder.nullableDomainRef(ref: DomainRef?) {
+    if (ref == null) token("RPGOS-NULL") else { token("RPGOS-NONNULL"); domainRef(ref) }
+}
 private fun ruleSha256(value: String): String = MessageDigest.getInstance("SHA-256")
     .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
