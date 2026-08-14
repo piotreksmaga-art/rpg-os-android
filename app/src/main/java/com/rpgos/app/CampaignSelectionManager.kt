@@ -35,9 +35,22 @@ class CampaignSelectionManager(private val context: Context) {
         return WorldRuleMode.Bound(WorldPackRuleBinding(uid, version))
     }
 
-    /** Read-only Phase-19 authority snapshot derived from canonical app selection. */
-    internal fun activeWorldPackAuthoritySnapshot(): WorldPackAuthoritySnapshot =
-        WorldPackAuthoritySnapshot.single(activeCampaignId(), activeWorldRuleMode().binding)
+    /**
+     * Read-only Phase-19 authority resolver backed by the canonical app selection.
+     * The current campaign and World Pack are re-read for every authority lookup.
+     */
+    internal fun activeWorldPackAuthorityResolver(): WorldPackAuthorityResolver =
+        WorldPackAuthorityResolver { campaignUid ->
+            val currentCampaignUid = activeCampaignId()
+            if (campaignUid != currentCampaignUid) null else activeWorldRuleMode().binding
+        }
+
+    /**
+     * Compatibility entry point retained for existing callers. Despite the historical name,
+     * this now returns the live canonical resolver so long-lived engines cannot retain stale authority.
+     */
+    internal fun activeWorldPackAuthoritySnapshot(): WorldPackAuthorityResolver =
+        activeWorldPackAuthorityResolver()
 
     fun setActiveCampaign(dirName: String) {
         require(File(saves, dirName).isDirectory) { "Nie istnieje kampania $dirName" }
