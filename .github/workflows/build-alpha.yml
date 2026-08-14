@@ -3,7 +3,7 @@ name: Build & Release RPG OS ALPHA
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "release/phase18-cumulative-142" ]
 
 permissions:
   contents: write
@@ -88,8 +88,7 @@ jobs:
         run: |
           cp app/build/outputs/apk/release/app-release.apk "${{ steps.version.outputs.apk }}"
           SHA=$(sha256sum "${{ steps.version.outputs.apk }}" | awk '{print $1}')
-          printf '%s  %s\n' "$SHA" "${{ steps.version.outputs.apk }}" \
-            > "${{ steps.version.outputs.apk }}.sha256"
+          printf '%s  %s\n' "$SHA" "${{ steps.version.outputs.apk }}" > "${{ steps.version.outputs.apk }}.sha256"
 
           cat > update.json <<EOF
           {
@@ -98,7 +97,7 @@ jobs:
             "version_code": ${{ steps.version.outputs.code }},
             "sha256": "$SHA",
             "mandatory": false,
-            "notes": "RPG OS ALPHA ${{ steps.version.outputs.name }}"
+            "notes": "RPG OS — cumulative accepted implementation through Phase 18"
           }
           EOF
 
@@ -135,14 +134,16 @@ jobs:
             "${{ steps.version.outputs.apk }}" \
             "${{ steps.version.outputs.apk }}.sha256" \
             update.json \
+            --target "$GITHUB_SHA" \
             --title "RPG OS ALPHA ${{ steps.version.outputs.name }}" \
-            --notes "Automatyczne wydanie RPG OS ALPHA.
+            --notes "RPG OS — cumulative accepted implementation through Phase 18.
+
+          This release synchronizes the published application with the globally accepted cumulative runtime Phase 3–18.
+          It intentionally excludes Phase 19 and all Phase 20+ development.
 
           Wersja: ${{ steps.version.outputs.name }}
           VersionCode: ${{ steps.version.outputs.code }}
-
-          Kanał aktualizacji:
-          https://api.github.com/repos/piotreksmaga-art/rpg-os-android/releases/latest"
+          Accepted runtime: b53ae2c5b765cba49f31a0f88e7865cf1df8d5a7"
 
       - name: Update existing GitHub Release assets
         if: steps.release_check.outputs.exists == 'true'
@@ -155,6 +156,17 @@ jobs:
             "${{ steps.version.outputs.apk }}.sha256" \
             update.json \
             --clobber
+
+      - name: Verify release tag matches build SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${{ steps.version.outputs.tag }}" --jq '.object.sha')
+          if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::Release tag points to $TAG_SHA, expected $GITHUB_SHA"
+            exit 1
+          fi
 
       - name: Show release information
         env:
