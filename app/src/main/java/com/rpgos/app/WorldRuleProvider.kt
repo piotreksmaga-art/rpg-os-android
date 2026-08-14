@@ -12,7 +12,7 @@ data class WorldPackRuleBinding(val worldPackUid: String, val worldPackVersion: 
 
 sealed interface WorldRuleMode {
     data class Bound(val binding: WorldPackRuleBinding) : WorldRuleMode
-    data object UnboundGeneric : WorldRuleMode
+    internal data object UnboundGeneric : WorldRuleMode
 }
 
 enum class WorldRuleEvaluationStage { COMMAND_PRECHECK, DRAFT_EFFECT_CHECK }

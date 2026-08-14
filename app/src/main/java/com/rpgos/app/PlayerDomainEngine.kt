@@ -121,7 +121,7 @@ class PlayerResolutionContext private constructor(
             worldRuleMode
         )
 
-        fun createUnboundGeneric(
+        internal fun createUnboundGeneric(
             campaignUid: String,
             actor: CommandActorRef,
             knownReferences: Set<CampaignScopedDomainRef>,
