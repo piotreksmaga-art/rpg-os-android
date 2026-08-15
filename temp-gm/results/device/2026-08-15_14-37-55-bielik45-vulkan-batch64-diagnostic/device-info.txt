@@ -1,0 +1,8 @@
+timestamp=2026-08-15_14-37-55
+device_model=SM-S921B
+board_platform=erd9945
+hardware=s5e9945
+android_release=16
+android_sdk=36
+kernel=Linux localhost 6.1.157-android14-11 #1 SMP PREEMPT Fri Jul  3 05:30:34 UTC 2026 aarch64 Android
+termux_prefix=/data/data/com.termux/files/usr

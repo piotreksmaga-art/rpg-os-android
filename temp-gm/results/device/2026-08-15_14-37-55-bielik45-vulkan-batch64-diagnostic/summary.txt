@@ -1,0 +1,40 @@
+===== BIELIK VULKAN BATCH64 DIAGNOSTIC =====
+Sat Aug 15 14:37:25 CEST 2026
+CTX=1024
+BATCH=64
+UBATCH=64
+SLOT=0
+
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       3.3Gi       2.2Gi        17Mi       1.5Gi       3.6Gi
+Swap:          8.0Gi       2.0Gi       6.0Gi
+
+=== RESULTS ===
+turn,prompt_tokens,cached_tokens,prompt_n,prompt_tps,gen_tps,total_ms
+1,97,0,97,63.41896200811893,8.829258042129688,7787
+2,177,109,68,55.733319345362986,8.946658742483208,5169
+3,239,182,57,65.45735166445414,8.936726191220918,4823
+
+=== TIMINGS ===
+0.05.381.045 I slot get_availabl: id  0 | task -1 | selected slot by id (0)
+0.13.139.935 I slot print_timing: id  0 | task 0 | prompt eval time =    1529.51 ms /    97 tokens (   15.77 ms per token,    63.42 tokens per second)
+0.13.139.970 I slot print_timing: id  0 | task 0 |        eval time =    6229.29 ms /    56 tokens (  113.26 ms per token,     8.83 tokens per second)
+0.13.139.972 I slot print_timing: id  0 | task 0 |       total time =    7758.80 ms /   153 tokens
+0.13.139.973 I slot print_timing: id  0 | task 0 |    graphs reused =         55
+0.15.182.658 I slot get_availabl: id  0 | task -1 | selected slot by id (0)
+0.20.315.945 I slot print_timing: id  0 | task 58 | prompt eval time =    1220.10 ms /    68 tokens (   17.94 ms per token,    55.73 tokens per second)
+0.20.315.983 I slot print_timing: id  0 | task 58 |        eval time =    3912.07 ms /    36 tokens (  111.77 ms per token,     8.95 tokens per second)
+0.20.315.985 I slot print_timing: id  0 | task 58 |       total time =    5132.17 ms /   104 tokens
+0.20.315.986 I slot print_timing: id  0 | task 58 |    graphs reused =         89
+0.22.352.503 I slot get_availabl: id  0 | task -1 | selected slot by id (0)
+0.27.140.132 I slot print_timing: id  0 | task 96 | prompt eval time =     870.80 ms /    57 tokens (   15.28 ms per token,    65.46 tokens per second)
+0.27.140.164 I slot print_timing: id  0 | task 96 |        eval time =    3916.42 ms /    36 tokens (  111.90 ms per token,     8.94 tokens per second)
+0.27.140.167 I slot print_timing: id  0 | task 96 |       total time =    4787.22 ms /    93 tokens
+0.27.140.169 I slot print_timing: id  0 | task 96 |    graphs reused =        122
+
+=== MEMORY ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       5.9Gi       166Mi        17Mi       987Mi       905Mi
+Swap:          8.0Gi       1.9Gi       6.1Gi
+
+TEST_STATUS=COMPLETE
