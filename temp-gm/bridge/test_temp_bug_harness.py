@@ -157,14 +157,16 @@ class BugHarnessTests(unittest.TestCase):
         self.assertEqual(shot["reference"], "")
 
     def test_BUG_16_secrets_redaction(self):
-        body = base_body("Błąd token=gho_abcdefghijklmnopqrstuvwxyz123456 i password=abc123")
+        password_secret = "pwd-should-never-persist-778899"
+        body = base_body(f"Błąd token=gho_abcdefghijklmnopqrstuvwxyz123456 i password={password_secret}")
         body["logcatExcerpt"] = "Authorization: Bearer super-secret-value"
         body["include_logcat"] = True
         report = self.build(body)
         serialized = json.dumps(report, ensure_ascii=False)
         self.assertNotIn("gho_", serialized)
-        self.assertNotIn("abc123", serialized)
+        self.assertNotIn(password_secret, serialized)
         self.assertNotIn("super-secret-value", serialized)
+        self.assertEqual(report["DEVICE-CAPTURED"]["app"]["buildSha"], "abc123")
         self.assertTrue(report["USER-SUPPLIED"]["originalReportRedactedForSecretSafety"])
 
     def test_BUG_17_canonical_state_before_after_identical(self):
