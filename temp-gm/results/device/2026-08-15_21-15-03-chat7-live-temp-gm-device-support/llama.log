@@ -1,0 +1,25 @@
+nohup: ignoring input
+0.00.157.598 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.160.826 W srv  llama_server: -----------------
+0.00.160.850 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.160.852 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.160.854 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.160.855 W srv  llama_server: -----------------
+0.00.163.642 I srv    load_model: loading model '/data/data/com.termux/files/home/rpgos-temp-gm/models/bielik45/Bielik-4.5B-v3.0-Instruct-Q4_K_M.gguf'
+0.07.288.874 I cmn          init: llama threadpool init, n_threads = 10
+0.08.894.041 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 8192, kv_unified = 'false'
+0.08.917.202 I srv  llama_server: model loaded
+0.08.917.237 I srv  llama_server: listening on http://127.0.0.1:8768
+0.11.330.802 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+0.11.337.780 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+0.14.379.458 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =    192, progress = 0.34, t =   3.04 s / 63.13 tokens per second
+0.15.712.124 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =    256, progress = 0.45, t =   4.37 s / 58.52 tokens per second
+0.17.038.873 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =    320, progress = 0.57, t =   5.70 s / 56.13 tokens per second
+0.18.405.233 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =    384, progress = 0.68, t =   7.07 s / 54.33 tokens per second
+0.19.759.952 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =    448, progress = 0.80, t =   8.42 s / 53.19 tokens per second
+0.21.142.563 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =    512, progress = 0.91, t =   9.80 s / 52.22 tokens per second
+0.31.824.013 I slot print_timing: id  0 | task 0 | prompt eval time =   12657.83 ms /   563 tokens (   22.48 ms per token,    44.48 tokens per second)
+0.31.824.045 I slot print_timing: id  0 | task 0 |        eval time =    7824.90 ms /    60 tokens (  132.63 ms per token,     7.54 tokens per second)
+0.31.824.113 I slot print_timing: id  0 | task 0 |       total time =   20482.73 ms /   623 tokens
+0.31.824.133 I slot print_timing: id  0 | task 0 |    graphs reused =         65
+0.31.825.622 I slot      release: id  0 | task 0 | stop processing: n_tokens = 622, truncated = 0
