@@ -14,6 +14,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,6 +35,7 @@ fun ContentUpdatesPanel(context: android.content.Context) {
     var candidates by remember { mutableStateOf<List<ContentUpdateCandidate>>(emptyList()) }
     var status by remember { mutableStateOf("Nie sprawdzano aktualizacji zawartości.") }
     var busy by remember { mutableStateOf(false) }
+    var tempDeveloperExpanded by remember { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Card(
@@ -115,7 +117,9 @@ fun ContentUpdatesPanel(context: android.content.Context) {
             }
         }
 
-        Text("DLA DEWELOPERA • TEMP LOCAL GM", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-        TempGmDeveloperSection()
+        OutlinedButton(onClick = { tempDeveloperExpanded = !tempDeveloperExpanded }, modifier = Modifier.fillMaxWidth()) {
+            Text(if (tempDeveloperExpanded) "Dla dewelopera • TEMP LOCAL GM ▲" else "Dla dewelopera • TEMP LOCAL GM ▼", fontWeight = FontWeight.Bold)
+        }
+        if (tempDeveloperExpanded) TempGmDeveloperSection()
     }
 }
