@@ -77,37 +77,39 @@ class ContentUpdateManager(
                 unzipSafely(zip, staging)
                 validatePayload(pkg, staging)
 
-                val target = targetDirectory(pkg)
-                target.parentFile?.mkdirs()
-                val previous = if (target.exists()) {
-                    File(backupRoot, "$safeId-${System.currentTimeMillis()}").also { backup ->
-                        copyDirectory(target, backup)
-                    }
-                } else null
+                CanonicalPackageAuthorityGate.mutate {
+                    val target = targetDirectory(pkg)
+                    target.parentFile?.mkdirs()
+                    val previous = if (target.exists()) {
+                        File(backupRoot, "$safeId-${System.currentTimeMillis()}").also { backup ->
+                            copyDirectory(target, backup)
+                        }
+                    } else null
 
-                try {
-                    val replacement = File(target.parentFile, ".${target.name}.new")
-                    replacement.deleteRecursively()
-                    copyDirectory(staging, replacement)
-                    if (target.exists()) target.deleteRecursively()
-                    require(replacement.renameTo(target)) {
-                        "Nie można aktywować pakietu ${pkg.id}."
-                    }
+                    try {
+                        val replacement = File(target.parentFile, ".${target.name}.new")
+                        replacement.deleteRecursively()
+                        copyDirectory(staging, replacement)
+                        if (target.exists()) target.deleteRecursively()
+                        require(replacement.renameTo(target)) {
+                            "Nie można aktywować pakietu ${pkg.id}."
+                        }
 
-                    val installed = InstalledContentPackage(
-                        id = pkg.id,
-                        type = pkg.type,
-                        version = pkg.version,
-                        installedAt = System.currentTimeMillis(),
-                        sha256 = actualSha.lowercase()
-                    )
-                    saveInstalled(installed)
-                    pruneBackups(safeId, keep = 3)
-                    installed
-                } catch (t: Throwable) {
-                    if (target.exists()) target.deleteRecursively()
-                    if (previous != null && previous.exists()) copyDirectory(previous, target)
-                    throw t
+                        val installed = InstalledContentPackage(
+                            id = pkg.id,
+                            type = pkg.type,
+                            version = pkg.version,
+                            installedAt = System.currentTimeMillis(),
+                            sha256 = actualSha.lowercase()
+                        )
+                        saveInstalled(installed)
+                        pruneBackups(safeId, keep = 3)
+                        installed
+                    } catch (t: Throwable) {
+                        if (target.exists()) target.deleteRecursively()
+                        if (previous != null && previous.exists()) copyDirectory(previous, target)
+                        throw t
+                    }
                 }
             } finally {
                 staging.deleteRecursively()
