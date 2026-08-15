@@ -59,7 +59,37 @@ class RpgPackageManager(private val context: Context) {
         return destination
     }
 
-    fun importCampaign(zipFile: File, targetDirName: String): File {
+    fun importCampaign(zipFile: File, targetDirName: String): File =
+        CanonicalPackageAuthorityGate.mutate {
+            importCampaignUnlocked(zipFile, targetDirName)
+        }
+
+    fun importWorldPack(zipFile: File, targetDirName: String): File =
+        CanonicalPackageAuthorityGate.mutate {
+            importWorldPackUnlocked(zipFile, targetDirName)
+        }
+
+    fun validatedImportCampaign(zipFile: File, targetDirName: String): ValidationResult =
+        CanonicalPackageAuthorityGate.mutate {
+            val target = importCampaignUnlocked(zipFile, targetDirName)
+            val result = PackageValidator().validateCampaign(target)
+            if (!result.ok) {
+                target.deleteRecursively()
+            }
+            result
+        }
+
+    fun validatedImportWorldPack(zipFile: File, targetDirName: String): ValidationResult =
+        CanonicalPackageAuthorityGate.mutate {
+            val target = importWorldPackUnlocked(zipFile, targetDirName)
+            val result = PackageValidator().validateWorldPack(target)
+            if (!result.ok) {
+                target.deleteRecursively()
+            }
+            result
+        }
+
+    private fun importCampaignUnlocked(zipFile: File, targetDirName: String): File {
         val target = File(savesDir, targetDirName)
         if (target.exists()) target.deleteRecursively()
         target.mkdirs()
@@ -68,32 +98,13 @@ class RpgPackageManager(private val context: Context) {
         return target
     }
 
-    fun importWorldPack(zipFile: File, targetDirName: String): File {
+    private fun importWorldPackUnlocked(zipFile: File, targetDirName: String): File {
         val target = File(worldpacksDir, targetDirName)
         if (target.exists()) target.deleteRecursively()
         target.mkdirs()
         unzip(zipFile, target)
         require(File(target, "world.db").exists()) { "Paczka nie zawiera world.db" }
         return target
-    }
-
-
-    fun validatedImportCampaign(zipFile: File, targetDirName: String): ValidationResult {
-        val target = importCampaign(zipFile, targetDirName)
-        val result = PackageValidator().validateCampaign(target)
-        if (!result.ok) {
-            target.deleteRecursively()
-        }
-        return result
-    }
-
-    fun validatedImportWorldPack(zipFile: File, targetDirName: String): ValidationResult {
-        val target = importWorldPack(zipFile, targetDirName)
-        val result = PackageValidator().validateWorldPack(target)
-        if (!result.ok) {
-            target.deleteRecursively()
-        }
-        return result
     }
 
     private fun unzip(zipFile: File, target: File) {
