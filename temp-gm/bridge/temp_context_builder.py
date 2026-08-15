@@ -37,11 +37,7 @@ Odpowiadaj po polsku, chyba że gracz wyraźnie używa innego języka.
 
 
 def estimate_tokens(value: Any) -> int:
-    """Conservative tokenizer-independent estimate for Polish/JSON TEMP context.
-
-    Uses ~3 UTF-8-visible characters per token plus fixed JSON overhead.
-    Actual llama.cpp usage remains the runtime source for measurements.
-    """
+    """Conservative tokenizer-independent estimate for Polish/JSON TEMP context."""
     if not isinstance(value, str):
         value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     return max(1, math.ceil(len(value) / 3))
@@ -103,16 +99,41 @@ def _build_npcs(items: Any) -> list[dict[str, Any]]:
     return result
 
 
+def _assert_segment_budget(name: str, value: Any) -> None:
+    if estimate_tokens(value) > SEGMENT_BUDGETS[name]:
+        raise ValueError(f"{name}_budget_exceeded")
+
+
+def _trim_optional_context(safe: dict[str, Any], extra_tokens: int = 0) -> int:
+    def total() -> int:
+        return estimate_tokens(SYSTEM_PROMPT) + estimate_tokens(safe) + extra_tokens
+
+    if total() <= INPUT_BUDGET:
+        return total()
+
+    # Old/optional memory is first to go.
+    safe["retrievedChronicleMemory"] = []
+    while safe["recentDialogueActions"] and total() > INPUT_BUDGET:
+        safe["recentDialogueActions"].pop(0)
+
+    return total()
+
+
 def build_context(snapshot: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(snapshot, dict):
         raise ValueError("context_must_be_object")
+
+    scene_state = deepcopy(snapshot.get("sceneState", {}))
+    player_scene_state = deepcopy(snapshot.get("playerSceneState", {}))
+    _assert_segment_budget("sceneState", scene_state)
+    _assert_segment_budget("playerSceneState", player_scene_state)
 
     safe = {
         "campaignUid": snapshot.get("campaignUid"),
         "worldPackUid": snapshot.get("worldPackUid"),
         "playerIdentity": deepcopy(snapshot.get("playerIdentity", {})),
-        "sceneState": deepcopy(snapshot.get("sceneState", {})),
-        "playerSceneState": deepcopy(snapshot.get("playerSceneState", {})),
+        "sceneState": scene_state,
+        "playerSceneState": player_scene_state,
         "relevantNpcs": _build_npcs(snapshot.get("relevantNpcs", [])),
         "recentDialogueActions": _bounded_list(
             snapshot.get("recentDialogueActions", []),
@@ -128,16 +149,7 @@ def build_context(snapshot: dict[str, Any]) -> dict[str, Any]:
         "engineConfirmedResults": deepcopy(snapshot.get("engineConfirmedResults", [])),
     }
 
-    # Current scene/player essentials are caller-bounded inputs. We do not silently
-    # replace them with global state or future canonical memory behavior.
-    total = estimate_tokens(SYSTEM_PROMPT) + estimate_tokens(safe)
-    if total > INPUT_BUDGET:
-        # Deterministic emergency trim: retrieved memory, then oldest recent actions.
-        safe["retrievedChronicleMemory"] = []
-        while safe["recentDialogueActions"] and estimate_tokens(SYSTEM_PROMPT) + estimate_tokens(safe) > INPUT_BUDGET:
-            safe["recentDialogueActions"].pop(0)
-
-    total = estimate_tokens(SYSTEM_PROMPT) + estimate_tokens(safe)
+    total = _trim_optional_context(safe)
     if total > INPUT_BUDGET:
         raise ValueError("context_budget_exceeded_after_safe_trimming")
 
@@ -145,21 +157,33 @@ def build_context(snapshot: dict[str, Any]) -> dict[str, Any]:
         "contextWindow": CTX_WINDOW,
         "inputBudget": INPUT_BUDGET,
         "responseReserve": RESPONSE_RESERVE,
-        "estimatedInputTokens": total,
+        "estimatedContextTokens": total,
     }
     return safe
 
 
 def build_messages(snapshot: dict[str, Any], player_message: str, mode: str) -> list[dict[str, str]]:
+    if not isinstance(player_message, str) or not player_message.strip():
+        raise ValueError("player_message_required")
+
     context = build_context(snapshot)
-    system = (
-        SYSTEM_PROMPT
-        + "\n\nREAD-ONLY TEMP CONTEXT:\n"
-        + json.dumps(context, ensure_ascii=False, separators=(",", ":"))
-        + "\n\nTEMP response mode: "
-        + mode
-        + ". canonicalMutation=false."
-    )
+    context.pop("_tempBudget", None)
+
+    mode_suffix = "\n\nTEMP response mode: " + mode + ". canonicalMutation=false."
+    fixed_system_prefix = SYSTEM_PROMPT + "\n\nREAD-ONLY TEMP CONTEXT:\n"
+    fixed_tokens = estimate_tokens(fixed_system_prefix) + estimate_tokens(mode_suffix) + estimate_tokens(player_message)
+
+    total = _trim_optional_context(context, extra_tokens=fixed_tokens)
+    if total > INPUT_BUDGET:
+        raise ValueError("turn_budget_exceeded_after_safe_trimming")
+
+    context["_tempBudget"] = {
+        "contextWindow": CTX_WINDOW,
+        "inputBudget": INPUT_BUDGET,
+        "responseReserve": RESPONSE_RESERVE,
+        "estimatedTurnInputTokens": total,
+    }
+    system = fixed_system_prefix + json.dumps(context, ensure_ascii=False, separators=(",", ":")) + mode_suffix
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": player_message},
