@@ -1,0 +1,86 @@
+{
+  "benchmark": "CHAT-7 Qwen3.5-4B Vulkan RPG context 6-turn",
+  "mode": "GPU",
+  "gpu_layers": 99,
+  "context_size": 4096,
+  "reasoning": "off",
+  "state": "COMPLETE",
+  "completed_turns": 6,
+  "turns": [
+    {
+      "turn": 1,
+      "player": "Wchodzę ostrożnie do opuszczonej twierdzy i nasłuchuję.",
+      "assistant": "Słychać tylko szmery wiatru i odległe stukanie metalu o kamień. W ciemnym korytarzu wydają się być niezniszczalne, ale w tej twierdzy mogą kryć się pułapki. Czekam na Twoje ruchy, zanim podejdziesz bliżej.",
+      "prompt_tokens": 112,
+      "completion_tokens": 71,
+      "prompt_tps": 2.1140212459135217,
+      "gen_tps": 8.282964037381726,
+      "total_ms": 61517,
+      "finish_reason": "stop"
+    },
+    {
+      "turn": 2,
+      "player": "Sprawdzam ślady na podłodze i obserwuję ciemny korytarz.",
+      "assistant": "Na podłodze widoczne są tylko stopy, które wskazują, że ktoś przeszedł tutaj chwilę temu. Ślady są niewyraźne, ale prowadzą prosto w głębi korytarza. Decyduję się, czy chcesz podejść ostrożnie, czy może spróbować zapuścić się głębiej.",
+      "prompt_tokens": 214,
+      "completion_tokens": 78,
+      "prompt_tps": 2.041880431642736,
+      "gen_tps": 8.337437987598008,
+      "total_ms": 61386,
+      "finish_reason": "stop"
+    },
+    {
+      "turn": 3,
+      "player": "Podchodzę do drzwi po lewej i próbuję wyczuć obecność przeciwnika.",
+      "assistant": "Drzwi wydają się solidne, ale w ich okolicy nie czujesz żadnych niepokojących zapachów ani szumów. Może wewnątrz znajduje się pułapka, która wymaga ostrożnego otwarcia lub całkowitej nieobecności życia. Czy chcesz spróbować otworzyć je z siły, czy może poszukać innej drogi?",
+      "prompt_tokens": 323,
+      "completion_tokens": 82,
+      "prompt_tps": 2.169170289101065,
+      "gen_tps": 7.756812252775551,
+      "total_ms": 62739,
+      "finish_reason": "stop"
+    },
+    {
+      "turn": 4,
+      "player": "Nie otwieram drzwi. Cofam się i szukam innego przejścia.",
+      "assistant": "Wracasz w stronę głównego korytarza, gdzie ślady prowadziły prosto do ślepej ściany. Wokół widoczne są ruiny zniszczonych pomieszczeń, które mogły służyć jako schronienie dla intruzów. Cierpliwością szukasz bezpieczniejszego wyjścia lub ewentualnego ukrytego przejścia.",
+      "prompt_tokens": 431,
+      "completion_tokens": 87,
+      "prompt_tps": 1.982126984009562,
+      "gen_tps": 8.041555768002238,
+      "total_ms": 67353,
+      "finish_reason": "stop"
+    },
+    {
+      "turn": 5,
+      "player": "Wchodzę po schodach na wyższy poziom twierdzy.",
+      "assistant": "Wchodzisz na górną kondygnację, gdzie wiatr wieje mocniej, a zapach spalonego drewna jest bardziej widoczny. Widoczne są rozległe ruinę, które wyglądają na mniej zagrożone niż dolny poziom. Czy chcesz teraz patrzeć na okna, aby znaleźć wyjście, czy może posłuchać dźwięków z góry?",
+      "prompt_tokens": 544,
+      "completion_tokens": 87,
+      "prompt_tps": 2.152472030419691,
+      "gen_tps": 7.283994210410369,
+      "total_ms": 66468,
+      "finish_reason": "stop"
+    },
+    {
+      "turn": 6,
+      "player": "Zatrzymuję się przed dużą salą i obserwuję ją z ukrycia.",
+      "assistant": "Salę wypełnia ciemność, a w centrum widoczny jest tylko jeden słaby płomień. Słychać odległe szeleszczenie liści i delikatny odgłos kroku, który wydaje się być tuż obok ciebie. Czy chcesz teraz podejść bliżej ognia, aby się lepiej zorientować, czy może spróbować ukryć się w cieniu?",
+      "prompt_tokens": 658,
+      "completion_tokens": 86,
+      "prompt_tps": 2.207319366264393,
+      "gen_tps": 7.085496771680953,
+      "total_ms": 65709,
+      "finish_reason": "stop"
+    }
+  ],
+  "metrics": {
+    "gen_mean": 7.798043504641474,
+    "gen_median": 7.899184010388895,
+    "gen_min": 7.085496771680953,
+    "gen_max": 8.337437987598008,
+    "prompt_mean": 2.1111650578918284,
+    "prompt_median": 2.1332466381666064,
+    "total_median_ms": 64224.0
+  }
+}
