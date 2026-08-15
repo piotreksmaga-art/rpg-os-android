@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from temp_bug_harness import BugReportStore, build_bug_bundle
+from temp_bug_ui_contract import control_bug_report, list_pending_reports
 from temp_context_builder import build_messages
 from temp_gm_provider import LocalBielikTempGmProvider, RESPONSE_MODES, provider_error_payload
 
@@ -61,7 +62,7 @@ def _provider_view(pid: str) -> dict[str, Any]:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "RpgOsTempGmBridge/0.5"
+    server_version = "RpgOsTempGmBridge/0.6"
 
     def log_message(self, fmt: str, *args: Any) -> None:
         print(f"[bridge] {self.address_string()} {fmt % args}")
@@ -107,6 +108,9 @@ class Handler(BaseHTTPRequestHandler):
                 "provider": _provider_view(state["activeProvider"]),
             })
             return
+        if self.path == "/bug/pending":
+            self._json(200, list_pending_reports(BUG_STORE))
+            return
         self._json(404, {"error": "not_found"})
 
     def do_POST(self) -> None:
@@ -132,6 +136,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.path == "/bug":
             self._bug(body)
+            return
+
+        if self.path == "/bug/control":
+            self._bug_control(body)
             return
 
         self._json(404, {"error": "not_found"})
@@ -230,12 +238,27 @@ class Handler(BaseHTTPRequestHandler):
             "errors": [logcat.get("reason")] if logcat.get("reason") else [],
         })
 
+    def _bug_control(self, body: dict[str, Any]) -> None:
+        """Local report UI control only. No GitHub write capability exists here."""
+        try:
+            result = control_bug_report(BUG_STORE, body)
+        except FileNotFoundError:
+            self._json(404, {"error": "bug_report_not_found", "canonicalMutation": False})
+            return
+        except ValueError as error:
+            self._json(400, {"error": "bug_control_rejected", "detail": str(error), "canonicalMutation": False})
+            return
+        except Exception as error:
+            self._json(500, {"error": "bug_control_failed", "detail": type(error).__name__, "canonicalMutation": False})
+            return
+        self._json(200, result)
+
 
 def main() -> None:
     print(f"TEMP GM bridge listening on http://{HOST}:{PORT}")
     print(f"TEMP provider: {DEFAULT_PROVIDER_ID} -> {BIELIK_URL}")
     print("NON-AUTHORITATIVE: canonicalMutation is always false in this bridge")
-    print("BUG HARNESS: local pending only; GitHub submission requires separate explicit user confirmation")
+    print("BUG HARNESS: local pending/control only; GitHub submission requires a separate explicit user-confirmed privileged action")
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     try:
         httpd.serve_forever()
