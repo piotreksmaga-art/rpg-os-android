@@ -7,15 +7,13 @@ Uses Python stdlib only so it can run in Termux without extra pip packages.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
-import re
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from temp_bug_harness import BugReportStore, build_bug_bundle
 from temp_context_builder import build_messages
 from temp_gm_provider import LocalBielikTempGmProvider, RESPONSE_MODES, provider_error_payload
 
@@ -31,8 +29,7 @@ if not BIELIK_URL.startswith("http://127.0.0.1:"):
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE = DATA_DIR / "state.json"
-BUG_DIR = DATA_DIR / "pending-bugs"
-BUG_DIR.mkdir(parents=True, exist_ok=True)
+BUG_STORE = BugReportStore(DATA_DIR)
 
 BIELIK = LocalBielikTempGmProvider(BIELIK_URL)
 PROVIDERS = {BIELIK.provider_id: BIELIK}
@@ -63,34 +60,8 @@ def _provider_view(pid: str) -> dict[str, Any]:
     return view
 
 
-def _sanitize_text(value: Any, max_len: int = 12000) -> str:
-    text = str(value or "")[:max_len]
-    text = re.sub(r"(?i)(token|authorization|password|secret)\s*[:=]\s*\S+", r"\1=[REDACTED]", text)
-    text = re.sub(r"gh[opsu]_[A-Za-z0-9_\-]{20,}", "[REDACTED_GITHUB_TOKEN]", text)
-    return text
-
-
-def _normalize_symptom(text: str) -> str:
-    text = text.lower()
-    text = re.sub(r"\d+", "#", text)
-    text = re.sub(r"[^a-ząćęłńóśźż0-9# ]+", " ", text)
-    return " ".join(text.split())[:300]
-
-
-def _bug_fingerprint(report: dict[str, Any]) -> str:
-    parts = [
-        str(report.get("build", {}).get("versionName", "")),
-        str(report.get("build", {}).get("versionCode", "")),
-        str(report.get("route", "")),
-        str(report.get("exceptionClass", "")),
-        "|".join(report.get("topStackFrames", [])[:5]),
-        _normalize_symptom(str(report.get("userReport", ""))),
-    ]
-    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:20]
-
-
 class Handler(BaseHTTPRequestHandler):
-    server_version = "RpgOsTempGmBridge/0.4"
+    server_version = "RpgOsTempGmBridge/0.5"
 
     def log_message(self, fmt: str, *args: Any) -> None:
         print(f"[bridge] {self.address_string()} {fmt % args}")
@@ -178,7 +149,7 @@ class Handler(BaseHTTPRequestHandler):
             })
             return
 
-        user_message = _sanitize_text(body.get("message", ""), 8000)
+        user_message = str(body.get("message", ""))[:8000]
         if not user_message:
             self._json(400, {"error": "message_required"})
             return
@@ -217,51 +188,46 @@ class Handler(BaseHTTPRequestHandler):
         self._json(200, result.as_dict())
 
     def _bug(self, body: dict[str, Any]) -> None:
-        description = _sanitize_text(body.get("description") or body.get("userReport"), 12000)
-        if not description:
-            self._json(400, {"error": "description_required"})
+        """Local capture only. This endpoint has no GitHub write capability."""
+        state = _load_state()
+        provider = PROVIDERS[state["activeProvider"]]
+        try:
+            provider_status = provider.status()
+        except Exception:
+            provider_status = "OFFLINE"
+        try:
+            report = build_bug_bundle(
+                body,
+                provider_id=state["activeProvider"],
+                provider_status=provider_status,
+                bridge_status="READY",
+                store=BUG_STORE,
+            )
+        except ValueError as error:
+            self._json(400, {"error": "bug_report_rejected", "detail": str(error), "canonicalMutation": False})
+            return
+        except RuntimeError as error:
+            self._json(507, {"error": "bug_queue_unavailable", "detail": str(error), "canonicalMutation": False})
+            return
+        except Exception as error:
+            # Fail degraded: do not touch canonical state. Caller retains the original report text.
+            self._json(500, {"error": "bug_capture_failed", "detail": type(error).__name__, "canonicalMutation": False})
             return
 
-        state = _load_state()
-        active_provider = PROVIDERS[state["activeProvider"]]
-        report = {
-            "schemaVersion": 1,
-            "status": "PENDING_USER_SUBMISSION",
-            "timestampUnixMs": int(time.time() * 1000),
-            "USER-SUPPLIED": {"description": description},
-            "DEVICE-CAPTURED": {
-                "build": body.get("build", {}),
-                "campaignUid": body.get("campaignUid"),
-                "worldPackUid": body.get("worldPackUid"),
-                "route": body.get("route"),
-                "providerId": state["activeProvider"],
-                "bridgeStatus": "READY",
-                "llamaStatus": active_provider.status(),
-                "adbStatus": body.get("adbStatus", "UNKNOWN"),
-                "recentSafeActions": body.get("recentSafeActions", [])[-12:] if isinstance(body.get("recentSafeActions", []), list) else [],
-                "recentGmResponses": body.get("recentGmResponses", [])[-6:] if isinstance(body.get("recentGmResponses", []), list) else [],
-                "logcatExcerpt": _sanitize_text(body.get("logcatExcerpt", ""), 20000),
-                "screenshotApproved": bool(body.get("screenshotApproved", False)),
-            },
-            "AI-SUMMARIZED": body.get("aiSummary"),
-            "githubSubmissionAuthorized": False,
-        }
-        flat = {
-            "build": report["DEVICE-CAPTURED"].get("build", {}),
-            "route": report["DEVICE-CAPTURED"].get("route"),
-            "userReport": description,
-            "exceptionClass": body.get("exceptionClass"),
-            "topStackFrames": body.get("topStackFrames", []),
-        }
-        fingerprint = _bug_fingerprint(flat)
-        report["fingerprint"] = fingerprint
-        path = BUG_DIR / f"{report['timestampUnixMs']}-{fingerprint}.json"
-        path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        logcat = report["DEVICE-CAPTURED"]["logcat"]
+        screenshot = report["DEVICE-CAPTURED"]["screenshot"]
         self._json(201, {
-            "status": report["status"],
-            "fingerprint": fingerprint,
-            "pendingPath": str(path),
+            "reportUid": report["reportUid"],
+            "captureStatus": {
+                "localBundle": "SAVED",
+                "logcat": logcat.get("status"),
+                "screenshot": "REFERENCED" if screenshot.get("reference") else "NOT_CAPTURED",
+            },
+            "duplicateFingerprint": report["duplicateFingerprint"],
+            "submissionState": report["submissionState"],
             "githubSubmissionAuthorized": False,
+            "canonicalMutation": False,
+            "errors": [logcat.get("reason")] if logcat.get("reason") else [],
         })
 
 
@@ -269,6 +235,7 @@ def main() -> None:
     print(f"TEMP GM bridge listening on http://{HOST}:{PORT}")
     print(f"TEMP provider: {DEFAULT_PROVIDER_ID} -> {BIELIK_URL}")
     print("NON-AUTHORITATIVE: canonicalMutation is always false in this bridge")
+    print("BUG HARNESS: local pending only; GitHub submission requires separate explicit user confirmation")
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     try:
         httpd.serve_forever()
