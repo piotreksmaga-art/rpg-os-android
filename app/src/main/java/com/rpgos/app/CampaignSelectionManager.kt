@@ -19,8 +19,9 @@ internal fun interface WorldPackAuthoritySource {
 }
 
 /**
- * Reads campaign + selected World Pack directory from one SharedPreferences snapshot, then resolves
- * the immutable logical campaign id and validated World Pack uid/version from those captured names.
+ * Reads campaign + selected World Pack directory from one SharedPreferences snapshot and keeps the
+ * canonical package-authority read gate held until all mutable package content that determines
+ * campaignUid + World Pack uid/version has been validated and copied into an immutable result.
  * No selection mutation API is exposed through this capability.
  */
 internal class CanonicalSelectionWorldPackAuthoritySource(
@@ -28,29 +29,30 @@ internal class CanonicalSelectionWorldPackAuthoritySource(
     private val saves: File,
     private val worldpacks: File
 ) : WorldPackAuthoritySource {
-    override fun currentAuthority(): CurrentWorldPackAuthority {
-        val selectionSnapshot = LinkedHashMap(prefs.all)
-        val campaignDirName =
-            (selectionSnapshot["active_campaign"] as? String)
-                ?: ActiveCampaignRef.DEFAULT_DIRECTORY
-        val worldPackDirName =
-            (selectionSnapshot["active_worldpack"] as? String)
-                ?: "Naruto.worldpack"
+    override fun currentAuthority(): CurrentWorldPackAuthority =
+        CanonicalPackageAuthorityGate.observe {
+            val selectionSnapshot = LinkedHashMap(prefs.all)
+            val campaignDirName =
+                (selectionSnapshot["active_campaign"] as? String)
+                    ?: ActiveCampaignRef.DEFAULT_DIRECTORY
+            val worldPackDirName =
+                (selectionSnapshot["active_worldpack"] as? String)
+                    ?: "Naruto.worldpack"
 
-        val campaignUid = ActiveCampaignRef.resolve(saves, campaignDirName).campaignId
-        val worldPackDir = File(worldpacks, worldPackDirName)
-        val validation = PackageValidator().validateWorldPack(worldPackDir)
-        require(validation.ok) { "Active World Pack is invalid: ${validation.message}" }
-        val uid = validation.packageId?.takeIf { it.isNotBlank() }
-            ?: error("Active World Pack manifest has no id")
-        val version = validation.version?.takeIf { it.isNotBlank() }
-            ?: error("Active World Pack manifest has no version")
+            val campaignUid = ActiveCampaignRef.resolve(saves, campaignDirName).campaignId
+            val worldPackDir = File(worldpacks, worldPackDirName)
+            val validation = PackageValidator().validateWorldPack(worldPackDir)
+            require(validation.ok) { "Active World Pack is invalid: ${validation.message}" }
+            val uid = validation.packageId?.takeIf { it.isNotBlank() }
+                ?: error("Active World Pack manifest has no id")
+            val version = validation.version?.takeIf { it.isNotBlank() }
+                ?: error("Active World Pack manifest has no version")
 
-        return CurrentWorldPackAuthority(
-            campaignUid = campaignUid,
-            binding = WorldPackRuleBinding(uid, version)
-        )
-    }
+            CurrentWorldPackAuthority(
+                campaignUid = campaignUid,
+                binding = WorldPackRuleBinding(uid, version)
+            )
+        }
 }
 
 /** Resolver retains only a read-only authority capability, never CampaignSelectionManager mutation API. */
@@ -99,7 +101,8 @@ class CampaignSelectionManager(private val context: Context) {
 
     /**
      * One coherent canonical authority observation for Phase 19.
-     * campaignUid + World Pack uid/version are derived from one captured selection snapshot.
+     * campaignUid + World Pack uid/version are derived from one captured selection snapshot and the
+     * matching package content while the shared package-authority read gate is held.
      */
     internal fun currentWorldPackAuthority(): CurrentWorldPackAuthority =
         worldPackAuthoritySource.currentAuthority()
@@ -111,23 +114,27 @@ class CampaignSelectionManager(private val context: Context) {
     /**
      * Compatibility entry point retained for existing callers. Despite the historical name,
      * this returns the live canonical resolver so long-lived engines observe the newest completed
-     * selection snapshot on every resolution.
+     * coherent authority observation on every resolution.
      */
     internal fun activeWorldPackAuthoritySnapshot(): WorldPackAuthorityResolver =
         activeWorldPackAuthorityResolver()
 
     fun setActiveCampaign(dirName: String) {
-        require(File(saves, dirName).isDirectory) { "Nie istnieje kampania $dirName" }
-        val ref = ActiveCampaignRef.resolve(saves, dirName)
-        prefs.edit()
-            .putString("active_campaign", ref.directoryName)
-            .putString("active_campaign_id", ref.campaignId)
-            .apply()
+        CanonicalPackageAuthorityGate.mutate {
+            require(File(saves, dirName).isDirectory) { "Nie istnieje kampania $dirName" }
+            val ref = ActiveCampaignRef.resolve(saves, dirName)
+            prefs.edit()
+                .putString("active_campaign", ref.directoryName)
+                .putString("active_campaign_id", ref.campaignId)
+                .apply()
+        }
     }
 
     fun setActiveWorldPack(dirName: String) {
-        require(File(worldpacks, dirName).isDirectory) { "Nie istnieje World Pack $dirName" }
-        prefs.edit().putString("active_worldpack", dirName).apply()
+        CanonicalPackageAuthorityGate.mutate {
+            require(File(worldpacks, dirName).isDirectory) { "Nie istnieje World Pack $dirName" }
+            prefs.edit().putString("active_worldpack", dirName).apply()
+        }
     }
 
     fun createCampaign(
