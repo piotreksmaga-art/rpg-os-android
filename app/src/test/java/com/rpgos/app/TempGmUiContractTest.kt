@@ -1,15 +1,21 @@
 package com.rpgos.app
 
 import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.*
 import org.junit.Test
+import java.util.concurrent.TimeUnit
 
 class TempGmUiContractTest {
     private fun server(body:String, code:Int=200):Pair<MockWebServer,TempGmBridgeClient>{
         val s=MockWebServer();s.start();s.enqueue(MockResponse().setResponseCode(code).setHeader("Content-Type","application/json").setBody(body));return s to TempGmBridgeClient(s.url("/").toString().removeSuffix("/"))
     }
+    private fun shortClient(s:MockWebServer, readTimeoutMs:Long=50L)=TempGmBridgeClient(
+        s.url("/").toString().removeSuffix("/"),
+        OkHttpClient.Builder().connectTimeout(1,TimeUnit.SECONDS).readTimeout(readTimeoutMs,TimeUnit.MILLISECONDS).build()
+    )
 
     @Test fun UI_GM_01_provider_status_READY()=runBlocking{
         val(s,c)=server("""{"bridge":"READY","activeProvider":"BIELIK_4_5B_V3","provider":{"status":"READY"},"canonicalMutation":false}""");try{val h=c.health();assertTrue(h.bridgeConnected);assertEquals(TempGmStatus.READY,h.status);assertEquals("BIELIK_4_5B_V3",h.providerId)}finally{s.shutdown()}
@@ -23,6 +29,29 @@ class TempGmUiContractTest {
     }
     @Test fun UI_GM_05_canonicalMutation_false_invariant()=runBlocking{
         val(s,c)=server("""{"providerId":"BIELIK_4_5B_V3","mode":"NARRATIVE_ONLY","narrative":"bad","canonicalMutation":true}""");try{val e=runCatching{c.turn("test")}.exceptionOrNull();assertTrue(e is TempBridgeException);assertEquals(409,(e as TempBridgeException).httpCode)}finally{s.shutdown()}
+    }
+
+    @Test fun TEMP_GM_TIMEOUT_01_gm_turn_timeout_exceeds_backend_generation_timeout(){
+        assertTrue(TempGmBridgeClient.GM_TURN_READ_TIMEOUT_SECONDS > TempGmBridgeClient.BACKEND_GENERATION_TIMEOUT_SECONDS)
+        assertEquals(210L,TempGmBridgeClient.GM_TURN_READ_TIMEOUT_SECONDS)
+    }
+    @Test fun TEMP_GM_TIMEOUT_02_health_retains_short_timeout()=runBlocking{
+        val s=MockWebServer();s.start();s.enqueue(MockResponse().setHeader("Content-Type","application/json").setBody("""{"bridge":"READY","activeProvider":"BIELIK_4_5B_V3","provider":{"status":"READY"},"canonicalMutation":false}""").setBodyDelay(250,TimeUnit.MILLISECONDS));
+        try{val h=shortClient(s).health();assertFalse(h.bridgeConnected);assertEquals(TempGmStatus.OFFLINE,h.status);assertEquals("/health",s.takeRequest().path)}finally{s.shutdown()}
+    }
+    @Test fun TEMP_GM_TIMEOUT_03_bug_lifecycle_retains_short_timeout()=runBlocking{
+        val s=MockWebServer();s.start();s.enqueue(MockResponse().setResponseCode(201).setHeader("Content-Type","application/json").setBody("""{"reportUid":"bug-timeout","captureStatus":{"localBundle":"SAVED","logcat":"UNAVAILABLE","screenshot":"NOT_CAPTURED"},"duplicateFingerprint":"fp","submissionState":"LOCAL_PENDING","canonicalMutation":false}""").setBodyDelay(250,TimeUnit.MILLISECONDS));
+        try{val e=runCatching{shortClient(s).createBug("opis",false,false,false)}.exceptionOrNull();assertNotNull(e);assertEquals("/bug",s.takeRequest().path)}finally{s.shutdown()}
+    }
+    @Test fun TEMP_GM_TIMEOUT_04_long_running_turn_uses_dedicated_timeout()=runBlocking{
+        val s=MockWebServer();s.start();s.enqueue(MockResponse().setHeader("Content-Type","application/json").setBody("""{"providerId":"BIELIK_4_5B_V3","mode":"NARRATIVE_ONLY","narrative":"Długa generacja zakończona","canonicalMutation":false}""").setBodyDelay(250,TimeUnit.MILLISECONDS));
+        try{val result=shortClient(s).turn("test");assertEquals("Długa generacja zakończona",result.narrative);assertEquals("/gm/turn",s.takeRequest().path)}finally{s.shutdown()}
+    }
+    @Test fun TEMP_GM_TIMEOUT_05_canonicalMutation_false_remains_required()=runBlocking{
+        val(s,c)=server("""{"providerId":"BIELIK_4_5B_V3","mode":"NARRATIVE_ONLY","narrative":"ok","canonicalMutation":false}""");try{assertEquals("ok",c.turn("test").narrative)}finally{s.shutdown()}
+    }
+    @Test fun TEMP_GM_TIMEOUT_06_canonicalMutation_true_still_fails_closed()=runBlocking{
+        val(s,c)=server("""{"providerId":"BIELIK_4_5B_V3","mode":"NARRATIVE_ONLY","narrative":"forbidden","canonicalMutation":true}""");try{val e=runCatching{c.turn("test")}.exceptionOrNull();assertTrue(e is TempBridgeException);assertEquals(409,(e as TempBridgeException).httpCode)}finally{s.shutdown()}
     }
 
     @Test fun UI_BUG_01_create_local_report()=runBlocking{
