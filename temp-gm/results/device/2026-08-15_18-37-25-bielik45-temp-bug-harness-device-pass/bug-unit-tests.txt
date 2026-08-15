@@ -1,0 +1,34 @@
+test_BUG_01_original_user_report_verbatim (test_temp_bug_harness.BugHarnessTests.test_BUG_01_original_user_report_verbatim) ... ok
+test_BUG_02_evidence_classes_separated (test_temp_bug_harness.BugHarnessTests.test_BUG_02_evidence_classes_separated) ... ok
+test_BUG_03_bounded_logcat_respects_limit (test_temp_bug_harness.BugHarnessTests.test_BUG_03_bounded_logcat_respects_limit) ... ok
+test_BUG_04_no_adb_does_not_lose_report (test_temp_bug_harness.BugHarnessTests.test_BUG_04_no_adb_does_not_lose_report) ... ok
+test_BUG_05_no_internet_is_local_pending (test_temp_bug_harness.BugHarnessTests.test_BUG_05_no_internet_is_local_pending) ... ok
+test_BUG_06_pending_survives_store_restart (test_temp_bug_harness.BugHarnessTests.test_BUG_06_pending_survives_store_restart) ... ok
+test_BUG_07_fingerprint_deterministic (test_temp_bug_harness.BugHarnessTests.test_BUG_07_fingerprint_deterministic) ... ok
+test_BUG_08_timestamp_does_not_change_fingerprint (test_temp_bug_harness.BugHarnessTests.test_BUG_08_timestamp_does_not_change_fingerprint) ... ok
+test_BUG_09_ai_summary_does_not_change_fingerprint (test_temp_bug_harness.BugHarnessTests.test_BUG_09_ai_summary_does_not_change_fingerprint) ... ok
+test_BUG_10_duplicate_search_data_does_not_create_issue (test_temp_bug_harness.BugHarnessTests.test_BUG_10_duplicate_search_data_does_not_create_issue) ... ok
+test_BUG_11_issue_gate_requires_explicit_confirmation (test_temp_bug_harness.BugHarnessTests.test_BUG_11_issue_gate_requires_explicit_confirmation) ... ok
+test_BUG_12_cancel_means_no_issue (test_temp_bug_harness.BugHarnessTests.test_BUG_12_cancel_means_no_issue) ... ok
+test_BUG_13_confirmed_submission_exactly_one_issue_action (test_temp_bug_harness.BugHarnessTests.test_BUG_13_confirmed_submission_exactly_one_issue_action) ... ok
+test_BUG_14_retry_after_submitted_does_not_reauthorize (test_temp_bug_harness.BugHarnessTests.test_BUG_14_retry_after_submitted_does_not_reauthorize) ... ok
+test_BUG_15_screenshot_requires_user_approval (test_temp_bug_harness.BugHarnessTests.test_BUG_15_screenshot_requires_user_approval) ... ok
+test_BUG_16_secrets_redaction (test_temp_bug_harness.BugHarnessTests.test_BUG_16_secrets_redaction) ... FAIL
+test_BUG_17_canonical_state_before_after_identical (test_temp_bug_harness.BugHarnessTests.test_BUG_17_canonical_state_before_after_identical) ... ok
+test_BUG_18_temp_gm_offline_capture_still_works (test_temp_bug_harness.BugHarnessTests.test_BUG_18_temp_gm_offline_capture_still_works) ... ok
+test_BUG_19_bridge_offline_direct_local_capture_still_pending (test_temp_bug_harness.BugHarnessTests.test_BUG_19_bridge_offline_direct_local_capture_still_pending) ... ok
+test_BUG_20_malformed_logcat_binary_junk_does_not_break_bundle (test_temp_bug_harness.BugHarnessTests.test_BUG_20_malformed_logcat_binary_junk_does_not_break_bundle) ... ok
+
+======================================================================
+FAIL: test_BUG_16_secrets_redaction (test_temp_bug_harness.BugHarnessTests.test_BUG_16_secrets_redaction)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/data/data/com.termux/files/home/rpgos-temp-gm/chat7-harness-src/temp-gm/bridge/test_temp_bug_harness.py", line 166, in test_BUG_16_secrets_redaction
+    self.assertNotIn("abc123", serialized)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'abc123' unexpectedly found in '{"schemaVersion": 2, "reportUid": "bug-1786810813155-4b351c44", "createdAtUnixMs": 1786810813155, "submissionState": "LOCAL_PENDING", "evidenceClassification": ["USER-SUPPLIED", "DEVICE-CAPTURED", "AI-SUMMARIZED"], "USER-SUPPLIED": {"originalReport": "Błąd token=[REDACTED] i password=[REDACTED]", "originalReportRedactedForSecretSafety": true, "expected": "Powinno otworzyć kampanię.", "actual": "Brak reakcji.", "reproducibilityNotes": "Odtworzono po ponownym wejściu w SAVES."}, "DEVICE-CAPTURED": {"app": {"versionName": "1.2.0-test", "versionCode": 120, "buildSha": "abc123"}, "campaignUid": "campaign-test", "worldPackUid": "world-test", "route": "SAVES", "tempProviderId": "BIELIK_4_5B_V3", "tempResponseMode": "NARRATIVE_ONLY", "bridgeState": "READY", "llamaState": "READY", "adbState": "UNAVAILABLE", "runtime": {"llamaSha": "", "backend": ""}, "recentSafeActions": ["action-8", "action-9", "action-10", "action-11", "action-12", "action-13", "action-14", "action-15", "action-16", "action-17", "action-18", "action-19"], "recentTempGmResponses": ["gm-4", "gm-5", "gm-6", "gm-7", "gm-8", "gm-9"], "logcat": {"status": "CALLER_SUPPLIED_BOUNDED", "reason": null, "excerpt": "Authorization: Bearer [REDACTED]", "lineLimit": 300, "scope": "package_pid_expected"}, "screenshot": {"requested": false, "userApproved": false, "reference": ""}, "exceptionClass": "IllegalStateException", "topStackFrames": ["A.kt:#", "B.kt:#"], "environment": {"deviceModel": "SM-S921B", "androidSdk": 36}}, "AI-SUMMARIZED": {"summary": "Możliwy problem nawigacji.", "isEvidence": false}, "reproductionStatus": "REPRODUCED_ONCE", "duplicateFingerprint": "4b351c44f27686c963c18824", "duplicateCandidates": [], "github": {"submissionAuthorized": false, "issueNumber": null, "issueUrl": null, "submissionActionConsumed": false}, "canonicalMutation": false}'
+
+----------------------------------------------------------------------
+Ran 20 tests in 0.026s
+
+FAILED (failures=1)
