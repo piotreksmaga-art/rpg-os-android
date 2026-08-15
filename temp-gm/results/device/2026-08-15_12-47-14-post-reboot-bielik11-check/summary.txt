@@ -1,0 +1,22 @@
+===== POST-REBOOT CHECK =====
+Sat Aug 15 12:47:14 CEST 2026
+
+===== MEMORY =====
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       3.5Gi       796Mi        24Mi       2.8Gi       3.4Gi
+Swap:          8.0Gi       1.7Gi       6.3Gi
+
+===== LLAMA PROCESSES =====
+BRAK
+
+===== PORT 8080 =====
+WOLNY
+
+===== TARGET MODEL =====
+-rw-------. 1 u0_a274 u0_a274 6.3G Aug 15 12:02 /data/data/com.termux/files/home/rpgos-temp-gm/models/bielik11/Bielik-11B-v3.0-Instruct.Q4_K_M.gguf
+MODEL_OK=YES
+
+===== DFLASH MODEL =====
+DFLASH_OK=NO
+
+CHECK_STATUS=COMPLETE
