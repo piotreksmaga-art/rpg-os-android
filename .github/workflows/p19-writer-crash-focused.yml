@@ -1,4 +1,4 @@
-name: P19 Writer Crash Focused
+name: P19 Writer Crash Full Gate
 on:
   push:
     branches: [agent/p19-writer-crash-hardening]
@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 jobs:
-  focused:
+  full-gate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,5 +20,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
-      - name: Focused writer crash hardening tests
-        run: gradle :app:testDebugUnitTest --tests com.rpgos.app.Phase19WriterCrashRecoveryHardeningTest --tests com.rpgos.app.Phase19FinalIntegrityHardeningTest --stacktrace
+      - name: Full JVM
+        run: gradle :app:testDebugUnitTest --stacktrace
+      - name: Assemble validation
+        run: gradle :app:assembleDebug --stacktrace
