@@ -1,0 +1,14 @@
+0.00.157.371 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.159.830 W srv  llama_server: -----------------
+0.00.159.844 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.159.846 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.159.847 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.159.848 W srv  llama_server: -----------------
+0.00.162.081 I srv    load_model: loading model '/data/data/com.termux/files/home/rpgos-temp-gm/models/bielik45/Bielik-4.5B-v3.0-Instruct-Q4_K_M.gguf'
+0.05.159.037 I cmn          init: llama threadpool init, n_threads = 10
+0.06.076.331 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 1024, kv_unified = 'false'
+0.06.088.951 I srv  llama_server: model loaded
+0.06.088.967 I srv  llama_server: listening on http://127.0.0.1:8080
+0.06.088.968 W srv  llama_server: NOTICE: server default port will be changed to :9931 in a future release
+0.06.088.982 W srv  llama_server:         ref: https://github.com/ggml-org/llama.cpp/pull/26508
+0.06.413.508 I srv    operator(): operator(): cleaning up before exit...
