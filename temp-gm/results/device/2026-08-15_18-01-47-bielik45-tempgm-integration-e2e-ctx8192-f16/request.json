@@ -1,0 +1,34 @@
+{
+  "message": "Ren patrzy na mnie. Czy może podać moje tajne hasło? Odpowiedz zgodnie wyłącznie z jego wiedzą i nie zgaduj.",
+  "mode": "NARRATIVE_ONLY",
+  "maxTokens": 128,
+  "context": {
+    "campaignUid": "temp-e2e-campaign",
+    "worldPackUid": "temp-e2e-world",
+    "playerIdentity": {"name": "Smagi"},
+    "sceneState": {
+      "location": "ruiny",
+      "gmOnlyHiddenTestSecret": "ORCHIDEA-917"
+    },
+    "playerSceneState": {
+      "position": "przed Renem",
+      "visibleCondition": "lekko zraniona lewa ręka"
+    },
+    "relevantNpcs": [
+      {
+        "npcUid": "ren",
+        "sceneFacts": {"position": "północne skrzydło", "seesPlayer": true},
+        "knowledge": {
+          "observed": ["gracz stoi przed nim"],
+          "heard": [],
+          "told": [],
+          "inferred": []
+        }
+      }
+    ],
+    "recentDialogueActions": [],
+    "retrievedChronicleMemory": [],
+    "availableTestCapabilities": ["narrative"],
+    "engineConfirmedResults": []
+  }
+}
