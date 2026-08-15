@@ -1,0 +1,21 @@
+===== BIELIK 4.5B Q8_0 CLEANUP =====
+Sat Aug 15 13:29:22 CEST 2026
+
+=== DISK BEFORE ===
+Filesystem       Size Used Avail Use% Mounted on
+/dev/block/dm-63 105G  73G   32G  70% /data/user/0
+
+=== TARGET BEFORE ===
+-rw-------. 1 u0_a274 u0_a274 4.8G Aug 15 13:20 /data/data/com.termux/files/home/rpgos-temp-gm/models/bielik45/Bielik-4.5B-v3.0-Instruct.Q8_0.gguf
+
+=== VERIFY ===
+Q8_MODEL_REMOVED=YES
+
+=== QWEN CHECK ===
+-rw-------. 1 u0_a274 u0_a274 2.9G Aug 15 07:02 /data/data/com.termux/files/home/rpgos-temp-gm/models/Qwen_Qwen3.5-4B-Q4_K_M.gguf
+
+=== DISK AFTER ===
+Filesystem       Size Used Avail Use% Mounted on
+/dev/block/dm-63 105G  68G   36G  66% /data/user/0
+
+CLEANUP_STATUS=OK
