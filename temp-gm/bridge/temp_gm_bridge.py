@@ -14,7 +14,6 @@ import re
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -101,7 +100,6 @@ def _post_json(url: str, payload: dict[str, Any], timeout: float = 180.0) -> dic
 
 def _sanitize_text(value: Any, max_len: int = 12000) -> str:
     text = str(value or "")[:max_len]
-    # Conservative redaction for common credential shapes.
     text = re.sub(r"(?i)(token|authorization|password|secret)\s*[:=]\s*\S+", r"\1=[REDACTED]", text)
     text = re.sub(r"gh[opsu]_[A-Za-z0-9_\-]{20,}", "[REDACTED_GITHUB_TOKEN]", text)
     return text
@@ -127,10 +125,9 @@ def _bug_fingerprint(report: dict[str, Any]) -> str:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "RpgOsTempGmBridge/0.1"
+    server_version = "RpgOsTempGmBridge/0.2"
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        # Keep logs local and concise.
         print(f"[bridge] {self.address_string()} {fmt % args}")
 
     def _json(self, status: int, body: dict[str, Any]) -> None:
@@ -229,10 +226,18 @@ class Handler(BaseHTTPRequestHandler):
             "recentMessages": snapshot.get("recentMessages", [])[-8:] if isinstance(snapshot.get("recentMessages", []), list) else [],
         }
 
+        # Qwen3.5's llama.cpp chat template requires the system message to be the
+        # single initial system turn. Keep all bridge metadata inside that turn.
+        system_content = (
+            SYSTEM_PROMPT.rstrip()
+            + "\n\nREAD-ONLY RPG OS CONTEXT:\n"
+            + json.dumps(safe_context, ensure_ascii=False)
+            + "\n\nResponse classification for this turn: "
+            + requested_mode
+            + ". Never imply a canonical mutation unless engineConfirmedResults explicitly supports it."
+        )
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "system", "content": "READ-ONLY RPG OS CONTEXT:\n" + json.dumps(safe_context, ensure_ascii=False)},
-            {"role": "system", "content": f"Response classification for this turn: {requested_mode}. Never imply a canonical mutation unless engineConfirmedResults explicitly supports it."},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": user_message},
         ]
         request_payload = {
@@ -247,7 +252,14 @@ class Handler(BaseHTTPRequestHandler):
             raw = _post_json(provider["runtime_url"] + "/v1/chat/completions", request_payload)
             narrative = raw["choices"][0]["message"]["content"]
             usage = raw.get("usage", {})
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, KeyError, ValueError, json.JSONDecodeError) as e:
+        except urllib.error.HTTPError as e:
+            try:
+                detail = _sanitize_text(e.read().decode("utf-8", errors="replace"), 4000)
+            except Exception:
+                detail = "HTTPError"
+            self._json(502, {"error": "runtime_failure", "detail": detail, "providerId": pid, "mode": "TEST_FALLBACK", "canonicalMutation": False})
+            return
+        except (urllib.error.URLError, TimeoutError, KeyError, ValueError, json.JSONDecodeError) as e:
             self._json(502, {"error": "runtime_failure", "detail": type(e).__name__, "providerId": pid, "mode": "TEST_FALLBACK", "canonicalMutation": False})
             return
 
