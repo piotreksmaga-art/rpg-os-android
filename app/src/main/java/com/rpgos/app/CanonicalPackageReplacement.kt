@@ -37,7 +37,8 @@ internal object CanonicalPackageReplacement {
     internal fun reconcileUnderGate(
         target: File,
         isValidPackage: (File) -> Boolean,
-        fileOps: CanonicalPackageFileOps = RealCanonicalPackageFileOps
+        fileOps: CanonicalPackageFileOps = RealCanonicalPackageFileOps,
+        ignoredPrepared: Set<File> = emptySet()
     ) {
         target.parentFile?.mkdirs()
         val parent = target.parentFile ?: throw IllegalStateException("PACKAGE_REPLACEMENT_RECOVERY_NO_PARENT")
@@ -45,7 +46,7 @@ internal object CanonicalPackageReplacement {
             ?.filter { it.name.startsWith(".${target.name}.rollback-") }
             .orEmpty()
         val prepared = parent.listFiles()
-            ?.filter { it.name.startsWith(".${target.name}.prepared-") }
+            ?.filter { it.name.startsWith(".${target.name}.prepared-") && it !in ignoredPrepared }
             .orEmpty()
 
         fun valid(file: File): Boolean = file.isDirectory && runCatching { isValidPackage(file) }.getOrDefault(false)
@@ -95,14 +96,47 @@ internal object CanonicalPackageReplacement {
         }
     }
 
+    fun activatePrepared(
+        prepared: File,
+        target: File,
+        isValidPackage: (File) -> Boolean
+    ) {
+        require(prepared.isDirectory) { "Prepared package replacement is missing." }
+        CanonicalPackageAuthorityGate.mutate {
+            reconcileUnderGate(target, isValidPackage, ignoredPrepared = setOf(prepared))
+            activatePreparedUnderGate(prepared, target)
+        }
+    }
+
     fun <T> activatePrepared(
         prepared: File,
         target: File,
+        isValidPackage: (File) -> Boolean,
         afterActivation: () -> T
     ): T {
         require(prepared.isDirectory) { "Prepared package replacement is missing." }
         return CanonicalPackageAuthorityGate.mutate {
+            reconcileUnderGate(target, isValidPackage, ignoredPrepared = setOf(prepared))
             activatePreparedUnderGate(prepared, target, RealCanonicalPackageFileOps, afterActivation)
+        }
+    }
+
+    fun activatePreparedIf(
+        prepared: File,
+        target: File,
+        isValidPackage: (File) -> Boolean,
+        shouldActivate: () -> Boolean
+    ): Boolean {
+        require(prepared.isDirectory) { "Prepared package replacement is missing." }
+        return CanonicalPackageAuthorityGate.mutate {
+            reconcileUnderGate(target, isValidPackage, ignoredPrepared = setOf(prepared))
+            if (!shouldActivate()) {
+                if (prepared.exists()) prepared.deleteRecursively()
+                false
+            } else {
+                activatePreparedUnderGate(prepared, target)
+                true
+            }
         }
     }
 
