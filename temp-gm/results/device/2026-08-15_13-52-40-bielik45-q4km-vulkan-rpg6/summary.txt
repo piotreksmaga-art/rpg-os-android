@@ -1,0 +1,64 @@
+===== BIELIK 4.5B Q4_K_M RPG 6 TURN =====
+Sat Aug 15 13:45:56 CEST 2026
+
+=== MEMORY BEFORE ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       3.3Gi       1.6Gi        25Mi       2.1Gi       3.6Gi
+Swap:          8.0Gi       1.4Gi       6.6Gi
+SERVER_STATUS=OK
+
+=== RESULTS ===
+turn,prompt_tokens,completion_tokens,prompt_tps,gen_tps,total_ms
+1,97,65,1.3582687579225927,9.392824351836413,78301
+2,185,65,53.6712082267228,9.394585049251846,7968
+3,278,61,1.3833406928049832,9.318403800914787,73710
+4,369,57,1.1774800242778267,9.22069789815838,72362
+5,450,61,1.0785423721624994,8.957281381499422,72575
+6,539,58,1.0597214661403929,8.946075411648952,72474
+
+=== SUMMARY ===
+VALID_TURNS = 6
+PROMPT_TOKENS = [97, 185, 278, 369, 450, 539]
+GEN_TPS = [9.393, 9.395, 9.318, 9.221, 8.957, 8.946]
+GEN_MEAN = 9.205
+GEN_MEDIAN = 9.27
+GEN_MIN = 8.946
+GEN_MAX = 9.395
+GEN_FIRST = 9.393
+GEN_LAST = 8.946
+GEN_CHANGE_FIRST_TO_LAST_% = -4.76
+PROMPT_TPS = [1.358, 53.671, 1.383, 1.177, 1.079, 1.06]
+PROMPT_MEDIAN = 1.268
+TOTAL_MS = [78301, 7968, 73710, 72362, 72575, 72474]
+TOTAL_MEDIAN_MS = 72524.5
+TEST_STATUS=COMPLETE
+
+=== MEMORY LOADED ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       5.7Gi       161Mi        12Mi       1.2Gi       1.1Gi
+Swap:          8.0Gi       1.7Gi       6.3Gi
+
+=== IMPORTANT SERVER LOG ===
+1.25.872.943 I slot print_timing: id  0 | task 0 | prompt eval time =   71414.44 ms /    97 tokens (  736.23 ms per token,     1.36 tokens per second)
+1.25.873.103 I slot print_timing: id  0 | task 0 |        eval time =    6813.71 ms /    65 tokens (  106.46 ms per token,     9.39 tokens per second)
+1.25.873.113 I slot print_timing: id  0 | task 0 |       total time =   78228.15 ms /   162 tokens
+1.36.890.156 I slot print_timing: id  0 | task 66 | prompt eval time =    1024.76 ms /    55 tokens (   18.63 ms per token,    53.67 tokens per second)
+1.36.890.194 I slot print_timing: id  0 | task 66 |        eval time =    6812.44 ms /    65 tokens (  106.44 ms per token,     9.39 tokens per second)
+1.36.890.196 I slot print_timing: id  0 | task 66 |       total time =    7837.19 ms /   120 tokens
+2.53.605.252 I slot print_timing: id  0 | task 132 | prompt eval time =   67228.56 ms /    93 tokens (  722.89 ms per token,     1.38 tokens per second)
+2.53.605.284 I slot print_timing: id  0 | task 132 |        eval time =    6438.87 ms /    61 tokens (  107.31 ms per token,     9.32 tokens per second)
+2.53.605.286 I slot print_timing: id  0 | task 132 |       total time =   73667.43 ms /   154 tokens
+4.08.969.150 I slot print_timing: id  0 | task 194 | prompt eval time =   66243.16 ms /    78 tokens (  849.27 ms per token,     1.18 tokens per second)
+4.08.969.187 I slot print_timing: id  0 | task 194 |        eval time =    6073.29 ms /    57 tokens (  108.45 ms per token,     9.22 tokens per second)
+4.08.969.191 I slot print_timing: id  0 | task 194 |       total time =   72316.46 ms /   135 tokens
+5.24.547.461 I slot print_timing: id  0 | task 252 | prompt eval time =   65829.59 ms /    71 tokens (  927.18 ms per token,     1.08 tokens per second)
+5.24.547.497 I slot print_timing: id  0 | task 252 |        eval time =    6698.46 ms /    61 tokens (  111.64 ms per token,     8.96 tokens per second)
+5.24.547.499 I slot print_timing: id  0 | task 252 |       total time =   72528.05 ms /   132 tokens
+6.40.028.918 I slot print_timing: id  0 | task 314 | prompt eval time =   66055.09 ms /    70 tokens (  943.64 ms per token,     1.06 tokens per second)
+6.40.028.994 I slot print_timing: id  0 | task 314 |        eval time =    6371.51 ms /    58 tokens (  111.78 ms per token,     8.95 tokens per second)
+6.40.028.998 I slot print_timing: id  0 | task 314 |       total time =   72426.60 ms /   128 tokens
+
+=== MEMORY AFTER ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       2.7Gi       3.2Gi        12Mi       1.2Gi       4.1Gi
+Swap:          8.0Gi       1.7Gi       6.3Gi
