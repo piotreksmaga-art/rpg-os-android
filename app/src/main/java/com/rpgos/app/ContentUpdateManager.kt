@@ -247,25 +247,7 @@ class ContentUpdateManager(
         }
     }
 
-    private fun copyDirectory(source: File, target: File) {
-        if (target.exists()) target.deleteRecursively()
-        source.walkTopDown().forEach { file ->
-            val relative = file.relativeTo(source)
-            val out = File(target, relative.path)
-            if (file.isDirectory) out.mkdirs() else {
-                out.parentFile?.mkdirs()
-                file.inputStream().use { input -> out.outputStream().use { input.copyTo(it) } }
-            }
-        }
-    }
 
-    private fun pruneBackups(safeId: String, keep: Int) {
-        backupRoot.listFiles()
-            ?.filter { it.isDirectory && it.name.startsWith("$safeId-") }
-            ?.sortedByDescending { it.lastModified() }
-            ?.drop(keep)
-            ?.forEach { it.deleteRecursively() }
-    }
 
     private fun safeId(value: String): String {
         val safe = value.replace(Regex("[^A-Za-z0-9._-]"), "_")

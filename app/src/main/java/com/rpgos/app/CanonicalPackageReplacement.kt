@@ -72,7 +72,7 @@ internal object CanonicalPackageReplacement {
         val recoverySource = when {
             validRollbacks.size == 1 -> validRollbacks.single()
             validPrepared.size == 1 -> validPrepared.single()
-            target.exists() || rollbacks.isNotEmpty() || prepared.isNotEmpty() ->
+            rollbacks.isNotEmpty() || prepared.isNotEmpty() ->
                 throw IllegalStateException("PACKAGE_REPLACEMENT_RECOVERY_NO_VALID_PACKAGE")
             else -> return
         }
