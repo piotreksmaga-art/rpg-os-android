@@ -296,7 +296,7 @@ private fun validateProviderState(provider: WorldRuleProvider) {
     val safe = scalarSafeTypes()
     var type: Class<*>? = provider.javaClass
     while (type != null && type != WorldRuleProvider::class.java) {
-        type.declaredFields.filterNot { Modifier.isStatic(it.modifiers) || it.isSynthetic }.forEach { field ->
+        type.declaredFields.filterNot { Modifier.isStatic(it.modifiers) }.forEach { field ->
             if (!Modifier.isFinal(field.modifiers)) failRule("MUTABLE_WORLD_RULE_PROVIDER_STATE")
             when {
                 field.type.isPrimitive || field.type in safe -> Unit
@@ -327,7 +327,7 @@ private fun validateEnumRetainedState(
     if (!visited.add(enumValue)) return
     var type: Class<*>? = enumValue.javaClass
     while (type != null && type != Enum::class.java) {
-        type.declaredFields.filterNot { Modifier.isStatic(it.modifiers) || it.isSynthetic }.forEach { field ->
+        type.declaredFields.filterNot { Modifier.isStatic(it.modifiers) }.forEach { field ->
             if (!Modifier.isFinal(field.modifiers)) failRule("MUTABLE_WORLD_RULE_PROVIDER_STATE")
             when {
                 field.type.isPrimitive || field.type in safe -> Unit

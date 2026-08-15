@@ -15,12 +15,8 @@ class LocalGameStore(private val context: Context) {
 
     fun bootstrap() {
         baseDir.mkdirs()
-        if (!File(saveDir, "campaign.db").exists()) {
-            extractAssetZip("Naruto_Default.campaign.zip", saveDir)
-        }
-        if (!File(worldDir, "world.db").exists()) {
-            extractAssetZip("Naruto.worldpack.zip", worldDir)
-        }
+        ensureBootstrapPackage("Naruto_Default.campaign.zip", saveDir, "campaign.db")
+        ensureBootstrapPackage("Naruto.worldpack.zip", worldDir, "world.db")
         if (!File(coreDir, "rpg_core.db").exists()) {
             copyAsset("rpg_core.db", File(coreDir, "rpg_core.db"))
         }
@@ -32,6 +28,20 @@ class LocalGameStore(private val context: Context) {
             }
         }.onFailure {
             DiagnosticLogger.log(context, "AUTO_REPAIR_BOOT_FAILED", it)
+        }
+    }
+
+    private fun ensureBootstrapPackage(assetName: String, target: File, requiredFile: String) {
+        if (File(target, requiredFile).isFile) return
+        val staging = File(baseDir, ".bootstrap-staging/${target.name}-${System.nanoTime()}")
+        staging.deleteRecursively()
+        try {
+            extractAssetZip(assetName, staging)
+            require(File(staging, requiredFile).isFile) { "Bootstrap package $assetName is missing $requiredFile" }
+            val prepared = CanonicalPackageReplacement.prepareCopy(staging, target)
+            CanonicalPackageReplacement.activatePrepared(prepared, target)
+        } finally {
+            staging.deleteRecursively()
         }
     }
 
