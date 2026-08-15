@@ -1,13 +1,75 @@
 package com.rpgos.app
 
 import android.content.Context
+import android.content.SharedPreferences
 import java.io.File
+
+internal data class CurrentWorldPackAuthority(
+    val campaignUid: String,
+    val binding: WorldPackRuleBinding
+) {
+    init {
+        require(campaignUid.isNotBlank()) { "campaignUid must not be blank" }
+    }
+}
+
+/** Narrow read-only capability used by Phase-19 authority resolution. */
+internal fun interface WorldPackAuthoritySource {
+    fun currentAuthority(): CurrentWorldPackAuthority
+}
+
+/**
+ * Reads campaign + selected World Pack directory from one SharedPreferences snapshot, then resolves
+ * the immutable logical campaign id and validated World Pack uid/version from those captured names.
+ * No selection mutation API is exposed through this capability.
+ */
+private class CanonicalSelectionWorldPackAuthoritySource(
+    private val prefs: SharedPreferences,
+    private val saves: File,
+    private val worldpacks: File
+) : WorldPackAuthoritySource {
+    override fun currentAuthority(): CurrentWorldPackAuthority {
+        val selectionSnapshot = LinkedHashMap(prefs.all)
+        val campaignDirName =
+            (selectionSnapshot["active_campaign"] as? String)
+                ?: ActiveCampaignRef.DEFAULT_DIRECTORY
+        val worldPackDirName =
+            (selectionSnapshot["active_worldpack"] as? String)
+                ?: "Naruto.worldpack"
+
+        val campaignUid = ActiveCampaignRef.resolve(saves, campaignDirName).campaignId
+        val worldPackDir = File(worldpacks, worldPackDirName)
+        val validation = PackageValidator().validateWorldPack(worldPackDir)
+        require(validation.ok) { "Active World Pack is invalid: ${validation.message}" }
+        val uid = validation.packageId?.takeIf { it.isNotBlank() }
+            ?: error("Active World Pack manifest has no id")
+        val version = validation.version?.takeIf { it.isNotBlank() }
+            ?: error("Active World Pack manifest has no version")
+
+        return CurrentWorldPackAuthority(
+            campaignUid = campaignUid,
+            binding = WorldPackRuleBinding(uid, version)
+        )
+    }
+}
+
+/** Resolver retains only a read-only authority capability, never CampaignSelectionManager mutation API. */
+private class CurrentSelectionWorldPackAuthorityResolver(
+    private val source: WorldPackAuthoritySource
+) : WorldPackAuthorityResolver {
+    override fun bindingForCampaign(campaignUid: String): WorldPackRuleBinding? {
+        val authority = source.currentAuthority()
+        return authority.binding.takeIf { authority.campaignUid == campaignUid }
+    }
+}
 
 class CampaignSelectionManager(private val context: Context) {
     private val prefs = context.getSharedPreferences("rpgos_selection", Context.MODE_PRIVATE)
     private val root = File(context.filesDir, "rpgos")
     private val saves = File(root, "saves")
     private val worldpacks = File(root, "worldpacks")
+    private val worldPackAuthoritySource: WorldPackAuthoritySource =
+        CanonicalSelectionWorldPackAuthoritySource(prefs, saves, worldpacks)
 
     fun activeCampaignRef(): ActiveCampaignRef {
         val directoryName =
@@ -36,18 +98,20 @@ class CampaignSelectionManager(private val context: Context) {
     }
 
     /**
-     * Read-only Phase-19 authority resolver backed by the canonical app selection.
-     * The current campaign and World Pack are re-read for every authority lookup.
+     * One coherent canonical authority observation for Phase 19.
+     * campaignUid + World Pack uid/version are derived from one captured selection snapshot.
      */
+    internal fun currentWorldPackAuthority(): CurrentWorldPackAuthority =
+        worldPackAuthoritySource.currentAuthority()
+
+    /** Read-only Phase-19 authority resolver backed by the canonical app selection. */
     internal fun activeWorldPackAuthorityResolver(): WorldPackAuthorityResolver =
-        WorldPackAuthorityResolver { campaignUid ->
-            val currentCampaignUid = activeCampaignId()
-            if (campaignUid != currentCampaignUid) null else activeWorldRuleMode().binding
-        }
+        CurrentSelectionWorldPackAuthorityResolver(worldPackAuthoritySource)
 
     /**
      * Compatibility entry point retained for existing callers. Despite the historical name,
-     * this now returns the live canonical resolver so long-lived engines cannot retain stale authority.
+     * this returns the live canonical resolver so long-lived engines observe the newest completed
+     * selection snapshot on every resolution.
      */
     internal fun activeWorldPackAuthoritySnapshot(): WorldPackAuthorityResolver =
         activeWorldPackAuthorityResolver()
