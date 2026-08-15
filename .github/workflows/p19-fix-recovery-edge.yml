@@ -17,16 +17,9 @@ jobs:
           from pathlib import Path
           p = Path('app/src/main/java/com/rpgos/app/CanonicalPackageReplacement.kt')
           s = p.read_text()
-          old = '''            target.exists() || rollbacks.isNotEmpty() || prepared.isNotEmpty() ->
-                  throw IllegalStateException("PACKAGE_REPLACEMENT_RECOVERY_NO_VALID_PACKAGE")
-              else -> return
-          '''
-          new = '''            rollbacks.isNotEmpty() || prepared.isNotEmpty() ->
-                  throw IllegalStateException("PACKAGE_REPLACEMENT_RECOVERY_NO_VALID_PACKAGE")
-              else -> return
-          '''
+          old = 'target.exists() || rollbacks.isNotEmpty() || prepared.isNotEmpty() ->'
           assert old in s
-          p.write_text(s.replace(old, new, 1))
+          p.write_text(s.replace(old, 'rollbacks.isNotEmpty() || prepared.isNotEmpty() ->', 1))
 
           p = Path('app/src/main/java/com/rpgos/app/ContentUpdateManager.kt')
           s = p.read_text()
