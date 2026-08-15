@@ -217,13 +217,15 @@ class Phase19FinalIntegrityHardeningTest {
         try {
             val read = pool.submit<CurrentWorldPackAuthority> { source.currentAuthority() }
             assertTrue(captured.await(5, TimeUnit.SECONDS))
-            val replace = pool.submit { RpgPackageManager(app).validatedImportWorldPack(zip, "A.worldpack") }
+            val replace = pool.submit<Boolean> {
+                RpgPackageManager(app).validatedImportWorldPack(zip, "A.worldpack").ok
+            }
             Thread.sleep(200)
             assertFalse(replace.isDone)
             assertEquals("1", PackageValidator().validateWorldPack(File(worldpacks, "A.worldpack")).version)
             resume.countDown()
             assertEquals("1", read.get(5, TimeUnit.SECONDS).binding.worldPackVersion)
-            assertTrue(replace.get(10, TimeUnit.SECONDS).ok)
+            assertTrue(replace.get(10, TimeUnit.SECONDS))
             assertEquals("2", source.currentAuthority().binding.worldPackVersion)
         } finally {
             resume.countDown()
