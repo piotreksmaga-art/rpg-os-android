@@ -1,0 +1,48 @@
+===== BIELIK 4.5B Q4_K_M RPG6 CTX1024 =====
+Sat Aug 15 14:21:12 CEST 2026
+
+=== MEMORY BEFORE ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       3.6Gi       904Mi        24Mi       2.6Gi       3.4Gi
+Swap:          8.0Gi       1.6Gi       6.4Gi
+
+=== RESULTS ===
+turn,prompt_tokens,completion_tokens,prompt_tps,gen_tps,total_ms
+1,97,65,1.4763208859849097,10.208974518080574,72005
+2,185,65,61.9269644640559,9.891004224386085,7392
+
+=== STATISTICS ===
+VALID_TURNS = 2
+PROMPT_TOKENS = [97, 185]
+PROMPT_TPS = [1.476, 61.927]
+PROMPT_MEDIAN = 31.702
+GEN_TPS = [10.209, 9.891]
+GEN_MEAN = 10.05
+GEN_MEDIAN = 10.05
+TOTAL_MS = [72005, 7392]
+TOTAL_MEDIAN_MS = 39698.5
+TEST_STATUS=PARTIAL
+
+=== MEMORY LOADED ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       3.0Gi       3.1Gi        15Mi       992Mi       3.9Gi
+Swap:          8.0Gi       2.3Gi       5.7Gi
+
+=== CACHE / SLOT / TIMINGS ===
+0.06.093.567 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 1024, kv_unified = 'false'
+0.06.468.459 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+1.18.441.497 I slot print_timing: id  0 | task 0 | prompt eval time =   65703.87 ms /    97 tokens (  677.36 ms per token,     1.48 tokens per second)
+1.18.441.533 I slot print_timing: id  0 | task 0 |        eval time =    6268.99 ms /    65 tokens (   97.95 ms per token,    10.21 tokens per second)
+1.18.441.538 I slot print_timing: id  0 | task 0 |       total time =   71972.87 ms /   162 tokens
+1.18.441.541 I slot print_timing: id  0 | task 0 |    graphs reused =         64
+1.21.480.200 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 0.703 (> 0.100 thold), f_keep = 0.807
+1.28.839.697 I slot print_timing: id  0 | task 66 | prompt eval time =     888.14 ms /    55 tokens (   16.15 ms per token,    61.93 tokens per second)
+1.28.839.731 I slot print_timing: id  0 | task 66 |        eval time =    6470.53 ms /    65 tokens (  101.10 ms per token,     9.89 tokens per second)
+1.28.839.733 I slot print_timing: id  0 | task 66 |       total time =    7358.67 ms /   120 tokens
+1.28.839.734 I slot print_timing: id  0 | task 66 |    graphs reused =        127
+1.31.875.330 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 0.665 (> 0.100 thold), f_keep = 0.743
+
+=== MEMORY AFTER ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       3.0Gi       3.1Gi        15Mi       992Mi       3.9Gi
+Swap:          8.0Gi       2.3Gi       5.7Gi
