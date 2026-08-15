@@ -111,7 +111,6 @@ def _trim_optional_context(safe: dict[str, Any], extra_tokens: int = 0) -> int:
     if total() <= INPUT_BUDGET:
         return total()
 
-    # Old/optional memory is first to go.
     safe["retrievedChronicleMemory"] = []
     while safe["recentDialogueActions"] and total() > INPUT_BUDGET:
         safe["recentDialogueActions"].pop(0)
@@ -124,14 +123,16 @@ def build_context(snapshot: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("context_must_be_object")
 
     scene_state = deepcopy(snapshot.get("sceneState", {}))
+    player_identity = deepcopy(snapshot.get("playerIdentity", {}))
     player_scene_state = deepcopy(snapshot.get("playerSceneState", {}))
     _assert_segment_budget("sceneState", scene_state)
-    _assert_segment_budget("playerSceneState", player_scene_state)
+    if estimate_tokens({"playerIdentity": player_identity, "playerSceneState": player_scene_state}) > SEGMENT_BUDGETS["playerSceneState"]:
+        raise ValueError("playerSceneState_budget_exceeded")
 
     safe = {
         "campaignUid": snapshot.get("campaignUid"),
         "worldPackUid": snapshot.get("worldPackUid"),
-        "playerIdentity": deepcopy(snapshot.get("playerIdentity", {})),
+        "playerIdentity": player_identity,
         "sceneState": scene_state,
         "playerSceneState": player_scene_state,
         "relevantNpcs": _build_npcs(snapshot.get("relevantNpcs", [])),
@@ -169,11 +170,11 @@ def build_messages(snapshot: dict[str, Any], player_message: str, mode: str) -> 
     context = build_context(snapshot)
     context.pop("_tempBudget", None)
 
+    context_label = "\n\nREAD-ONLY TEMP CONTEXT:\n"
     mode_suffix = "\n\nTEMP response mode: " + mode + ". canonicalMutation=false."
-    fixed_system_prefix = SYSTEM_PROMPT + "\n\nREAD-ONLY TEMP CONTEXT:\n"
-    fixed_tokens = estimate_tokens(fixed_system_prefix) + estimate_tokens(mode_suffix) + estimate_tokens(player_message)
+    extra_tokens = estimate_tokens(context_label) + estimate_tokens(mode_suffix) + estimate_tokens(player_message)
 
-    total = _trim_optional_context(context, extra_tokens=fixed_tokens)
+    total = _trim_optional_context(context, extra_tokens=extra_tokens)
     if total > INPUT_BUDGET:
         raise ValueError("turn_budget_exceeded_after_safe_trimming")
 
@@ -183,7 +184,7 @@ def build_messages(snapshot: dict[str, Any], player_message: str, mode: str) -> 
         "responseReserve": RESPONSE_RESERVE,
         "estimatedTurnInputTokens": total,
     }
-    system = fixed_system_prefix + json.dumps(context, ensure_ascii=False, separators=(",", ":")) + mode_suffix
+    system = SYSTEM_PROMPT + context_label + json.dumps(context, ensure_ascii=False, separators=(",", ":")) + mode_suffix
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": player_message},
