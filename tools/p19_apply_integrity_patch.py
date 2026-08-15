@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Temporary forward-only patch helper; removed before final candidate.
 p = Path('app/src/main/java/com/rpgos/app/WorldRuleProvider.kt')
 s = p.read_text()
 old = 'type.declaredFields.filterNot { Modifier.isStatic(it.modifiers) || it.isSynthetic }.forEach { field ->'
