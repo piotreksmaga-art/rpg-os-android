@@ -1,0 +1,66 @@
+name: Phase 19 provider fixture correction
+
+on:
+  push:
+    branches: [ "agent/p19-package-content-toctou-fix" ]
+
+permissions:
+  contents: write
+
+jobs:
+  correct:
+    if: ${{ !startsWith(github.event.head_commit.message, 'test: correct package-content provider fixture') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Correct retained provider fixture
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/test/java/com/rpgos/app/WorldRuleProviderPhase19PackageContentAuthorityTest.kt')
+          s = p.read_text()
+          old = '''    private class Provider(private val acceptedBinding: WorldPackRuleBinding) : WorldRuleProvider(
+              "P19-CONTENT-${acceptedBinding.worldPackUid}-${acceptedBinding.worldPackVersion}",
+              "1",
+              acceptedBinding.worldPackUid,
+              acceptedBinding.worldPackVersion
+          ) {
+              override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
+                  when (acceptedBinding) {
+                      a1 -> Probe.a1++
+                      a2 -> Probe.a2++
+                      b1 -> Probe.b1++
+                  }
+                  Probe.seen += request.worldPack
+                  return WorldRuleDecision.Allowed.create("P19-AUTH-CONTENT")
+              }
+          }
+          '''
+          new = '''    private class Provider(binding: WorldPackRuleBinding) : WorldRuleProvider(
+              "P19-CONTENT-${binding.worldPackUid}-${binding.worldPackVersion}",
+              "1",
+              binding.worldPackUid,
+              binding.worldPackVersion
+          ) {
+              override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
+                  when (worldPackUid to worldPackVersion) {
+                      "A" to "1" -> Probe.a1++
+                      "A" to "2" -> Probe.a2++
+                      "B" to "1" -> Probe.b1++
+                  }
+                  Probe.seen += request.worldPack
+                  return WorldRuleDecision.Allowed.create("P19-AUTH-CONTENT")
+              }
+          }
+          '''
+          if old not in s:
+              raise SystemExit('provider fixture marker missing')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/src/test/java/com/rpgos/app/WorldRuleProviderPhase19PackageContentAuthorityTest.kt
+          git commit -m "test: correct package-content provider fixture"
+          git push
