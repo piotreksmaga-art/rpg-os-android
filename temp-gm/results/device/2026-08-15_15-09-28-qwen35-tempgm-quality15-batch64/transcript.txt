@@ -1,0 +1,120 @@
+
+
+===== TURN 1 =====
+PLAYER:
+Wchodzę przez główne południowe wejście. Nie wyciągam broni i tylko nasłuchuję.
+
+GM:
+Wchodzisz przez główne wejście i zaciskasz dłonie na tanto, czekając na dźwięk. W powietrzu unosi się zapach wilgoci i starożytnego drewna. Z tyłu słyszysz ciche kroki Aiko, która wciąż stoi poza ruinami.
+
+
+===== TURN 2 =====
+PLAYER:
+Idę pięć kroków korytarzem i sprawdzam pył na podłodze. Co widzę?
+
+GM:
+Podłoga jest porośnięta grubą warstwą brudnego pyłu, ale w śladach widoczne są tylko twoje ostatnie kroki. W powietrzu unosi się ciężki zapach starych drewnianych konstrukcji i wilgoci. Z tyłu słyszysz ciche kroki Aiko, która wciąż stoi poza ruinami.
+
+
+===== TURN 3 =====
+PLAYER:
+Wyciągam jeden kunai i zostawiam go przy południowym wejściu jako znacznik. Idę dalej na północ.
+
+GM:
+Wyciągasz kunai i zostawiasz go na podłodze jako znacznik. Idziesz dalej w stronę północnego skrzydła, gdzie znajduje się Strażnik Ren. Nie wiesz, że klucz do skrzyni leży w rękach tego strażnika.
+
+
+===== TURN 4 =====
+PLAYER:
+Zatrzymuję się przy rozwidleniu. Nie wołam nikogo. Czy Aiko wie teraz, gdzie jestem?
+
+GM:
+Aiko wciąż stoi poza ruinami i nie widzi wnętrza, więc nie wie, gdzie jesteś. W powietrzu unosi się zapach wilgoci i starych konstrukcji. Z tyłu słyszysz jej ciche kroki, które nie przyspieszają.
+
+
+===== TURN 5 =====
+PLAYER:
+Skręcam na zachód i znajduję pomieszczenie ze skrzynią. Nie otwieram jej. Sprawdzam tylko drzwi i podłogę.
+
+GM:
+Przechodzisz do pomieszczenia, gdzie na podłodze leży zamknięta drewniana skrzynia. Drzwi są solidne i nie dają żadnych sygnałów, że są otwarte. Z tyłu słyszysz ciche kroki Aiko, która wciąż czeka poza ruinami.
+
+
+===== TURN 6 =====
+PLAYER:
+Wracam do rozwidlenia i idę na północ. Jeśli spotkam Rena, nie atakuję pierwszy.
+
+GM:
+Idziesz w stronę północnego skrzydła, gdzie znajduje się Strażnik Ren. Nie masz zamiaru atakować, więc czekasz na jego reakcję. W powietrzu unosi się zapach wilgoci i starych konstrukcji. Z tyłu słyszysz ciche kroki Aiko, która wciąż stoi poza ruinami.
+
+
+===== TURN 7 =====
+PLAYER:
+Widząc Rena mówię: 'Nie szukam walki. Kim jesteś?' Nie przedstawiam się.
+
+GM:
+Strażnik Ren obraca się i patrzy na ciebie z nieufnym wyrazem twarzy. Nie zna twojego imienia, więc odpowiada tylko krótkim zdaniem, nie podając swojej tożsamości. Z tyłu słyszysz ciche kroki Aiko, która wciąż czeka poza ruinami.
+
+
+===== TURN 8 =====
+PLAYER:
+Pytam Rena: 'Czy w zachodnim pomieszczeniu jest coś wartościowego?'
+
+GM:
+Ren patrzy na ciebie z podejrzliwością i nie odpowiada na pytanie. W jego dłoniach trzyma klucz do skrzyni, ale nie wspomina o tym. Z tyłu słyszysz ciche kroki Aiko, która wciąż czeka poza ruinami.
+
+
+===== TURN 9 =====
+PLAYER:
+Nie pytam o klucz. Cofam się dwa kroki i obserwuję dłonie Rena. Co robi?
+
+GM:
+Ren powoli schyla rękę, aby pokazać klucz, który trzyma w dłoni. Jego wzrok jest skupiony na przedmiocie, a nie na tobie. Z tyłu słyszysz ciche kroki Aiko, która wciąż czeka poza ruinami.
+
+
+===== TURN 10 =====
+PLAYER:
+Mówię Renowi, że przy wejściu czeka moja towarzyszka, ale nie podaję jej imienia.
+
+GM:
+Ren patrzy na ciebie z niezrozumieniem, gdy wspominasz o towarzyszce. Nie wie, kim ona jest ani co może dla niego znaczyć. Jego wzrok nadal jest skupiony na kluczu w dłoniach.
+
+
+===== TURN 11 =====
+PLAYER:
+Wracam sam do zachodniego pomieszczenia. Ile kunai mam teraz przy sobie i jaki jest stan mojej lewej ręki?
+
+GM:
+Masz trzy kunai przy sobie, ponieważ nie użyłeś żadnego z nich. Lewa ręka nadal jest lekko zraniona, ale nie ucierpiała podczas przejścia przez pomieszczenie.
+
+
+===== TURN 12 =====
+PLAYER:
+Próbuję otworzyć skrzynię bez niszczenia zamka, używając tylko tego, co rzeczywiście mam przy sobie.
+
+GM:
+Nie masz klucza, więc skrzynia pozostaje zamknięta. Musisz albo zniszczyć zamek, albo czekać na Ren, który go posiada. Z tyłu słyszysz ciche kroki Aiko, która wciąż czeka poza ruinami.
+
+
+===== TURN 13 =====
+PLAYER:
+Rezygnuję z otwierania skrzyni. Wracam w stronę południowego wejścia, ale zatrzymuję się przed wyjściem.
+
+GM:
+Wracasz w stronę południowego wejścia i zatrzymujesz się przed nim. W powietrzu unosi się zapach wilgoci i starych konstrukcji. Z tyłu słyszysz ciche kroki Aiko, która wciąż czeka poza ruinami.
+
+
+===== TURN 14 =====
+PLAYER:
+Wołam tylko: 'Aiko, wszystko w porządku?'. Czy Ren może od razu znać jej imię i dlaczego?
+
+GM:
+Aiko nie odpowiada, bo wciąż stoi poza ruinami i nie słyszy twojego głosu. Ren nie zna jej imienia, ponieważ nie widział jej i nie otrzymał żadnych informacji o niej. W powietrzu unosi się zapach wilgoci i starych konstrukcji.
+
+
+===== TURN 15 =====
+PLAYER:
+Nie wychodzę jeszcze z ruin. Podsumuj aktualny stan sceny: moja pozycja, Aiko, Ren, skrzynia, kunai i rana. Nie dopisuj nowych faktów.
+
+GM:
+Stoisz przy południowym wejściu w ruinach z kunai w ręku. Aiko wciąż czeka poza ruinami i nie wie, że jesteś w środku. Ren znajduje się w północnym skrzydle i nie zna imienia ani tożsamości nikogo z ciebie. Drewniana skrzynia w zachodnim pomieszczeniu pozostaje zamknięta, a klucz do niej ma Ren. Masz

@@ -1,0 +1,73 @@
+===== SYSTEM =====
+Jesteś TEMP-GM w grze RPG shinobi.
+
+Zasady obowiązkowe:
+1. Nigdy nie decyduj za postać gracza.
+2. Nie opisuj, że gracz wykonał czynność, której sam nie zadeklarował.
+3. Zachowuj ciągłość świata, pozycji, obrażeń, ekwipunku i informacji.
+4. NPC może znać tylko informacje, które realnie zobaczył, usłyszał albo otrzymał.
+5. Nie ujawniaj sekretów świata bez przyczyny fabularnej.
+6. Nie zmieniaj faktów ustalonych wcześniej.
+7. Nie dodawaj graczowi nowych przedmiotów, umiejętności ani wiedzy.
+8. Odpowiadaj po polsku.
+9. Każda odpowiedź ma mieć 2-4 krótkie zdania.
+10. Nie używaj Markdown, gwiazdek, nagłówków ani list.
+
+Stan początkowy:
+- Gracz nazywa się Smagi.
+- Smagi ma tanto i 3 kunai.
+- Smagi nie ma shurikenów.
+- Lewa ręka Smagiego jest lekko zraniona.
+- Towarzyszka Aiko czeka poza ruinami i nie widzi wnętrza.
+- Strażnik Ren przebywa w północnym skrzydle i nie zna imienia Smagiego.
+- W ruinach są dwa wejścia: główne od południa i zawalony tunel od wschodu.
+- W zachodnim pomieszczeniu leży zamknięta drewniana skrzynia.
+- Klucz do skrzyni ma Ren.
+- Na początku Smagi nie wie, że Ren ma klucz.
+
+===== PLAYER TURNS =====
+
+TURN 1
+Wchodzę przez główne południowe wejście. Nie wyciągam broni i tylko nasłuchuję.
+
+TURN 2
+Idę pięć kroków korytarzem i sprawdzam pył na podłodze. Co widzę?
+
+TURN 3
+Wyciągam jeden kunai i zostawiam go przy południowym wejściu jako znacznik. Idę dalej na północ.
+
+TURN 4
+Zatrzymuję się przy rozwidleniu. Nie wołam nikogo. Czy Aiko wie teraz, gdzie jestem?
+
+TURN 5
+Skręcam na zachód i znajduję pomieszczenie ze skrzynią. Nie otwieram jej. Sprawdzam tylko drzwi i podłogę.
+
+TURN 6
+Wracam do rozwidlenia i idę na północ. Jeśli spotkam Rena, nie atakuję pierwszy.
+
+TURN 7
+Widząc Rena mówię: 'Nie szukam walki. Kim jesteś?' Nie przedstawiam się.
+
+TURN 8
+Pytam Rena: 'Czy w zachodnim pomieszczeniu jest coś wartościowego?'
+
+TURN 9
+Nie pytam o klucz. Cofam się dwa kroki i obserwuję dłonie Rena. Co robi?
+
+TURN 10
+Mówię Renowi, że przy wejściu czeka moja towarzyszka, ale nie podaję jej imienia.
+
+TURN 11
+Wracam sam do zachodniego pomieszczenia. Ile kunai mam teraz przy sobie i jaki jest stan mojej lewej ręki?
+
+TURN 12
+Próbuję otworzyć skrzynię bez niszczenia zamka, używając tylko tego, co rzeczywiście mam przy sobie.
+
+TURN 13
+Rezygnuję z otwierania skrzyni. Wracam w stronę południowego wejścia, ale zatrzymuję się przed wyjściem.
+
+TURN 14
+Wołam tylko: 'Aiko, wszystko w porządku?'. Czy Ren może od razu znać jej imię i dlaczego?
+
+TURN 15
+Nie wychodzę jeszcze z ruin. Podsumuj aktualny stan sceny: moja pozycja, Aiko, Ren, skrzynia, kunai i rana. Nie dopisuj nowych faktów.
