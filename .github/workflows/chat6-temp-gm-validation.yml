@@ -47,13 +47,13 @@ jobs:
           set -euo pipefail
           mkdir -p chat6-evidence
           APK=app/build/outputs/apk/release/app-release.apk
-          OUT=chat6-evidence/RPG-OS-TEMP-GM-SIGNED-TEST-143.apk
+          OUT=chat6-evidence/RPG-OS-TEMP-GM-SIGNED-TEST-144.apk
           cp "$APK" "$OUT"
           AAPT="$ANDROID_HOME/build-tools/36.0.0/aapt"
           APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
-          "$APKSIGNER" verify --print-certs "$OUT" | tee chat6-evidence/temp143-apksigner.txt
-          "$AAPT" dump badging "$OUT" | head -n 1 | tee chat6-evidence/temp143-package.txt
-          grep -q "package: name='com.rpgos.app' versionCode='143' versionName='1.2.0-alpha5-temp-gm143'" chat6-evidence/temp143-package.txt
+          "$APKSIGNER" verify --print-certs "$OUT" | tee chat6-evidence/temp144-apksigner.txt
+          "$AAPT" dump badging "$OUT" | head -n 1 | tee chat6-evidence/temp144-package.txt
+          grep -q "package: name='com.rpgos.app' versionCode='144' versionName='1.2.0-alpha5-temp-gm144'" chat6-evidence/temp144-package.txt
           TEMP_CERT=$("$APKSIGNER" verify --print-certs "$OUT" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)
           test -n "$TEMP_CERT"
           curl --fail --location --silent --show-error \
@@ -62,14 +62,14 @@ jobs:
           "$APKSIGNER" verify --print-certs "$RUNNER_TEMP/hybrid142.apk" | tee chat6-evidence/hybrid142-apksigner.txt
           HYBRID_CERT=$("$APKSIGNER" verify --print-certs "$RUNNER_TEMP/hybrid142.apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)
           test -n "$HYBRID_CERT"
-          printf 'HYBRID142_CERT_SHA256=%s\nTEMP143_CERT_SHA256=%s\n' "$HYBRID_CERT" "$TEMP_CERT" | tee chat6-evidence/certificate-comparison.txt
+          printf 'HYBRID142_CERT_SHA256=%s\nTEMP144_CERT_SHA256=%s\n' "$HYBRID_CERT" "$TEMP_CERT" | tee chat6-evidence/certificate-comparison.txt
           test "$HYBRID_CERT" = "$TEMP_CERT"
           printf 'CERTIFICATE_MATCH=PASS\n' >> chat6-evidence/certificate-comparison.txt
-          sha256sum "$OUT" > chat6-evidence/RPG-OS-TEMP-GM-SIGNED-TEST-143.apk.sha256
-          printf '{"head_sha":"%s","version_code":143,"version_name":"1.2.0-alpha5-temp-gm143","package":"com.rpgos.app","build_type":"release-mode validation artifact","canonical_signing":true,"publication":false}\n' "$GITHUB_SHA" > chat6-evidence/build-provenance.json
+          sha256sum "$OUT" > chat6-evidence/RPG-OS-TEMP-GM-SIGNED-TEST-144.apk.sha256
+          printf '{"head_sha":"%s","version_code":144,"version_name":"1.2.0-alpha5-temp-gm144","package":"com.rpgos.app","build_type":"release-mode validation artifact","canonical_signing":true,"publication":false,"gm_turn_read_timeout_seconds":210,"short_endpoint_timeout_seconds":35,"backend_generation_timeout_seconds":180,"max_tokens":1024}\n' "$GITHUB_SHA" > chat6-evidence/build-provenance.json
       - uses: actions/upload-artifact@v4
         with:
-          name: CHAT6-TEMP-GM-SIGNED-TEST-143-${{ github.sha }}
+          name: CHAT6-TEMP-GM-SIGNED-TEST-144-${{ github.sha }}
           path: chat6-evidence/
           if-no-files-found: error
           retention-days: 14
