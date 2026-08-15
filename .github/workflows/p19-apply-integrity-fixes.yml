@@ -14,10 +14,10 @@ jobs:
         with:
           ref: agent/p19-final-integrity-hardening
       - name: Apply scoped production patches
-        shell: python
+        shell: bash
         run: |
+          python3 - <<'PY'
           from pathlib import Path
-
           p = Path('app/src/main/java/com/rpgos/app/WorldRuleProvider.kt')
           s = p.read_text()
           old = 'type.declaredFields.filterNot { Modifier.isStatic(it.modifiers) || it.isSynthetic }.forEach { field ->'
@@ -58,6 +58,7 @@ jobs:
           assert marker in s
           s = s.replace(marker, helper + marker, 1)
           p.write_text(s)
+          PY
       - name: Commit scoped fixes
         run: |
           git config user.name 'github-actions[bot]'
