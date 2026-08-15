@@ -1,0 +1,40 @@
+===== BIELIK 4.5B Q4_K_M INFERENCE =====
+Sat Aug 15 13:41:59 CEST 2026
+
+=== MEMORY BEFORE ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       3.2Gi       2.0Gi        23Mi       1.9Gi       3.8Gi
+Swap:          8.0Gi       1.4Gi       6.6Gi
+
+CURL_RC=0
+ELAPSED_MS=13406
+
+=== RESPONSE ===
+1. Średniowieczny zamek był zazwyczaj zbudowany z kamienia, z wieżami obronnymi i grubymi murami.
+2. Wewnątrz zamku znajdowały się komnaty mieszkalne, zbrojownie i kaplice.
+3. Zamki miały często fosę z wodą lub rowem obronnym, a do środka prowadziło zwodzone mosteko.
+4. W czasach pokoju w zamku mieszkali władcy, rycerze i ich rodziny, a w czasach wojny służył jako twierdza.
+5. Po upadku średniowiecza wiele zamków zostało opuszczonych lub przebudowanych na pałace.
+
+finish_reason = stop
+prompt_tokens = 25
+completion_tokens = 118
+prompt_tps = 35.32525374129762
+generation_tps = 9.252755383561508
+
+=== MEMORY LOADED ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       5.7Gi       143Mi        22Mi       1.2Gi       1.0Gi
+Swap:          8.0Gi       1.5Gi       6.5Gi
+
+=== TIMINGS LOG ===
+0.19.729.341 I slot print_timing: id  0 | task 0 | prompt eval time =     707.71 ms /    25 tokens (   28.31 ms per token,    35.33 tokens per second)
+0.19.729.370 I slot print_timing: id  0 | task 0 |        eval time =   12644.88 ms /   118 tokens (  108.08 ms per token,     9.25 tokens per second)
+0.19.729.372 I slot print_timing: id  0 | task 0 |       total time =   13352.59 ms /   143 tokens
+
+INFER_STATUS=COMPLETE
+
+=== MEMORY AFTER ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       2.8Gi       3.0Gi        22Mi       1.2Gi       3.9Gi
+Swap:          8.0Gi       1.5Gi       6.5Gi

@@ -1,0 +1,22 @@
+0.00.142.231 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.143.250 W srv  llama_server: -----------------
+0.00.143.269 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.143.271 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.143.273 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.143.274 W srv  llama_server: -----------------
+0.00.144.736 I srv    load_model: loading model '/data/data/com.termux/files/home/rpgos-temp-gm/models/bielik45/Bielik-4.5B-v3.0-Instruct-Q4_K_M.gguf'
+0.04.200.261 I cmn          init: llama threadpool init, n_threads = 10
+0.05.399.939 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 1024, kv_unified = 'false'
+0.05.412.524 I srv  llama_server: model loaded
+0.05.412.572 I srv  llama_server: listening on http://127.0.0.1:8080
+0.05.412.573 W srv  llama_server: NOTICE: server default port will be changed to :9931 in a future release
+0.05.412.575 W srv  llama_server:         ref: https://github.com/ggml-org/llama.cpp/pull/26508
+0.06.376.631 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+0.06.376.700 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+0.17.780.027 I slot print_timing: id  0 | task 0 | n_gen =    100, tg =   9.26 t/s, tg_3s =   9.35 t/s
+0.19.729.341 I slot print_timing: id  0 | task 0 | prompt eval time =     707.71 ms /    25 tokens (   28.31 ms per token,    35.33 tokens per second)
+0.19.729.370 I slot print_timing: id  0 | task 0 |        eval time =   12644.88 ms /   118 tokens (  108.08 ms per token,     9.25 tokens per second)
+0.19.729.372 I slot print_timing: id  0 | task 0 |       total time =   13352.59 ms /   143 tokens
+0.19.729.373 I slot print_timing: id  0 | task 0 |    graphs reused =        117
+0.19.729.398 I slot      release: id  0 | task 0 | stop processing: n_tokens = 142, truncated = 0
+0.19.895.247 I srv    operator(): operator(): cleaning up before exit...
