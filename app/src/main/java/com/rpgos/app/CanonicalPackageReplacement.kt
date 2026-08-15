@@ -14,9 +14,9 @@ private object RealCanonicalPackageFileOps : CanonicalPackageFileOps {
 }
 
 /**
- * Prepares replacement bytes outside the authority gate and exposes only the final live-target
- * transition while holding the canonical package write side. Readers therefore observe either the
- * previous complete package or the next complete package, never a partial extraction.
+ * Failure-atomic live package transition plus deterministic recovery for interrupted transitions.
+ * Rollback/prepared siblings are transient recovery metadata only; canonical authority remains the
+ * validated live target selected by CampaignSelectionManager.
  */
 internal object CanonicalPackageReplacement {
     fun prepareCopy(source: File, target: File): File {
@@ -28,10 +28,81 @@ internal object CanonicalPackageReplacement {
         return prepared
     }
 
+    fun reconcile(target: File, isValidPackage: (File) -> Boolean) {
+        CanonicalPackageAuthorityGate.mutate {
+            reconcileUnderGate(target, isValidPackage)
+        }
+    }
+
+    internal fun reconcileUnderGate(
+        target: File,
+        isValidPackage: (File) -> Boolean,
+        fileOps: CanonicalPackageFileOps = RealCanonicalPackageFileOps
+    ) {
+        target.parentFile?.mkdirs()
+        val parent = target.parentFile ?: throw IllegalStateException("PACKAGE_REPLACEMENT_RECOVERY_NO_PARENT")
+        val rollbacks = parent.listFiles()
+            ?.filter { it.name.startsWith(".${target.name}.rollback-") }
+            .orEmpty()
+        val prepared = parent.listFiles()
+            ?.filter { it.name.startsWith(".${target.name}.prepared-") }
+            .orEmpty()
+
+        fun valid(file: File): Boolean = file.isDirectory && runCatching { isValidPackage(file) }.getOrDefault(false)
+        fun cleanup(files: List<File>) {
+            files.forEach { stale ->
+                if (stale.exists() && !fileOps.deleteRecursively(stale)) {
+                    throw IllegalStateException("PACKAGE_REPLACEMENT_RECOVERY_CLEANUP_FAILED")
+                }
+            }
+        }
+
+        if (target.exists() && valid(target)) {
+            cleanup(rollbacks + prepared)
+            return
+        }
+
+        val validRollbacks = rollbacks.filter(::valid)
+        val validPrepared = prepared.filter(::valid)
+        if (validRollbacks.size > 1 || (validRollbacks.isEmpty() && validPrepared.size > 1)) {
+            throw IllegalStateException("PACKAGE_REPLACEMENT_RECOVERY_AMBIGUOUS")
+        }
+
+        val recoverySource = when {
+            validRollbacks.size == 1 -> validRollbacks.single()
+            validPrepared.size == 1 -> validPrepared.single()
+            target.exists() || rollbacks.isNotEmpty() || prepared.isNotEmpty() ->
+                throw IllegalStateException("PACKAGE_REPLACEMENT_RECOVERY_NO_VALID_PACKAGE")
+            else -> return
+        }
+
+        if (target.exists() && !fileOps.deleteRecursively(target)) {
+            throw IllegalStateException("PACKAGE_REPLACEMENT_RECOVERY_TARGET_DELETE_FAILED")
+        }
+        if (!fileOps.rename(recoverySource, target)) {
+            throw IllegalStateException("PACKAGE_REPLACEMENT_RECOVERY_RESTORE_FAILED")
+        }
+        if (!valid(target)) {
+            throw IllegalStateException("PACKAGE_REPLACEMENT_RECOVERY_RESTORED_INVALID")
+        }
+        cleanup((rollbacks + prepared).filter { it != recoverySource })
+    }
+
     fun activatePrepared(prepared: File, target: File) {
         require(prepared.isDirectory) { "Prepared package replacement is missing." }
         CanonicalPackageAuthorityGate.mutate {
             activatePreparedUnderGate(prepared, target)
+        }
+    }
+
+    fun <T> activatePrepared(
+        prepared: File,
+        target: File,
+        afterActivation: () -> T
+    ): T {
+        require(prepared.isDirectory) { "Prepared package replacement is missing." }
+        return CanonicalPackageAuthorityGate.mutate {
+            activatePreparedUnderGate(prepared, target, RealCanonicalPackageFileOps, afterActivation)
         }
     }
 
@@ -40,6 +111,15 @@ internal object CanonicalPackageReplacement {
         target: File,
         fileOps: CanonicalPackageFileOps = RealCanonicalPackageFileOps
     ) {
+        activatePreparedUnderGate(prepared, target, fileOps) { Unit }
+    }
+
+    internal fun <T> activatePreparedUnderGate(
+        prepared: File,
+        target: File,
+        fileOps: CanonicalPackageFileOps = RealCanonicalPackageFileOps,
+        afterActivation: () -> T
+    ): T {
         target.parentFile?.mkdirs()
         val backup = File(target.parentFile, ".${target.name}.rollback-${UUID.randomUUID()}")
         if (backup.exists()) fileOps.deleteRecursively(backup)
@@ -50,11 +130,16 @@ internal object CanonicalPackageReplacement {
                 oldMoved = true
             }
             require(fileOps.rename(prepared, target)) { "PACKAGE_REPLACEMENT_ACTIVATION_FAILED" }
+            val result = afterActivation()
             if (backup.exists() && !fileOps.deleteRecursively(backup)) {
-                // A stale backup is safe: canonical target is already complete. Cleanup can be retried later.
+                // A stale rollback sibling is safe while the canonical target is complete.
+                // Startup/reentry reconciliation removes it deterministically.
             }
+            return result
         } catch (activationFailure: Throwable) {
-            if (target.exists()) fileOps.deleteRecursively(target)
+            if (target.exists() && !fileOps.deleteRecursively(target)) {
+                throw IllegalStateException("PACKAGE_REPLACEMENT_ROLLBACK_FAILED", activationFailure)
+            }
             if (oldMoved && backup.exists()) {
                 val restored = fileOps.rename(backup, target)
                 if (!restored) {
