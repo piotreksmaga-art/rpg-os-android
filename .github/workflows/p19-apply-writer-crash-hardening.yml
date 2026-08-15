@@ -1,0 +1,162 @@
+name: P19 Apply Writer Crash Hardening
+on:
+  push:
+    branches: [agent/p19-writer-crash-hardening]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/p19-writer-crash-hardening
+          fetch-depth: 0
+      - name: Apply narrow source routing fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('app/src/main/java/com/rpgos/app/LocalGameStore.kt')
+          s = p.read_text()
+          old = '''    private fun ensureBootstrapPackage(assetName: String, target: File, requiredFile: String) {
+              if (File(target, requiredFile).isFile) return
+              val staging = File(baseDir, ".bootstrap-staging/${target.name}-${System.nanoTime()}")
+              staging.deleteRecursively()
+              try {
+                  extractAssetZip(assetName, staging)
+                  require(File(staging, requiredFile).isFile) { "Bootstrap package $assetName is missing $requiredFile" }
+                  val prepared = CanonicalPackageReplacement.prepareCopy(staging, target)
+                  CanonicalPackageReplacement.activatePrepared(prepared, target)
+              } finally {
+                  staging.deleteRecursively()
+              }
+          }
+          '''
+          new = '''    private fun ensureBootstrapPackage(assetName: String, target: File, requiredFile: String) {
+              val validPackage: (File) -> Boolean = { candidate -> File(candidate, requiredFile).isFile }
+              CanonicalPackageReplacement.reconcile(target, validPackage)
+              if (File(target, requiredFile).isFile) return
+              val staging = File(baseDir, ".bootstrap-staging/${target.name}-${System.nanoTime()}")
+              staging.deleteRecursively()
+              try {
+                  extractAssetZip(assetName, staging)
+                  require(File(staging, requiredFile).isFile) { "Bootstrap package $assetName is missing $requiredFile" }
+                  val prepared = CanonicalPackageReplacement.prepareCopy(staging, target)
+                  CanonicalPackageReplacement.activatePreparedIf(
+                      prepared = prepared,
+                      target = target,
+                      isValidPackage = validPackage,
+                      shouldActivate = { !File(target, requiredFile).isFile }
+                  )
+              } finally {
+                  staging.deleteRecursively()
+              }
+          }
+          '''
+          assert old in s
+          p.write_text(s.replace(old, new))
+
+          p = Path('app/src/main/java/com/rpgos/app/PackageManager.kt')
+          s = p.read_text()
+          s = s.replace(
+              '''            val prepared = CanonicalPackageReplacement.prepareCopy(staging, target)
+              CanonicalPackageReplacement.activatePrepared(prepared, target)
+              return target
+          ''',
+              '''            val validPackage: (File) -> Boolean = { candidate -> File(candidate, requiredFile).isFile }
+              val prepared = CanonicalPackageReplacement.prepareCopy(staging, target)
+              CanonicalPackageReplacement.activatePrepared(prepared, target, validPackage)
+              return target
+          ''',
+              1
+          )
+          old = '''            val prepared = CanonicalPackageReplacement.prepareCopy(staging, target)
+              CanonicalPackageReplacement.activatePrepared(prepared, target)
+              return result
+          '''
+          new = '''            val prepared = CanonicalPackageReplacement.prepareCopy(staging, target)
+              CanonicalPackageReplacement.activatePrepared(
+                  prepared = prepared,
+                  target = target,
+                  isValidPackage = { candidate -> runCatching { validate(candidate).ok }.getOrDefault(false) }
+              )
+              return result
+          '''
+          assert old in s
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('app/src/main/java/com/rpgos/app/ContentUpdateManager.kt')
+          s = p.read_text()
+          old = '''                CanonicalPackageAuthorityGate.mutate {
+                      val target = targetDirectory(pkg)
+                      target.parentFile?.mkdirs()
+                      val previous = if (target.exists()) {
+                          File(backupRoot, "$safeId-${System.currentTimeMillis()}").also { backup ->
+                              copyDirectory(target, backup)
+                          }
+                      } else null
+
+                      try {
+                          val replacement = File(target.parentFile, ".${target.name}.new")
+                          replacement.deleteRecursively()
+                          copyDirectory(staging, replacement)
+                          if (target.exists()) target.deleteRecursively()
+                          require(replacement.renameTo(target)) {
+                              "Nie można aktywować pakietu ${pkg.id}."
+                          }
+
+                          val installed = InstalledContentPackage(
+                              id = pkg.id,
+                              type = pkg.type,
+                              version = pkg.version,
+                              installedAt = System.currentTimeMillis(),
+                              sha256 = actualSha.lowercase()
+                          )
+                          saveInstalled(installed)
+                          pruneBackups(safeId, keep = 3)
+                          installed
+                      } catch (t: Throwable) {
+                          if (target.exists()) target.deleteRecursively()
+                          if (previous != null && previous.exists()) copyDirectory(previous, target)
+                          throw t
+                      }
+                  }
+          '''
+          new = '''                val target = targetDirectory(pkg)
+                  val validPackage: (File) -> Boolean = { candidate ->
+                      when (pkg.type) {
+                          ContentPackageType.WORLD -> runCatching {
+                              PackageValidator().validateWorldPack(candidate).ok
+                          }.getOrDefault(false)
+                          else -> candidate.isDirectory && File(candidate, "content.json").isFile
+                      }
+                  }
+                  val prepared = CanonicalPackageReplacement.prepareCopy(staging, target)
+                  CanonicalPackageReplacement.activatePrepared(
+                      prepared = prepared,
+                      target = target,
+                      isValidPackage = validPackage
+                  ) {
+                      val installed = InstalledContentPackage(
+                          id = pkg.id,
+                          type = pkg.type,
+                          version = pkg.version,
+                          installedAt = System.currentTimeMillis(),
+                          sha256 = actualSha.lowercase()
+                      )
+                      saveInstalled(installed)
+                      installed
+                  }
+          '''
+          assert old in s
+          p.write_text(s.replace(old, new, 1))
+      - name: Commit source routing fixes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/src/main/java/com/rpgos/app/LocalGameStore.kt app/src/main/java/com/rpgos/app/PackageManager.kt app/src/main/java/com/rpgos/app/ContentUpdateManager.kt
+          git commit -m "fix: unify Phase 19 writer recovery semantics"
+          git push origin HEAD:agent/p19-writer-crash-hardening
