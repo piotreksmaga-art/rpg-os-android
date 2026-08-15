@@ -23,7 +23,7 @@ internal fun interface WorldPackAuthoritySource {
  * the immutable logical campaign id and validated World Pack uid/version from those captured names.
  * No selection mutation API is exposed through this capability.
  */
-private class CanonicalSelectionWorldPackAuthoritySource(
+internal class CanonicalSelectionWorldPackAuthoritySource(
     private val prefs: SharedPreferences,
     private val saves: File,
     private val worldpacks: File
@@ -54,7 +54,7 @@ private class CanonicalSelectionWorldPackAuthoritySource(
 }
 
 /** Resolver retains only a read-only authority capability, never CampaignSelectionManager mutation API. */
-private class CurrentSelectionWorldPackAuthorityResolver(
+internal class CurrentSelectionWorldPackAuthorityResolver(
     private val source: WorldPackAuthoritySource
 ) : WorldPackAuthorityResolver {
     override fun bindingForCampaign(campaignUid: String): WorldPackRuleBinding? {
