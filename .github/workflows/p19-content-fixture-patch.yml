@@ -1,0 +1,91 @@
+name: Phase 19 package-content fixture patch
+
+on:
+  push:
+    branches: [ "agent/p19-package-content-toctou-fix" ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ !startsWith(github.event.head_commit.message, 'test: align package-content fixture with provider registry') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Patch fixture only
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/test/java/com/rpgos/app/WorldRuleProviderPhase19PackageContentAuthorityTest.kt')
+          s = p.read_text()
+          s = s.replace('''        val engine = engine(f.selection.activeWorldPackAuthoritySnapshot())
+          assertTrue(engine.resolve(train(c1, "06A"), context(c1, a1)) is PlayerResolutionOutcome.Resolved)
+          val zip = worldPackZip(File(f.app.cacheDir, "A2-engine.zip"), a2)
+''','''        val engine = engine(f.selection.activeWorldPackAuthoritySnapshot(), listOf(a2))
+          assertStructural("WORLD_RULE_PROVIDER_VERSION_MISMATCH") {
+              engine.resolve(train(c1, "06A"), context(c1, a1))
+          }
+          val zip = worldPackZip(File(f.app.cacheDir, "A2-engine.zip"), a2)
+''',1)
+          s = s.replace('''        assertTrue(Probe.a1 > 0)
+          assertTrue(Probe.a2 > 0)
+''','''        assertEquals(0, Probe.a1)
+          assertTrue(Probe.a2 > 0)
+''',1)
+          s = s.replace('''        val engine = engine(f.selection.activeWorldPackAuthoritySnapshot())
+          assertTrue(engine.resolve(train(c1, "07A"), context(c1, a1)) is PlayerResolutionOutcome.Resolved)
+''','''        val engine = engine(f.selection.activeWorldPackAuthoritySnapshot(), listOf(a1, b1))
+          assertTrue(engine.resolve(train(c1, "07A"), context(c1, a1)) is PlayerResolutionOutcome.Resolved)
+''',1)
+          s = s.replace('''        val engine = engine(f.selection.activeWorldPackAuthoritySnapshot())
+          assertStructural("WORLD_RULE_AUTHORITY_READ_FAILED") {
+''','''        val engine = engine(f.selection.activeWorldPackAuthoritySnapshot(), listOf(a1))
+          assertStructural("WORLD_RULE_AUTHORITY_READ_FAILED") {
+''',1)
+          s = s.replace('''        val engine = engine(f.selection.activeWorldPackAuthoritySnapshot())
+          assertStructural("WORLD_RULE_BINDING_AUTHORITY_MISMATCH") {
+''','''        val engine = engine(f.selection.activeWorldPackAuthoritySnapshot(), listOf(a1, b1))
+          assertStructural("WORLD_RULE_BINDING_AUTHORITY_MISMATCH") {
+''',1)
+          s = s.replace('''        val engine = engine(resolver)
+          assertTrue(engine.resolve(train(c1, "10"), context(c1, a1)) is PlayerResolutionOutcome.Resolved)
+''','''        val engine = engine(resolver, listOf(a1))
+          assertTrue(engine.resolve(train(c1, "10"), context(c1, a1)) is PlayerResolutionOutcome.Resolved)
+''',1)
+          s = s.replace('''        val engine = engine(resolver)
+          assertTrue(engine.resolve(train(c1, "11"), context(c1, a1)) is PlayerResolutionOutcome.Resolved)
+''','''        val engine = engine(resolver, listOf(a1))
+          assertTrue(engine.resolve(train(c1, "11"), context(c1, a1)) is PlayerResolutionOutcome.Resolved)
+''',1)
+          old = '''    private fun engine(resolver: WorldPackAuthorityResolver): PlayerDomainEngine =
+          PlayerDomainEngine(
+              PlayerResolutionComponentRegistry.of(listOf(TrainComponent())),
+              worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(Provider(a1), Provider(a2), Provider(b1))),
+              worldPackAuthority = resolver
+          )
+'''
+          new = '''    private fun engine(
+          resolver: WorldPackAuthorityResolver,
+          bindings: List<WorldPackRuleBinding>
+      ): PlayerDomainEngine = PlayerDomainEngine(
+          PlayerResolutionComponentRegistry.of(listOf(TrainComponent())),
+          worldRuleRegistry = WorldRuleProviderRegistry.of(bindings.map(::Provider)),
+          worldPackAuthority = resolver
+      )
+'''
+          if old not in s:
+              raise SystemExit('engine helper marker missing')
+          s = s.replace(old,new,1)
+          if 'engine(f.selection.activeWorldPackAuthoritySnapshot())' in s or 'engine(resolver)' in s:
+              raise SystemExit('unpatched engine call remains')
+          p.write_text(s)
+          PY
+          git diff --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/src/test/java/com/rpgos/app/WorldRuleProviderPhase19PackageContentAuthorityTest.kt
+          git commit -m "test: align package-content fixture with provider registry"
+          git push
