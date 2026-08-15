@@ -1,0 +1,78 @@
+{
+  "AI-SUMMARIZED": {
+    "isEvidence": false,
+    "summary": "Kontrolowany test harnessu; AI summary nie jest dowodem."
+  },
+  "DEVICE-CAPTURED": {
+    "adbState": "UNAVAILABLE",
+    "app": {
+      "buildSha": "DEVICE_TEST",
+      "versionCode": "UNKNOWN",
+      "versionName": "UNKNOWN"
+    },
+    "bridgeState": "READY",
+    "campaignUid": "bug-device-test",
+    "environment": {
+      "androidSdk": 36,
+      "deviceModel": "SM-S921B"
+    },
+    "exceptionClass": "TestOnlySymptom",
+    "llamaState": "READY",
+    "logcat": {
+      "excerpt": "",
+      "lineLimit": 300,
+      "reason": "package_pid_unavailable",
+      "status": "UNAVAILABLE"
+    },
+    "recentSafeActions": [
+      "open test screen",
+      "send one TEMP GM turn",
+      "invoke /bug"
+    ],
+    "recentTempGmResponses": [
+      "TEMP GM preinteraction completed"
+    ],
+    "route": "TEMP_BUG_TEST",
+    "runtime": {
+      "backend": "",
+      "llamaSha": ""
+    },
+    "screenshot": {
+      "reference": "",
+      "requested": false,
+      "userApproved": false
+    },
+    "tempProviderId": "BIELIK_4_5B_V3",
+    "tempResponseMode": "NARRATIVE_ONLY",
+    "topStackFrames": [
+      "TempBugHarnessTest.kt:#"
+    ],
+    "worldPackUid": "bug-device-world"
+  },
+  "USER-SUPPLIED": {
+    "actual": "Kontrolowany test capture.",
+    "expected": "Powstaje lokalny, nieopublikowany bundle.",
+    "originalReport": "TEST BUG HARNESS: po naciśnięciu testowego przycisku oczekuję podglądu zgłoszenia; nie publikuj Issue.",
+    "originalReportRedactedForSecretSafety": false,
+    "reproducibilityNotes": "Nieszkodliwy test infrastruktury; nie jest production failure."
+  },
+  "canonicalMutation": false,
+  "createdAtUnixMs": 1786812485892,
+  "duplicateCandidates": [],
+  "duplicateFingerprint": "ff0726dd75ca28632368cbef",
+  "evidenceClassification": [
+    "USER-SUPPLIED",
+    "DEVICE-CAPTURED",
+    "AI-SUMMARIZED"
+  ],
+  "github": {
+    "issueNumber": null,
+    "issueUrl": null,
+    "submissionActionConsumed": false,
+    "submissionAuthorized": false
+  },
+  "reportUid": "bug-1786812485892-ff0726dd",
+  "reproductionStatus": "CONTROLLED_TEST",
+  "schemaVersion": 2,
+  "submissionState": "LOCAL_PENDING"
+}

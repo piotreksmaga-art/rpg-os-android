@@ -1,0 +1,56 @@
+TITLE
+[RPG OS TEMP] test bug harness po naciśnięciu testowego przycisku oczekuję podglądu zgłoszenia nie publi
+
+USER REPORT
+TEST BUG HARNESS: po naciśnięciu testowego przycisku oczekuję podglądu zgłoszenia; nie publikuj Issue.
+
+EXPECTED
+Powstaje lokalny, nieopublikowany bundle.
+
+ACTUAL
+Kontrolowany test capture.
+
+REPRODUCTION
+Status: CONTROLLED_TEST
+Notes: Nieszkodliwy test infrastruktury; nie jest production failure.
+
+APP / BUILD
+versionName=UNKNOWN
+versionCode=UNKNOWN
+buildSha=DEVICE_TEST
+
+CAMPAIGN / WORLD PACK
+campaignUid=bug-device-test
+worldPackUid=bug-device-world
+route=TEMP_BUG_TEST
+
+TEMP GM
+provider=BIELIK_4_5B_V3
+mode=NARRATIVE_ONLY
+bridge=READY
+llama=READY
+
+DEVICE EVIDENCE
+adb=UNAVAILABLE
+device=SM-S921B
+androidSdk=36
+
+LOGCAT EXCERPT
+status=UNAVAILABLE
+[none]
+
+SCREENSHOT
+USER_APPROVED=NO
+reference=[none]
+
+DUPLICATE FINGERPRINT
+ff0726dd75ca28632368cbef
+
+AI SUMMARY
+Kontrolowany test harnessu; AI summary nie jest dowodem.
+(AI summary is not evidence.)
+
+EVIDENCE CLASSIFICATION
+USER-SUPPLIED: user report / expected / actual / reproduction notes
+DEVICE-CAPTURED: build, route, provider states, bounded actions/responses/logcat/screenshot metadata
+AI-SUMMARIZED: summary only; not identity authority and not evidence

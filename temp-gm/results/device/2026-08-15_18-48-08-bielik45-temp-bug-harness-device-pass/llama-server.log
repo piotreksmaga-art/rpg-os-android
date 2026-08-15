@@ -1,0 +1,22 @@
+0.00.081.062 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.083.387 W srv  llama_server: -----------------
+0.00.083.399 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.083.401 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.083.402 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.083.402 W srv  llama_server: -----------------
+0.00.085.553 I srv    load_model: loading model '/data/data/com.termux/files/home/rpgos-temp-gm/models/bielik45/Bielik-4.5B-v3.0-Instruct-Q4_K_M.gguf'
+0.05.661.348 I cmn          init: llama threadpool init, n_threads = 10
+0.06.681.114 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 8192, kv_unified = 'false'
+0.06.695.293 I srv  llama_server: model loaded
+0.06.695.310 I srv  llama_server: listening on http://127.0.0.1:8768
+0.08.732.139 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+0.08.732.343 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+0.12.273.560 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =    320, progress = 0.68, t =   3.54 s / 90.37 tokens per second
+0.13.112.206 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =    384, progress = 0.81, t =   4.38 s / 87.68 tokens per second
+0.13.956.701 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =    448, progress = 0.95, t =   5.22 s / 85.75 tokens per second
+0.18.756.122 I slot print_timing: id  0 | task 0 | prompt eval time =    6880.91 ms /   472 tokens (   14.58 ms per token,    68.60 tokens per second)
+0.18.756.172 I slot print_timing: id  0 | task 0 |        eval time =    3141.65 ms /    35 tokens (   92.40 ms per token,    10.82 tokens per second)
+0.18.756.185 I slot print_timing: id  0 | task 0 |       total time =   10022.57 ms /   507 tokens
+0.18.756.186 I slot print_timing: id  0 | task 0 |    graphs reused =         39
+0.18.758.457 I slot      release: id  0 | task 0 | stop processing: n_tokens = 506, truncated = 0
+0.24.512.054 I srv    operator(): operator(): cleaning up before exit...

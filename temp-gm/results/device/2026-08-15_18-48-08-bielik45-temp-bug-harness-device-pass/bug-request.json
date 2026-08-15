@@ -1,0 +1,23 @@
+{
+  "description": "TEST BUG HARNESS: po naciśnięciu testowego przycisku oczekuję podglądu zgłoszenia; nie publikuj Issue.",
+  "include_logcat": true,
+  "include_screenshot": false,
+  "screenshotApproved": false,
+  "packageName": "com.rpgos.app",
+  "build": {"versionName": "UNKNOWN", "versionCode": "UNKNOWN", "buildSha": "DEVICE_TEST"},
+  "campaignUid": "bug-device-test",
+  "worldPackUid": "bug-device-world",
+  "route": "TEMP_BUG_TEST",
+  "responseMode": "NARRATIVE_ONLY",
+  "adbStatus": "UNAVAILABLE",
+  "recentSafeActions": ["open test screen", "send one TEMP GM turn", "invoke /bug"],
+  "recentGmResponses": ["TEMP GM preinteraction completed"],
+  "expected": "Powstaje lokalny, nieopublikowany bundle.",
+  "actual": "Kontrolowany test capture.",
+  "reproductionStatus": "CONTROLLED_TEST",
+  "reproducibilityNotes": "Nieszkodliwy test infrastruktury; nie jest production failure.",
+  "exceptionClass": "TestOnlySymptom",
+  "topStackFrames": ["TempBugHarnessTest.kt:123"],
+  "environment": {"deviceModel": "SM-S921B", "androidSdk": 36},
+  "aiSummary": "Kontrolowany test harnessu; AI summary nie jest dowodem."
+}

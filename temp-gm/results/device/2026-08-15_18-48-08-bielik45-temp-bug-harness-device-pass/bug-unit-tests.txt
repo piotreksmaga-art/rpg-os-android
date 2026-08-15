@@ -1,0 +1,25 @@
+test_BUG_01_original_user_report_verbatim (test_temp_bug_harness.BugHarnessTests.test_BUG_01_original_user_report_verbatim) ... ok
+test_BUG_02_evidence_classes_separated (test_temp_bug_harness.BugHarnessTests.test_BUG_02_evidence_classes_separated) ... ok
+test_BUG_03_bounded_logcat_respects_limit (test_temp_bug_harness.BugHarnessTests.test_BUG_03_bounded_logcat_respects_limit) ... ok
+test_BUG_04_no_adb_does_not_lose_report (test_temp_bug_harness.BugHarnessTests.test_BUG_04_no_adb_does_not_lose_report) ... ok
+test_BUG_05_no_internet_is_local_pending (test_temp_bug_harness.BugHarnessTests.test_BUG_05_no_internet_is_local_pending) ... ok
+test_BUG_06_pending_survives_store_restart (test_temp_bug_harness.BugHarnessTests.test_BUG_06_pending_survives_store_restart) ... ok
+test_BUG_07_fingerprint_deterministic (test_temp_bug_harness.BugHarnessTests.test_BUG_07_fingerprint_deterministic) ... ok
+test_BUG_08_timestamp_does_not_change_fingerprint (test_temp_bug_harness.BugHarnessTests.test_BUG_08_timestamp_does_not_change_fingerprint) ... ok
+test_BUG_09_ai_summary_does_not_change_fingerprint (test_temp_bug_harness.BugHarnessTests.test_BUG_09_ai_summary_does_not_change_fingerprint) ... ok
+test_BUG_10_duplicate_search_data_does_not_create_issue (test_temp_bug_harness.BugHarnessTests.test_BUG_10_duplicate_search_data_does_not_create_issue) ... ok
+test_BUG_11_issue_gate_requires_explicit_confirmation (test_temp_bug_harness.BugHarnessTests.test_BUG_11_issue_gate_requires_explicit_confirmation) ... ok
+test_BUG_12_cancel_means_no_issue (test_temp_bug_harness.BugHarnessTests.test_BUG_12_cancel_means_no_issue) ... ok
+test_BUG_13_confirmed_submission_exactly_one_issue_action (test_temp_bug_harness.BugHarnessTests.test_BUG_13_confirmed_submission_exactly_one_issue_action) ... ok
+test_BUG_14_retry_after_submitted_does_not_reauthorize (test_temp_bug_harness.BugHarnessTests.test_BUG_14_retry_after_submitted_does_not_reauthorize) ... ok
+test_BUG_15_screenshot_requires_user_approval (test_temp_bug_harness.BugHarnessTests.test_BUG_15_screenshot_requires_user_approval) ... ok
+test_BUG_16_secrets_redaction (test_temp_bug_harness.BugHarnessTests.test_BUG_16_secrets_redaction) ... ok
+test_BUG_17_canonical_state_before_after_identical (test_temp_bug_harness.BugHarnessTests.test_BUG_17_canonical_state_before_after_identical) ... ok
+test_BUG_18_temp_gm_offline_capture_still_works (test_temp_bug_harness.BugHarnessTests.test_BUG_18_temp_gm_offline_capture_still_works) ... ok
+test_BUG_19_bridge_offline_direct_local_capture_still_pending (test_temp_bug_harness.BugHarnessTests.test_BUG_19_bridge_offline_direct_local_capture_still_pending) ... ok
+test_BUG_20_malformed_logcat_binary_junk_does_not_break_bundle (test_temp_bug_harness.BugHarnessTests.test_BUG_20_malformed_logcat_binary_junk_does_not_break_bundle) ... ok
+
+----------------------------------------------------------------------
+Ran 20 tests in 0.026s
+
+OK
