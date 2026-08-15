@@ -1,19 +1,13 @@
-import importlib.util
+import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
 
-
-def _load(name, filename):
-    spec = importlib.util.spec_from_file_location(name, HERE / filename)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-bridge = _load("bridge", "temp_gm_bridge.py")
-provider = _load("provider", "temp_gm_provider.py")
-context_builder = _load("context_builder", "temp_context_builder.py")
+import temp_context_builder as context_builder
+import temp_gm_bridge as bridge
+import temp_gm_provider as provider
 
 
 def test_host_is_localhost_only():
@@ -85,10 +79,8 @@ def test_oldest_dialogue_trimmed_first_when_segment_is_large():
     assert kept[0]["i"] > 0
 
 
-def test_unknown_mode_normalizes_to_narrative_only():
-    assert "NARRATIVE_ONLY" in provider.RESPONSE_MODES
-    result = provider.TempGmResponse("BIELIK_4_5B_V3", "NARRATIVE_ONLY", "x", {}).as_dict()
-    assert result["mode"] == "NARRATIVE_ONLY"
+def test_modes_are_locked():
+    assert provider.RESPONSE_MODES == {"NARRATIVE_ONLY", "ENGINE_CONFIRMED", "TEST_FALLBACK"}
 
 
 def test_normalize_symptom_is_deterministic():
