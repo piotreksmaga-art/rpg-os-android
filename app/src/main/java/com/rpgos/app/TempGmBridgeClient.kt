@@ -23,16 +23,28 @@ class TempBridgeException(val httpCode:Int, val safeMessage:String): IOException
 
 class TempGmBridgeClient(
     private val baseUrl:String="http://127.0.0.1:8765",
-    private val http:OkHttpClient=OkHttpClient.Builder().connectTimeout(2,TimeUnit.SECONDS).readTimeout(35,TimeUnit.SECONDS).build()
+    private val http:OkHttpClient=OkHttpClient.Builder()
+        .connectTimeout(2,TimeUnit.SECONDS)
+        .readTimeout(SHORT_READ_TIMEOUT_SECONDS,TimeUnit.SECONDS)
+        .build()
 ){
+    companion object {
+        internal const val SHORT_READ_TIMEOUT_SECONDS = 35L
+        internal const val GM_TURN_READ_TIMEOUT_SECONDS = 210L
+        internal const val BACKEND_GENERATION_TIMEOUT_SECONDS = 180L
+    }
+
+    private val gmTurnHttp=http.newBuilder()
+        .readTimeout(GM_TURN_READ_TIMEOUT_SECONDS,TimeUnit.SECONDS)
+        .build()
     private val json=Json{ignoreUnknownKeys=true}
     private val media="application/json; charset=utf-8".toMediaType()
 
-    private suspend fun call(method:String,path:String,body:JsonObject?=null):JsonObject=withContext(Dispatchers.IO){
+    private suspend fun call(method:String,path:String,body:JsonObject?=null,client:OkHttpClient=http):JsonObject=withContext(Dispatchers.IO){
         val b=Request.Builder().url(baseUrl+path).header("Cache-Control","no-store")
         val rb=(body?:buildJsonObject{}).toString().toRequestBody(media)
         when(method){"GET"->b.get();"POST"->b.post(rb);"DELETE"->b.delete();else->error("unsupported method")}
-        http.newCall(b.build()).execute().use{r->
+        client.newCall(b.build()).execute().use{r->
             val text=r.body?.string().orEmpty(); val obj=runCatching{json.parseToJsonElement(text).jsonObject}.getOrElse{buildJsonObject{put("error","invalid_bridge_response")}}
             if(!r.isSuccessful){
                 val detail=obj["detail"]?.jsonPrimitive?.contentOrNull ?: obj["error"]?.jsonPrimitive?.contentOrNull ?: "HTTP ${r.code}"
@@ -53,7 +65,7 @@ class TempGmBridgeClient(
         val context=buildJsonObject{
             put("campaignUid","");put("worldPackUid","");put("playerIdentity",buildJsonObject{});put("sceneState",buildJsonObject{});put("playerSceneState",buildJsonObject{});put("relevantNpcs",buildJsonArray{});put("recentDialogueActions",buildJsonArray{});put("retrievedChronicleMemory",buildJsonArray{});put("availableTestCapabilities",buildJsonArray{});put("engineConfirmedResults",buildJsonArray{})
         }
-        val o=call("POST","/gm/turn",buildJsonObject{put("message",message);put("mode","NARRATIVE_ONLY");put("maxTokens",1024);put("context",context)})
+        val o=call("POST","/gm/turn",buildJsonObject{put("message",message);put("mode","NARRATIVE_ONLY");put("maxTokens",1024);put("context",context)},gmTurnHttp)
         if(o["canonicalMutation"]?.jsonPrimitive?.booleanOrNull!=false) throw TempBridgeException(409,"TEMP response rejected: canonicalMutation invariant missing")
         return TempGmTurn(o["narrative"]?.jsonPrimitive?.contentOrNull.orEmpty(),o["mode"]?.jsonPrimitive?.contentOrNull?:"NARRATIVE_ONLY",o["providerId"]?.jsonPrimitive?.contentOrNull?:"BIELIK_4_5B_V3")
     }
