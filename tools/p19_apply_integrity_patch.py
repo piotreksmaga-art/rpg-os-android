@@ -1,43 +1,20 @@
 from pathlib import Path
 
-# Temporary forward-only patch helper; removed before final candidate.
-p = Path('app/src/main/java/com/rpgos/app/WorldRuleProvider.kt')
+# Temporary forward-only test-only correction; removed before final candidate.
+p = Path('app/src/test/java/com/rpgos/app/Phase19FinalIntegrityHardeningTest.kt')
 s = p.read_text()
-old = 'type.declaredFields.filterNot { Modifier.isStatic(it.modifiers) || it.isSynthetic }.forEach { field ->'
-assert s.count(old) == 2, s.count(old)
-s = s.replace(old, 'type.declaredFields.filterNot { Modifier.isStatic(it.modifiers) }.forEach { field ->')
-p.write_text(s)
-
-p = Path('app/src/main/java/com/rpgos/app/LocalGameStore.kt')
-s = p.read_text()
-old = '''        if (!File(saveDir, "campaign.db").exists()) {
-            extractAssetZip("Naruto_Default.campaign.zip", saveDir)
-        }
-        if (!File(worldDir, "world.db").exists()) {
-            extractAssetZip("Naruto.worldpack.zip", worldDir)
-        }
+old = '''            val replace = pool.submit { RpgPackageManager(app).validatedImportWorldPack(zip, "A.worldpack") }
 '''
-new = '''        ensureBootstrapPackage("Naruto_Default.campaign.zip", saveDir, "campaign.db")
-        ensureBootstrapPackage("Naruto.worldpack.zip", worldDir, "world.db")
+new = '''            val replace = pool.submit<Boolean> {
+                RpgPackageManager(app).validatedImportWorldPack(zip, "A.worldpack").ok
+            }
 '''
-assert old in s
+assert s.count(old) == 1, s.count(old)
 s = s.replace(old, new, 1)
-marker = '    private fun extractAssetZip(assetName: String, target: File) {'
-helper = '''    private fun ensureBootstrapPackage(assetName: String, target: File, requiredFile: String) {
-        if (File(target, requiredFile).isFile) return
-        val staging = File(baseDir, ".bootstrap-staging/${target.name}-${System.nanoTime()}")
-        staging.deleteRecursively()
-        try {
-            extractAssetZip(assetName, staging)
-            require(File(staging, requiredFile).isFile) { "Bootstrap package $assetName is missing $requiredFile" }
-            val prepared = CanonicalPackageReplacement.prepareCopy(staging, target)
-            CanonicalPackageReplacement.activatePrepared(prepared, target)
-        } finally {
-            staging.deleteRecursively()
-        }
-    }
-
+old = '''            assertTrue(replace.get(10, TimeUnit.SECONDS).ok)
 '''
-assert marker in s
-s = s.replace(marker, helper + marker, 1)
+new = '''            assertTrue(replace.get(10, TimeUnit.SECONDS))
+'''
+assert s.count(old) == 1, s.count(old)
+s = s.replace(old, new, 1)
 p.write_text(s)
