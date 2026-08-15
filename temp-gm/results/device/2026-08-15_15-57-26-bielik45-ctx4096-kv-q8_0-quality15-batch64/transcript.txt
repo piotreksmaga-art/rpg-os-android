@@ -1,0 +1,120 @@
+
+
+===== TURN 1 =====
+PLAYER:
+Wchodzę przez główne południowe wejście. Nie wyciągam broni i tylko nasłuchuję.
+
+GM:
+Smagi wchodzi przez główne południowe wejście, zachowując ciszę i ostrożność.
+
+
+===== TURN 2 =====
+PLAYER:
+Idę pięć kroków korytarzem i sprawdzam pył na podłodze. Co widzę?
+
+GM:
+Smagi sprawdza pył na podłodze, dostrzegając ślady butów prowadzące w głąb korytarza.
+
+
+===== TURN 3 =====
+PLAYER:
+Wyciągam jeden kunai i zostawiam go przy południowym wejściu jako znacznik. Idę dalej na północ.
+
+GM:
+Smagi wyciąga jeden kunai i zostawia go przy południowym wejściu jako znacznik, po czym kontynuuje wędrówkę na północ.
+
+
+===== TURN 4 =====
+PLAYER:
+Zatrzymuję się przy rozwidleniu. Nie wołam nikogo. Czy Aiko wie teraz, gdzie jestem?
+
+GM:
+Smagi zatrzymuje się przy rozwidleniu, nie wołając nikogo. Aiko może zauważyć jego obecność, ale nie zna dokładnej lokalizacji.
+
+
+===== TURN 5 =====
+PLAYER:
+Skręcam na zachód i znajduję pomieszczenie ze skrzynią. Nie otwieram jej. Sprawdzam tylko drzwi i podłogę.
+
+GM:
+Smagi skręca na zachód i znajduje pomieszczenie ze skrzynią. Nie otwiera jej, ale sprawdza drzwi i podłogę w poszukiwaniu pułapek.
+
+
+===== TURN 6 =====
+PLAYER:
+Wracam do rozwidlenia i idę na północ. Jeśli spotkam Rena, nie atakuję pierwszy.
+
+GM:
+Smagi wraca do rozwidlenia i idzie na północ, zachowując ostrożność w przypadku spotkania z Renem.
+
+
+===== TURN 7 =====
+PLAYER:
+Widząc Rena mówię: 'Nie szukam walki. Kim jesteś?' Nie przedstawiam się.
+
+GM:
+Smagi spotyka Rena i mówi: "Nie szukam walki. Kim jesteś?" Nie przedstawia się, zachowując ostrożność.
+
+
+===== TURN 8 =====
+PLAYER:
+Pytam Rena: 'Czy w zachodnim pomieszczeniu jest coś wartościowego?'
+
+GM:
+Smagi pyta Rena: "Czy w zachodnim pomieszczeniu jest coś wartościowego?" Nie ujawniając swoich zamiarów.
+
+
+===== TURN 9 =====
+PLAYER:
+Nie pytam o klucz. Cofam się dwa kroki i obserwuję dłonie Rena. Co robi?
+
+GM:
+Smagi cofa się dwa kroki i obserwuje dłonie Rena, nie pytając o klucz.
+
+
+===== TURN 10 =====
+PLAYER:
+Mówię Renowi, że przy wejściu czeka moja towarzyszka, ale nie podaję jej imienia.
+
+GM:
+Smagi mówi Rena: "Moja towarzyszka czeka przy wejściu, ale nie podaję jej imienia."
+
+
+===== TURN 11 =====
+PLAYER:
+Wracam sam do zachodniego pomieszczenia. Ile kunai mam teraz przy sobie i jaki jest stan mojej lewej ręki?
+
+GM:
+Smagi ma 2 kunai przy sobie, a jego lewa ręka jest lekko zraniona.
+
+
+===== TURN 12 =====
+PLAYER:
+Próbuję otworzyć skrzynię bez niszczenia zamka, używając tylko tego, co rzeczywiście mam przy sobie.
+
+GM:
+Smagi próbuje otworzyć skrzynię bez niszdzenia zamka, używając tylko tego, co rzeczywiście ma przy sobie.
+
+
+===== TURN 13 =====
+PLAYER:
+Rezygnuję z otwierania skrzyni. Wracam w stronę południowego wejścia, ale zatrzymuję się przed wyjściem.
+
+GM:
+Smagi rezygnuje z otwierania skrzyni i wraca w stronę południowego wejścia, ale zatrzymuje się przed wyjściem.
+
+
+===== TURN 14 =====
+PLAYER:
+Wołam tylko: 'Aiko, wszystko w porządku?'. Czy Ren może od razu znać jej imię i dlaczego?
+
+GM:
+Smagi woła: "Aikko, wszystko w porządku?" Ren może nie znać jej imienia, ale jeśli Aiko go zna, może mu je podać.
+
+
+===== TURN 15 =====
+PLAYER:
+Nie wychodzę jeszcze z ruin. Podsumuj aktualny stan sceny: moja pozycja, Aiko, Ren, skrzynia, kunai i rana. Nie dopisuj nowych faktów.
+
+GM:
+Smagi stoi przed południowym wejściem do ruin, nie wychodząc jeszcze. Aiko czeka poza ruinami, nie widząc wnętrza. Ren przebywa w północnym skrzydle, nie znając imienia Smagiego. Smagi ma 2 kunai przy sobie, a jego lewa ręka jest lekko zraniona. Skrzynia w zachodnim pomieszczeniu jest zamknięta, a klucz ma Ren.
