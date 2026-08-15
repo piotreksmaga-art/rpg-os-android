@@ -32,20 +32,27 @@ class LocalGameStore(private val context: Context) {
     }
 
     private fun ensureBootstrapPackage(assetName: String, target: File, requiredFile: String) {
-        if (File(target, requiredFile).isFile) return
-        val staging = File(baseDir, ".bootstrap-staging/${target.name}-${System.nanoTime()}")
+    val validPackage: (File) -> Boolean = { candidate -> File(candidate, requiredFile).isFile }
+    CanonicalPackageReplacement.reconcile(target, validPackage)
+    if (File(target, requiredFile).isFile) return
+    val staging = File(baseDir, ".bootstrap-staging/${target.name}-${System.nanoTime()}")
+    staging.deleteRecursively()
+    try {
+        extractAssetZip(assetName, staging)
+        require(File(staging, requiredFile).isFile) { "Bootstrap package $assetName is missing $requiredFile" }
+        val prepared = CanonicalPackageReplacement.prepareCopy(staging, target)
+        CanonicalPackageReplacement.activatePreparedIf(
+            prepared = prepared,
+            target = target,
+            isValidPackage = validPackage,
+            shouldActivate = { !File(target, requiredFile).isFile }
+        )
+    } finally {
         staging.deleteRecursively()
-        try {
-            extractAssetZip(assetName, staging)
-            require(File(staging, requiredFile).isFile) { "Bootstrap package $assetName is missing $requiredFile" }
-            val prepared = CanonicalPackageReplacement.prepareCopy(staging, target)
-            CanonicalPackageReplacement.activatePrepared(prepared, target)
-        } finally {
-            staging.deleteRecursively()
-        }
     }
+}
 
-    private fun extractAssetZip(assetName: String, target: File) {
+private fun extractAssetZip(assetName: String, target: File) {
         target.mkdirs()
         context.assets.open(assetName).use { input ->
             ZipInputStream(input).use { zip ->

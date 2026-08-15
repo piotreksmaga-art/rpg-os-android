@@ -59,8 +59,9 @@ class RpgPackageManager(private val context: Context) {
         val staging = extractToStaging(zipFile)
         try {
             require(File(staging, requiredFile).isFile) { "Paczka nie zawiera $requiredFile" }
+            val validPackage: (File) -> Boolean = { candidate -> File(candidate, requiredFile).isFile }
             val prepared = CanonicalPackageReplacement.prepareCopy(staging, target)
-            CanonicalPackageReplacement.activatePrepared(prepared, target)
+            CanonicalPackageReplacement.activatePrepared(prepared, target, validPackage)
             return target
         } finally {
             staging.deleteRecursively()
@@ -83,8 +84,12 @@ class RpgPackageManager(private val context: Context) {
             }
             if (!result.ok) return result
             val prepared = CanonicalPackageReplacement.prepareCopy(staging, target)
-            CanonicalPackageReplacement.activatePrepared(prepared, target)
-            return result
+    CanonicalPackageReplacement.activatePrepared(
+        prepared = prepared,
+        target = target,
+        isValidPackage = { candidate -> runCatching { validate(candidate).ok }.getOrDefault(false) }
+    )
+    return result
         } finally {
             staging.deleteRecursively()
         }
