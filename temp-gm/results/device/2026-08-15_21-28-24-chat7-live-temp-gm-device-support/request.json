@@ -1,0 +1,41 @@
+{
+  "message": "Ren stoi przede mną. Opisz krótko jego reakcję. Nie zmieniaj stanu gry.",
+  "mode": "NARRATIVE_ONLY",
+  "maxTokens": 96,
+  "context": {
+    "campaignUid": "chat6-live-validation",
+    "worldPackUid": "chat6-live-validation",
+    "playerIdentity": {
+      "name": "Smagi"
+    },
+    "sceneState": {
+      "location": "ruiny"
+    },
+    "playerSceneState": {
+      "position": "przed Renem"
+    },
+    "relevantNpcs": [
+      {
+        "npcUid": "ren",
+        "sceneFacts": {
+          "position": "przed graczem",
+          "seesPlayer": true
+        },
+        "knowledge": {
+          "observed": [
+            "gracz stoi przed nim"
+          ],
+          "heard": [],
+          "told": [],
+          "inferred": []
+        }
+      }
+    ],
+    "recentDialogueActions": [],
+    "retrievedChronicleMemory": [],
+    "availableTestCapabilities": [
+      "narrative"
+    ],
+    "engineConfirmedResults": []
+  }
+}
