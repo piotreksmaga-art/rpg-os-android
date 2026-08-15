@@ -12,46 +12,31 @@ import json
 import os
 import re
 import time
-import urllib.error
-import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from temp_context_builder import build_messages
+from temp_gm_provider import LocalBielikTempGmProvider, RESPONSE_MODES, provider_error_payload
+
 HOST = os.environ.get("TGM_BRIDGE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("TGM_BRIDGE_PORT", "8765"))
 DATA_DIR = Path(os.path.expanduser(os.environ.get("TGM_DATA_DIR", "~/rpgos-temp-gm/bridge-data")))
-QWEN35_URL = os.environ.get("TGM_QWEN35_URL", "http://127.0.0.1:8768").rstrip("/")
+BIELIK_URL = os.environ.get("TGM_BIELIK_URL", "http://127.0.0.1:8768").rstrip("/")
 
 if HOST != "127.0.0.1":
     raise SystemExit("SECURITY: TEMP GM bridge must bind to 127.0.0.1 only")
+if not BIELIK_URL.startswith("http://127.0.0.1:"):
+    raise SystemExit("SECURITY: TEMP Bielik runtime must use 127.0.0.1 only")
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE = DATA_DIR / "state.json"
 BUG_DIR = DATA_DIR / "pending-bugs"
 BUG_DIR.mkdir(parents=True, exist_ok=True)
 
-SYSTEM_PROMPT = """You are TEMP AI GM for RPG OS manual testing.
-You are not authoritative game state.
-Use only supplied campaign facts as established truth.
-Never claim that stats, skills, inventory, money, ownership, projects or permanent state changed unless RPG OS explicitly reports the change as confirmed.
-If a requested mechanic is unavailable, continue narratively when reasonable but classify the result TEST_FALLBACK.
-Do not rewrite established campaign history.
-NPCs may only know information they could observe, infer or were told.
-Respect supplied World Pack.
-Do not invent hidden player abilities as established facts.
-Your job is to make manual testing playable, not to replace RPG OS.
-Return natural Polish unless the player explicitly uses another language.
-"""
-
-PROVIDERS = {
-    "QWEN3_5_4B": {
-        "id": "QWEN3_5_4B",
-        "name": "Qwen3.5 4B",
-        "runtime": "llama.cpp",
-        "runtime_url": QWEN35_URL,
-    }
-}
+BIELIK = LocalBielikTempGmProvider(BIELIK_URL)
+PROVIDERS = {BIELIK.provider_id: BIELIK}
+DEFAULT_PROVIDER_ID = BIELIK.provider_id
 
 
 def _load_state() -> dict[str, Any]:
@@ -62,7 +47,7 @@ def _load_state() -> dict[str, Any]:
                 return raw
         except Exception:
             pass
-    return {"activeProvider": "QWEN3_5_4B"}
+    return {"activeProvider": DEFAULT_PROVIDER_ID}
 
 
 def _save_state(state: dict[str, Any]) -> None:
@@ -71,31 +56,11 @@ def _save_state(state: dict[str, Any]) -> None:
     tmp.replace(STATE_FILE)
 
 
-def _runtime_health(url: str, timeout: float = 1.5) -> bool:
-    try:
-        with urllib.request.urlopen(url + "/health", timeout=timeout) as r:
-            body = json.loads(r.read().decode("utf-8"))
-            return r.status == 200 and body.get("status") == "ok"
-    except Exception:
-        return False
-
-
 def _provider_view(pid: str) -> dict[str, Any]:
-    p = dict(PROVIDERS[pid])
-    p["status"] = "READY" if _runtime_health(p["runtime_url"]) else "OFFLINE"
-    p.pop("runtime_url", None)
-    return p
-
-
-def _post_json(url: str, payload: dict[str, Any], timeout: float = 180.0) -> dict[str, Any]:
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode("utf-8"))
+    provider = PROVIDERS[pid]
+    view = provider.metadata()
+    view["status"] = provider.status()
+    return view
 
 
 def _sanitize_text(value: Any, max_len: int = 12000) -> str:
@@ -125,7 +90,7 @@ def _bug_fingerprint(report: dict[str, Any]) -> str:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "RpgOsTempGmBridge/0.3"
+    server_version = "RpgOsTempGmBridge/0.4"
 
     def log_message(self, fmt: str, *args: Any) -> None:
         print(f"[bridge] {self.address_string()} {fmt % args}")
@@ -153,22 +118,31 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             state = _load_state()
             active = state["activeProvider"]
-            self._json(200, {"status": "ok", "bridge": "READY", "activeProvider": active, "provider": _provider_view(active)})
+            self._json(200, {
+                "status": "ok",
+                "bridge": "READY",
+                "activeProvider": active,
+                "provider": _provider_view(active),
+                "canonicalMutation": False,
+            })
             return
         if self.path == "/providers":
             self._json(200, {"providers": [_provider_view(pid) for pid in PROVIDERS]})
             return
         if self.path == "/active-provider":
             state = _load_state()
-            self._json(200, {"activeProvider": state["activeProvider"], "provider": _provider_view(state["activeProvider"])})
+            self._json(200, {
+                "activeProvider": state["activeProvider"],
+                "provider": _provider_view(state["activeProvider"]),
+            })
             return
         self._json(404, {"error": "not_found"})
 
     def do_POST(self) -> None:
         try:
             body = self._read_json()
-        except Exception as e:
-            self._json(400, {"error": "bad_request", "detail": str(e)})
+        except Exception as error:
+            self._json(400, {"error": "bad_request", "detail": str(error)})
             return
 
         if self.path == "/active-provider":
@@ -195,8 +169,13 @@ class Handler(BaseHTTPRequestHandler):
         state = _load_state()
         pid = state["activeProvider"]
         provider = PROVIDERS[pid]
-        if not _runtime_health(provider["runtime_url"]):
-            self._json(503, {"error": "provider_offline", "providerId": pid, "mode": "TEST_FALLBACK", "canonicalMutation": False})
+        if provider.status() != "READY":
+            self._json(503, {
+                "error": "provider_offline",
+                "providerId": pid,
+                "mode": "TEST_FALLBACK",
+                "canonicalMutation": False,
+            })
             return
 
         user_message = _sanitize_text(body.get("message", ""), 8000)
@@ -210,69 +189,32 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         requested_mode = str(body.get("mode", "NARRATIVE_ONLY"))
-        if requested_mode not in {"NARRATIVE_ONLY", "ENGINE_CONFIRMED", "TEST_FALLBACK"}:
+        if requested_mode not in RESPONSE_MODES:
             requested_mode = "NARRATIVE_ONLY"
 
-        safe_context = {
-            "campaignUid": snapshot.get("campaignUid"),
-            "worldPackUid": snapshot.get("worldPackUid"),
-            "playerIdentity": snapshot.get("playerIdentity"),
-            "currentScene": snapshot.get("currentScene"),
-            "currentLocation": snapshot.get("currentLocation"),
-            "visiblePlayerStatus": snapshot.get("visiblePlayerStatus"),
-            "relevantNpcFacts": snapshot.get("relevantNpcFacts"),
-            "availableTestCapabilities": snapshot.get("availableTestCapabilities"),
-            "engineConfirmedResults": snapshot.get("engineConfirmedResults"),
-            "recentMessages": snapshot.get("recentMessages", [])[-8:] if isinstance(snapshot.get("recentMessages", []), list) else [],
-        }
-
-        system_content = (
-            SYSTEM_PROMPT.rstrip()
-            + "\n\nREAD-ONLY RPG OS CONTEXT:\n"
-            + json.dumps(safe_context, ensure_ascii=False)
-            + "\n\nResponse classification for this turn: "
-            + requested_mode
-            + ". Never imply a canonical mutation unless engineConfirmedResults explicitly supports it."
-        )
-        messages = [
-            {"role": "system", "content": system_content},
-            {"role": "user", "content": user_message},
-        ]
-        request_payload: dict[str, Any] = {
-            "messages": messages,
-            "temperature": 0.7,
-            "top_p": 0.8,
-            "top_k": 20,
-            "stream": False,
-            "chat_template_kwargs": {"enable_thinking": False},
-        }
-        # No arbitrary completion cap by default. A caller may opt into a cap
-        # explicitly for benchmark or UI latency experiments.
-        if body.get("maxTokens") is not None:
-            request_payload["max_tokens"] = int(body["maxTokens"])
-
         try:
-            raw = _post_json(provider["runtime_url"] + "/v1/chat/completions", request_payload)
-            narrative = raw["choices"][0]["message"]["content"]
-            usage = raw.get("usage", {})
-        except urllib.error.HTTPError as e:
-            try:
-                detail = _sanitize_text(e.read().decode("utf-8", errors="replace"), 4000)
-            except Exception:
-                detail = "HTTPError"
-            self._json(502, {"error": "runtime_failure", "detail": detail, "providerId": pid, "mode": "TEST_FALLBACK", "canonicalMutation": False})
-            return
-        except (urllib.error.URLError, TimeoutError, KeyError, ValueError, json.JSONDecodeError) as e:
-            self._json(502, {"error": "runtime_failure", "detail": type(e).__name__, "providerId": pid, "mode": "TEST_FALLBACK", "canonicalMutation": False})
+            messages = build_messages(snapshot, user_message, requested_mode)
+        except ValueError as error:
+            self._json(400, {
+                "error": "context_rejected",
+                "detail": str(error),
+                "providerId": pid,
+                "canonicalMutation": False,
+            })
             return
 
-        self._json(200, {
-            "providerId": pid,
-            "mode": requested_mode,
-            "narrative": narrative,
-            "canonicalMutation": False,
-            "usage": usage,
-        })
+        max_tokens = body.get("maxTokens")
+        try:
+            result = provider.generate(
+                messages=messages,
+                mode=requested_mode,
+                max_tokens=int(max_tokens) if max_tokens is not None else 1024,
+            )
+        except Exception as error:
+            self._json(502, provider_error_payload(pid, error))
+            return
+
+        self._json(200, result.as_dict())
 
     def _bug(self, body: dict[str, Any]) -> None:
         description = _sanitize_text(body.get("description") or body.get("userReport"), 12000)
@@ -280,6 +222,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "description_required"})
             return
 
+        state = _load_state()
+        active_provider = PROVIDERS[state["activeProvider"]]
         report = {
             "schemaVersion": 1,
             "status": "PENDING_USER_SUBMISSION",
@@ -290,9 +234,9 @@ class Handler(BaseHTTPRequestHandler):
                 "campaignUid": body.get("campaignUid"),
                 "worldPackUid": body.get("worldPackUid"),
                 "route": body.get("route"),
-                "providerId": _load_state()["activeProvider"],
+                "providerId": state["activeProvider"],
                 "bridgeStatus": "READY",
-                "llamaStatus": "READY" if _runtime_health(PROVIDERS[_load_state()["activeProvider"]]["runtime_url"]) else "OFFLINE",
+                "llamaStatus": active_provider.status(),
                 "adbStatus": body.get("adbStatus", "UNKNOWN"),
                 "recentSafeActions": body.get("recentSafeActions", [])[-12:] if isinstance(body.get("recentSafeActions", []), list) else [],
                 "recentGmResponses": body.get("recentGmResponses", [])[-6:] if isinstance(body.get("recentGmResponses", []), list) else [],
@@ -313,11 +257,17 @@ class Handler(BaseHTTPRequestHandler):
         report["fingerprint"] = fingerprint
         path = BUG_DIR / f"{report['timestampUnixMs']}-{fingerprint}.json"
         path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-        self._json(201, {"status": report["status"], "fingerprint": fingerprint, "pendingPath": str(path), "githubSubmissionAuthorized": False})
+        self._json(201, {
+            "status": report["status"],
+            "fingerprint": fingerprint,
+            "pendingPath": str(path),
+            "githubSubmissionAuthorized": False,
+        })
 
 
 def main() -> None:
     print(f"TEMP GM bridge listening on http://{HOST}:{PORT}")
+    print(f"TEMP provider: {DEFAULT_PROVIDER_ID} -> {BIELIK_URL}")
     print("NON-AUTHORITATIVE: canonicalMutation is always false in this bridge")
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     try:
