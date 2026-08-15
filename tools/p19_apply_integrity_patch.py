@@ -18,3 +18,4 @@ new = '''            assertTrue(replace.get(10, TimeUnit.SECONDS))
 assert s.count(old) == 1, s.count(old)
 s = s.replace(old, new, 1)
 p.write_text(s)
+# trigger v2
