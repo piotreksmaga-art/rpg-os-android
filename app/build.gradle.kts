@@ -1,7 +1,6 @@
 plugins {
     id("com.android.application")
-    kotlin("android")
-    kotlin("plugin.serialization") version "2.3.10"
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -10,54 +9,81 @@ android {
 
     defaultConfig {
         applicationId = "com.rpgos.app"
-        minSdk = 26
+        minSdk = 28
         targetSdk = 36
         versionCode = 144
         versionName = "1.2.0-alpha5-temp-gm144"
+        buildConfigField("String", "RPGOS_BACKEND_URL", "\"https://YOUR-BACKEND.example\"")
+        buildConfigField(
+            "String",
+            "RPGOS_UPDATE_FEED_URL",
+            "\"https://api.github.com/repos/piotreksmaga-art/rpg-os-android/releases/latest\""
+        )
+        buildConfigField(
+            "String",
+            "RPGOS_CONTENT_UPDATE_URL",
+            "\"https://raw.githubusercontent.com/piotreksmaga-art/rpg-os-android/master/content/channel-alpha.json\""
+        )
     }
 
     signingConfigs {
         create("release") {
-            val keystorePath = providers.environmentVariable("RPGOS_KEYSTORE_PATH").orNull
+            val keystorePath = System.getenv("RPGOS_KEYSTORE_PATH")
             if (!keystorePath.isNullOrBlank()) {
                 storeFile = file(keystorePath)
-                storePassword = providers.environmentVariable("RPGOS_KEYSTORE_PASSWORD").orNull
-                keyAlias = "rpgos-alpha"
-                keyPassword = providers.environmentVariable("RPGOS_KEY_PASSWORD").orNull
+                storePassword = System.getenv("RPGOS_KEYSTORE_PASSWORD")
+                keyAlias = "rpgos"
+                keyPassword = System.getenv("RPGOS_KEY_PASSWORD")
             }
         }
     }
 
     buildTypes {
-        release {
+        getByName("release") {
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("release")
         }
     }
 
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+    buildFeatures {
+        compose = true
+        buildConfig = true
     }
-    kotlinOptions {
-        jvmTarget = "17"
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            it.testLogging {
+                events("failed")
+                exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                showExceptions = true
+                showCauses = true
+                showStackTraces = true
+            }
+        }
+    }
+
+    packaging {
+        resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 }
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.activity:activity-compose:1.10.1")
-    implementation(platform("androidx.compose:compose-bom:2025.08.00"))
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.2")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.2")
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.compose.ui:ui:1.11.4")
+    implementation("androidx.compose.ui:ui-tooling-preview:1.11.4")
+    implementation("androidx.compose.foundation:foundation:1.11.4")
+    implementation("androidx.compose.material3:material3:1.4.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("androidx.core:core-splashscreen:1.0.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    implementation("com.squareup.okhttp3:okhttp:5.3.2")
 
     testImplementation("junit:junit:4.13.2")
-    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")
+
+    debugImplementation("androidx.compose.ui:ui-tooling:1.11.4")
 }
