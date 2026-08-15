@@ -1,4 +1,4 @@
-name: Phase 19 final integrity focused
+name: Phase 19 final integrity full candidate gate
 on:
   push:
     branches: [ "agent/p19-final-integrity-hardening" ]
@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 jobs:
-  focused:
+  full-candidate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -21,15 +21,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
-      - name: Run Phase 19 final integrity focused tests
-        run: >-
-          gradle --no-daemon :app:testDebugUnitTest
-          --tests 'com.rpgos.app.Phase19FinalIntegrityHardeningTest'
-          --tests 'com.rpgos.app.WorldRuleProviderPhase19AuthorityFreshnessTest'
-          --tests 'com.rpgos.app.WorldRuleProviderPhase19AtomicAuthorityTest'
-          --tests 'com.rpgos.app.WorldRuleProviderPhase19PackageContentAuthorityTest'
-          --tests 'com.rpgos.app.WorldRuleProviderPhase19FinalHotfixTest'
-          --tests 'com.rpgos.app.WorldRuleProviderPhase19HardeningTest'
-          --tests 'com.rpgos.app.WorldRuleProviderDeterminismRegressionTest'
-          --stacktrace
-# exact-corrected-fixture-head
+      - name: Run full JVM unit test suite
+        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+      - name: Assemble validation build
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
