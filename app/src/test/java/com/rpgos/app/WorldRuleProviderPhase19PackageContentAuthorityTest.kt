@@ -55,8 +55,9 @@ class WorldRuleProviderPhase19PackageContentAuthorityTest {
         select(f, c1, "A.worldpack")
         val snapshotCaptured = CountDownLatch(1)
         val resumeRead = CountDownLatch(1)
-        val hooked = blockingSnapshotPrefs(f.prefs, snapshotCaptured, resumeRead)
-        val source = CanonicalSelectionWorldPackAuthoritySource(hooked, f.saves, f.worldpacks)
+        val source = CanonicalSelectionWorldPackAuthoritySource(
+            blockingSnapshotPrefs(f.prefs, snapshotCaptured, resumeRead), f.saves, f.worldpacks
+        )
         val pool = Executors.newFixedThreadPool(2)
         val a2Zip = worldPackZip(File(f.app.cacheDir, "A2-content.zip"), a2)
         val server = zipServer(a2Zip)
@@ -405,17 +406,17 @@ class WorldRuleProviderPhase19PackageContentAuthorityTest {
         val seen = mutableListOf<WorldPackRuleBinding>()
     }
 
-    private class Provider(private val acceptedBinding: WorldPackRuleBinding) : WorldRuleProvider(
-        "P19-CONTENT-${acceptedBinding.worldPackUid}-${acceptedBinding.worldPackVersion}",
+    private class Provider(binding: WorldPackRuleBinding) : WorldRuleProvider(
+        "P19-CONTENT-${binding.worldPackUid}-${binding.worldPackVersion}",
         "1",
-        acceptedBinding.worldPackUid,
-        acceptedBinding.worldPackVersion
+        binding.worldPackUid,
+        binding.worldPackVersion
     ) {
         override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
-            when (acceptedBinding) {
-                a1 -> Probe.a1++
-                a2 -> Probe.a2++
-                b1 -> Probe.b1++
+            when (worldPackUid to worldPackVersion) {
+                "A" to "1" -> Probe.a1++
+                "A" to "2" -> Probe.a2++
+                "B" to "1" -> Probe.b1++
             }
             Probe.seen += request.worldPack
             return WorldRuleDecision.Allowed.create("P19-AUTH-CONTENT")
