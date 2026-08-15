@@ -1,0 +1,47 @@
+name: P19 Fix Recovery Edge
+on:
+  push:
+    branches: [agent/p19-writer-crash-hardening]
+permissions:
+  contents: write
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/p19-writer-crash-hardening
+      - shell: python
+        run: |
+          from pathlib import Path
+          p = Path('app/src/main/java/com/rpgos/app/CanonicalPackageReplacement.kt')
+          s = p.read_text()
+          old = '''            target.exists() || rollbacks.isNotEmpty() || prepared.isNotEmpty() ->
+                  throw IllegalStateException("PACKAGE_REPLACEMENT_RECOVERY_NO_VALID_PACKAGE")
+              else -> return
+          '''
+          new = '''            rollbacks.isNotEmpty() || prepared.isNotEmpty() ->
+                  throw IllegalStateException("PACKAGE_REPLACEMENT_RECOVERY_NO_VALID_PACKAGE")
+              else -> return
+          '''
+          assert old in s
+          p.write_text(s.replace(old, new, 1))
+
+          p = Path('app/src/main/java/com/rpgos/app/ContentUpdateManager.kt')
+          s = p.read_text()
+          s = s.replace('    private val backupRoot = File(contentRoot, "backups")\n', '')
+          start = s.find('    private fun copyDirectory(source: File, target: File) {')
+          if start >= 0:
+              end = s.find('    private fun pruneBackups', start)
+              assert end >= 0
+              end2 = s.find('\n    }', end)
+              assert end2 >= 0
+              s = s[:start] + s[end2 + len('\n    }'):]
+          p.write_text(s)
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/src/main/java/com/rpgos/app/CanonicalPackageReplacement.kt app/src/main/java/com/rpgos/app/ContentUpdateManager.kt
+          git commit -m "fix: preserve bootstrap repair while failing closed on crash artifacts"
+          git push origin HEAD:agent/p19-writer-crash-hardening
