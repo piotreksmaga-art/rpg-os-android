@@ -1,0 +1,42 @@
+from pathlib import Path
+
+p = Path('app/src/main/java/com/rpgos/app/WorldRuleProvider.kt')
+s = p.read_text()
+old = 'type.declaredFields.filterNot { Modifier.isStatic(it.modifiers) || it.isSynthetic }.forEach { field ->'
+assert s.count(old) == 2, s.count(old)
+s = s.replace(old, 'type.declaredFields.filterNot { Modifier.isStatic(it.modifiers) }.forEach { field ->')
+p.write_text(s)
+
+p = Path('app/src/main/java/com/rpgos/app/LocalGameStore.kt')
+s = p.read_text()
+old = '''        if (!File(saveDir, "campaign.db").exists()) {
+            extractAssetZip("Naruto_Default.campaign.zip", saveDir)
+        }
+        if (!File(worldDir, "world.db").exists()) {
+            extractAssetZip("Naruto.worldpack.zip", worldDir)
+        }
+'''
+new = '''        ensureBootstrapPackage("Naruto_Default.campaign.zip", saveDir, "campaign.db")
+        ensureBootstrapPackage("Naruto.worldpack.zip", worldDir, "world.db")
+'''
+assert old in s
+s = s.replace(old, new, 1)
+marker = '    private fun extractAssetZip(assetName: String, target: File) {'
+helper = '''    private fun ensureBootstrapPackage(assetName: String, target: File, requiredFile: String) {
+        if (File(target, requiredFile).isFile) return
+        val staging = File(baseDir, ".bootstrap-staging/${target.name}-${System.nanoTime()}")
+        staging.deleteRecursively()
+        try {
+            extractAssetZip(assetName, staging)
+            require(File(staging, requiredFile).isFile) { "Bootstrap package $assetName is missing $requiredFile" }
+            val prepared = CanonicalPackageReplacement.prepareCopy(staging, target)
+            CanonicalPackageReplacement.activatePrepared(prepared, target)
+        } finally {
+            staging.deleteRecursively()
+        }
+    }
+
+'''
+assert marker in s
+s = s.replace(marker, helper + marker, 1)
+p.write_text(s)
