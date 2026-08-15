@@ -1,0 +1,151 @@
+===== BIELIK 4.5B — CTX12288 F16 — QUALITY15 =====
+Sat Aug 15 17:09:55 CEST 2026
+
+MODEL=Bielik-4.5B-v3.0-Instruct-Q4_K_M
+BACKEND=VULKAN
+NGL=99
+CTX=12288
+NP=1
+BATCH=64
+UBATCH=64
+CACHE_PROMPT=true
+KV_K=f16
+KV_V=f16
+MAX_TOKENS=96
+
+===== DEVICE BEFORE =====
+=== MEMORY ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       3.6Gi       955Mi        11Mi       2.5Gi       3.3Gi
+Swap:           11Gi       1.0Gi        10Gi
+
+=== STORAGE ===
+/dev/block/dm-63 105G  68G   37G  66% /data/user/0
+SERVER_STATUS=OK
+
+===== DEVICE AFTER MODEL LOAD =====
+=== MEMORY ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       6.1Gi       207Mi       5.0Mi       766Mi       698Mi
+Swap:           11Gi       1.9Gi        10Gi
+
+=== STORAGE ===
+/dev/block/dm-63 105G  68G   37G  66% /data/user/0
+
+===== RESULTS =====
+turn,prompt_tokens,cached_tokens,prompt_n,completion_tokens,prompt_tps,gen_tps,total_ms,finish_reason
+1,355,0,355,18,58.065046919011365,6.68226123003134,8696,stop
+2,401,356,45,18,52.612257019059676,9.545896106958958,2677,stop
+3,455,418,37,27,46.83224184675984,9.398978692515305,3593,stop
+4,521,458,63,35,54.95684579109071,9.538421744683943,4747,stop
+5,595,533,62,28,71.4956191635935,9.330950139549543,3803,stop
+6,657,622,35,24,44.373278158331466,9.293184620829987,3302,stop
+7,713,663,50,29,60.82525269851233,9.343988594994492,3884,stop
+8,771,718,53,30,40.31613938734682,9.286377140910206,4498,stop
+9,833,800,33,28,39.7648811030055,9.028656957182095,3879,stop
+10,894,860,34,37,40.56035320909936,8.942426423081594,4960,stop
+11,969,911,58,22,59.021725082910265,9.049496869520476,3353,stop
+12,1025,990,35,35,40.44830590938192,8.793150446148935,4780,stop
+13,1097,1035,62,27,59.405978541027494,9.09228247063892,3954,stop
+14,1164,1123,41,43,44.72345090510447,8.981863052250919,5672,stop
+15,1260,1192,68,65,48.95530812326946,8.909955984817435,8624,stop
+
+===== PERFORMANCE =====
+VALID_TURNS = 15
+PROMPT_TPS = [58.065, 52.612, 46.832, 54.957, 71.496, 44.373, 60.825, 40.316, 39.765, 40.56, 59.022, 40.448, 59.406, 44.723, 48.955]
+PROMPT_MEAN = 50.824
+PROMPT_MEDIAN = 48.955
+PROMPT_MIN = 39.765
+PROMPT_MAX = 71.496
+GEN_TPS = [6.682, 9.546, 9.399, 9.538, 9.331, 9.293, 9.344, 9.286, 9.029, 8.942, 9.049, 8.793, 9.092, 8.982, 8.91]
+GEN_MEAN = 9.015
+GEN_MEDIAN = 9.092
+GEN_MIN = 6.682
+GEN_MAX = 9.546
+TOTAL_MS = [8696, 2677, 3593, 4747, 3803, 3302, 3884, 4498, 3879, 4960, 3353, 4780, 3954, 5672, 8624]
+TOTAL_MEAN_MS = 4694.8
+TOTAL_MEDIAN_MS = 3954
+FINISH_REASONS = ['stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop']
+TEST_STATUS=COMPLETE
+
+===== DEVICE AFTER TEST, SERVER LOADED =====
+=== MEMORY ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       6.0Gi       210Mi       6.0Mi       867Mi       802Mi
+Swap:           11Gi       2.1Gi       9.9Gi
+
+=== STORAGE ===
+/dev/block/dm-63 105G  68G   37G  66% /data/user/0
+
+===== SERVER KV / MEMORY / TIMINGS =====
+0.05.842.962 W llama_context: n_ctx_seq (12288) > n_ctx_train (8192) -- possible training context overflow
+0.07.609.924 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 8192, kv_unified = 'false'
+0.17.489.602 I slot print_timing: id  0 | task 0 | prompt eval time =    6113.83 ms /   355 tokens (   17.22 ms per token,    58.07 tokens per second)
+0.17.489.644 I slot print_timing: id  0 | task 0 |        eval time =    2544.05 ms /    18 tokens (  149.65 ms per token,     6.68 tokens per second)
+0.17.489.647 I slot print_timing: id  0 | task 0 |       total time =    8657.88 ms /   373 tokens
+0.17.490.048 I slot      release: id  0 | task 0 | stop processing: n_tokens = 372, truncated = 0
+0.22.179.922 I slot print_timing: id  0 | task 24 | prompt eval time =     855.31 ms /    45 tokens (   19.01 ms per token,    52.61 tokens per second)
+0.22.179.956 I slot print_timing: id  0 | task 24 |        eval time =    1780.87 ms /    18 tokens (  104.76 ms per token,     9.55 tokens per second)
+0.22.179.959 I slot print_timing: id  0 | task 24 |       total time =    2636.18 ms /    63 tokens
+0.22.180.029 I slot      release: id  0 | task 24 | stop processing: n_tokens = 418, truncated = 0
+0.27.776.012 I slot print_timing: id  0 | task 43 | prompt eval time =     790.05 ms /    37 tokens (   21.35 ms per token,    46.83 tokens per second)
+0.27.776.047 I slot print_timing: id  0 | task 43 |        eval time =    2766.26 ms /    27 tokens (  106.39 ms per token,     9.40 tokens per second)
+0.27.776.049 I slot print_timing: id  0 | task 43 |       total time =    3556.31 ms /    64 tokens
+0.27.776.130 I slot      release: id  0 | task 43 | stop processing: n_tokens = 481, truncated = 0
+0.34.527.356 I slot print_timing: id  0 | task 71 | prompt eval time =    1146.35 ms /    63 tokens (   18.20 ms per token,    54.96 tokens per second)
+0.34.527.389 I slot print_timing: id  0 | task 71 |        eval time =    3564.53 ms /    35 tokens (  104.84 ms per token,     9.54 tokens per second)
+0.34.527.392 I slot print_timing: id  0 | task 71 |       total time =    4710.89 ms /    98 tokens
+0.34.527.479 I slot      release: id  0 | task 71 | stop processing: n_tokens = 555, truncated = 0
+0.40.334.171 I slot print_timing: id  0 | task 107 | prompt eval time =     867.19 ms /    62 tokens (   13.99 ms per token,    71.50 tokens per second)
+0.40.334.207 I slot print_timing: id  0 | task 107 |        eval time =    2893.60 ms /    28 tokens (  107.17 ms per token,     9.33 tokens per second)
+0.40.334.209 I slot print_timing: id  0 | task 107 |       total time =    3760.78 ms /    90 tokens
+0.40.334.277 I slot      release: id  0 | task 107 | stop processing: n_tokens = 622, truncated = 0
+0.45.638.117 I slot print_timing: id  0 | task 136 | prompt eval time =     788.76 ms /    35 tokens (   22.54 ms per token,    44.37 tokens per second)
+0.45.638.155 I slot print_timing: id  0 | task 136 |        eval time =    2474.93 ms /    24 tokens (  107.61 ms per token,     9.29 tokens per second)
+0.45.638.159 I slot print_timing: id  0 | task 136 |       total time =    3263.69 ms /    59 tokens
+0.45.638.253 I slot      release: id  0 | task 136 | stop processing: n_tokens = 680, truncated = 0
+0.51.525.503 I slot print_timing: id  0 | task 161 | prompt eval time =     822.03 ms /    50 tokens (   16.44 ms per token,    60.83 tokens per second)
+0.51.525.537 I slot print_timing: id  0 | task 161 |        eval time =    2996.58 ms /    29 tokens (  107.02 ms per token,     9.34 tokens per second)
+0.51.525.539 I slot print_timing: id  0 | task 161 |       total time =    3818.61 ms /    79 tokens
+0.51.525.606 I slot      release: id  0 | task 161 | stop processing: n_tokens = 741, truncated = 0
+0.58.026.168 I slot print_timing: id  0 | task 191 | prompt eval time =    1314.61 ms /    53 tokens (   24.80 ms per token,    40.32 tokens per second)
+0.58.026.205 I slot print_timing: id  0 | task 191 |        eval time =    3122.85 ms /    30 tokens (  107.68 ms per token,     9.29 tokens per second)
+0.58.026.207 I slot print_timing: id  0 | task 191 |       total time =    4437.46 ms /    83 tokens
+0.58.026.277 I slot      release: id  0 | task 191 | stop processing: n_tokens = 800, truncated = 0
+1.03.910.002 I slot print_timing: id  0 | task 222 | prompt eval time =     829.88 ms /    33 tokens (   25.15 ms per token,    39.76 tokens per second)
+1.03.910.032 I slot print_timing: id  0 | task 222 |        eval time =    2990.48 ms /    28 tokens (  110.76 ms per token,     9.03 tokens per second)
+1.03.910.033 I slot print_timing: id  0 | task 222 |       total time =    3820.36 ms /    61 tokens
+1.03.910.152 I slot      release: id  0 | task 222 | stop processing: n_tokens = 860, truncated = 0
+1.10.875.439 I slot print_timing: id  0 | task 251 | prompt eval time =     838.26 ms /    34 tokens (   24.65 ms per token,    40.56 tokens per second)
+1.10.875.473 I slot print_timing: id  0 | task 251 |        eval time =    4025.75 ms /    37 tokens (  111.83 ms per token,     8.94 tokens per second)
+1.10.875.512 I slot print_timing: id  0 | task 251 |       total time =    4864.01 ms /    71 tokens
+1.10.875.603 I slot      release: id  0 | task 251 | stop processing: n_tokens = 930, truncated = 0
+1.16.231.439 I slot print_timing: id  0 | task 289 | prompt eval time =     982.69 ms /    58 tokens (   16.94 ms per token,    59.02 tokens per second)
+1.16.231.471 I slot print_timing: id  0 | task 289 |        eval time =    2320.57 ms /    22 tokens (  110.50 ms per token,     9.05 tokens per second)
+1.16.231.473 I slot print_timing: id  0 | task 289 |       total time =    3303.26 ms /    80 tokens
+1.16.231.549 I slot      release: id  0 | task 289 | stop processing: n_tokens = 990, truncated = 0
+1.23.015.536 I slot print_timing: id  0 | task 312 | prompt eval time =     865.30 ms /    35 tokens (   24.72 ms per token,    40.45 tokens per second)
+1.23.015.567 I slot print_timing: id  0 | task 312 |        eval time =    3866.65 ms /    35 tokens (  113.72 ms per token,     8.79 tokens per second)
+1.23.015.569 I slot print_timing: id  0 | task 312 |       total time =    4731.95 ms /    70 tokens
+1.23.015.684 I slot      release: id  0 | task 312 | stop processing: n_tokens = 1059, truncated = 0
+1.28.973.040 I slot print_timing: id  0 | task 348 | prompt eval time =    1043.67 ms /    62 tokens (   16.83 ms per token,    59.41 tokens per second)
+1.28.973.070 I slot print_timing: id  0 | task 348 |        eval time =    2859.57 ms /    27 tokens (  109.98 ms per token,     9.09 tokens per second)
+1.28.973.072 I slot print_timing: id  0 | task 348 |       total time =    3903.23 ms /    89 tokens
+1.28.973.182 I slot      release: id  0 | task 348 | stop processing: n_tokens = 1123, truncated = 0
+1.36.645.961 I slot print_timing: id  0 | task 376 | prompt eval time =     916.75 ms /    41 tokens (   22.36 ms per token,    44.72 tokens per second)
+1.36.645.993 I slot print_timing: id  0 | task 376 |        eval time =    4676.09 ms /    43 tokens (  111.34 ms per token,     8.98 tokens per second)
+1.36.645.996 I slot print_timing: id  0 | task 376 |       total time =    5592.84 ms /    84 tokens
+1.36.646.445 I slot      release: id  0 | task 376 | stop processing: n_tokens = 1206, truncated = 0
+1.47.275.625 I slot print_timing: id  0 | task 420 | prompt eval time =    1389.02 ms /    68 tokens (   20.43 ms per token,    48.96 tokens per second)
+1.47.275.655 I slot print_timing: id  0 | task 420 |        eval time =    7182.98 ms /    65 tokens (  112.23 ms per token,     8.91 tokens per second)
+1.47.275.657 I slot print_timing: id  0 | task 420 |       total time =    8572.00 ms /   133 tokens
+1.47.275.753 I slot      release: id  0 | task 420 | stop processing: n_tokens = 1324, truncated = 0
+
+===== DEVICE AFTER SERVER STOP =====
+=== MEMORY ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       2.5Gi       3.7Gi       6.0Mi       870Mi       4.3Gi
+Swap:           11Gi       2.1Gi       9.9Gi
+
+=== STORAGE ===
+/dev/block/dm-63 105G  68G   37G  66% /data/user/0
