@@ -1,0 +1,87 @@
+CHAT-7 LIVE TEMP-GM DEVICE SUPPORT
+
+DATE=2026-08-15T21:30:59+02:00
+WORK_ITEM=WORK-20260815-001
+EXPECTED_CHAT7_HEAD=305e5b71ea1bb9a7d32f30ff965fd23905821734
+ACTUAL_CHAT7_HEAD=305e5b71ea1bb9a7d32f30ff965fd23905821734
+
+MODEL=Bielik 4.5B v3 Instruct
+QUANT=Q4_K_M
+RUNTIME=llama.cpp
+BACKEND=Vulkan
+CTX=8192
+KV_K=f16
+KV_V=f16
+BATCH=64
+UBATCH=64
+NP=1
+NGL=99
+PROVIDER_ID=BIELIK_4_5B_V3
+LLAMA_ENDPOINT=127.0.0.1:8768
+BRIDGE_ENDPOINT=127.0.0.1:8765
+LLAMA_READY_SECONDS=7
+LLAMA_8768=PASS
+BRIDGE_READY_SECONDS=2
+BRIDGE_8765=PASS
+BUG_LIFECYCLE_API=PASS
+HEALTH=PASS
+ACTIVE_PROVIDER=BIELIK_4_5B_V3
+PROVIDER_STATE=READY
+GM_TURN_SMOKE=PASS
+CANONICAL_MUTATION=NO
+STATE_PATCH=ABSENT
+PLAYER_CHANGE_SET=ABSENT
+COMMIT=ABSENT
+AUTHORITATIVE_EVENT=ABSENT
+AUTONOMOUS_ISSUE_CREATION=NO
+BUG_HARNESS=READY
+READY_FOR_CHAT6_DEVICE_TEST=YES
+TEST_STATUS=PASS
+
+===== PROCESS STATE =====
+LLAMA_PID=10443
+BRIDGE_PID=10536
+
+===== MEMORY =====
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       6.0Gi       103Mi        15Mi       995Mi       925Mi
+Swap:           11Gi       1.9Gi        10Gi
+
+===== LLAMA HEALTH =====
+{"status":"ok"}
+===== BRIDGE HEALTH =====
+{"status": "ok", "bridge": "READY", "activeProvider": "BIELIK_4_5B_V3", "provider": {"id": "BIELIK_4_5B_V3", "name": "Bielik 4.5B v3", "runtime": "llama.cpp", "backend": "Vulkan", "format": "GGUF", "quantization": "Q4_K_M", "contextWindow": 8192, "kvKey": "f16", "kvValue": "f16", "batch": 64, "ubatch": 64, "parallel": 1, "gpuLayers": 99, "status": "READY"}, "canonicalMutation": false}
+===== PROVIDERS =====
+{"providers": [{"id": "BIELIK_4_5B_V3", "name": "Bielik 4.5B v3", "runtime": "llama.cpp", "backend": "Vulkan", "format": "GGUF", "quantization": "Q4_K_M", "contextWindow": 8192, "kvKey": "f16", "kvValue": "f16", "batch": 64, "ubatch": 64, "parallel": 1, "gpuLayers": 99, "status": "READY"}], "canonicalMutation": false}
+===== ACTIVE PROVIDER =====
+{"activeProvider": "BIELIK_4_5B_V3", "provider": {"id": "BIELIK_4_5B_V3", "name": "Bielik 4.5B v3", "runtime": "llama.cpp", "backend": "Vulkan", "format": "GGUF", "quantization": "Q4_K_M", "contextWindow": 8192, "kvKey": "f16", "kvValue": "f16", "batch": 64, "ubatch": 64, "parallel": 1, "gpuLayers": 99, "status": "READY"}, "canonicalMutation": false}
+===== GM TURN =====
+{"providerId": "BIELIK_4_5B_V3", "mode": "NARRATIVE_ONLY", "narrative": "Ren **spogląda na gracza** z wyrazem **zainteresowania**, **uważnie obserwując** jego **postawę** i **gesty**. Jego **twarz** wyraża **zastanowienie**, jakby **analizował** sytuację i **szukając** w **graczu** **czegoś**, co **może** mu **pomóc**.", "canonicalMutation": false, "usage": {"completion_tokens": 89, "prompt_tokens": 563, "total_tokens": 652, "prompt_tokens_details": {"cached_tokens": 0}}}
+===== BUG LIFECYCLE =====
+{"count": 0, "pendingCount": 0, "reports": [], "canonicalMutation": false}
+===== LLAMA LOG TAIL =====
+nohup: ignoring input
+0.00.110.952 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.113.839 W srv  llama_server: -----------------
+0.00.113.857 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.113.859 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.113.860 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.113.861 W srv  llama_server: -----------------
+0.00.116.358 I srv    load_model: loading model '/data/data/com.termux/files/home/rpgos-temp-gm/models/bielik45/Bielik-4.5B-v3.0-Instruct-Q4_K_M.gguf'
+0.04.929.126 I cmn          init: llama threadpool init, n_threads = 10
+0.05.912.080 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 8192, kv_unified = 'false'
+0.05.930.668 I srv  llama_server: model loaded
+0.05.930.690 I srv  llama_server: listening on http://127.0.0.1:8768
+0.07.760.667 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+0.07.760.788 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+0.11.471.162 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =    384, progress = 0.68, t =   3.71 s / 103.50 tokens per second
+0.12.197.461 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =    448, progress = 0.80, t =   4.44 s / 100.98 tokens per second
+0.12.898.389 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =    512, progress = 0.91, t =   5.14 s / 99.66 tokens per second
+0.26.087.413 I slot print_timing: id  0 | task 0 | prompt eval time =    7556.29 ms /   563 tokens (   13.42 ms per token,    74.51 tokens per second)
+0.26.087.483 I slot print_timing: id  0 | task 0 |        eval time =   10766.40 ms /    89 tokens (  122.35 ms per token,     8.17 tokens per second)
+0.26.087.487 I slot print_timing: id  0 | task 0 |       total time =   18322.70 ms /   652 tokens
+0.26.087.489 I slot print_timing: id  0 | task 0 |    graphs reused =         94
+0.26.090.415 I slot      release: id  0 | task 0 | stop processing: n_tokens = 651, truncated = 0
+
+===== BRIDGE LOG TAIL =====
+nohup: ignoring input
