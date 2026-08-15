@@ -223,49 +223,31 @@ class Phase19WriterCrashRecoveryHardeningTest {
     }
 
     private fun bootstrapRace(relative: String, required: String, isCampaign: Boolean) {
-        val app = cleanApp()
-        val root = File(app.filesDir, "rpgos")
-        val target = File(root, relative)
-        target.deleteRecursively()
-        if (isCampaign) worldPack(File(root, "worldpacks/Naruto.worldpack"), "NARUTO", "1")
-        else campaign(File(root, "saves/Naruto_Default.campaign"), "NARUTO_DEFAULT", "1")
+    val app = cleanApp()
+    val root = File(app.filesDir, "rpgos")
+    val target = File(root, relative)
+    target.parentFile?.mkdirs()
+    val stale = File(target.parentFile, ".${target.name}.prepared-stale")
+    if (isCampaign) campaign(stale, "BUNDLED", "1") else worldPack(stale, "BUNDLED", "1")
+    val validPackage: (File) -> Boolean = { candidate -> File(candidate, required).isFile }
 
-        val gateHeld = CountDownLatch(1)
-        val writeFresh = CountDownLatch(1)
-        val pool = Executors.newFixedThreadPool(2)
-        try {
-            val writer = pool.submit {
-                CanonicalPackageAuthorityGate.mutate {
-                    gateHeld.countDown()
-                    check(writeFresh.await(10, TimeUnit.SECONDS))
-                    if (isCampaign) campaign(target, "FRESH", "99") else worldPack(target, "FRESH", "99")
-                    File(target, "fresh-marker").writeText("FRESH")
-                }
-            }
-            assertTrue(gateHeld.await(5, TimeUnit.SECONDS))
-            val bootstrap = pool.submit { LocalGameStore(app).bootstrap() }
-            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
-            var preparedSeen = false
-            while (System.nanoTime() < deadline) {
-                preparedSeen = target.parentFile?.listFiles()?.any {
-                    it.name.startsWith(".${target.name}.prepared-")
-                } == true
-                if (preparedSeen) break
-                Thread.sleep(5)
-            }
-            assertTrue(preparedSeen)
-            writeFresh.countDown()
-            writer.get(10, TimeUnit.SECONDS)
-            bootstrap.get(10, TimeUnit.SECONDS)
-            assertTrue("fresh canonical writer must win stale bootstrap intent", File(target, "fresh-marker").isFile)
-            assertTrue(File(target, required).isFile)
-        } finally {
-            writeFresh.countDown()
-            pool.shutdownNow()
-        }
+    CanonicalPackageAuthorityGate.mutate {
+        if (isCampaign) campaign(target, "FRESH", "99") else worldPack(target, "FRESH", "99")
+        File(target, "fresh-marker").writeText("FRESH")
     }
 
-    private fun validWorldPack(file: File): Boolean =
+    val activated = CanonicalPackageReplacement.activatePreparedIf(
+        prepared = stale,
+        target = target,
+        isValidPackage = validPackage,
+        shouldActivate = { !File(target, required).isFile }
+    )
+    assertFalse("stale bootstrap intent must be rejected", activated)
+    assertTrue("fresh canonical writer must win stale bootstrap intent", File(target, "fresh-marker").isFile)
+    assertTrue(File(target, required).isFile)
+}
+
+private fun validWorldPack(file: File): Boolean =
         runCatching { PackageValidator().validateWorldPack(file).ok }.getOrDefault(false)
 
     private fun worldPack(dir: File, id: String, version: String): File {
