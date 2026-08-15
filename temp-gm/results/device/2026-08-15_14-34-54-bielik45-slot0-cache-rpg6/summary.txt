@@ -1,0 +1,90 @@
+===== BIELIK SLOT0 CACHE RPG6 =====
+Sat Aug 15 14:28:34 CEST 2026
+
+CTX=1024
+SLOT=0
+CACHE_PROMPT=true
+
+=== MEMORY BEFORE ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       3.2Gi       2.5Gi        16Mi       1.3Gi       3.8Gi
+Swap:          8.0Gi       2.1Gi       5.9Gi
+
+=== RESULTS ===
+turn,prompt_tokens,cached_tokens,completion_tokens,prompt_tps,gen_tps,total_ms
+1,97,0,65,1.5055287361045906,9.282534085392642,71356
+2,185,130,65,56.25677638442812,9.122712889552313,8034
+3,278,185,61,1.4422175089795872,8.98152096968093,71236
+4,369,291,57,1.2196366949340405,8.935610786494909,70280
+5,450,379,61,1.1172112066858197,9.250228866079196,70085
+6,539,469,58,1.0927359751630479,8.807587133691293,70627
+
+=== STATISTICS ===
+VALID_TURNS = 6
+PROMPT_TOKENS = [97, 185, 278, 369, 450, 539]
+CACHED_TOKENS = [0, 130, 185, 291, 379, 469]
+PROMPT_TPS = [1.506, 56.257, 1.442, 1.22, 1.117, 1.093]
+PROMPT_MEDIAN = 1.331
+PROMPT_MIN = 1.093
+PROMPT_MAX = 56.257
+GEN_TPS = [9.283, 9.123, 8.982, 8.936, 9.25, 8.808]
+GEN_MEAN = 9.063
+GEN_MEDIAN = 9.052
+TOTAL_MS = [71356, 8034, 71236, 70280, 70085, 70627]
+TOTAL_MEDIAN_MS = 70453.5
+TEST_STATUS=COMPLETE
+
+=== MEMORY LOADED ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       5.8Gi       227Mi        15Mi       1.0Gi       1.0Gi
+Swap:          8.0Gi       2.1Gi       5.9Gi
+
+=== SLOT/CACHE DETAILS ===
+0.04.976.860 W srv  llama_server: NOTICE: server default port will be changed to :9931 in a future release
+0.05.323.958 I slot get_availabl: id  0 | task -1 | selected slot by id (0)
+0.05.324.019 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+1.16.647.920 I slot print_timing: id  0 | task 0 | prompt eval time =   64429.19 ms /    97 tokens (  664.22 ms per token,     1.51 tokens per second)
+1.16.647.952 I slot print_timing: id  0 | task 0 |        eval time =    6894.67 ms /    65 tokens (  107.73 ms per token,     9.28 tokens per second)
+1.16.647.953 I slot print_timing: id  0 | task 0 |       total time =   71323.86 ms /   162 tokens
+1.16.647.955 I slot print_timing: id  0 | task 0 |    graphs reused =         64
+1.16.647.985 I slot      release: id  0 | task 0 | stop processing: n_tokens = 161, truncated = 0
+1.18.696.736 I slot get_availabl: id  0 | task -1 | selected slot by id (0)
+1.18.697.401 I slot launch_slot_: id  0 | task 66 | processing task, is_child = 0
+1.26.690.621 I slot print_timing: id  0 | task 66 | prompt eval time =     977.66 ms /    55 tokens (   17.78 ms per token,    56.26 tokens per second)
+1.26.690.655 I slot print_timing: id  0 | task 66 |        eval time =    7015.46 ms /    65 tokens (  109.62 ms per token,     9.12 tokens per second)
+1.26.690.657 I slot print_timing: id  0 | task 66 |       total time =    7993.12 ms /   120 tokens
+1.26.690.658 I slot print_timing: id  0 | task 66 |    graphs reused =        127
+1.26.690.715 I slot      release: id  0 | task 66 | stop processing: n_tokens = 249, truncated = 0
+1.28.754.175 I slot get_availabl: id  0 | task -1 | selected slot by id (0)
+1.28.754.454 I slot launch_slot_: id  0 | task 132 | processing task, is_child = 0
+2.39.918.934 I slot print_timing: id  0 | task 132 | prompt eval time =   64484.03 ms /    93 tokens (  693.38 ms per token,     1.44 tokens per second)
+2.39.918.972 I slot print_timing: id  0 | task 132 |        eval time =    6680.38 ms /    61 tokens (  111.34 ms per token,     8.98 tokens per second)
+2.39.918.976 I slot print_timing: id  0 | task 132 |       total time =   71164.41 ms /   154 tokens
+2.39.918.977 I slot print_timing: id  0 | task 132 |    graphs reused =        186
+2.39.919.043 I slot      release: id  0 | task 132 | stop processing: n_tokens = 338, truncated = 0
+2.41.989.261 I slot get_availabl: id  0 | task -1 | selected slot by id (0)
+2.41.990.144 I slot launch_slot_: id  0 | task 194 | processing task, is_child = 0
+3.52.210.857 I slot print_timing: id  0 | task 194 | prompt eval time =   63953.47 ms /    78 tokens (  819.92 ms per token,     1.22 tokens per second)
+3.52.210.896 I slot print_timing: id  0 | task 194 |        eval time =    6267.06 ms /    57 tokens (  111.91 ms per token,     8.94 tokens per second)
+3.52.210.897 I slot print_timing: id  0 | task 194 |       total time =   70220.53 ms /   135 tokens
+3.52.210.899 I slot print_timing: id  0 | task 194 |    graphs reused =        241
+3.52.210.954 I slot      release: id  0 | task 194 | stop processing: n_tokens = 425, truncated = 0
+3.54.259.447 I slot get_availabl: id  0 | task -1 | selected slot by id (0)
+3.54.260.135 I slot launch_slot_: id  0 | task 252 | processing task, is_child = 0
+5.04.297.616 I slot print_timing: id  0 | task 252 | prompt eval time =   63551.10 ms /    71 tokens (  895.09 ms per token,     1.12 tokens per second)
+5.04.297.654 I slot print_timing: id  0 | task 252 |        eval time =    6486.33 ms /    61 tokens (  108.11 ms per token,     9.25 tokens per second)
+5.04.297.658 I slot print_timing: id  0 | task 252 |       total time =   70037.43 ms /   132 tokens
+5.04.297.659 I slot print_timing: id  0 | task 252 |    graphs reused =        300
+5.04.297.779 I slot      release: id  0 | task 252 | stop processing: n_tokens = 510, truncated = 0
+5.06.398.822 I slot get_availabl: id  0 | task -1 | selected slot by id (0)
+5.06.400.851 I slot launch_slot_: id  0 | task 314 | processing task, is_child = 0
+6.16.932.098 I slot print_timing: id  0 | task 314 | prompt eval time =   64059.39 ms /    70 tokens (  915.13 ms per token,     1.09 tokens per second)
+6.16.932.133 I slot print_timing: id  0 | task 314 |        eval time =    6471.69 ms /    58 tokens (  113.54 ms per token,     8.81 tokens per second)
+6.16.932.135 I slot print_timing: id  0 | task 314 |       total time =   70531.08 ms /   128 tokens
+6.16.932.137 I slot print_timing: id  0 | task 314 |    graphs reused =        356
+6.16.932.265 I slot      release: id  0 | task 314 | stop processing: n_tokens = 596, truncated = 0
+
+=== MEMORY AFTER ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       2.8Gi       3.2Gi        15Mi       1.0Gi       4.0Gi
+Swap:          8.0Gi       2.1Gi       5.9Gi
