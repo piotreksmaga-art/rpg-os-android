@@ -125,16 +125,16 @@ class Phase19WriterCrashRecoveryHardeningTest {
     }
 
     @Test fun P19_BOOTSTRAP_DECISION_02_targetAppearsBeforeActivationIsPreserved() =
-        bootstrapRace("saves/Naruto_Default.campaign", "campaign.db", campaign = true)
+        bootstrapRace("saves/Naruto_Default.campaign", "campaign.db", isCampaign = true)
 
     @Test fun P19_BOOTSTRAP_DECISION_03_concurrentCanonicalReplacementWinsStaleBootstrapIntent() =
-        bootstrapRace("worldpacks/Naruto.worldpack", "world.db", campaign = false)
+        bootstrapRace("worldpacks/Naruto.worldpack", "world.db", isCampaign = false)
 
     @Test fun P19_BOOTSTRAP_DECISION_04_campaignWriterVsWriterRace() =
-        bootstrapRace("saves/Naruto_Default.campaign", "campaign.db", campaign = true)
+        bootstrapRace("saves/Naruto_Default.campaign", "campaign.db", isCampaign = true)
 
     @Test fun P19_BOOTSTRAP_DECISION_05_worldPackWriterVsWriterRace() =
-        bootstrapRace("worldpacks/Naruto.worldpack", "world.db", campaign = false)
+        bootstrapRace("worldpacks/Naruto.worldpack", "world.db", isCampaign = false)
 
     @Test fun P19_REPLACEMENT_RECOVERY_01_crashAfterLiveMovedLeavesRecoverableArtifacts() {
         val root = tempDir("recovery-crash")
@@ -222,12 +222,12 @@ class Phase19WriterCrashRecoveryHardeningTest {
         assertTrue(File(target, "rollback-marker").isFile)
     }
 
-    private fun bootstrapRace(relative: String, required: String, campaign: Boolean) {
+    private fun bootstrapRace(relative: String, required: String, isCampaign: Boolean) {
         val app = cleanApp()
         val root = File(app.filesDir, "rpgos")
         val target = File(root, relative)
         target.deleteRecursively()
-        if (campaign) worldPack(File(root, "worldpacks/Naruto.worldpack"), "NARUTO", "1")
+        if (isCampaign) worldPack(File(root, "worldpacks/Naruto.worldpack"), "NARUTO", "1")
         else campaign(File(root, "saves/Naruto_Default.campaign"), "NARUTO_DEFAULT", "1")
 
         val gateHeld = CountDownLatch(1)
@@ -238,7 +238,7 @@ class Phase19WriterCrashRecoveryHardeningTest {
                 CanonicalPackageAuthorityGate.mutate {
                     gateHeld.countDown()
                     check(writeFresh.await(10, TimeUnit.SECONDS))
-                    if (campaign) campaign(target, "FRESH", "99") else worldPack(target, "FRESH", "99")
+                    if (isCampaign) campaign(target, "FRESH", "99") else worldPack(target, "FRESH", "99")
                     File(target, "fresh-marker").writeText("FRESH")
                 }
             }
