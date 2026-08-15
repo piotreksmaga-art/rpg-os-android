@@ -1,64 +1,42 @@
 # CHAT-7 -> CHAT-6 — TEMP GM / Bug Harness UI Handoff
 
-Status: **READY FOR CHAT-6 HANDOFF**
+Status: **READY FOR CHAT-6**
 Work item: `WORK-20260815-001`
 Scope: TEMP / NON-PRODUCTION
 Backend owner: CHAT-7
 Android integration owner: CHAT-6
 
-## 1. Backend baseline
+## 1. Fixed backend baseline
 
-Logical provider:
+Logical provider ID: `BIELIK_4_5B_V3`.
 
-`BIELIK_4_5B_V3`
+Validated device profile: Bielik 4.5B v3 Instruct, GGUF Q4_K_M, llama.cpp/Vulkan, CTX=8192, KV=f16/f16, `-b 64 -ub 64 -np 1 -ngl 99`, tested with `GGML_VK_DISABLE_OCP_FP4=1`.
 
-Validated model profile:
+Android must never know or persist a GGUF path, llama.cpp binary path, model CLI flags, or GitHub credentials.
 
-```text
-Bielik 4.5B v3 Instruct
-GGUF Q4_K_M
-llama.cpp / Vulkan
-CTX=8192
-KV=f16/f16
--b 64
--ub 64
--np 1
--ngl 99
-GGML_VK_DISABLE_OCP_FP4=1 (tested Vulkan runtime flag)
-```
+## 2. Localhost/security boundary
 
-Frontend must not know or persist the GGUF filesystem path, llama.cpp executable path or CLI arguments.
+- TEMP bridge: `http://127.0.0.1:8765`
+- llama.cpp runtime: `http://127.0.0.1:8768`
+- CHAT-6 talks only to the bridge.
+- Both services are localhost-only; `0.0.0.0` is forbidden.
+- The bridge contains no GitHub writer and performs no canonical RPG OS mutation.
+- Every lifecycle response is non-authoritative: `canonicalMutation=false`.
 
-## 2. Network contract
+## 3. Provider status
 
-TEMP bridge:
-
-`http://127.0.0.1:8765`
-
-llama.cpp runtime:
-
-`http://127.0.0.1:8768`
-
-CHAT-6 Android code talks to the bridge only. It does not talk directly to llama.cpp.
-
-Neither TEMP service is allowed to bind to `0.0.0.0` under this contract.
-
-## 3. Provider status enum for UI
-
-Use exactly:
+Stable UI enum:
 
 - `OFFLINE`
 - `STARTING`
 - `READY`
 - `ERROR`
 
-`STARTING` is a transient UI/launcher state before bridge/provider health resolves. Once the bridge is reachable, provider health currently resolves to `READY`, `OFFLINE` or `ERROR`.
+`STARTING` is a transient launcher/UI state. Bridge/provider health resolves to READY/OFFLINE/ERROR once reachable.
 
-Do not invent model-path-derived statuses.
+## 4. Core TEMP GM API
 
-## 4. Stable bridge endpoints
-
-Core:
+Stable endpoints:
 
 - `GET /health`
 - `GET /providers`
@@ -67,82 +45,9 @@ Core:
 - `POST /gm/turn`
 - `POST /bug`
 
-Bug UI support:
+Response modes remain `NARRATIVE_ONLY`, `ENGINE_CONFIRMED`, `TEST_FALLBACK`. No mode has authoritative mutation authority.
 
-- `GET /bug/pending`
-- `POST /bug/control`
-
-No Android-side endpoint expansion is needed for the initial CHAT-6 integration.
-
-## 5. GET /health
-
-Expected shape:
-
-```json
-{
-  "status": "ok",
-  "bridge": "READY",
-  "activeProvider": "BIELIK_4_5B_V3",
-  "provider": {
-    "id": "BIELIK_4_5B_V3",
-    "status": "READY"
-  },
-  "canonicalMutation": false
-}
-```
-
-Recommended UI behavior:
-
-- connection failure -> Bridge Offline;
-- bridge reachable + provider OFFLINE -> bridge available, model unavailable;
-- provider STARTING -> show starting/progress state only;
-- provider READY -> enable TEMP GM turn submission;
-- provider ERROR -> show diagnostic error state, do not change campaign state.
-
-## 6. GET /providers
-
-The current final baseline exposes one logical provider.
-
-```json
-{
-  "providers": [
-    {
-      "id": "BIELIK_4_5B_V3",
-      "name": "Bielik 4.5B v3",
-      "status": "READY",
-      "runtime": "llama.cpp",
-      "backend": "Vulkan",
-      "format": "GGUF",
-      "quantization": "Q4_K_M",
-      "contextWindow": 8192
-    }
-  ]
-}
-```
-
-UI identity key is `id`, not display name.
-
-## 7. Active provider
-
-GET:
-
-`GET /active-provider`
-
-POST:
-
-```json
-{
-  "providerId": "BIELIK_4_5B_V3"
-}
-```
-
-Unknown ID returns `400 unknown_provider`.
-
-The selector is intentionally logical-ID based even though the current final device profile has only one provider.
-
-## 8. GM turn request
-
-`POST /gm/turn`
+Example `/gm/turn`:
 
 ```json
 {
@@ -164,9 +69,7 @@ The selector is intentionally logical-ID based even though the current final dev
 }
 ```
 
-Do not send arbitrary full canonical World State as model context.
-
-## 9. GM turn response
+Response:
 
 ```json
 {
@@ -178,67 +81,25 @@ Do not send arbitrary full canonical World State as model context.
 }
 ```
 
-Allowed modes:
+## 5. BugReportStore ownership
 
-- `NARRATIVE_ONLY`
-- `ENGINE_CONFIRMED`
-- `TEST_FALLBACK`
+There is exactly one local durable bug queue: the existing `BugReportStore` under the bridge data directory. The bridge is only a transport/service adapter over that store. Android must not create a second bug queue or duplicate report lifecycle state.
 
-None grants authoritative mutation authority.
+Submission states:
 
-The Android client must not interpret narrative text as committed player/campaign state.
+- `LOCAL_PENDING` — stored locally, no publication authorization.
+- `READY` — explicit user authorization exists for exactly one external action kind.
+- `SUBMITTED` — an external privileged adapter created a new Issue and recorded the result.
+- `LINKED_DUPLICATE` — an external privileged adapter updated/linked the selected existing Issue and recorded the result.
+- `CANCELLED` — user cancelled the workflow.
 
-## 10. NPC knowledge boundary
+`READY != SUBMITTED`.
 
-`relevantNpcs[]` must preserve separate scene and knowledge views:
-
-```json
-{
-  "npcUid": "npc-1",
-  "sceneFacts": {
-    "position": "gate"
-  },
-  "knowledge": {
-    "observed": [],
-    "heard": [],
-    "told": [],
-    "inferred": []
-  }
-}
-```
-
-Do not copy hidden/global state into `knowledge` merely because RPG OS knows it.
-
-The device E2E already validated a hidden-secret non-leak scenario.
-
-## 11. CTX budget
-
-Native context target is fixed at 8192.
-
-Planning budget:
-
-| Segment | Tokens |
-|---|---:|
-| system/authority contract | 900 |
-| scene | 1100 |
-| player scene state | 700 |
-| relevant NPC scene state | 700 |
-| NPC knowledge | 1000 |
-| recent dialogue/actions | 1800 |
-| Chronicle/Memory retrieval | 700 |
-| serialization reserve | 268 |
-| response reserve | 1024 |
-| Total | 8192 |
-
-CHAT-6 should not attempt to increase model CTX.
-
-## 12. `/bug` start flow
-
-The UI command `/bug <opis>` or equivalent UI action should call:
+## 6. Start `/bug`
 
 `POST /bug`
 
-Minimal body:
+Minimal request:
 
 ```json
 {
@@ -249,23 +110,7 @@ Minimal body:
 }
 ```
 
-Recommended additional safe fields when known:
-
-- build versionName/versionCode/build SHA;
-- campaignUid;
-- worldPackUid;
-- current route/screen;
-- TEMP response mode;
-- ADB status;
-- bounded recent safe actions;
-- bounded recent TEMP GM responses;
-- reproduction status/notes;
-- exception class and bounded top stack frames;
-- stable device model / Android SDK.
-
-Never send tokens, cookies, clipboard, unrestricted environment dumps or unrelated app history.
-
-## 13. `/bug` capture response
+Successful local capture returns HTTP 201:
 
 ```json
 {
@@ -283,27 +128,22 @@ Never send tokens, cookies, clipboard, unrestricted environment dumps or unrelat
 }
 ```
 
-`LOCAL_PENDING` is a successful local capture state, not an error.
+`POST /bug` never creates or updates a GitHub Issue.
 
-## 14. Evidence classification UI
+## 7. Final bug lifecycle REST API
 
-When previewing a report, keep the labels visible or otherwise unambiguous:
+CHAT-6 should use the `/bugs` contract below. Legacy aliases `GET /bug/pending` and `POST /bug/control` remain for compatibility only.
 
-- `USER-SUPPLIED`
-- `DEVICE-CAPTURED`
-- `AI-SUMMARIZED`
+### A. Pending count/list
 
-AI summary must not be presented as captured evidence.
+`GET /bugs`
 
-## 15. Pending queue
-
-`GET /bug/pending`
-
-Example:
+Default scope is pending (`LOCAL_PENDING` + `READY`).
 
 ```json
 {
-  "count": 1,
+  "count": 2,
+  "pendingCount": 2,
   "reports": [
     {
       "reportUid": "bug-...",
@@ -311,9 +151,14 @@ Example:
       "duplicateFingerprint": "...",
       "descriptionPreview": "...",
       "route": "SAVES",
+      "tempProviderId": "BIELIK_4_5B_V3",
+      "bridgeState": "READY",
+      "llamaState": "OFFLINE",
+      "adbState": "UNAVAILABLE",
       "logcatStatus": "UNAVAILABLE",
       "screenshotRequested": false,
       "screenshotUserApproved": false,
+      "screenshotAvailable": false,
       "duplicateCandidateCount": 0,
       "userConfirmationRequired": true,
       "submissionKind": null,
@@ -327,251 +172,312 @@ Example:
 }
 ```
 
-The queue persists across bridge restart and is bounded by the TEMP harness.
+`GET /bugs?scope=all` returns all retained lifecycle records, including terminal states.
 
-## 16. Report preview
+### B. Report detail
 
-Call:
+`GET /bugs/{reportUid}`
+
+Returns the sanitized persisted bundle plus compact summary:
 
 ```json
-POST /bug/control
 {
-  "reportUid": "bug-...",
-  "action": "PREVIEW"
+  "report": { "...": "sanitized BugReportBundle" },
+  "summary": { "reportUid": "bug-...", "submissionState": "LOCAL_PENDING" },
+  "canonicalMutation": false
 }
 ```
 
-Response contains:
+### C. Issue preview
 
-- full sanitized local report;
-- compact summary;
-- rendered Issue preview;
-- `githubWritePerformed=false`;
-- `canonicalMutation=false`.
+`GET /bugs/{reportUid}/preview`
 
-The preview is the mandatory user decision surface before submission authorization.
-
-## 17. Duplicate detection flow
-
-Duplicate search is not performed by the local bridge itself. A privileged integration layer/CHAT tool searches GitHub and returns candidate metadata to the bridge.
-
-Record candidates with:
+Returns:
 
 ```json
-POST /bug/control
 {
   "reportUid": "bug-...",
-  "action": "SET_DUPLICATES",
+  "submissionState": "LOCAL_PENDING",
+  "duplicateFingerprint": "...",
+  "duplicateCandidates": [],
+  "issuePreview": "TITLE\n...",
+  "userConfirmationRequired": true,
+  "githubWritePerformed": false,
+  "canonicalMutation": false
+}
+```
+
+Preview never authorizes or performs a GitHub write.
+
+### D. Duplicate candidates
+
+`POST /bugs/{reportUid}/duplicates`
+
+```json
+{
   "candidates": [
     {
       "issueNumber": 123,
       "title": "Similar issue",
-      "url": "...",
+      "url": "https://...",
       "fingerprint": "..."
     }
   ]
 }
 ```
 
-This does not authorize or perform any GitHub write.
+This only stores bounded candidate metadata in the same BugReportStore record. It does not authorize or perform any GitHub operation.
 
-UI then presents three explicit user choices where applicable:
+The bridge does not need GitHub credentials to search. A privileged coordinator/submission integration may perform the search and feed candidates back to this endpoint.
 
-A. Create a new Issue.
+### E. Explicit user decision
 
-B. Link/add evidence to a selected existing duplicate.
+`POST /bugs/{reportUid}/decision`
 
-C. Cancel/keep local only.
-
-## 18. Explicit confirmation — new Issue
-
-Only after the user explicitly confirms:
+Keep pending:
 
 ```json
-POST /bug/control
-{
-  "reportUid": "bug-...",
-  "action": "CONFIRM_NEW_ISSUE"
-}
-```
-
-Result becomes local `READY`, `submissionKind=NEW_ISSUE`.
-
-This still performs **zero GitHub writes**. A separate privileged submission step must inspect this authorization and create exactly one Issue.
-
-## 19. Explicit confirmation — existing duplicate
-
-Only after user selects a recorded candidate and confirms:
-
-```json
-POST /bug/control
-{
-  "reportUid": "bug-...",
-  "action": "CONFIRM_LINK_DUPLICATE",
-  "targetIssueNumber": 123
-}
-```
-
-The local report becomes `READY`, `submissionKind=LINK_DUPLICATE`, with the selected issue number.
-
-Safety property: this authorization is deliberately not consumable as a new-Issue authorization.
-
-A separate privileged submission/update action is required to actually add evidence to the existing Issue.
-
-## 20. Cancel / keep pending
-
-Keep local:
-
-```json
-{
-  "reportUid": "bug-...",
-  "action": "KEEP_PENDING"
-}
+{ "decision": "KEEP_PENDING" }
 ```
 
 Cancel:
 
 ```json
+{ "decision": "CANCEL" }
+```
+
+Authorize a new Issue:
+
+```json
+{ "decision": "CONFIRM_NEW_ISSUE" }
+```
+
+Authorize linking/updating a selected probable duplicate:
+
+```json
 {
-  "reportUid": "bug-...",
-  "action": "CANCEL"
+  "decision": "CONFIRM_LINK_DUPLICATE",
+  "targetIssueNumber": 123
 }
 ```
 
-`CANCEL` must never create/update GitHub.
+`CONFIRM_LINK_DUPLICATE` is accepted only for an issue already present in the stored duplicate candidate set.
 
-## 21. Submitted state display
+### F. Retry/reopen local workflow
 
-When a privileged user-authorized submission succeeds and the backend report is later marked `SUBMITTED` or `LINKED_DUPLICATE`, the UI may display:
+`POST /bugs/{reportUid}/retry`
 
-- `issueNumber`;
-- `issueUrl`.
+Body may be `{}`. It returns a non-terminal report to `LOCAL_PENDING` and clears any previous/consumed authorization. It does not search GitHub and does not submit anything.
 
-Do not display an Issue as submitted merely because the local report is `READY`.
+Terminal `SUBMITTED` and `LINKED_DUPLICATE` reports cannot be retried implicitly; a new report/user workflow is required.
 
-## 22. Screenshot consent
+### G. Cancel shortcut
 
-Screenshot is opt-in only.
+`POST /bugs/{reportUid}/cancel`
 
-UI must track:
+Body `{}`. Equivalent to explicit `CANCEL`; no GitHub write.
 
-- screenshot requested;
-- user approved YES/NO;
-- capture/reference available or unavailable.
+### H. One-shot submission authorization consumption
 
-Do not silently flip `screenshotApproved=true`.
+`POST /bugs/{reportUid}/submission-authorization`
 
-If the user did not approve, screenshot reference remains empty.
+For a new issue:
 
-## 23. Logcat presentation
+```json
+{ "kind": "NEW_ISSUE" }
+```
 
-Possible states:
+For a selected duplicate:
+
+```json
+{ "kind": "LINK_DUPLICATE" }
+```
+
+First valid consumption returns HTTP 200 and `allowed=true`. A second attempt without a new explicit user decision returns HTTP 409 and `allowed=false`.
+
+Example:
+
+```json
+{
+  "allowed": true,
+  "kind": "NEW_ISSUE",
+  "reportUid": "bug-...",
+  "issueDraft": "TITLE\n...",
+  "githubWritePerformed": false,
+  "canonicalMutation": false
+}
+```
+
+This endpoint consumes local authorization only. It does not create/update GitHub.
+
+### I. Record successful new-Issue submission
+
+`POST /bugs/{reportUid}/submitted`
+
+Only the privileged external submission adapter calls this after it consumed `NEW_ISSUE` authorization and the external GitHub create action succeeded.
+
+```json
+{
+  "issueNumber": 321,
+  "issueUrl": "https://github.com/.../issues/321"
+}
+```
+
+The bridge validates lifecycle state and records `SUBMITTED` in the same BugReportStore record. It does not itself perform GitHub I/O.
+
+### J. Record successful linked duplicate
+
+`POST /bugs/{reportUid}/linked-duplicate`
+
+Only after `LINK_DUPLICATE` authorization was consumed and the external GitHub update/link action succeeded:
+
+```json
+{
+  "issueNumber": 123,
+  "issueUrl": "https://github.com/.../issues/123"
+}
+```
+
+Target issue must match the explicitly selected duplicate. Result becomes `LINKED_DUPLICATE`.
+
+### K. Explicit local delete
+
+`DELETE /bugs/{reportUid}?confirm=true`
+
+Deletion requires explicit user confirmation. Without `confirm=true`, request fails closed. `SUBMITTED`/`LINKED_DUPLICATE` are not silently deleted by this endpoint.
+
+## 8. Formal submission boundary
+
+The responsibility split is fixed:
+
+1. **Android UI**: displays report/preview/candidates, captures explicit user decision. It owns no GitHub token and performs no GitHub Issue API call.
+2. **Bridge + BugReportStore**: stores the decision and exposes/consumes a one-shot local authorization. It performs no GitHub write.
+3. **External privileged submission adapter**: after explicit approval, consumes the correct one-shot authorization, performs exactly the authorized GitHub action, then records the successful result through `/submitted` or `/linked-duplicate`.
+
+If the external GitHub action fails after authorization was consumed, it must not silently reuse that authorization. The report is not marked submitted. The user can explicitly retry/reopen and approve again.
+
+Internet recovery never auto-publishes pending reports.
+
+## 9. Lifecycle state machine
+
+```text
+POST /bug
+  -> LOCAL_PENDING
+
+LOCAL_PENDING
+  -- duplicates --> LOCAL_PENDING
+  -- KEEP_PENDING --> LOCAL_PENDING
+  -- CANCEL --> CANCELLED
+  -- CONFIRM_NEW_ISSUE --> READY(kind=NEW_ISSUE)
+  -- CONFIRM_LINK_DUPLICATE(target) --> READY(kind=LINK_DUPLICATE,target)
+
+READY
+  -- submission-authorization --> one-shot CONSUMED
+  -- second consume --> FAIL CLOSED / 409
+  -- retry --> LOCAL_PENDING + authorization cleared
+  -- cancel --> CANCELLED
+
+CONSUMED NEW_ISSUE
+  -- external GitHub create succeeds + /submitted --> SUBMITTED
+
+CONSUMED LINK_DUPLICATE
+  -- external GitHub update succeeds + /linked-duplicate --> LINKED_DUPLICATE
+```
+
+Restart does not create authorization because the decision/consumed markers are persisted in the same report JSON. `KEEP_PENDING` remains non-authorized after restart.
+
+## 10. Duplicate identity semantics
+
+`duplicateFingerprint` remains deterministic and is not based on timestamp, random UUID or AI summary. AI summary may help search but is not report identity authority.
+
+Candidate storage or preview never updates an existing Issue. User selection is mandatory before link authorization.
+
+## 11. Screenshot semantics
+
+Persisted evidence exposes:
+
+```json
+{
+  "screenshot": {
+    "requested": true,
+    "userApproved": false,
+    "reference": ""
+  }
+}
+```
+
+A reference is retained only when screenshot was requested **and** explicitly approved. Bridge never performs autonomous screenshot capture. CHAT-6 may present `screenshotRequested`, `screenshotUserApproved`, and `screenshotAvailable` from report summary/detail.
+
+## 12. Degraded evidence/statuses
+
+Logcat is bounded and package/PID-scoped. Machine-readable logcat states include:
 
 - `CAPTURED`
 - `CALLER_SUPPLIED_BOUNDED`
 - `UNAVAILABLE`
-- `NOT_REQUESTED`
 - `SKIPPED`
+- `NOT_REQUESTED`
 
-The device validation produced `UNAVAILABLE` because package PID was unavailable. This is expected degraded behavior and not a blocker.
+`UNAVAILABLE` is valid degraded evidence. Prior S24 validation observed this when package PID was unavailable.
 
-Suggested UI copy is neutral: “Logcat unavailable — report saved without logcat.”
+Other degraded states (ADB unavailable, TEMP GM/llama offline, Internet unavailable, GitHub unavailable) must not lose an already captured `LOCAL_PENDING` report. No background continuous logcat or automatic publication is permitted.
 
-Do not retry continuously in background.
+## 13. Error contract
 
-## 24. Degraded behavior matrix
+Lifecycle errors are fail-closed and return JSON with `canonicalMutation=false`:
 
-| Condition | UI/backend behavior | Canonical state |
-|---|---|---|
-| TEMP GM offline | disable/degrade TEMP GM turn; `/bug` still usable | unchanged |
-| Bridge offline | show bridge unavailable; canonical app continues | unchanged |
-| llama unavailable | provider OFFLINE; no model turn | unchanged |
-| ADB unavailable | report saved with missing optional evidence | unchanged |
-| logcat unavailable | report saved; show unavailable | unchanged |
-| Internet unavailable | remain LOCAL_PENDING | unchanged |
-| GitHub unavailable | remain local; retry only after later user action | unchanged |
+- HTTP 400 — malformed body, unsupported decision/kind, missing explicit delete confirmation.
+- HTTP 404 — unknown report ID/path.
+- HTTP 409 — lifecycle conflict, reused/absent one-shot authorization, terminal-state retry/delete, mismatched duplicate target.
+- HTTP 500 — unexpected lifecycle adapter failure.
+- HTTP 507 — pending queue unavailable/full during `POST /bug`.
 
-## 25. Submission states for UI
+No error path mutates canonical campaign state.
 
-- `LOCAL_PENDING` — captured locally, no external write authorized.
-- `READY` — explicit local user authorization exists for a specific next external action.
-- `SUBMITTED` — external new Issue action succeeded and result metadata was recorded.
-- `LINKED_DUPLICATE` — external duplicate-link/update action succeeded and result metadata was recorded.
-- `CANCELLED` — user cancelled submission.
+## 14. Evidence classification/privacy
 
-`READY != SUBMITTED`.
+Report detail preserves explicit classes:
 
-## 26. Security/privacy requirements
+- `USER-SUPPLIED`
+- `DEVICE-CAPTURED`
+- `AI-SUMMARIZED`
 
-CHAT-6 must preserve these boundaries:
+AI summary is not evidence. Existing secret redaction remains active. Do not capture API keys, GitHub tokens, Android auth tokens, cookies, clipboard, unrelated app history, unrestricted environment dumps, arbitrary files, or unbounded system logcat.
 
-- no API keys/GitHub tokens in bug bundle;
-- no Android auth tokens/cookies;
-- no full environment dump;
-- no full unbounded logcat;
-- no history from other apps;
-- no clipboard capture;
-- no automatic screenshot;
-- no model GGUF path in frontend;
-- no autonomous Issue creation/update.
+## 15. Full Android flow for CHAT-6
 
-## 27. Canonical authority boundary
+1. Read `/health`, `/providers`, `/active-provider` and render logical status only.
+2. User invokes `/bug <description>`; Android calls `POST /bug`.
+3. Save only returned `reportUid` as UI navigation identity; BugReportStore remains lifecycle owner.
+4. Open `GET /bugs/{reportUid}` and `GET /bugs/{reportUid}/preview`.
+5. If duplicate search is available, privileged integration searches GitHub and stores candidates through `/duplicates`; Android displays them.
+6. User explicitly chooses `KEEP_PENDING`, `CANCEL`, `CONFIRM_NEW_ISSUE`, or `CONFIRM_LINK_DUPLICATE`.
+7. For a confirmed external action, privileged submission adapter calls `/submission-authorization` once.
+8. Only if `allowed=true`, that adapter performs exactly one corresponding GitHub action.
+9. On success it calls `/submitted` or `/linked-duplicate`.
+10. Android refreshes `GET /bugs/{id}`/`GET /bugs` and displays final state/Issue URL.
 
-The TEMP UI must never convert model output or bug flow into:
+Android never has GitHub credentials and never treats Internet recovery as permission to publish.
 
-- Save write;
-- canonical DB write;
-- StatePatch;
-- PlayerChangeSet;
-- authoritative event;
-- COMMIT;
-- bypass of PlayerDomainEngine / WorldRuleProvider / validation / transaction layers.
+## 16. Canonical authority invariant
 
-Any future requirement to do so is a STOP/BLOCKED condition requiring coordinator decision.
+No TEMP endpoint may write Save/canonical DB, execute StatePatch/PlayerChangeSet/COMMIT, create authoritative events, or bypass PlayerDomainEngine, reference validation, WorldRuleProvider, validators or transaction layers.
 
-## 28. Evidence references
+## 17. Validation/evidence
 
-Final model profile:
+Bridge lifecycle transport integration is covered by `temp-gm/bridge/test_bug_bridge_lifecycle.py` with `BRIDGE_BUG_01..BRIDGE_BUG_20`.
 
-`temp-gm/docs/BIELIK_4.5B_V3_FINAL_TEMP_GM_PROFILE.md`
+Prior device evidence remains:
 
-Integration contract:
+- `temp-gm/evidence/2026-08-15-minimal-vertical-slice-device-pass.md`
+- `temp-gm/results/device/2026-08-15_18-48-08-bielik45-temp-bug-harness-device-pass/`
 
-`temp-gm/docs/TEMP_GM_INTEGRATION_CONTRACT.md`
+Lifecycle completion evidence:
 
-Minimal vertical slice device PASS:
+- `temp-gm/evidence/2026-08-15-chat7-bug-bridge-lifecycle-contract-pass.md`
 
-`temp-gm/evidence/2026-08-15-minimal-vertical-slice-device-pass.md`
+## 18. CHAT-6 scope after this handoff
 
-Bug harness device PASS raw evidence:
+CHAT-6 may now implement Android Developer Settings/status, logical provider presentation, `/bug` entry, pending list/detail/preview, screenshot-consent presentation, duplicate selection and explicit submit/cancel UX against this stable localhost contract.
 
-`temp-gm/results/device/2026-08-15_18-48-08-bielik45-temp-bug-harness-device-pass/`
-
-Bug harness implementation evidence:
-
-`temp-gm/evidence/2026-08-15-bug-harness-implementation-ready.md`
-
-## 29. CHAT-6 owned remaining work
-
-CHAT-6 owns:
-
-- Android Developer Settings/status UI;
-- logical TEMP provider selector presentation;
-- bridge health/provider status presentation;
-- `/bug` entry UX;
-- pending report list/preview UX;
-- screenshot consent UX;
-- duplicate candidate presentation;
-- explicit confirmation/cancel UX;
-- TEST APK integration/testing;
-- release/publication only when separately authorized.
-
-CHAT-7 does not implement these Android surfaces.
-
-## 30. Handoff acceptance rule
-
-Backend handoff is accepted when CHAT-6 consumes this contract without needing canonical architecture changes.
-
-If Android integration requires changing Phase-19 semantics, canonical AI contracts, Phase-20+ runtime or authoritative mutation pathways:
-
-`STOP -> BLOCKED -> coordinator decision`.
+CHAT-7 does not implement Android UI or publication.
