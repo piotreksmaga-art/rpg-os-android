@@ -58,6 +58,7 @@ Audyt może czytać całe repozytorium, ale nie implementuje przyszłej fazy, ni
 | WORK-20260809-002 | CHAT-2 | 4/5 prep | READY | Read-only audyt obecnych stat/resource/modifier paths i projekt kontraktu DerivedValueResolver | zapis tylko do `docs/audits/WORK-20260809-002_DERIVED_VALUE_AUDIT.md`; runtime read-only | 82b030271e5b7d653da457a2e9b2522e21234457 | — | n/a until report commit |
 | WORK-20260809-003 | CHAT-3 | 4 validation | READY | Niezależny audyt/test-plan kompatybilności migracyjnej dla Dynamic Stats/Resources i starych kampanii | zapis tylko do `docs/audits/WORK-20260809-003_MIGRATION_TEST_PLAN.md`; schema/runtime read-only | 82b030271e5b7d653da457a2e9b2522e21234457 | — | n/a until report commit |
 | WORK-20260809-004 | CHAT-4 | 6 prep | READY | Read-only audyt Talent/Potential legacy data i World Pack requirements | zapis tylko do `docs/audits/WORK-20260809-004_TALENT_POTENTIAL_AUDIT.md`; runtime read-only | 82b030271e5b7d653da457a2e9b2522e21234457 | — | n/a until report commit |
+| WORK-20260815-001 | CHAT-7 | NON-PRODUCTION / TEMP TEST HARNESS | ACTIVE | TEMP LOCAL AI-GM A/B device benchmark + localhost bridge + user-authorized bug-reporting harness | `chat7-temp-gm-benchmark`; TEMP GM benchmark/evidence docs; TEMP localhost bridge; TEMP provider abstractions; TEMP bug harness; files created specifically for this harness | 43d5519c79d1247d02ae5178783ca7e38a0d3823 | — | device/benchmark in progress |
 
 ### Szczegółowe przydziały
 
@@ -124,6 +125,76 @@ AllowedScope:
 ForbiddenScope: implementacja runtime punktu 6, schema/migrations, PlayerState/Stat definitions, MASTER, roadmap, coordination file.
 
 Dependency: implementacja BLOCKED do czasu ukończenia 4 i 5; sam audyt jest READY.
+
+#### WORK-20260815-001 — CHAT-7 — TEMP LOCAL AI-GM A/B device benchmark + localhost bridge + bug-reporting harness
+
+Phase: `NON-PRODUCTION / TEMP TEST HARNESS` — outside canonical AI roadmap phase completion.
+
+Status: `ACTIVE`.
+
+BaselineCommit: `43d5519c79d1247d02ae5178783ca7e38a0d3823`.
+
+Objective: dostarczyć tymczasowy, lokalny, non-authoritative AI-GM do manualnego testowania RPG OS na Samsung Galaxy S24 SM-S921B; wykonać kontrolowany A/B test `LLAMA_3_2_3B` vs `QWEN3_4B`; przygotować odseparowany localhost bridge oraz user-authorized bug-reporting harness.
+
+AllowedScope:
+- utrzymywanie non-production branch `chat7-temp-gm-benchmark`,
+- durable benchmark/device-test/TEMP GM evidence i reproducibility notes,
+- A/B test `Llama 3.2 3B Instruct Q4_K_M` vs `Qwen3 4B Instruct Q4_K_M`,
+- `llama.cpp` CPU-first device runtime i pomiary load time, first token, tokens/sec, RSS/RAM, swap, CPU, temperature, battery, 10-turn stability, Android process survival i RPG OS coexistence,
+- TEMP-only abstractions `TempGmProvider`, `LocalLlamaTempGmProvider`, `LocalQwenTempGmProvider`,
+- logical IDs `LLAMA_3_2_3B` i `QWEN3_4B`,
+- TEMP localhost bridge bound to `127.0.0.1:8765`,
+- bridge endpoints `GET /health`, `GET /providers`, `GET /active-provider`, `POST /active-provider`, `POST /gm/turn`, `POST /bug`,
+- response modes `NARRATIVE_ONLY`, `ENGINE_CONFIRMED`, `TEST_FALLBACK`,
+- `/bug <opis>` oraz bundle obejmujący build identity, campaign/worldpack identity, TEMP provider identity, bounded package-specific logcat, ADB status, recent safe actions, optional screenshot after explicit user approval i reproduction context,
+- duplicate detection, deterministic bug fingerprint i offline pending bug queue,
+- utworzenie/aktualizacja GitHub Issue wyłącznie po jawnej decyzji użytkownika,
+- handoff do CHAT-6,
+- zapis durable evidence po każdym zakończonym benchmark phase/test case.
+
+ReservedFilesOrSubsystems:
+- branch `chat7-temp-gm-benchmark`,
+- TEMP GM benchmark/evidence documentation,
+- TEMP localhost bridge code,
+- TEMP provider abstraction code,
+- TEMP bug-reporting harness code,
+- wyłącznie pliki utworzone specjalnie dla tego harnessu, chyba że koordynator jawnie zatwierdzi dodatkową integrację.
+
+Explicitly NOT reserved:
+- canonical `PlayerDomainEngine`,
+- `WorldRuleProvider`,
+- transaction/invariant layers,
+- release subsystem,
+- canonical AI roadmap implementation surfaces.
+
+ForbiddenScope:
+- canonical Phase 48 `AiProvider`, Structured GM Output, Mechanics Resolution, Progression Engine, Time Skip Processor, canonical World Simulation, autonomous/self-modifying agent,
+- dowolne Phase 20+ implementation w ramach TEMP harness,
+- zmiana Phase-19 semantics,
+- zmiana globalnego statusu canonical AI roadmap phases,
+- bezpośrednie zapisy canonical DB/Save/state,
+- authoritative `StatePatch`, `COMMIT`, authoritative `PlayerChangeSet` lub authoritative events,
+- bypass `PlayerDomainEngine`, reference validation, `WorldRuleProvider`, validators lub transaction layers,
+- autonomiczne tworzenie GitHub Issues bez jawnego `/bug`/potwierdzenia użytkownika,
+- automatyczne naprawianie wykrytych bugów,
+- merge do canonical production line bez jawnego przydziału/zgody koordynatora,
+- APK/release publication.
+
+Dependencies/coordination:
+- work item pozostaje niezależny od Phase 19 dopóki TEMP harness nie wymaga ingerencji w production contracts,
+- jeśli potrzebna stanie się zmiana Phase-19 contract: `STOP -> BLOCKED -> coordinator decision`,
+- CHAT-6 owns Developer Settings UI, active-model selector, Android presentation/status integration, TEST APK i release/publication,
+- CHAT-7 owns runtime, bridge contract, benchmark, bug harness i device evidence.
+
+CurrentEvidence at registration:
+- evidence branch: `chat7-temp-gm-benchmark`,
+- `LLAMA_3_2_3B`: model load PASS; load 4462 ms; VmRSS ~2439504 kB; VmHWM ~2441112 kB,
+- `QWEN3_4B`: model load PASS; load 6826 ms; VmRSS ~3073312 kB; VmHWM ~3076008 kB,
+- `AB-01 Qwen Polish general prose`: PASS,
+- full A/B benchmark: IN PROGRESS,
+- winner: NOT SELECTED.
+
+AcceptanceCriteria: Work Item może przejść do `COMPLETE` dopiero gdy oba modele przejdą pełny A/B suite, wykonane zostaną 10-turn stability i RPG OS coexistence tests, potwierdzony zostanie localhost-only runtime, bridge i provider switching będą działać, canonical mutation isolation będzie potwierdzona, `/bug`, bounded logcat, offline pending i duplicate detection będą działać, secrets nie będą ujawniane, pełne evidence i końcowy CHAT-7 benchmark report zostaną zapisane, handoff do CHAT-6 będzie gotowy, Phase-19 semantics pozostanie niezmienione, canonical Phase 20+ nie zostanie zaimplementowane, a `PUBLISHED = NO`.
 
 ## 14. Protokół startu workera
 Każda nowa sesja wykonawcza:
