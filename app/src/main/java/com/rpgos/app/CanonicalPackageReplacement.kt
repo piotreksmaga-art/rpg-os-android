@@ -3,6 +3,16 @@ package com.rpgos.app
 import java.io.File
 import java.util.UUID
 
+internal interface CanonicalPackageFileOps {
+    fun rename(source: File, target: File): Boolean
+    fun deleteRecursively(target: File): Boolean
+}
+
+private object RealCanonicalPackageFileOps : CanonicalPackageFileOps {
+    override fun rename(source: File, target: File): Boolean = source.renameTo(target)
+    override fun deleteRecursively(target: File): Boolean = target.deleteRecursively()
+}
+
 /**
  * Prepares replacement bytes outside the authority gate and exposes only the final live-target
  * transition while holding the canonical package write side. Readers therefore observe either the
@@ -25,31 +35,35 @@ internal object CanonicalPackageReplacement {
         }
     }
 
-    fun activatePreparedUnderGate(prepared: File, target: File) {
+    internal fun activatePreparedUnderGate(
+        prepared: File,
+        target: File,
+        fileOps: CanonicalPackageFileOps = RealCanonicalPackageFileOps
+    ) {
         target.parentFile?.mkdirs()
         val backup = File(target.parentFile, ".${target.name}.rollback-${UUID.randomUUID()}")
-        backup.deleteRecursively()
+        if (backup.exists()) fileOps.deleteRecursively(backup)
         var oldMoved = false
         try {
             if (target.exists()) {
-                require(target.renameTo(backup)) { "PACKAGE_REPLACEMENT_BACKUP_FAILED" }
+                require(fileOps.rename(target, backup)) { "PACKAGE_REPLACEMENT_BACKUP_FAILED" }
                 oldMoved = true
             }
-            require(prepared.renameTo(target)) { "PACKAGE_REPLACEMENT_ACTIVATION_FAILED" }
-            if (backup.exists() && !backup.deleteRecursively()) {
+            require(fileOps.rename(prepared, target)) { "PACKAGE_REPLACEMENT_ACTIVATION_FAILED" }
+            if (backup.exists() && !fileOps.deleteRecursively(backup)) {
                 // A stale backup is safe: canonical target is already complete. Cleanup can be retried later.
             }
         } catch (activationFailure: Throwable) {
-            if (target.exists()) target.deleteRecursively()
+            if (target.exists()) fileOps.deleteRecursively(target)
             if (oldMoved && backup.exists()) {
-                val restored = runCatching { backup.renameTo(target) }.getOrDefault(false)
+                val restored = fileOps.rename(backup, target)
                 if (!restored) {
                     throw IllegalStateException("PACKAGE_REPLACEMENT_ROLLBACK_FAILED", activationFailure)
                 }
             }
             throw activationFailure
         } finally {
-            if (prepared.exists()) prepared.deleteRecursively()
+            if (prepared.exists()) fileOps.deleteRecursively(prepared)
         }
     }
 }
