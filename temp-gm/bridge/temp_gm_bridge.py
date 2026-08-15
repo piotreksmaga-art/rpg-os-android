@@ -125,7 +125,7 @@ def _bug_fingerprint(report: dict[str, Any]) -> str:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "RpgOsTempGmBridge/0.2"
+    server_version = "RpgOsTempGmBridge/0.3"
 
     def log_message(self, fmt: str, *args: Any) -> None:
         print(f"[bridge] {self.address_string()} {fmt % args}")
@@ -226,8 +226,6 @@ class Handler(BaseHTTPRequestHandler):
             "recentMessages": snapshot.get("recentMessages", [])[-8:] if isinstance(snapshot.get("recentMessages", []), list) else [],
         }
 
-        # Qwen3.5's llama.cpp chat template requires the system message to be the
-        # single initial system turn. Keep all bridge metadata inside that turn.
         system_content = (
             SYSTEM_PROMPT.rstrip()
             + "\n\nREAD-ONLY RPG OS CONTEXT:\n"
@@ -240,13 +238,18 @@ class Handler(BaseHTTPRequestHandler):
             {"role": "system", "content": system_content},
             {"role": "user", "content": user_message},
         ]
-        request_payload = {
+        request_payload: dict[str, Any] = {
             "messages": messages,
             "temperature": 0.7,
-            "top_p": 0.9,
-            "max_tokens": int(body.get("maxTokens", 320)),
+            "top_p": 0.8,
+            "top_k": 20,
             "stream": False,
+            "chat_template_kwargs": {"enable_thinking": False},
         }
+        # No arbitrary completion cap by default. A caller may opt into a cap
+        # explicitly for benchmark or UI latency experiments.
+        if body.get("maxTokens") is not None:
+            request_payload["max_tokens"] = int(body["maxTokens"])
 
         try:
             raw = _post_json(provider["runtime_url"] + "/v1/chat/completions", request_payload)
