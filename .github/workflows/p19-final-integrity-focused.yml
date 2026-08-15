@@ -32,4 +32,4 @@ jobs:
           --tests 'com.rpgos.app.WorldRuleProviderPhase19HardeningTest'
           --tests 'com.rpgos.app.WorldRuleProviderDeterminismRegressionTest'
           --stacktrace
-# rerun-after-fixture-v2
+# exact-corrected-fixture-head
