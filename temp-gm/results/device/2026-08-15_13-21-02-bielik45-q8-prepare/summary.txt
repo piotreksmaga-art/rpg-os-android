@@ -1,0 +1,26 @@
+===== BIELIK 4.5B Q8_0 PREPARE =====
+Sat Aug 15 13:14:34 CEST 2026
+
+=== DISK BEFORE ===
+Filesystem       Size Used Avail Use% Mounted on
+/dev/block/dm-63 105G  68G   36G  66% /data/user/0
+
+EXPECTED_SIZE=5061215424
+EXPECTED_SHA256=562f2291de257890adf2b4a914da8b194affe6a7a838a6b7ef3d342f306c1b7f
+
+=== DOWNLOADED MODEL ===
+-rw-------. 1 u0_a274 u0_a274 4.8G Aug 15 13:20 /data/data/com.termux/files/home/rpgos-temp-gm/models/bielik45/Bielik-4.5B-v3.0-Instruct.Q8_0.gguf
+ACTUAL_SIZE=5061215424
+ACTUAL_SHA256=562f2291de257890adf2b4a914da8b194affe6a7a838a6b7ef3d342f306c1b7f
+SIZE_STATUS=OK
+SHA_STATUS=OK
+
+=== MEMORY ===
+               total        used        free      shared  buff/cache   available
+Mem:           7.1Gi       3.6Gi       126Mi        29Mi       3.4Gi       3.2Gi
+Swap:          8.0Gi       1.6Gi       6.4Gi
+
+=== DISK AFTER ===
+Filesystem       Size Used Avail Use% Mounted on
+/dev/block/dm-63 105G  73G   32G  70% /data/user/0
+PREPARE_STATUS=OK
