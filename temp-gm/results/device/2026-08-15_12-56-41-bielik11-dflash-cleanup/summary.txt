@@ -1,0 +1,40 @@
+===== BIELIK 11B / DFLASH CLEANUP =====
+Sat Aug 15 12:56:40 CEST 2026
+
+=== BEFORE ===
+/data/data/com.termux/files/home/rpgos-temp-gm/bielik11_load_only.sh
+/data/data/com.termux/files/home/rpgos-temp-gm/bielik11_prepare.sh
+/data/data/com.termux/files/home/rpgos-temp-gm/cleanup_bielik11.sh
+/data/data/com.termux/files/home/rpgos-temp-gm/fix_bielik_dflash.sh
+/data/data/com.termux/files/home/rpgos-temp-gm/llama.cpp/build-tgm/src/CMakeFiles/llama.dir/models/dflash.cpp.o
+/data/data/com.termux/files/home/rpgos-temp-gm/llama.cpp/build-vulkan-q4safe/src/CMakeFiles/llama.dir/models/dflash.cpp.o
+/data/data/com.termux/files/home/rpgos-temp-gm/llama.cpp/models/templates/Bielik-11B-v3.0-Instruct.jinja
+/data/data/com.termux/files/home/rpgos-temp-gm/llama.cpp/src/models/dflash.cpp
+/data/data/com.termux/files/home/rpgos-temp-gm/models/bielik11
+/data/data/com.termux/files/home/rpgos-temp-gm/models/bielik11/Bielik-11B-v3.0-DFlash-Q8_0.gguf.part
+/data/data/com.termux/files/home/rpgos-temp-gm/models/bielik11/Bielik-11B-v3.0-Instruct.Q4_K_M.gguf
+/data/data/com.termux/files/home/rpgos-temp-gm/results/bielik-11b-dflash-check
+/data/data/com.termux/files/home/rpgos-temp-gm/results/bielik11-cleanup
+/data/data/com.termux/files/home/rpgos-temp-gm/results/bielik11-dflash-verify
+/data/data/com.termux/files/home/rpgos-temp-gm/results/bielik11-load-only
+/data/data/com.termux/files/home/rpgos-temp-gm/results/bielik11-prepare
+
+=== DISK BEFORE ===
+Filesystem       Size Used Avail Use% Mounted on
+/dev/block/dm-63 105G  75G   30G  72% /data/user/0
+
+=== AFTER ===
+LOCAL_BIELIK_DFLASH_LEFT:
+/data/data/com.termux/files/home/rpgos-temp-gm/cleanup_bielik11.sh
+/data/data/com.termux/files/home/rpgos-temp-gm/llama.cpp/build-tgm/src/CMakeFiles/llama.dir/models/dflash.cpp.o
+/data/data/com.termux/files/home/rpgos-temp-gm/llama.cpp/build-vulkan-q4safe/src/CMakeFiles/llama.dir/models/dflash.cpp.o
+/data/data/com.termux/files/home/rpgos-temp-gm/llama.cpp/models/templates/Bielik-11B-v3.0-Instruct.jinja
+/data/data/com.termux/files/home/rpgos-temp-gm/llama.cpp/src/models/dflash.cpp
+CLEANUP_STATUS=PARTIAL
+
+=== QWEN PRESERVATION CHECK ===
+-rw-------. 1 u0_a274 u0_a274 2.9G Aug 15 07:02 /data/data/com.termux/files/home/rpgos-temp-gm/models/Qwen_Qwen3.5-4B-Q4_K_M.gguf
+
+=== DISK AFTER ===
+Filesystem       Size Used Avail Use% Mounted on
+/dev/block/dm-63 105G  68G   36G  66% /data/user/0
