@@ -24,3 +24,9 @@ jobs:
         run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase19Canonical*' --stacktrace
       - name: Historical package-content authority regression
         run: gradle --no-daemon :app:testDebugUnitTest --tests com.rpgos.app.WorldRuleProviderPhase19PackageContentAuthorityTest --stacktrace
+      - name: Complete focused Phase 19 suite
+        run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase19*' --tests 'com.rpgos.app.WorldRuleProviderPhase19*' --stacktrace
+      - name: Full JVM
+        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+      - name: Assemble validation
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
