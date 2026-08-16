@@ -32,12 +32,16 @@ CANONICAL WORLD PACK AUTHORITY
 
 A legal authority change occurring during one resolution may affect only the NEXT resolution.
 
+A failed supported World Pack replacement must never permit the failed-new, uncommitted package to become canonical authority. The next Phase-19 authority observation after such a failure must resolve the old committed authority or fail closed.
+
 ## IN SCOPE
 
 - one canonical World Pack authority source;
 - read-only authority dependency at the `PlayerDomainEngine` / `WorldRuleProvider` boundary;
 - coherent observation binding campaign identity + World Pack UID + World Pack version + validated package content identity needed by the rule provider;
 - package-content TOCTOU prevention for supported package selection/replacement/import/update paths;
+- fail-closed authority when a failed supported replacement leaves an unsettled rollback generation at the selected World Pack path;
+- failed-new/uncommitted World Pack content must never be accepted as canonical authority after callback/persistence failure, including quarantine-rename failure;
 - one authority observation per resolution;
 - one immutable pinned binding per resolution;
 - exact same pinned binding for `COMMAND_PRECHECK` and `DRAFT_EFFECT_CHECK`;
@@ -81,6 +85,8 @@ Unless a direct path to wrong/stale/mixed/uncommitted Phase-19 World Pack author
 
 Package/recovery behavior enters Phase-19 scope only if a concrete supported path can leave the World Pack such that a later Phase-19 resolution accepts content that is WRONG, STALE, MIXED or UNCOMMITTED as canonical authority.
 
+`P19-C3-UNCOMMITTED-WORLDPACK-ROLLBACK-FAIL-01` is an example of this exception: callback/persistence failure followed by failed quarantine of the failed-new live target can leave the previous committed generation in `.rollback-*` while the failed-new generation still looks valid at the canonical path. Phase 19 must fail closed rather than accept that generation.
+
 Fix only the minimum necessary authority boundary. Do not expand the fix into general Phase-29 recovery infrastructure.
 
 ## Required canonical acceptance matrix
@@ -96,6 +102,10 @@ Fix only the minimum necessary authority boundary. Do not expand the fix into ge
 - `P19_COHERENCE_03` mixed C1+B/equivalent impossible or rejected
 - `P19_COHERENCE_04` PRECHECK and EFFECT_CHECK use same pinned binding
 - `P19_COHERENCE_05` exactly one authority observation per resolution
+- `P19_COHERENCE_06` failed World Pack transaction cannot expose failed-new content as authority
+- `P19_COHERENCE_07` failed-new quarantine failure cannot make uncommitted World Pack authoritative
+- `P19_COHERENCE_08` next resolution after failed replacement sees old committed authority or fails closed
+- `P19_COHERENCE_09` provider invocation count under uncommitted authority = 0
 - `P19_PROVIDER_01` provider has no canonical mutation capability
 - `P19_PROVIDER_02` mutable retained provider state rejected
 - `P19_PROVIDER_03` synthetic mutable capture rejected
