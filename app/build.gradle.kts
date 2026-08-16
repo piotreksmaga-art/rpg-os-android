@@ -11,8 +11,8 @@ android {
         applicationId = "com.rpgos.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 140
-        versionName = "1.2.0-alpha5-hybrid140"
+        versionCode = 145
+        versionName = "1.2.0-alpha5-hybrid145"
         buildConfigField("String", "RPGOS_BACKEND_URL", "\"https://YOUR-BACKEND.example\"")
         buildConfigField(
             "String",
@@ -84,5 +84,5 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")
 
-    debugImplementation("androidx.compose.ui:ui-tooling:1.11.4")
+    debugImplementation("androidx.compose.ui:ui-tooling")
 }
