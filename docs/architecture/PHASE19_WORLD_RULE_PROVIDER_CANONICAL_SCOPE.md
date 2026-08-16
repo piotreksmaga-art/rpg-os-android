@@ -1,8 +1,34 @@
 # Phase 19 — WorldRuleProvider Canonical Scope
 
-Status: CANONICAL AUDITOR SCOPE — CLEAN REBUILD
+Status: CANONICAL ACCEPTED SCOPE
 
-This document defines the acceptance boundary that CHAT-2, CHAT-3, CHAT-4 and CHAT-5 must use when revalidating the clean Phase-19 candidate.
+This document defines the accepted architectural boundary of Phase 19. It is the same clean scope used by CHAT-2, CHAT-3, CHAT-4 and CHAT-5 for the final independent revalidation.
+
+## Acceptance state
+
+Phase 19 is globally **ACCEPTED / COMPLETE** by coordinator decision.
+
+Canonical accepted runtime SHA:
+`5754f28ccd4f7c1f3522c0af6c34bcaf65e2dcf8`
+
+Exact acceptance CI:
+- run #534
+- ID `31943818205`
+- conclusion `success`
+
+Independent clean-scope verdicts on that exact SHA:
+- CHAT-2 — PASS
+- CHAT-3 — PASS
+- CHAT-4 — PASS
+- CHAT-5 — PASS
+
+Validation artifact:
+- ID `9262792137`
+- digest `sha256:8287def96eaa74d679d3b68848f29cc7878efd8ce5857d59924a62e7cc829433`
+- APK SHA-256 `414d92dde528cc7ef002eff6d74ba13f5f4fded01fb5f222bdcf9483f0a8abc6`
+- publication `false`
+
+Concise canonical acceptance evidence is maintained in `PHASE19_ACCEPTANCE.md`.
 
 ## Canonical purpose
 
@@ -61,7 +87,7 @@ A failed supported World Pack replacement must never permit the failed-new, unco
 
 ## OUT OF SCOPE
 
-Unless a direct path to wrong/stale/mixed/uncommitted Phase-19 World Pack authority is first demonstrated, the following are not Phase-19 acceptance blockers:
+Unless a direct path to wrong/stale/mixed/uncommitted Phase-19 World Pack authority is first demonstrated, the following are not Phase-19 acceptance responsibilities:
 
 - full atomic snapshot of active `campaign.db`;
 - SQLite/WAL snapshot engine;
@@ -85,11 +111,11 @@ Unless a direct path to wrong/stale/mixed/uncommitted Phase-19 World Pack author
 
 Package/recovery behavior enters Phase-19 scope only if a concrete supported path can leave the World Pack such that a later Phase-19 resolution accepts content that is WRONG, STALE, MIXED or UNCOMMITTED as canonical authority.
 
-`P19-C3-UNCOMMITTED-WORLDPACK-ROLLBACK-FAIL-01` is an example of this exception: callback/persistence failure followed by failed quarantine of the failed-new live target can leave the previous committed generation in `.rollback-*` while the failed-new generation still looks valid at the canonical path. Phase 19 must fail closed rather than accept that generation.
+`P19-C3-UNCOMMITTED-WORLDPACK-ROLLBACK-FAIL-01` was the final in-scope example of this exception: callback/persistence failure followed by failed quarantine of the failed-new live target could leave the previous committed generation in `.rollback-*` while the failed-new generation still looked valid at the canonical path. The accepted runtime fails closed rather than accepting that generation.
 
-Fix only the minimum necessary authority boundary. Do not expand the fix into general Phase-29 recovery infrastructure.
+This closure does not expand Phase 19 into general Phase-29 recovery infrastructure.
 
-## Required canonical acceptance matrix
+## Canonical acceptance matrix
 
 - `P19_AUTH_01` valid canonical authority allows provider
 - `P19_AUTH_02` missing authority fails closed; provider invocations = 0
@@ -116,7 +142,16 @@ Fix only the minimum necessary authority boundary. Do not expand the fix into ge
 - `P19_P17_REGRESSION` representative Phase-17 contract remains intact
 - `P19_P18_REGRESSION` representative Phase-18 ordering/reference/orchestration remains intact
 
-## Forbidden deltas
+Permanent canonical regression files:
+- `app/src/test/java/com/rpgos/app/Phase19CanonicalAuthorityTest.kt`
+- `app/src/test/java/com/rpgos/app/Phase19CanonicalCoherenceTest.kt`
+- `app/src/test/java/com/rpgos/app/Phase19CanonicalRollbackAuthorityTest.kt`
+- `app/src/test/java/com/rpgos/app/Phase19CanonicalProviderPolicyTest.kt`
+- `app/src/test/java/com/rpgos/app/Phase19CanonicalRegressionTest.kt`
+
+`WorldRuleProviderDeterminismRegressionTest.kt` is retained as an additional unique deterministic effect-snapshot regression.
+
+## Forbidden deltas preserved at acceptance
 
 ```text
 PLAYERCHANGESET SCHEMA DELTA: NONE
@@ -126,8 +161,6 @@ SECOND PERSISTED AUTHORITY: NONE
 PHASE-20 RUNTIME DELTA: NONE
 ```
 
-Any required violation of these constraints is a STOP condition requiring coordinator decision.
+## Deferred findings
 
-## Acceptance authority
-
-CHAT-1 may produce a clean final candidate and exact-SHA evidence, but must not mark Phase 19 globally ACCEPTED. The frozen candidate requires fresh clean-scope CHAT-2/3/4/5 revalidation on the exact same SHA followed by coordinator decision.
+Acceptance of this scope does not resolve the items in `PHASE19_DEFERRED_FINDINGS.md`. That ledger remains `DEFERRED, NOT FIXED` and is the canonical handoff to later roadmap phases.

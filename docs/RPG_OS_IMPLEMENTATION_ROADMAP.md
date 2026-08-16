@@ -5,7 +5,7 @@ Architecture: `docs/RPG_OS_MASTER_ARCHITECTURE.md`
 Coordination: `docs/PARALLEL_WORK_COORDINATION.md`, `docs/architecture/CHAT_COORDINATION_POLICY.md`
 Operational protocol: `docs/PROJECT_WORK_PROTOCOL.md`
 
-> Aktualizacja 2026-08-15: roadmapa została zsynchronizowana z rzeczywistym stanem repozytorium i zaakceptowaną linią runtime. Poprzednia wersja dokumentu była historycznie opóźniona i nadal wskazywała Fazę 4 jako następną zależność mimo zaakceptowanego runtime przez Fazę 18.
+> Aktualizacja 2026-08-16: Phase 19 — WorldRuleProvider została globalnie zaakceptowana przez koordynatora po 4× niezależnej clean-scope rewalidacji na dokładnie tym samym runtime SHA. Phase 20 pozostaje NOT STARTED do zakończenia post-acceptance cleanup/release sequence zgodnie z bieżącą polityką koordynatora.
 
 ## Statusy
 - `[x] COMPLETE` — globalnie zaakceptowany etap; wdrożony i zweryfikowany zgodnie z wymaganiami danego etapu.
@@ -17,13 +17,15 @@ Sama klasa, tabela, raport audytowy albo zielone CI nie oznacza COMPLETE. Global
 
 # AKTUALNY BASELINE PROJEKTU
 
-- Aktualny `master` w chwili tej synchronizacji przed zapisem: `adb6ba27ca0a06cded24930715235a852e7975ab`.
-- Ostatnia opublikowana linia użytkowa: `v1.2.0-alpha5-hybrid142`.
-- Release `hybrid142` deklaruje cumulative accepted implementation through Phase 18 i jawnie wyklucza Phase 19 oraz Phase 20+.
-- Accepted runtime wskazany przez ten release: `b53ae2c5b765cba49f31a0f88e7865cf1df8d5a7`.
-- Kandydat Phase 19 audytowany w ostatniej serii: `c86a61f019d8579b970b0c07c8a9df41b922ff83`.
-- Exact CI dla tego kandydata: run #518 / ID `31868961756` — SUCCESS.
-- Phase 19 NIE jest opublikowana w aplikacji użytkowej.
+- Canonical accepted Phase-19 runtime: `5754f28ccd4f7c1f3522c0af6c34bcaf65e2dcf8`.
+- Exact acceptance CI: run #534 / ID `31943818205` — SUCCESS.
+- Accepted validation artifact: `9262792137`.
+- Artifact digest: `sha256:8287def96eaa74d679d3b68848f29cc7878efd8ce5857d59924a62e7cc829433`.
+- Accepted validation APK SHA-256: `414d92dde528cc7ef002eff6d74ba13f5f4fded01fb5f222bdcf9483f0a8abc6`.
+- Clean-scope independent revalidation on the accepted SHA: CHAT-2 PASS, CHAT-3 PASS, CHAT-4 PASS, CHAT-5 PASS.
+- Phase 19 publication: **NO** (`publication=false`).
+- Ostatnia opublikowana linia użytkowa pozostaje wcześniejszą linią release; Phase 19 nie została jeszcze opublikowana przez CHAT-6.
+- Phase 20: **NOT STARTED**.
 
 # FAZA 0 — BASELINE / AUDYT
 - [x] 0. Baseline / audit foundation
@@ -47,7 +49,7 @@ Sama klasa, tabela, raport audytowy albo zielone CI nie oznacza COMPLETE. Global
 - [x] 16. PlayerCommand contract
 - [x] 17. PlayerChangeSet contract
 - [x] 18. PlayerDomainEngine orchestration
-- [!] 19. WorldRuleProvider contract
+- [x] 19. WorldRuleProvider contract
 - [ ] 20. ProgressionEngine + Progression Ledger
 - [ ] 21. Diminishing Returns + passive progression hooks
 - [ ] 22. Player Invariant Validator + No-Retrogression
@@ -55,70 +57,69 @@ Sama klasa, tabela, raport audytowy albo zielone CI nie oznacza COMPLETE. Global
 - [-] 24. CharacterPanelSnapshot v2
 - [ ] 25. PlayerSnapshotBuilder + FULL/COMBAT/PROGRESSION/ECONOMY/SOCIAL/GM_CONTEXT profiles
 
-## Evidence dla globalnie zaakceptowanej linii 1–18
+## Evidence dla globalnie zaakceptowanej linii 1–19
 
-Szczegółowe raporty implementacyjne, architektoniczne, semantyczne, integrity i correctness znajdują się w `docs/` oraz `docs/audits/`. Opublikowany release `v1.2.0-alpha5-hybrid142` jest jawnie opisany jako cumulative accepted implementation through Phase 18 i synchronizuje aplikację użytkową z globalnie zaakceptowanym runtime Phase 3–18.
+Phase 1–18 pozostają zaakceptowane zgodnie z wcześniejszymi raportami i release evidence. Phase 19 została zaakceptowana na runtime `5754f28ccd4f7c1f3522c0af6c34bcaf65e2dcf8` po exact CI #534 / `31943818205` oraz 4× niezależnym PASS na tym samym SHA.
 
-Nie należy ponownie otwierać Faz 4–18 wyłącznie dlatego, że stara wersja tej roadmapy miała przy nich status MISSING/PARTIAL. Nowy regresyjny blocker może oczywiście ponownie zablokować dalszy rozwój, ale wymaga konkretnego dowodu.
+Kanoniczne dokumenty Phase 19:
+- `docs/architecture/PHASE19_WORLD_RULE_PROVIDER_CANONICAL_SCOPE.md`
+- `docs/architecture/PHASE19_ACCEPTANCE.md`
+- `docs/architecture/PHASE19_DEFERRED_FINDINGS.md`
 
-# FAZA 19 — WORLDRULEPROVIDER — BLOCKED
+# FAZA 19 — WORLDRULEPROVIDER — COMPLETE
 
-## Stan
+## Stan kanoniczny
 
-Phase 19 ma rozbudowanego kandydata runtime i szerokie testy, ale **nie jest globalnie ACCEPTED**.
+**STATUS: ACCEPTED / COMPLETE**
 
-Ostatni wspólny kandydat audytowy:
-`c86a61f019d8579b970b0c07c8a9df41b922ff83`
+Accepted runtime SHA:
+`5754f28ccd4f7c1f3522c0af6c34bcaf65e2dcf8`
 
-Pozytywne dowody na tym SHA obejmują:
-- atomic snapshot kluczy wyboru `active_campaign` + `active_worldpack` z jednego `SharedPreferences.all`;
-- read-only authority dependency na granicy `PlayerDomainEngine`;
-- jeden authority read na pojedynczą resolution;
-- wspólny pinned binding dla `COMMAND_PRECHECK` i `DRAFT_EFFECT_CHECK`;
-- long-lived engine lifecycle tests;
-- cross-campaign rejection w standardowych scenariuszach;
-- provider invocation count = 0 dla odrzuconej authority;
-- provider-state hardening;
-- deterministyczne request/decision fingerprints i provenance;
-- regresje Phase 17/18 przechodzące;
-- exact CI #518 SUCCESS;
-- immutable validation artifact z `publication:false`.
+Exact acceptance CI:
+- run #534
+- ID `31943818205`
+- conclusion `success`
 
-## Nierozwiązany blocker
+Validation artifact:
+- ID `9262792137`
+- digest `sha256:8287def96eaa74d679d3b68848f29cc7878efd8ce5857d59924a62e7cc829433`
+- APK SHA-256 `414d92dde528cc7ef002eff6d74ba13f5f4fded01fb5f222bdcf9483f0a8abc6`
+- publication `false`
 
-`P19-C3-ATOMIC-AUTHORITY-PACKAGE-CONTENT-TOCTOU-02`
+Independent acceptance:
+- CHAT-2 — PASS
+- CHAT-3 — PASS
+- CHAT-4 — PASS
+- CHAT-5 — PASS
 
-CHAT-3 wykazał, że snapshotowanie samych nazw wyboru w `SharedPreferences` nie atomizuje późniejszego odczytu zawartości `campaign.json`, `worldpack.json` i `world.db`.
+Closed in-scope blocker:
+- `P19-C3-UNCOMMITTED-WORLDPACK-ROLLBACK-FAIL-01`
 
-Możliwy interleaving supported-path:
-1. resolution przechwytuje stare nazwy wyboru, np. C1/A;
-2. canonical selection przechodzi do innej kampanii/pakietu;
-3. wspierany update/import podmienia zawartość katalogu World Packa;
-4. stara resolution wznawia odczyt manifestu/bazy z już zmienionej zawartości;
-5. authority może zostać złożona z tożsamości, która nie odpowiada jednemu rzeczywistemu canonical observation.
+Accepted Phase-19 boundary includes the generic `WorldRuleProvider` contract, deterministic provider selection/identity, one coherent canonical World Pack authority observation per resolution, immutable pinned binding across `COMMAND_PRECHECK` and `DRAFT_EFFECT_CHECK`, fail-closed authority handling, provider retained-state hardening, deterministic request/decision identity, and preservation of Phase-17/18 proposal/reference semantics.
 
-Szczególnie krytyczne jest to, że `RpgPackageManager.validatedImportWorldPack()` może podmienić wskazany katalog, a walidacja nie gwarantuje w audytowanym scenariuszu związania manifest identity z nazwą katalogu wystarczającego do wykluczenia C1+B.
+No acceptance delta was introduced to:
+- `PlayerChangeSet` schema;
+- database schema/migrations;
+- canonical package format;
+- persisted authority source count;
+- Phase-20 runtime.
 
-Raport blockera:
-`docs/audits/WORK-20260815-P19_CHAT3_INTEGRITY_TOCTOU_REVALIDATION_C86A61F0.md`
+Phase 19 is **not yet published in the user application**. Publication remains a separate CHAT-6 release responsibility.
 
-Raporty PASS pozostają wartościowymi dowodami dla swoich zakresów, ale nie unieważniają tego blockera. W szczególności PASS dla atomowego snapshotu preference keys nie jest dowodem atomowości package-content identity.
+## Deferred findings are NOT fixed by Phase 19 acceptance
 
-## Gate zamknięcia Phase 19
+`docs/architecture/PHASE19_DEFERRED_FINDINGS.md` remains authoritative for findings intentionally deferred to later roadmap phases. In particular Phase 19 acceptance does **not** mark complete:
+- general live SQLite/WAL campaign snapshotting;
+- general createCampaign/clone/RestoreManager coherence;
+- global crash recovery / LAST VALID COMMIT;
+- Snapshot System;
+- Save/Load;
+- Branching;
+- Backup;
+- general recovery/cleanup availability;
+- TurnTransaction / global COMMIT infrastructure.
 
-Phase 19 może zostać oznaczona `[x] COMPLETE` dopiero po:
-1. naprawie package-content TOCTOU bez tworzenia drugiego persisted source of truth;
-2. zachowaniu read-only dependency dla PlayerDomainEngine;
-3. adversarial controlled-interleaving testach obejmujących realną podmianę/aktualizację zawartości World Packa;
-4. testach C1/A1 -> C2/A1 -> C2/A2 i próbie wymuszenia C1/A2;
-5. teście próby C1+B przez import do starego katalogu;
-6. potwierdzeniu single-resolution binding consistency;
-7. pełnym JVM/regression suite Phase 17/18;
-8. exact CI na jednym finalnym SHA;
-9. niezależnych audytach wymaganych przez koordynatora na dokładnie tym samym finalnym runtime SHA;
-10. globalnej decyzji koordynatora ACCEPTED.
-
-Do tego czasu **Phase 20 jest BLOCKED BY DEPENDENCY i nie wolno rozpoczynać jej implementacji produkcyjnej**.
+These items remain deferred to their roadmap destinations and must not be retroactively treated as Phase-19 functionality.
 
 # FAZA B — INTEGRALNOŚĆ KAMPANII
 - [-] 26. Single Truth Mutation Path enforcement
@@ -216,13 +217,15 @@ Frontend może być rozwijany wraz z funkcjonalnością, ale należy zachować z
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
 
-**Najwcześniejszym zadaniem nie jest już Faza 4.**
+Phase 19 jest globalnie **ACCEPTED / COMPLETE**, ale zgodnie z decyzją koordynatora implementacja Phase 20 nie rozpoczyna się jeszcze w tym cleanup work itemie.
 
-Aktualna kolejność:
+Aktualna sekwencja operacyjna:
 
-`Phase 19 package-content authority TOCTOU fix -> exact-SHA adversarial validation -> independent audits -> coordinator ACCEPTED -> dopiero Phase 20 ProgressionEngine + Progression Ledger`.
+`Phase 19 post-acceptance canonical cleanup -> coordinator review -> CHAT-6 release-145 preparation/publication task -> explicit coordinator authorization -> Phase 20 ProgressionEngine + Progression Ledger`.
 
-Nie implementować Phase 20 na produkcyjnej linii, dopóki Phase 19 pozostaje `[!] BLOCKED`.
+Do czasu zakończenia tej sekwencji:
+
+**PHASE 20 = NOT STARTED.**
 
 # ZASADA AKTUALIZACJI ROADMAPY
 
