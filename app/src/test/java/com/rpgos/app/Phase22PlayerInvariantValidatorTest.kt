@@ -95,20 +95,13 @@ class Phase22PlayerInvariantValidatorTest {
         assertEquals(left.authorizations, right.authorizations)
     }
 
-    @Test fun P22_09_canonicalPostResolutionStageRejectsUnexplainedAndAcceptsTypedCause() {
-        val engine = PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(NegativeStatComponent())))
-        val command = PlayerCommand(
-            commandUid = "CMD-P22", campaignUid = "C1", actor = actor, commandKindUid = PlayerCommandKinds.TRAIN,
-            payload = TrainCommandPayload(DomainRef("STAT", "STR"), 1L, "METHOD"),
-            provenance = CommandProvenance("P22-TEST")
-        )
-        val context = PlayerResolutionContext.createUnboundGeneric(
-            "C1", actor, setOf(
-                CampaignScopedDomainRef("C1", DomainRef("PLAYER", "P1")),
-                CampaignScopedDomainRef("C1", DomainRef("STAT", "STR"))
-            )
-        )
-        val rejected = engine.resolveWithPlayerInvariants(command, context, PlayerInvariantSnapshotResolver.empty())
+    @Test fun P22_09_canonicalResolveRejectsUnexplainedAndAcceptsTypedCause() {
+        val command = trainCommand()
+        val context = trainContext()
+
+        val rejected = PlayerDomainEngine(
+            PlayerResolutionComponentRegistry.of(listOf(NegativeStatComponent()))
+        ).resolve(command, context)
         assertTrue(rejected is PlayerResolutionOutcome.Rejected)
         assertEquals(PlayerResolutionRejectionReason.DOMAIN_REJECTED, (rejected as PlayerResolutionOutcome.Rejected).rejection.reason)
         assertEquals("UNEXPLAINED_DURABLE_PROGRESSION_REGRESSION", rejected.rejection.detailUid)
@@ -117,14 +110,48 @@ class Phase22PlayerInvariantValidatorTest {
             "AUTH-ENGINE", "C1", "P1", "C-ENGINE", ProgressionTargetKinds.STAT, "STR",
             DurableRegressionCauseKinds.INJURY, "INJURY-ENGINE", "E-ENGINE", "RULE-INJURY", "1"
         )
-        val accepted = engine.resolveWithPlayerInvariants(
-            command, context, PlayerInvariantSnapshotResolver { campaignUid, _ ->
+        val accepted = PlayerDomainEngine(
+            componentRegistry = PlayerResolutionComponentRegistry.of(listOf(NegativeStatComponent())),
+            invariantSnapshotResolver = PlayerInvariantSnapshotResolver { campaignUid, _ ->
                 PlayerInvariantSnapshot.create(campaignUid, listOf(authorization))
             }
-        )
+        ).resolve(command, context)
         assertTrue(accepted is PlayerResolutionOutcome.Resolved)
         assertEquals(-1L, ((accepted as PlayerResolutionOutcome.Resolved).proposal.changes.single().payload as StatChange).delta.units)
     }
+
+    @Test fun P22_10_canonicalResolveKeepsLegalNegativeResourceChange() {
+        val command = PlayerCommand(
+            commandUid = "CMD-RESOURCE", campaignUid = "C1", actor = actor,
+            commandKindUid = PlayerCommandKinds.USE_RESOURCE_ACTION,
+            payload = UseResourceActionCommandPayload(DomainRef("RESOURCE", "CHAKRA"), 5L, "ACTION"),
+            provenance = CommandProvenance("P22-TEST")
+        )
+        val context = PlayerResolutionContext.createUnboundGeneric(
+            "C1", actor, setOf(
+                CampaignScopedDomainRef("C1", DomainRef("PLAYER", "P1")),
+                CampaignScopedDomainRef("C1", DomainRef("RESOURCE", "CHAKRA"))
+            )
+        )
+        val result = PlayerDomainEngine(
+            PlayerResolutionComponentRegistry.of(listOf(NegativeResourceComponent()))
+        ).resolve(command, context)
+        assertTrue(result is PlayerResolutionOutcome.Resolved)
+        assertEquals(-5L, ((result as PlayerResolutionOutcome.Resolved).proposal.changes.single().payload as ResourceChange).delta.units)
+    }
+
+    private fun trainCommand() = PlayerCommand(
+        commandUid = "CMD-P22", campaignUid = "C1", actor = actor, commandKindUid = PlayerCommandKinds.TRAIN,
+        payload = TrainCommandPayload(DomainRef("STAT", "STR"), 1L, "METHOD"),
+        provenance = CommandProvenance("P22-TEST")
+    )
+
+    private fun trainContext() = PlayerResolutionContext.createUnboundGeneric(
+        "C1", actor, setOf(
+            CampaignScopedDomainRef("C1", DomainRef("PLAYER", "P1")),
+            CampaignScopedDomainRef("C1", DomainRef("STAT", "STR"))
+        )
+    )
 
     private fun statChange(uid: String, delta: Long, rule: String) = PlayerDomainChange.create(
         uid, PlayerChangeKinds.STAT, StatChange(subject, "STR", ExactLongDelta.of(delta)), rule
@@ -155,6 +182,25 @@ class Phase22PlayerInvariantValidatorTest {
                         "C-ENGINE", PlayerChangeKinds.STAT,
                         StatChange(DomainRef("PLAYER", command.actor.actorUid), "STR", ExactLongDelta.of(-1L)),
                         "RULE-INJURY"
+                    )
+                )
+            )
+        )
+    }
+
+    private class NegativeResourceComponent : PlayerResolutionComponent<UseResourceActionCommandPayload>(
+        PlayerCommandKinds.USE_RESOURCE_ACTION, UseResourceActionCommandPayload::class,
+        "RPGOS-COMPONENT:P22-NEGATIVE-RESOURCE", "1"
+    ) {
+        override fun resolve(
+            command: PlayerCommand<UseResourceActionCommandPayload>,
+            context: PlayerResolutionContext
+        ) = PlayerResolutionComponentOutcome.Resolved(
+            PlayerResolutionDraft.create(
+                changes = listOf(
+                    PlayerDomainChange.create(
+                        "C-RESOURCE", PlayerChangeKinds.RESOURCE,
+                        ResourceChange(DomainRef("PLAYER", command.actor.actorUid), "CHAKRA", ExactLongDelta.of(-5L))
                     )
                 )
             )
