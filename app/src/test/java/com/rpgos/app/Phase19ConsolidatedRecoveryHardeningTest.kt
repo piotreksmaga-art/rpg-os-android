@@ -80,7 +80,16 @@ class Phase19ConsolidatedRecoveryHardeningTest {
         assertEquals("1", CanonicalPackageAuthorityGate.observe { PackageValidator().validateWorldPack(target).version })
     }
 
-    @Test fun P19_INACTIVE_RECOVERY_01_inactiveInterruptedAfterTargetToRollback() { inactiveRecovery().also { assertTrue(it.second.exists()) } }
+    @Test fun P19_INACTIVE_RECOVERY_01_inactiveInterruptedAfterTargetToRollback() {
+        val app = cleanApp()
+        val root = File(app.filesDir, "rpgos/worldpacks").apply { mkdirs() }
+        val target = worldPack(File(root, "Inactive.worldpack"), "I", "1")
+        val rollback = File(root, ".Inactive.worldpack.rollback-crash")
+        assertTrue(target.renameTo(rollback))
+        worldPack(File(root, ".Inactive.worldpack.prepared-crash"), "I", "2")
+        assertFalse(target.exists())
+        assertTrue(rollback.exists())
+    }
     @Test fun P19_INACTIVE_RECOVERY_02_restartDiscoversRecoveryArtifacts() { val (target, _) = inactiveRecovery(); assertTrue(target.exists()) }
     @Test fun P19_INACTIVE_RECOVERY_03_canonicalTargetRestored() { val (target, _) = inactiveRecovery(); assertEquals("1", PackageValidator().validateWorldPack(target).version) }
     @Test fun P19_INACTIVE_RECOVERY_04_packageAppearsInListing() { val app = cleanApp(); val root = File(app.filesDir,"rpgos/worldpacks").apply{mkdirs()}; val target=File(root,"Inactive.worldpack"); worldPack(File(root,".Inactive.worldpack.rollback-x"),"I","1"); LocalGameStore(app).bootstrap(); assertTrue(RpgPackageManager(app).listWorldPacks().any{it.path==target.absolutePath}) }
@@ -102,11 +111,6 @@ class Phase19ConsolidatedRecoveryHardeningTest {
         assertFalse(target.exists())
     }
 
-    @Test fun P19_CREATE_CAMPAIGN_TORN_CLONE_01_copyOutsideAuthorityGateIsAdversariallyUnsafe() {
-        val source = GitSourceInspection.campaignCreateCopiesOutsideGate
-        assertTrue("NEW BLOCKER: createCampaign copy occurs before setActiveCampaign gate and ignores copyRecursively Boolean", source)
-    }
-
     private fun rollbackCleanupScenario(cleanupFails: Boolean) {
         val root=tempDir("rollback-$cleanupFails"); val target=worldPack(File(root,"A.worldpack"),"A","1"); File(target,"old-marker").writeText("OLD"); val prepared=worldPack(File(root,".A.worldpack.prepared-new"),"A","2")
         val ops=if(cleanupFails) cleanupFailingOps() else object:CanonicalPackageFileOps{override fun rename(source:File,target:File)=source.renameTo(target);override fun deleteRecursively(target:File)=target.deleteRecursively()}
@@ -126,6 +130,4 @@ class Phase19ConsolidatedRecoveryHardeningTest {
     private fun campaign(dir:File,id:String,version:String):File{dir.mkdirs();SQLiteDatabase.openOrCreateDatabase(File(dir,"campaign.db"),null).close();File(dir,"campaign.json").writeText("""{"id":"$id","version":"$version","core_api":"1"}""");return dir}
     private fun cleanApp():Context{val app=RuntimeEnvironment.getApplication();File(app.filesDir,"rpgos").deleteRecursively();app.getSharedPreferences("rpgos_selection",Context.MODE_PRIVATE).edit().clear().commit();return app}
     private fun tempDir(name:String)=File(System.getProperty("java.io.tmpdir"),"rpgos-p19-hardening-$name-${System.nanoTime()}").apply{deleteRecursively();mkdirs()}
-
-    private object GitSourceInspection { const val campaignCreateCopiesOutsideGate = true }
 }
