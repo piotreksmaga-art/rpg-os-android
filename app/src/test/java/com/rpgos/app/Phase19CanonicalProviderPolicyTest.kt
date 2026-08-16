@@ -5,12 +5,16 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.Before
 import org.junit.Test
-import java.util.concurrent.atomic.AtomicInteger
 
 class Phase19CanonicalProviderPolicyTest {
     private val actor = CommandActorRef("PLAYER", "P1")
     private val binding = WorldPackRuleBinding("WORLD-A", "1")
+
+    @Before fun resetProbe() {
+        Probe.calls = 0
+    }
 
     @Test fun P19_PROVIDER_01_providerHasNoCanonicalMutationCapability() {
         val forbidden = listOf(
@@ -77,25 +81,24 @@ class Phase19CanonicalProviderPolicyTest {
 
     @Test fun P19_ZERO_MUTATION_02_authorityRejectionAndFaultProduceNoAuthoritativeMutation() {
         val sentinel = intArrayOf(11)
-        val calls = AtomicInteger()
         structural("WORLD_RULE_AUTHORITY_MISSING") {
             PlayerDomainEngine(
                 PlayerResolutionComponentRegistry.of(listOf(TrainComponent())),
-                worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(CountingProvider(calls))),
+                worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(CountingProvider())),
                 worldPackAuthority = WorldPackAuthoritySnapshot.empty()
             ).resolve(command("ZERO02-MISSING"), context())
         }
-        assertEquals(0, calls.get())
+        assertEquals(0, Probe.calls)
         assertEquals(11, sentinel.single())
 
         structural("WORLD_RULE_AUTHORITY_READ_FAILED") {
             PlayerDomainEngine(
                 PlayerResolutionComponentRegistry.of(listOf(TrainComponent())),
-                worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(CountingProvider(calls))),
+                worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(CountingProvider())),
                 worldPackAuthority = WorldPackAuthorityResolver { throw IllegalStateException("read fault") }
             ).resolve(command("ZERO02-FAULT"), context())
         }
-        assertEquals(0, calls.get())
+        assertEquals(0, Probe.calls)
         assertEquals(11, sentinel.single())
     }
 
@@ -133,6 +136,10 @@ class Phase19CanonicalProviderPolicyTest {
         }
     }
 
+    private object Probe {
+        var calls: Int = 0
+    }
+
     private class MutableProvider : WorldRuleProvider("P19-MUTABLE", "1", "WORLD-A", "1") {
         private var counter: Int = 0
         override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
@@ -149,9 +156,9 @@ class Phase19CanonicalProviderPolicyTest {
         override fun evaluate(request: WorldRuleRequest) = WorldRuleDecision.Allowed.create("P19-SCALAR-RULE:$label")
     }
 
-    private class CountingProvider(private val calls: AtomicInteger) : WorldRuleProvider("P19-COUNTING", "1", "WORLD-A", "1") {
+    private class CountingProvider : WorldRuleProvider("P19-COUNTING", "1", "WORLD-A", "1") {
         override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
-            calls.incrementAndGet()
+            Probe.calls++
             return WorldRuleDecision.Allowed.create("P19-COUNTING-RULE")
         }
     }
