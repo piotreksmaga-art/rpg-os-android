@@ -25,9 +25,6 @@ class Phase19CreateCampaignCoherenceTest {
 
         target.mkdirs()
         File(source, "campaign.json").copyTo(File(target, "campaign.json"))
-
-        // Deterministic adversarial source replacement between two file copies: this models the
-        // old createCampaign source.copyRecursively(target) running without the package gate.
         replaceGeneration(source, "A2")
         File(source, "campaign.db").copyTo(File(target, "campaign.db"))
 
@@ -40,9 +37,7 @@ class Phase19CreateCampaignCoherenceTest {
         val app = cleanApp()
         val source = campaign(File(saves(app), "Template.campaign"), "template", "A1")
         val manager = CampaignSelectionManager(app)
-
         val clone = manager.createCampaign("Clone", source.name)
-
         assertTrue(clone.isDirectory)
         assertTrue(PackageValidator().validateCampaign(clone).ok)
         assertEquals("A1", manifestGeneration(clone))
@@ -62,9 +57,7 @@ class Phase19CreateCampaignCoherenceTest {
             File(staging, "campaign.json").writeText("partial")
             false
         }
-
         val failure = runCatching { manager.createCampaign("Failed", source.name) }.exceptionOrNull()
-
         assertNotNull(failure)
         assertEquals(existing.name, baseline.activeCampaignDirName())
         assertFalse(File(saves, "Failed.campaign").exists())
@@ -77,29 +70,22 @@ class Phase19CreateCampaignCoherenceTest {
         val writerStarted = CountDownLatch(1)
         val writerCompleted = CountDownLatch(1)
         val writerWasBlockedDuringCopy = AtomicBoolean(false)
-
         val manager = CampaignSelectionManager(app) { src, staging ->
             staging.mkdirs()
             File(src, "campaign.json").copyTo(File(staging, "campaign.json"))
-
             val writer = Thread {
                 writerStarted.countDown()
-                CanonicalPackageAuthorityGate.mutate {
-                    replaceGeneration(source, "A2")
-                }
+                CanonicalPackageAuthorityGate.mutate { replaceGeneration(source, "A2") }
                 writerCompleted.countDown()
             }
             writer.start()
             assertTrue(writerStarted.await(2, TimeUnit.SECONDS))
             writerWasBlockedDuringCopy.set(!writerCompleted.await(100, TimeUnit.MILLISECONDS))
-
             File(src, "campaign.db").copyTo(File(staging, "campaign.db"))
             true
         }
-
         val clone = manager.createCampaign("Coherent", source.name)
         assertTrue(writerCompleted.await(2, TimeUnit.SECONDS))
-
         assertTrue("writer must be excluded while source snapshot is copied", writerWasBlockedDuringCopy.get())
         assertEquals("A1", manifestGeneration(clone))
         assertEquals("A1", dbGeneration(clone))
@@ -119,9 +105,7 @@ class Phase19CreateCampaignCoherenceTest {
                 File(staging, "campaign.json").writeText("{malformed")
             }
         }
-
         val failure = runCatching { manager.createCampaign("Invalid", source.name) }.exceptionOrNull()
-
         assertNotNull(failure)
         assertEquals(existing.name, baseline.activeCampaignDirName())
         assertFalse(File(saves, "Invalid.campaign").exists())
@@ -136,9 +120,7 @@ class Phase19CreateCampaignCoherenceTest {
             File(staging, "partial.bin").writeText("partial")
             false
         }
-
         runCatching { manager.createCampaign("Cleanup", source.name) }
-
         assertFalse(File(saves, "Cleanup.campaign").exists())
         assertFalse(saves.listFiles().orEmpty().any { it.name.startsWith(".clone-Cleanup-") })
     }
@@ -149,7 +131,6 @@ class Phase19CreateCampaignCoherenceTest {
         val source = campaign(File(saves, "Template.campaign"), "template", "A1")
         val writerStarted = CountDownLatch(1)
         val writerDone = CountDownLatch(1)
-
         val manager = CampaignSelectionManager(app) { src, staging ->
             staging.mkdirs()
             File(src, "campaign.db").copyTo(File(staging, "campaign.db"))
@@ -162,10 +143,8 @@ class Phase19CreateCampaignCoherenceTest {
             File(src, "campaign.json").copyTo(File(staging, "campaign.json"))
             true
         }
-
         val clone = manager.createCampaign("Generation", source.name)
         assertTrue(writerDone.await(2, TimeUnit.SECONDS))
-
         assertEquals(dbGeneration(clone), manifestGeneration(clone))
         assertEquals("A1", dbGeneration(clone))
         assertTrue(PackageValidator().validateCampaign(clone).ok)
@@ -175,7 +154,7 @@ class Phase19CreateCampaignCoherenceTest {
         dir.mkdirs()
         writeDb(File(dir, "campaign.db"), generation)
         File(dir, "campaign.json").writeText(
-            """{\"id\":\"$id\",\"version\":\"1\",\"core_api\":\"1\",\"generation\":\"$generation\"}"""
+            """{"id":"$id","version":"1","core_api":"1","generation":"$generation"}"""
         )
         return dir
     }
@@ -185,7 +164,7 @@ class Phase19CreateCampaignCoherenceTest {
         if (db.exists()) db.delete()
         writeDb(db, generation)
         File(dir, "campaign.json").writeText(
-            """{\"id\":\"template\",\"version\":\"1\",\"core_api\":\"1\",\"generation\":\"$generation\"}"""
+            """{"id":"template","version":"1","core_api":"1","generation":"$generation"}"""
         )
     }
 
@@ -197,11 +176,7 @@ class Phase19CreateCampaignCoherenceTest {
     }
 
     private fun dbGeneration(dir: File): String =
-        SQLiteDatabase.openDatabase(
-            File(dir, "campaign.db").absolutePath,
-            null,
-            SQLiteDatabase.OPEN_READONLY
-        ).use { db ->
+        SQLiteDatabase.openDatabase(File(dir, "campaign.db").absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
             db.rawQuery("SELECT generation FROM marker", null).use { c ->
                 assertTrue(c.moveToFirst())
                 c.getString(0)
@@ -210,13 +185,10 @@ class Phase19CreateCampaignCoherenceTest {
 
     private fun manifestGeneration(dir: File): String {
         val text = File(dir, "campaign.json").readText()
-        return Regex("\\\"generation\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
-            .find(text)!!.groupValues[1]
+        return Regex("\"generation\"\\s*:\\s*\"([^\"]+)\"").find(text)!!.groupValues[1]
     }
 
-    private fun saves(app: Context): File =
-        File(app.filesDir, "rpgos/saves").apply { mkdirs() }
-
+    private fun saves(app: Context): File = File(app.filesDir, "rpgos/saves").apply { mkdirs() }
     private fun cleanApp(): Context {
         val app = RuntimeEnvironment.getApplication()
         File(app.filesDir, "rpgos").deleteRecursively()
