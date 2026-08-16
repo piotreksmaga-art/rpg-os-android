@@ -1,11 +1,11 @@
-name: P19 Final Blocker Repro
+name: P19 Final Blocker Validation
 on:
   push:
     branches: [chat1/p19-final-blocker-hotfix]
 permissions:
   contents: read
 jobs:
-  repro:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,4 +19,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
-      - run: gradle --no-daemon :app:testDebugUnitTest --tests com.rpgos.app.Phase19FinalBlockerReproTest --stacktrace
+      - name: Focused final blocker regressions
+        run: gradle --no-daemon :app:testDebugUnitTest --tests com.rpgos.app.Phase19FinalBlockerReproTest --stacktrace
+      - name: Complete Phase 19 regression suite
+        run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase19*' --stacktrace
+      - name: Full JVM
+        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+      - name: Assemble validation
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
