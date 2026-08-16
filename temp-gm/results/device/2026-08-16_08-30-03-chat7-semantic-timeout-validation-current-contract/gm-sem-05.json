@@ -1,0 +1,21 @@
+{
+  "test": "GM_SEM_05",
+  "prompt": "Strzelam z łuku do prawego barku bandyty. Opisz reakcję bandyty; nie zmieniaj aktora ani celu.",
+  "http": 200,
+  "elapsed": 23.683797851001145,
+  "body": {
+    "providerId": "BIELIK_4_5B_V3",
+    "mode": "NARRATIVE_ONLY",
+    "narrative": "**TEST_FAILURE**:\n\n**Scena 1 - Potyczka**\n\n**Aktor:** Smagi\n**Akcja:** Strzał z łuku do prawego barku bandyty\n**Cel:** NPC \"enemy\"\n\n**Reakcja NPC \"enemy\":**\n\nBandyta uchyla się w lewo, unikając strzały. Jego ręka sięga po miecz, gotowy do kontrataku.\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE** - Strzał z łuku nie trafił celu.\n\n**Scene Observation (NON-AUTHORITATIVE):**\n\nSmagi wystrzeliwuje strzałę z łuku, trafiając w prawy bark bandyty, ale ten uchyla się w lewo, unikając obrażeń.\n",
+    "canonicalMutation": false,
+    "usage": {
+      "completion_tokens": 192,
+      "prompt_tokens": 983,
+      "total_tokens": 1175,
+      "prompt_tokens_details": {
+        "cached_tokens": 911
+      }
+    }
+  },
+  "timeout": false
+}

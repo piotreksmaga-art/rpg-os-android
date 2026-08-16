@@ -1,0 +1,9 @@
+CHAT-7 TEMP GM SEMANTIC + TIMEOUT MEASUREMENT
+CURRENT_PROVIDER_TIMEOUT=180
+CURRENT_ANDROID_TIMEOUT=210
+CURRENT_MAX_TOKENS=1024
+GM_SEM_CONTRACT_TESTS=10/10 PASS
+RUN_1: promptTokens=993 completionTokens=67 elapsed=12.174s effectiveTokPerSec=5.503692660982272 naturalEnd=True timeout=False http=200 error=None
+RUN_2: promptTokens=1010 completionTokens=1024 elapsed=127.846s effectiveTokPerSec=8.009654706437056 naturalEnd=False timeout=False http=200 error=None
+RUN_3: promptTokens=1009 completionTokens=177 elapsed=25.124s effectiveTokPerSec=7.045032125917097 naturalEnd=True timeout=False http=200 error=None
+LIVE_SEMANTIC_OUTPUTS_REQUIRE_CHAT7_REVIEW=YES

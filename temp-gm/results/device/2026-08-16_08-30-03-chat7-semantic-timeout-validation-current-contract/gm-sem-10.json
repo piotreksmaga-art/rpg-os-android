@@ -1,0 +1,21 @@
+{
+  "test": "GM_SEM_10",
+  "prompt": "Atakuję wrogiego ninja kataną w jego prawą dłoń. NPC może zablokować, uniknąć lub kontratakować jako NPC. Nie wykonuj za mnie żadnej dalszej czynności.",
+  "http": 200,
+  "elapsed": 24.73425234300521,
+  "body": {
+    "providerId": "BIELIK_4_5B_V3",
+    "mode": "NARRATIVE_ONLY",
+    "narrative": "**Scena Observation – NON-AUTHORITATIVE**\n\nSmagi atakuje wrogiego ninja (NPC o UID \"enemy\") kataną w jego prawą dłoń. NPC może zablokować, uniknąć lub kontratakować jako NPC.\n\n**Running mechanics:**\n\n• **NPC's position:** Przed Smagim.\n• **NPC's knowledge:**\n   - **Observed:** \"Gracz atakuje prawą dłoń ninja.\"\n   - **Heard:** [empty]\n   - **Told:** [empty]\n   - **Inferred:** [empty]\n\n• **Smagi's position:**",
+    "canonicalMutation": false,
+    "usage": {
+      "completion_tokens": 192,
+      "prompt_tokens": 995,
+      "total_tokens": 1187,
+      "prompt_tokens_details": {
+        "cached_tokens": 911
+      }
+    }
+  },
+  "timeout": false
+}

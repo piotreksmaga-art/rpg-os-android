@@ -1,0 +1,21 @@
+{
+  "test": "GM_SEM_07",
+  "prompt": "Próbuję przeciąć linę nad głową bandyty. Opisz jego natychmiastową reakcję i zakończ.",
+  "http": 200,
+  "elapsed": 23.320951680005237,
+  "body": {
+    "providerId": "BIELIK_4_5B_V3",
+    "mode": "NARRATIVE_ONLY",
+    "narrative": "**TEST_NARRATIVE_ONLY**\n\n**TEST_FAILURE:**\n\n**PLAYER** wykonuje cięcie, ale **NPC** w ostatniej chwili odskakuje do tyłu, unikając ostrza.\n\n**NPC** krzyczy, odskakując:\n\n**NPC** \"Ach!!\"\n\n**TEST_FAILURE:**\n\n**NPC** **blokuje** cięcie **swoją bronią**, unikając zranienia.\n\n**NPC** \"Ach!!\"\n\n**TEST_FAILURE:**\n\n**NPC** **odskakuje** w bok, unikając cięcia.\n\n**NPC** \"Ach!!!!\"\n\n**TEST_FAILURE:**\n\n**NPC**",
+    "canonicalMutation": false,
+    "usage": {
+      "completion_tokens": 192,
+      "prompt_tokens": 978,
+      "total_tokens": 1170,
+      "prompt_tokens_details": {
+        "cached_tokens": 911
+      }
+    }
+  },
+  "timeout": false
+}

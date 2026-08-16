@@ -1,0 +1,11 @@
+test_GM_SEM_01_direction_contract | PASS | 
+test_GM_SEM_02_no_autonomous_player_dodge | PASS | 
+test_GM_SEM_03_no_autonomous_followup_attack | PASS | 
+test_GM_SEM_04_no_invented_player_dialogue | PASS | 
+test_GM_SEM_05_npc_autonomy_preserved | PASS | 
+test_GM_SEM_06_npc_defense_counter_allowed | PASS | 
+test_GM_SEM_07_stop_before_next_player_turn | PASS | 
+test_GM_SEM_08_temp_scene_non_authoritative | PASS | 
+test_GM_SEM_09_npc_knowledge_boundary | PASS | 
+test_GM_SEM_10_canonical_mutation_false | PASS | 
+TOTAL_PASS=10/10

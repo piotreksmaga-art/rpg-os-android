@@ -1,0 +1,21 @@
+{
+  "test": "GM_SEM_06",
+  "prompt": "Podchodzę jeden krok do wrogiego shinobi i zatrzymuję się. NPC może się bronić, wycofać lub mówić, ale nie steruj mną.",
+  "http": 200,
+  "elapsed": 23.563112930001807,
+  "body": {
+    "providerId": "BIELIK_4_5B_V3",
+    "mode": "NARRATIVE_ONLY",
+    "narrative": "**TEST_FAILURE**: **Smagi** nie atakuje **NPC**. **NPC** (#enemy) **nie reaguje**, **zachowując postawę obronną**. **Smagi** stoi **naprężony**, **przed wrogim shinobi**. **TEST_FAILURE**: **Smagi** nie unika, blokuje ani kontratakuje. **TEST_FAILURE**: **NPC** nie atakuje **Smagiego**. **TEST_FAILURE**: **Smagi** nie mówi ani nie przemieszcza się. **TEST_FAILURE**: **NPC** nie infmuje **Smagiego** o swoich zamiarach. **TEST_FAILURE**:",
+    "canonicalMutation": false,
+    "usage": {
+      "completion_tokens": 192,
+      "prompt_tokens": 987,
+      "total_tokens": 1179,
+      "prompt_tokens_details": {
+        "cached_tokens": 911
+      }
+    }
+  },
+  "timeout": false
+}

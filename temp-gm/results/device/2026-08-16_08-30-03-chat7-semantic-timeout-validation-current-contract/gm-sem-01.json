@@ -1,0 +1,21 @@
+{
+  "test": "GM_SEM_01",
+  "prompt": "Przede mną stoi wrogi shinobi.\nAtakuję go kataną.\nCeluję w jego prawą dłoń.\nOpisz reakcję wrogiego shinobi.",
+  "http": 200,
+  "elapsed": 35.49155187499855,
+  "body": {
+    "providerId": "BIELIK_4_5B_V3",
+    "mode": "NARRATIVE_ONLY",
+    "narrative": "Wrogi shinobi dostrzega atak i odskakuje w bok, unikając cięcia.\n\n**TEST_FALLBACK:**\nNPC wykorzystuje swoją zwinność, aby uniknąć cięcia katany.\n\n**TEST_FALLBACK:**\nWrogi shinobi odskakuje w bok, unikając cięcia.\n\n**TEST_FALLBACK:**\nNPC wykonuje unik, aby uniknąć ataku.\n\n**TEST_FALLBACK:**\nShinobi odskakuje w bok, unikając cięcia.\n\n**TEST_FALLBACK:**\nWrogi shinobi odskakuje, unikając cięcia.\n\n**TEST_FALLBACK:**\nNPC wykonuje unik, aby uniknąć ataku.\n\n**TEST_FAL",
+    "canonicalMutation": false,
+    "usage": {
+      "completion_tokens": 192,
+      "prompt_tokens": 993,
+      "total_tokens": 1185,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      }
+    }
+  },
+  "timeout": false
+}

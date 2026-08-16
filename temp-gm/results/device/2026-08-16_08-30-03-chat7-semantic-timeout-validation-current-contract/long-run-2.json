@@ -1,0 +1,25 @@
+{
+  "run": 2,
+  "prompt": "Prowadzę ostrożną rozmowę z podejrzliwym najemnikiem w gospodzie. Mówię tylko: 'Szukam informacji o karawanie'. Opisz szczegółowo jego reakcję, zachowanie otoczenia i bezpośrednią odpowiedź NPC, ale nie wybieraj za mnie kolejnej wypowiedzi ani działania.",
+  "http": 200,
+  "elapsed": 127.84571089900419,
+  "body": {
+    "providerId": "BIELIK_4_5B_V3",
+    "mode": "NARRATIVE_ONLY",
+    "narrative": "**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_FAILURE:**\n\n**TEST_",
+    "canonicalMutation": false,
+    "usage": {
+      "completion_tokens": 1024,
+      "prompt_tokens": 1010,
+      "total_tokens": 2034,
+      "prompt_tokens_details": {
+        "cached_tokens": 911
+      }
+    }
+  },
+  "timeout": false,
+  "completionTokens": 1024,
+  "promptTokens": 1010,
+  "effectiveTokPerSec": 8.009654706437056,
+  "naturallyEndedBeforeMax": false
+}

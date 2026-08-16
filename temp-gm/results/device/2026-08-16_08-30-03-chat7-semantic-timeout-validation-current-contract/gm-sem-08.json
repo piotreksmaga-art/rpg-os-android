@@ -1,0 +1,21 @@
+{
+  "test": "GM_SEM_08",
+  "prompt": "Obserwuję zamknięte drzwi. Nie wykonuję żadnej innej czynności. Opisz tylko reakcję otoczenia/NPC.",
+  "http": 200,
+  "elapsed": 23.282038047000242,
+  "body": {
+    "providerId": "BIELIK_4_5B_V3",
+    "mode": "NARRATIVE_ONLY",
+    "narrative": "*Teleportujesz się za plecy NPC \"enemy\"*\n\n---\n\n**TEST_FAILURE:**\n\nNie możesz teleportować się w obrębie ciała NPC.\n\n---\n\n**TEST_FAILURE:**\n\nNie możesz teleportować się w obrębie ciała NPC.\n\n---\n\n**TEST_FAILURE:**\n\nNie możesz teleportować się w obrębie ciała NPC.\n\n---\n\n**TEST_FAILURE:**\n\nNie możesz teleportować się w obrębie ciała NPC.\n\n---\n\n**TEST_FAILURE:**\n\nNie możesz teleportować się w obrębie ciała NPC.\n\n---\n\n**TEST_FAILURE:**\n\nNie możesz teleportować się w obrębie",
+    "canonicalMutation": false,
+    "usage": {
+      "completion_tokens": 192,
+      "prompt_tokens": 978,
+      "total_tokens": 1170,
+      "prompt_tokens_details": {
+        "cached_tokens": 912
+      }
+    }
+  },
+  "timeout": false
+}

@@ -1,0 +1,21 @@
+{
+  "test": "GM_SEM_03",
+  "prompt": "Mówię do strażnika: 'Odsuń się'. Opisz jego odpowiedź. Nie dopisuj żadnej kolejnej wypowiedzi ani ruchu mojej postaci.",
+  "http": 200,
+  "elapsed": 23.873946172003343,
+  "body": {
+    "providerId": "BIELIK_4_5B_V3",
+    "mode": "NARRATIVE_ONLY",
+    "narrative": "Jako strażnik, odpowiadasz:\n\n\"Słuchasz rozkazu, panie. Odsuwam się, abyś mógł przejść.\"\n\nPo tych słowach odsuwa się, robiąc miejsce dla Ciebie.\n\n**TEST_FAILURE:**\nW tej chwili strażnik zauważa, że w pobliżu znajduje się jeszcze jeden NPC – strażnik z innej części areny.\n\n**TEST_FAILURE_OBSERVATION — NON-AUTHORATIVE:**\nNPC zauważa, że „gracz stoi przed wrogim shinobi”.\n\n**TEST_FAILURE_OBSERVATION — NON-AUTHORATIVE:**\nNPC zauważa, że „gracz stoi przed wrogim shinobi",
+    "canonicalMutation": false,
+    "usage": {
+      "completion_tokens": 192,
+      "prompt_tokens": 987,
+      "total_tokens": 1179,
+      "prompt_tokens_details": {
+        "cached_tokens": 911
+      }
+    }
+  },
+  "timeout": false
+}

@@ -1,0 +1,21 @@
+{
+  "test": "GM_SEM_04",
+  "prompt": "Popycham przeciwnika lewą dłonią. On może zareagować dowolnie jako NPC. Zatrzymaj narrację przed moją następną decyzją.",
+  "http": 200,
+  "elapsed": 22.85216867100098,
+  "body": {
+    "providerId": "BIELIK_4_5B_V3",
+    "mode": "NARRATIVE_ONLY",
+    "narrative": "**TEST_NARRATIVE_ONLY**\n\n**TEST_FAILURE:**\n\n**TEST_REASON:**\n\n**TEST_FAILURE_REASON:**\n\n**TEST_FAILURE_CAUSE:**\n\n**TEST_FAILURE_CAUSE_REASON:**\n\n**TEST_FAILURE_CAUSE_REASON_REASON:**\n\n**TEST_FAILURE_CAUSE_REASON_REASON_REASON:**\n\n**TEST_FAILURE_CAUSE_REASON_REASON_REASON_REASON:**\n\n**TEST_FAILURE_CAUSE_REASON_",
+    "canonicalMutation": false,
+    "usage": {
+      "completion_tokens": 192,
+      "prompt_tokens": 985,
+      "total_tokens": 1177,
+      "prompt_tokens_details": {
+        "cached_tokens": 949
+      }
+    }
+  },
+  "timeout": false
+}

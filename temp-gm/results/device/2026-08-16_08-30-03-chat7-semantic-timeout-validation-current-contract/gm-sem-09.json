@@ -1,0 +1,21 @@
+{
+  "test": "GM_SEM_09",
+  "prompt": "Pytam Rena: 'Kto tu był?'. Ren zna tylko to, co widział i słyszał. Nie dopisuj mi dalszej wypowiedzi.",
+  "http": 200,
+  "elapsed": 23.659862500004238,
+  "body": {
+    "providerId": "BIELIK_4_5B_V3",
+    "mode": "NARRATIVE_ONLY",
+    "narrative": " `READ-ONLY TEPPM:\n{\"campaignUID\":\"sem-timeout\",\"worldPackUID\":\"sem-timeout\",\"playersIdentitY\":{\"name\":\"Smagi\"},\"sceneState\":{\"location\":\"test arena\"},\"playerSceneState\":{\"position\":\"naprzód wrogiego shinobi\"},\"relevanteNpcs\":[{\"npcUID\":\"enemy\",\"sceneFacts\":{\"hostile\":true,\"position\":\"przedmną\"},\"knowledge\":{\"observed\":[\"gracz stoi przede mną\"],\"heard\":[],\"told\":[],\"inferred\":[]}}",
+    "canonicalMutation": false,
+    "usage": {
+      "completion_tokens": 192,
+      "prompt_tokens": 986,
+      "total_tokens": 1178,
+      "prompt_tokens_details": {
+        "cached_tokens": 912
+      }
+    }
+  },
+  "timeout": false
+}

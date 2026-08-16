@@ -1,0 +1,21 @@
+{
+  "test": "GM_SEM_02",
+  "prompt": "Atakuję wrogiego shinobi mieczem. Opisz tylko jego reakcję. Nie deklaruję uniku ani drugiego ataku.",
+  "http": 200,
+  "elapsed": 23.45643734299665,
+  "body": {
+    "providerId": "BIELIK_4_5B_V3",
+    "mode": "NARRATIVE_ONLY",
+    "narrative": "**TEST_FALLBACK**: NPC może znać tylko informacje zawarte w jego sekcji *knowledge* (observed, heard, told, or inferred). Nie przenoś globalnych faktów sceny do wiedzy NPC.\n\n**SCENE**: **test arena**\n\n**NPC**: **enemy**\n\n**NPC KNOWLEDGE**:\n- **observed**: \"gracz stoi przede mną\"\n- **heard**: []\n- **told**: []\n- **inferred**: []\n\n**REACTION**:\nNPC (shinobi) **unika** ciosu, wykonując **sliding parry**, aby uniknąć cięcia mieczem.\n\n**TEST_FALLBAC",
+    "canonicalMutation": false,
+    "usage": {
+      "completion_tokens": 192,
+      "prompt_tokens": 981,
+      "total_tokens": 1173,
+      "prompt_tokens_details": {
+        "cached_tokens": 912
+      }
+    }
+  },
+  "timeout": false
+}

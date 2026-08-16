@@ -1,0 +1,25 @@
+{
+  "run": 3,
+  "prompt": "Wchodzę do opuszczonego magazynu i zatrzymuję się przy wejściu. Rozglądam się. Opisz szczegółowo to, co mogę dostrzec, oraz natychmiastowe reakcje obecnych NPC lub otoczenia. Nie wykonuj za mnie dalszego ruchu ani decyzji.",
+  "http": 200,
+  "elapsed": 25.124086992997036,
+  "body": {
+    "providerId": "BIELIK_4_5B_V3",
+    "mode": "NARRATIVE_ONLY",
+    "narrative": "**TEST_SCENE_OBSERVATIO - NON-AUTHORITATIVE**\n\nW opuszczonym magazynie panuje półmrok, rozświetlany jedynie przez wątłe światło przeciekające przez pęknięcia w suficie. Na podłodze zalega warstwa kurzu i śmieci, a w powietrzu unosi się zapach stęchlizny i wilgoci. W rogu dostrzegam stary, zardzewiały wózek transportowy, a w głębi magazynu - skrzynię z zapieczętowanymi skrzyniami.\n\n**NON-AUTHORITATIVE TEST_SCENE_OBSERVATIO**\n\nW magazynie panuje cisza, przerywana jedynie przez odległe echo kropel deszczu uderzających w dach. Obecni NPC (jeśli w ogóle) zachowują się zgodnie ze swoimi wcześniejszymi deklaracjami.",
+    "canonicalMutation": false,
+    "usage": {
+      "completion_tokens": 177,
+      "prompt_tokens": 1009,
+      "total_tokens": 1186,
+      "prompt_tokens_details": {
+        "cached_tokens": 911
+      }
+    }
+  },
+  "timeout": false,
+  "completionTokens": 177,
+  "promptTokens": 1009,
+  "effectiveTokPerSec": 7.045032125917097,
+  "naturallyEndedBeforeMax": true
+}
