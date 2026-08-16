@@ -82,9 +82,17 @@ internal object CanonicalPackageReplacement {
                 }
             }
         }
+        fun cleanupNonAuthoritativeBestEffort(files: List<File>) {
+            files.forEach { stale ->
+                if (stale.exists()) fileOps.deleteRecursively(stale)
+            }
+        }
 
         if (target.exists() && valid(target)) {
-            cleanup(rollbacks + prepared + failed)
+            // Full validation has already established canonical authority. Rollback/prepared/failed
+            // siblings are non-authoritative metadata now; inability to remove them must not revoke
+            // or hide the valid live package. A later bounded reconciliation may retry cleanup.
+            cleanupNonAuthoritativeBestEffort(rollbacks + prepared + failed)
             return
         }
 
