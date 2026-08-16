@@ -3,7 +3,6 @@ package com.rpgos.app
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -41,8 +40,7 @@ class Phase19FinalBlockerReproTest {
     @Test fun REPRO_P19_CREATE_CAMPAIGN_LIVE_DB_01_packageGateDoesNotFreezeOrdinarySQLiteWriter() {
         val app = cleanApp()
         val source = campaign(File(saves(app), ActiveCampaignRef.DEFAULT_DIRECTORY))
-        val managerForSelection = CampaignSelectionManager(app)
-        managerForSelection.setActiveCampaign(source.name)
+        CampaignSelectionManager(app).setActiveCampaign(source.name)
 
         val writerEntered = CountDownLatch(1)
         val writerDone = CountDownLatch(1)
@@ -54,10 +52,11 @@ class Phase19FinalBlockerReproTest {
             val initial = dbFile.readBytes()
             val firstOffset = initial.indexOfAscii(FIRST_A)
             val secondOffset = initial.indexOfAscii(SECOND_A)
-            assertTrue(firstOffset >= 0 && secondOffset >= 0)
+            assertTrue("first marker must exist in production-format SQLite file", firstOffset >= 0)
+            assertTrue("second marker must exist in production-format SQLite file", secondOffset >= 0)
             val low = minOf(firstOffset, secondOffset)
             val high = maxOf(firstOffset, secondOffset)
-            assertTrue("markers must be separated so the file copy can straddle a commit", high - low > 4096)
+            assertTrue("markers must be separated so raw file copy straddles one commit", high - low > 4096)
             val split = (low + high) / 2
 
             RandomAccessFile(File(staging, "campaign.db"), "rw").use { out ->
@@ -67,8 +66,8 @@ class Phase19FinalBlockerReproTest {
                         writerEntered.countDown()
                         db.beginTransaction()
                         try {
-                            db.execSQL("UPDATE snapshot_marker SET value=? WHERE slot='first'", arrayOf(FIRST_B))
-                            db.execSQL("UPDATE snapshot_marker SET value=? WHERE slot='second'", arrayOf(SECOND_B))
+                            db.execSQL("UPDATE marker_first SET value=?", arrayOf(FIRST_B))
+                            db.execSQL("UPDATE marker_second SET value=?", arrayOf(SECOND_B))
                             db.setTransactionSuccessful()
                         } finally {
                             db.endTransaction()
@@ -88,7 +87,10 @@ class Phase19FinalBlockerReproTest {
         val clone = manager.createCampaign("LiveDbRepro", source.name)
         assertTrue("ordinary SQLite writer is not covered by CanonicalPackageAuthorityGate", observedUnblockedWriter[0])
         val values = readMarkers(File(clone, "campaign.db"))
-        assertTrue("pre-fix file snapshot should be torn across one committed SQLite generation", values.toSet().size > 1)
+        assertTrue(
+            "pre-fix file snapshot must demonstrate a mixed committed SQLite generation: $values",
+            values.contains(FIRST_A) && values.contains(SECOND_B) || values.contains(FIRST_B) && values.contains(SECOND_A)
+        )
         assertTrue("generic package validation does not prove logical generation coherence", PackageValidator().validateCampaign(clone).ok)
     }
 
@@ -96,12 +98,17 @@ class Phase19FinalBlockerReproTest {
         dir.mkdirs()
         val dbFile = File(dir, "campaign.db")
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
-            db.execSQL("PRAGMA journal_mode=DELETE")
-            db.execSQL("CREATE TABLE snapshot_marker(slot TEXT PRIMARY KEY, value TEXT NOT NULL)")
-            db.execSQL("INSERT INTO snapshot_marker(slot,value) VALUES('first',?)", arrayOf(FIRST_A))
+            val mode = db.rawQuery("PRAGMA journal_mode", null).use { c ->
+                assertTrue(c.moveToFirst())
+                c.getString(0)
+            }
+            assertTrue("production-compatible default journal must be a concrete SQLite mode", mode.isNotBlank())
+            db.execSQL("CREATE TABLE marker_first(value TEXT NOT NULL)")
+            db.execSQL("INSERT INTO marker_first(value) VALUES(?)", arrayOf(FIRST_A))
             db.execSQL("CREATE TABLE filler(payload BLOB NOT NULL)")
-            repeat(48) { db.execSQL("INSERT INTO filler(payload) VALUES(zeroblob(4096))") }
-            db.execSQL("INSERT INTO snapshot_marker(slot,value) VALUES('second',?)", arrayOf(SECOND_A))
+            repeat(96) { db.execSQL("INSERT INTO filler(payload) VALUES(zeroblob(4096))") }
+            db.execSQL("CREATE TABLE marker_second(value TEXT NOT NULL)")
+            db.execSQL("INSERT INTO marker_second(value) VALUES(?)", arrayOf(SECOND_A))
         }
         File(dir, "campaign.json").writeText("""{"id":"template","version":"1","core_api":"1"}""")
         return dir
@@ -109,9 +116,10 @@ class Phase19FinalBlockerReproTest {
 
     private fun readMarkers(file: File): List<String> =
         SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
-            db.rawQuery("SELECT value FROM snapshot_marker ORDER BY slot", null).use { c ->
-                buildList { while (c.moveToNext()) add(c.getString(0)) }
-            }
+            listOf(
+                db.rawQuery("SELECT value FROM marker_first", null).use { c -> assertTrue(c.moveToFirst()); c.getString(0) },
+                db.rawQuery("SELECT value FROM marker_second", null).use { c -> assertTrue(c.moveToFirst()); c.getString(0) }
+            )
         }
 
     private fun ByteArray.indexOfAscii(value: String): Int {
