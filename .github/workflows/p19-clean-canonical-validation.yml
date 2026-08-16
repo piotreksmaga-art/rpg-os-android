@@ -1,0 +1,26 @@
+name: P19 Clean Canonical Validation
+on:
+  push:
+    branches: [chat1/p19-clean-canonical-rebuild]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Canonical Phase 19 matrix
+        run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase19Canonical*' --stacktrace
+      - name: Historical package-content authority regression
+        run: gradle --no-daemon :app:testDebugUnitTest --tests com.rpgos.app.WorldRuleProviderPhase19PackageContentAuthorityTest --stacktrace
