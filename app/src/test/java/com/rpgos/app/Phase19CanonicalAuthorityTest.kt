@@ -3,71 +3,69 @@ package com.rpgos.app
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.Before
 import org.junit.Test
-import java.util.concurrent.atomic.AtomicInteger
 
 class Phase19CanonicalAuthorityTest {
     private val actor = CommandActorRef("PLAYER", "P1")
     private val canonical = WorldPackRuleBinding("WORLD-A", "1")
 
+    @Before fun resetProbe() {
+        Probe.calls = 0
+    }
+
     @Test fun P19_AUTH_01_validCanonicalAuthorityAllowsProvider() {
-        val calls = AtomicInteger()
-        val result = engine(authority = { canonical }, provider = CountingProvider(canonical, calls))
+        val result = engine(authority = { canonical }, provider = CountingProvider(canonical))
             .resolve(command("AUTH01"), context("C1", canonical))
         assertTrue(result is PlayerResolutionOutcome.Resolved)
-        assertEquals(2, calls.get())
+        assertEquals(2, Probe.calls)
     }
 
     @Test fun P19_AUTH_02_missingAuthorityFailsClosedBeforeProvider() {
-        val calls = AtomicInteger()
         structural("WORLD_RULE_AUTHORITY_MISSING") {
-            engine(authority = { null }, provider = CountingProvider(canonical, calls))
+            engine(authority = { null }, provider = CountingProvider(canonical))
                 .resolve(command("AUTH02"), context("C1", canonical))
         }
-        assertEquals(0, calls.get())
+        assertEquals(0, Probe.calls)
     }
 
     @Test fun P19_AUTH_03_wrongCampaignFailsClosed() {
-        val calls = AtomicInteger()
         val resolver = WorldPackAuthorityResolver { campaignUid ->
             canonical.takeIf { campaignUid == "C1" }
         }
         structural("WORLD_RULE_AUTHORITY_MISSING") {
-            engine(resolver, CountingProvider(canonical, calls))
+            engine(resolver, CountingProvider(canonical))
                 .resolve(command("AUTH03", campaign = "C2"), context("C2", canonical))
         }
-        assertEquals(0, calls.get())
+        assertEquals(0, Probe.calls)
     }
 
     @Test fun P19_AUTH_04_wrongWorldPackUidFailsClosed() {
-        val calls = AtomicInteger()
         val wrong = WorldPackRuleBinding("WORLD-B", "1")
         structural("WORLD_RULE_BINDING_AUTHORITY_MISMATCH") {
-            engine(authority = { canonical }, provider = CountingProvider(canonical, calls))
+            engine(authority = { canonical }, provider = CountingProvider(canonical))
                 .resolve(command("AUTH04"), context("C1", wrong))
         }
-        assertEquals(0, calls.get())
+        assertEquals(0, Probe.calls)
     }
 
     @Test fun P19_AUTH_05_wrongWorldPackVersionFailsClosed() {
-        val calls = AtomicInteger()
         val wrong = WorldPackRuleBinding("WORLD-A", "2")
         structural("WORLD_RULE_BINDING_AUTHORITY_MISMATCH") {
-            engine(authority = { canonical }, provider = CountingProvider(canonical, calls))
+            engine(authority = { canonical }, provider = CountingProvider(canonical))
                 .resolve(command("AUTH05"), context("C1", wrong))
         }
-        assertEquals(0, calls.get())
+        assertEquals(0, Probe.calls)
     }
 
     @Test fun P19_AUTH_06_authorityReadFailureFailsClosed() {
-        val calls = AtomicInteger()
         structural("WORLD_RULE_AUTHORITY_READ_FAILED") {
             engine(
                 authority = { throw IllegalStateException("authority unavailable") },
-                provider = CountingProvider(canonical, calls)
+                provider = CountingProvider(canonical)
             ).resolve(command("AUTH06"), context("C1", canonical))
         }
-        assertEquals(0, calls.get())
+        assertEquals(0, Probe.calls)
     }
 
     private fun engine(
@@ -112,12 +110,15 @@ class Phase19CanonicalAuthorityTest {
         }
     }
 
+    private object Probe {
+        var calls: Int = 0
+    }
+
     private class CountingProvider(
-        binding: WorldPackRuleBinding,
-        private val calls: AtomicInteger
+        binding: WorldPackRuleBinding
     ) : WorldRuleProvider("P19-CANONICAL-PROVIDER", "1", binding.worldPackUid, binding.worldPackVersion) {
         override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
-            calls.incrementAndGet()
+            Probe.calls++
             return WorldRuleDecision.Allowed.create("P19-CANONICAL-RULE")
         }
     }
