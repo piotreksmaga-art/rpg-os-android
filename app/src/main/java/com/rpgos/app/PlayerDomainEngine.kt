@@ -274,7 +274,8 @@ class PlayerDomainEngine internal constructor(
     private val changeRegistry: TypedPlayerChangeRegistry = TypedPlayerChangeRegistry.core(),
     private val worldRuleRegistry: WorldRuleProviderRegistry = WorldRuleProviderRegistry.empty(),
     private val worldPackAuthority: WorldPackAuthorityResolver = WorldPackAuthoritySnapshot.empty(),
-    private val progressionEngine: ProgressionEngine = ProgressionEngine()
+    private val progressionEngine: ProgressionEngine = ProgressionEngine(),
+    private val invariantSnapshotResolver: PlayerInvariantSnapshotResolver = PlayerInvariantSnapshotResolver.empty()
 ) {
     fun resolve(
         command: PlayerCommand<out PlayerCommandPayload>,
@@ -403,11 +404,32 @@ class PlayerDomainEngine internal constructor(
                     ruleTrace
                 )
                 PlayerChangeSetValidator.validate(proposal, changeRegistry)
-                PlayerResolutionOutcome.Resolved(
-                    proposal,
-                    evidence(contextFingerprint, context, component, ruleTrace)
-                )
+                val resolutionEvidence = evidence(contextFingerprint, context, component, ruleTrace)
+                validatePlayerInvariants(proposal, resolutionEvidence)
             }
+        }
+    }
+
+    private fun validatePlayerInvariants(
+        proposal: PlayerChangeSet,
+        resolutionEvidence: PlayerResolutionEvidence
+    ): PlayerResolutionOutcome {
+        val snapshot = try {
+            invariantSnapshotResolver.snapshotFor(proposal.campaignUid, proposal.actor.actorUid)
+        } catch (e: PlayerDomainEngineStructuralException) {
+            throw e
+        } catch (e: Throwable) {
+            throw PlayerDomainEngineStructuralException("PLAYER_INVARIANT_SNAPSHOT_READ_FAILED", e)
+        }
+        return when (val validation = PlayerInvariantValidator.validate(proposal, snapshot)) {
+            PlayerInvariantValidationResult.Valid -> PlayerResolutionOutcome.Resolved(proposal, resolutionEvidence)
+            is PlayerInvariantValidationResult.Invalid -> PlayerResolutionOutcome.Rejected(
+                PlayerResolutionRejection.create(
+                    PlayerResolutionRejectionReason.DOMAIN_REJECTED,
+                    detailUid = validation.violations.first().detailUid
+                ),
+                resolutionEvidence
+            )
         }
     }
 
