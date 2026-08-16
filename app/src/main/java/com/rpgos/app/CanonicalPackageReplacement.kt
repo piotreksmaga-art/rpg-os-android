@@ -15,8 +15,8 @@ private object RealCanonicalPackageFileOps : CanonicalPackageFileOps {
 
 /**
  * Failure-atomic live package transition plus deterministic recovery for interrupted transitions.
- * Rollback/prepared siblings are transient recovery metadata only; canonical authority remains the
- * validated live target selected by CampaignSelectionManager.
+ * Rollback/prepared/failed siblings are transient recovery metadata only; canonical authority remains
+ * the validated live target selected by CampaignSelectionManager.
  */
 internal object CanonicalPackageReplacement {
     fun prepareCopy(source: File, target: File): File {
@@ -26,6 +26,28 @@ internal object CanonicalPackageReplacement {
         prepared.deleteRecursively()
         require(source.copyRecursively(prepared, overwrite = true)) { "Cannot prepare package replacement." }
         return prepared
+    }
+
+    /** Bounded discovery: inspect only direct transient siblings in one canonical package root. */
+    fun reconcileRoot(root: File, isValidPackage: (File) -> Boolean) {
+        CanonicalPackageAuthorityGate.mutate {
+            root.mkdirs()
+            val targetNames = root.listFiles().orEmpty().mapNotNull(::targetNameForRecoveryArtifact).toSortedSet()
+            targetNames.forEach { targetName ->
+                reconcileUnderGate(File(root, targetName), isValidPackage)
+            }
+        }
+    }
+
+    private fun targetNameForRecoveryArtifact(file: File): String? {
+        if (!file.name.startsWith(".")) return null
+        val body = file.name.substring(1)
+        val markers = listOf(".rollback-", ".prepared-", ".failed-")
+        val matches = markers.mapNotNull { marker ->
+            val index = body.indexOf(marker)
+            if (index > 0) body.substring(0, index) else null
+        }.distinct()
+        return matches.singleOrNull()
     }
 
     fun reconcile(target: File, isValidPackage: (File) -> Boolean) {
@@ -48,6 +70,9 @@ internal object CanonicalPackageReplacement {
         val prepared = parent.listFiles()
             ?.filter { it.name.startsWith(".${target.name}.prepared-") && it !in ignoredPrepared }
             .orEmpty()
+        val failed = parent.listFiles()
+            ?.filter { it.name.startsWith(".${target.name}.failed-") }
+            .orEmpty()
 
         fun valid(file: File): Boolean = file.isDirectory && runCatching { isValidPackage(file) }.getOrDefault(false)
         fun cleanup(files: List<File>) {
@@ -59,7 +84,7 @@ internal object CanonicalPackageReplacement {
         }
 
         if (target.exists() && valid(target)) {
-            cleanup(rollbacks + prepared)
+            cleanup(rollbacks + prepared + failed)
             return
         }
 
@@ -74,7 +99,10 @@ internal object CanonicalPackageReplacement {
             validPrepared.size == 1 -> validPrepared.single()
             rollbacks.isNotEmpty() || prepared.isNotEmpty() ->
                 throw IllegalStateException("PACKAGE_REPLACEMENT_RECOVERY_NO_VALID_PACKAGE")
-            else -> return
+            else -> {
+                cleanup(failed)
+                return
+            }
         }
 
         if (target.exists() && !fileOps.deleteRecursively(target)) {
@@ -86,7 +114,7 @@ internal object CanonicalPackageReplacement {
         if (!valid(target)) {
             throw IllegalStateException("PACKAGE_REPLACEMENT_RECOVERY_RESTORED_INVALID")
         }
-        cleanup((rollbacks + prepared).filter { it != recoverySource })
+        cleanup((rollbacks + prepared + failed).filter { it != recoverySource })
     }
 
     fun activatePrepared(prepared: File, target: File) {
@@ -96,11 +124,7 @@ internal object CanonicalPackageReplacement {
         }
     }
 
-    fun activatePrepared(
-        prepared: File,
-        target: File,
-        isValidPackage: (File) -> Boolean
-    ) {
+    fun activatePrepared(prepared: File, target: File, isValidPackage: (File) -> Boolean) {
         require(prepared.isDirectory) { "Prepared package replacement is missing." }
         CanonicalPackageAuthorityGate.mutate {
             reconcileUnderGate(target, isValidPackage, ignoredPrepared = setOf(prepared))
@@ -166,19 +190,25 @@ internal object CanonicalPackageReplacement {
             require(fileOps.rename(prepared, target)) { "PACKAGE_REPLACEMENT_ACTIVATION_FAILED" }
             val result = afterActivation()
             if (backup.exists() && !fileOps.deleteRecursively(backup)) {
-                // A stale rollback sibling is safe while the canonical target is complete.
-                // Startup/reentry reconciliation removes it deterministically.
+                // Stale rollback is transient metadata; reconciliation removes it later.
             }
             return result
         } catch (activationFailure: Throwable) {
-            if (target.exists() && !fileOps.deleteRecursively(target)) {
-                throw IllegalStateException("PACKAGE_REPLACEMENT_ROLLBACK_FAILED", activationFailure)
-            }
-            if (oldMoved && backup.exists()) {
-                val restored = fileOps.rename(backup, target)
-                if (!restored) {
+            var failedNew: File? = null
+            if (target.exists()) {
+                val failed = File(target.parentFile, ".${target.name}.failed-${UUID.randomUUID()}")
+                if (!fileOps.rename(target, failed)) {
                     throw IllegalStateException("PACKAGE_REPLACEMENT_ROLLBACK_FAILED", activationFailure)
                 }
+                failedNew = failed
+            }
+            if (oldMoved && backup.exists()) {
+                if (!fileOps.rename(backup, target)) {
+                    throw IllegalStateException("PACKAGE_REPLACEMENT_ROLLBACK_FAILED", activationFailure)
+                }
+            }
+            if (failedNew != null && failedNew.exists() && !fileOps.deleteRecursively(failedNew)) {
+                throw IllegalStateException("PACKAGE_REPLACEMENT_ROLLBACK_CLEANUP_FAILED", activationFailure)
             }
             throw activationFailure
         } finally {

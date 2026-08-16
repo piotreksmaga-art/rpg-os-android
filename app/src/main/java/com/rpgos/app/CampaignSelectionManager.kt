@@ -3,6 +3,7 @@ package com.rpgos.app
 import android.content.Context
 import android.content.SharedPreferences
 import java.io.File
+import java.util.UUID
 
 internal data class CurrentWorldPackAuthority(
     val campaignUid: String,
@@ -65,7 +66,26 @@ internal class CurrentSelectionWorldPackAuthorityResolver(
     }
 }
 
-class CampaignSelectionManager(private val context: Context) {
+internal fun interface CampaignTreeCopier {
+    fun copy(source: File, target: File): Boolean
+}
+
+private object DefaultCampaignTreeCopier : CampaignTreeCopier {
+    override fun copy(source: File, target: File): Boolean =
+        source.copyRecursively(target, overwrite = false)
+}
+
+class CampaignSelectionManager private constructor(
+    private val context: Context,
+    private val campaignTreeCopier: CampaignTreeCopier
+) {
+    constructor(context: Context) : this(context, DefaultCampaignTreeCopier)
+
+    internal constructor(
+        context: Context,
+        campaignTreeCopier: (File, File) -> Boolean
+    ) : this(context, CampaignTreeCopier(campaignTreeCopier))
+
     private val prefs = context.getSharedPreferences("rpgos_selection", Context.MODE_PRIVATE)
     private val root = File(context.filesDir, "rpgos")
     private val saves = File(root, "saves")
@@ -144,18 +164,43 @@ class CampaignSelectionManager(private val context: Context) {
         val safe = name.trim().replace(Regex("[^A-Za-z0-9_-]"), "_")
         require(safe.isNotBlank()) { "Nazwa kampanii jest pusta." }
         val source = File(saves, fromCampaignDirName)
-        require(source.isDirectory) { "Brak szablonu kampanii." }
         val target = File(saves, "$safe.campaign")
-        require(!target.exists()) { "Kampania już istnieje." }
-        source.copyRecursively(target, overwrite = false)
-        File(target, "backups").mkdirs()
+        val staging = File(saves, ".clone-$safe-${UUID.randomUUID()}")
 
-        // A cloned campaign must receive its own logical identity instead of
-        // silently inheriting the template campaign ID.
-        rewriteClonedCampaignManifestId(target, ActiveCampaignRef.fallbackCampaignId(target.name))
+        try {
+            // Snapshot one coherent source generation. Supported campaign replacement/import writers
+            // use the write side of this same gate, so they cannot interleave with the directory copy.
+            CanonicalPackageAuthorityGate.observe {
+                require(source.isDirectory) { "Brak szablonu kampanii." }
+                require(!target.exists()) { "Kampania już istnieje." }
+                check(campaignTreeCopier.copy(source, staging)) { "CAMPAIGN_CLONE_COPY_FAILED" }
+            }
 
-        setActiveCampaign(target.name)
-        return target
+            File(staging, "backups").mkdirs()
+
+            // A cloned campaign must receive its own logical identity instead of silently inheriting
+            // the template campaign ID. Validation after the rewrite is the acceptance boundary.
+            rewriteClonedCampaignManifestId(staging, ActiveCampaignRef.fallbackCampaignId(target.name))
+            val validation = runCatching { PackageValidator().validateCampaign(staging) }
+                .getOrElse { throw IllegalStateException("CAMPAIGN_CLONE_VALIDATION_FAILED", it) }
+            check(validation.ok) { "CAMPAIGN_CLONE_VALIDATION_FAILED: ${validation.message}" }
+
+            CanonicalPackageAuthorityGate.mutate {
+                require(!target.exists()) { "Kampania już istnieje." }
+                check(staging.renameTo(target)) { "CAMPAIGN_CLONE_ACTIVATION_FAILED" }
+                val ref = ActiveCampaignRef.resolve(saves, target.name)
+                prefs.edit()
+                    .putString("active_campaign", ref.directoryName)
+                    .putString("active_campaign_id", ref.campaignId)
+                    .apply()
+            }
+            return target
+        } catch (t: Throwable) {
+            // Staging is never authority. A failed/incomplete clone must not survive as a selectable
+            // canonical package and must never become active.
+            if (staging.exists()) staging.deleteRecursively()
+            throw t
+        }
     }
 
     private fun rewriteClonedCampaignManifestId(campaignDir: File, campaignId: String) {
