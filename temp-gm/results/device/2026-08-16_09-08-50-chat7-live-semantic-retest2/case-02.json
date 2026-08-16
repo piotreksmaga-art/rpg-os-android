@@ -1,0 +1,21 @@
+{
+  "case": 2,
+  "name": "CASE_02_OBSERVATION_ONLY",
+  "playerDeclaration": "Stoję przed zamkniętymi drzwiami.\nObserwuję je i czekam.\nOpisz, co widzę i co dzieje się wokół mnie.",
+  "http": 200,
+  "elapsedSeconds": 40.9219346089958,
+  "error": null,
+  "modelOutput": "**TEST_FAILURE:** \n\n**NARRATIVE:**\nWidzisz jedynie zamknięte, drewniane drzwi prowadzące do nieznanego pomieszczenia.\nWokół panuje cisza, przerywana jedynie przez delikatne echo twojego oddechu.\n\n**TEST_FAILURE:** \n\n**NARRATIVE:**\nPo chwili ciszy, w oddali rozbrzmiewa ciche skrzypienie kroków.\nOdgłosy zbliżają się, kierując się w stronę zamkniętych drzwi.\n\n**TEST_FAILURE:** \n\n**NARRATIVE:**\nPo kilku minutach oczekiwania, drzwi zaczynają drżeć delikatnie w swojej zawiasach.\nNie jest to nagłe zjawisko, ale wyczuwalne wibracje, które mogą zapowiadać coś więcej.\n\n**TEST_FAILURE:** \n\n**NARRATIVE:**\nGdy twoje oczy przyzwyczajają się do panującego półmroku, dostrzegasz w głębi drzwi zarys czegoś, co przypomina ludzką sylwetkę.\nWidzisz jedynie jej cień, ale czujesz, że nie jest to przyjazne widmo.\n\n**TEST_FAILURE:** \n\n**NARRATIVE:**\nW miarę upływu czasu, w oddali rozbrzmiewa narastający szum, przypominający szum wiatru.\nDźwięki te stają się coraz głośniejsze, a w ich rytmie wyczuwasz niepokój.",
+  "providerId": "BIELIK_4_5B_V3",
+  "canonicalMutation": false,
+  "promptTokens": 1056,
+  "outputTokens": 300,
+  "effectiveOutputTokPerSec": 7.331031703815183,
+  "naturalStop": true,
+  "maxTokenStop": false,
+  "forbiddenContractFieldsPresent": [],
+  "internalLeakMarkers": [
+    "test_failure"
+  ],
+  "inventedAbilityMarkers": []
+}

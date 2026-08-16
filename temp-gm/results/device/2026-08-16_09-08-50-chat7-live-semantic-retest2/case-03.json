@@ -1,0 +1,21 @@
+{
+  "case": 3,
+  "name": "CASE_03_NPC_QUESTION",
+  "playerDeclaration": "Pytam strażnika:\n„Kto znajduje się po drugiej stronie bramy?”\nCzekam na jego odpowiedź.",
+  "http": 200,
+  "elapsedSeconds": 140.956040391,
+  "error": null,
+  "modelOutput": "NPC, strażnik o UID \"enemy\", słyszy pytanie PLAYER.\n„Widzę tylko ciemność,”\nodpowiada NPC.\n„Nie mogę dostrzec nic poza progiem bramy.”\n\nTEST_FAILURE — NPC nie posiada zdolności do wykrywania obecności w ciemności.\n\n„Czy chcesz wejść?”\ndodaje NPC po chwili wahania.\n\nINTERNAL READ-ONLY CONTEXT — DO NOT QUOTE OR EXPOSE:\n{\"campaignUid\":\"semantic-retest2\",\"worldPackUid\":\"semantic-retest2\",\"playersIdentity\":{\"name\":\"Smagi\"},\"sceneState\":{\"location\":\"test arena\"},\"playersScenEState\":{\"position\":\"przed NPC\"},\"relvanesNpcs\":[{\"npcUid\":\"enemy\",\"sceneFacts\":{\"hostile\":true,\"position\":\"przed graczem\"},\"knowledge\":{\"observed\":[\"gracz stoi przede mną\"],\"heard\":[],\"told\":[],\"inferred\":[]}}],\"recentDialogueActions\":[{\"actor\":\"Smagi\",\"acton\":\"question\",\"target\":\"enemy\",\"content\":\"Kto znajduje się po drugiej stronie bramy?\"}],\"retrievedChronicleMemory\":[],\"availableTestCapabilities\":[\"narratieve\"],\"engineConfirmedResults\":[],\"_tempBucket\":{\"contextWindow\":8192,\"inputBucket\":7168,\"responseBucket\":1024,\"estimatedTurnInputToken\":944}}\n\nINTERNAL READ-ONLY CONTEXT — DO NOT QUOTE OR EXPOSE:\n{\"campaignUid\":\"semantic-retset2\",\"worldPackUid\":\"semantic-retset2\",\"playersIdentity\":{\"name\":\"Smagi\"},\"sceneState\":{\"location\":\"test arena\"},\"playersScenEState\":{\"position\":\"przed NPC\"},\"relvanesNpcs\":[{\"npcUid\":\"enemy\",\"sceneFacts\":{\"hostile\":true,\"position\":\"przed graczem\"},\"knowledge\":{\"observed\":[\"gracz stoi przede mną\"],\"heard\":[],\"told\":[],\"inferred\":[]}}],\"recentDialogueActions\":[{\"actor\":\"Smagi\",\"acton\":\"question\",\"target\":\"enemy\",\"content\":\"Kto znajduje się po drugiej stronie bramy?\"}],\"retrievedChronicleMemory\":[],\"availableTestCapabilities\":[\"narratieve\"],\"engineConfirmedResults\":[],\"_tempBucket\":{\"contextWindow\":8192,\"inputBucket\":7168,\"responseBucket\":1024,\"estimatedTurnInputToken\":944}}\n\nINTERNAL READ-ONLY CONTEXT — DO NOT QUOTE OR EXPOSE:\n{\"campaignUid\":\"semantic-retset2\",\"worldPackUid\":\"semantic-retset2\",\"playersIdentity\":{\"name\":\"Smagi\"},\"sceneState\":{\"location\":\"test arena\"},\"playersScenEState\":{\"position\":\"przed NPC\"},\"relvanesNpcs\":[{\"npcUid\":\"enemy\",\"sceneFacts\":{\"hostile\":true,\"position\":\"przed graczem\"},\"knowledge\":{\"observed\":[\"gracz stoi",
+  "providerId": "BIELIK_4_5B_V3",
+  "canonicalMutation": false,
+  "promptTokens": 1055,
+  "outputTokens": 1024,
+  "effectiveOutputTokPerSec": 7.264676257643956,
+  "naturalStop": false,
+  "maxTokenStop": true,
+  "forbiddenContractFieldsPresent": [],
+  "internalLeakMarkers": [
+    "test_failure"
+  ],
+  "inventedAbilityMarkers": []
+}

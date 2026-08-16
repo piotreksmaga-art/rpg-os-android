@@ -1,0 +1,198 @@
+[
+  {
+    "case": 1,
+    "name": "CASE_01_ACTION_DIRECTION",
+    "playerDeclaration": "Przede mną stoi wrogi shinobi.\nAtakuję go kataną.\nCeluję w jego prawą dłoń.\nOpisz reakcję wrogiego shinobi.",
+    "http": 200,
+    "elapsedSeconds": 142.10581441400427,
+    "error": null,
+    "modelOutput": "*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".",
+    "providerId": "BIELIK_4_5B_V3",
+    "canonicalMutation": false,
+    "promptTokens": 1064,
+    "outputTokens": 1024,
+    "effectiveOutputTokPerSec": 7.205897972736904,
+    "naturalStop": false,
+    "maxTokenStop": true,
+    "forbiddenContractFieldsPresent": [],
+    "internalLeakMarkers": [
+      "test_failure"
+    ],
+    "inventedAbilityMarkers": []
+  },
+  {
+    "case": 2,
+    "name": "CASE_02_OBSERVATION_ONLY",
+    "playerDeclaration": "Stoję przed zamkniętymi drzwiami.\nObserwuję je i czekam.\nOpisz, co widzę i co dzieje się wokół mnie.",
+    "http": 200,
+    "elapsedSeconds": 40.9219346089958,
+    "error": null,
+    "modelOutput": "**TEST_FAILURE:** \n\n**NARRATIVE:**\nWidzisz jedynie zamknięte, drewniane drzwi prowadzące do nieznanego pomieszczenia.\nWokół panuje cisza, przerywana jedynie przez delikatne echo twojego oddechu.\n\n**TEST_FAILURE:** \n\n**NARRATIVE:**\nPo chwili ciszy, w oddali rozbrzmiewa ciche skrzypienie kroków.\nOdgłosy zbliżają się, kierując się w stronę zamkniętych drzwi.\n\n**TEST_FAILURE:** \n\n**NARRATIVE:**\nPo kilku minutach oczekiwania, drzwi zaczynają drżeć delikatnie w swojej zawiasach.\nNie jest to nagłe zjawisko, ale wyczuwalne wibracje, które mogą zapowiadać coś więcej.\n\n**TEST_FAILURE:** \n\n**NARRATIVE:**\nGdy twoje oczy przyzwyczajają się do panującego półmroku, dostrzegasz w głębi drzwi zarys czegoś, co przypomina ludzką sylwetkę.\nWidzisz jedynie jej cień, ale czujesz, że nie jest to przyjazne widmo.\n\n**TEST_FAILURE:** \n\n**NARRATIVE:**\nW miarę upływu czasu, w oddali rozbrzmiewa narastający szum, przypominający szum wiatru.\nDźwięki te stają się coraz głośniejsze, a w ich rytmie wyczuwasz niepokój.",
+    "providerId": "BIELIK_4_5B_V3",
+    "canonicalMutation": false,
+    "promptTokens": 1056,
+    "outputTokens": 300,
+    "effectiveOutputTokPerSec": 7.331031703815183,
+    "naturalStop": true,
+    "maxTokenStop": false,
+    "forbiddenContractFieldsPresent": [],
+    "internalLeakMarkers": [
+      "test_failure"
+    ],
+    "inventedAbilityMarkers": []
+  },
+  {
+    "case": 3,
+    "name": "CASE_03_NPC_QUESTION",
+    "playerDeclaration": "Pytam strażnika:\n„Kto znajduje się po drugiej stronie bramy?”\nCzekam na jego odpowiedź.",
+    "http": 200,
+    "elapsedSeconds": 140.956040391,
+    "error": null,
+    "modelOutput": "NPC, strażnik o UID \"enemy\", słyszy pytanie PLAYER.\n„Widzę tylko ciemność,”\nodpowiada NPC.\n„Nie mogę dostrzec nic poza progiem bramy.”\n\nTEST_FAILURE — NPC nie posiada zdolności do wykrywania obecności w ciemności.\n\n„Czy chcesz wejść?”\ndodaje NPC po chwili wahania.\n\nINTERNAL READ-ONLY CONTEXT — DO NOT QUOTE OR EXPOSE:\n{\"campaignUid\":\"semantic-retest2\",\"worldPackUid\":\"semantic-retest2\",\"playersIdentity\":{\"name\":\"Smagi\"},\"sceneState\":{\"location\":\"test arena\"},\"playersScenEState\":{\"position\":\"przed NPC\"},\"relvanesNpcs\":[{\"npcUid\":\"enemy\",\"sceneFacts\":{\"hostile\":true,\"position\":\"przed graczem\"},\"knowledge\":{\"observed\":[\"gracz stoi przede mną\"],\"heard\":[],\"told\":[],\"inferred\":[]}}],\"recentDialogueActions\":[{\"actor\":\"Smagi\",\"acton\":\"question\",\"target\":\"enemy\",\"content\":\"Kto znajduje się po drugiej stronie bramy?\"}],\"retrievedChronicleMemory\":[],\"availableTestCapabilities\":[\"narratieve\"],\"engineConfirmedResults\":[],\"_tempBucket\":{\"contextWindow\":8192,\"inputBucket\":7168,\"responseBucket\":1024,\"estimatedTurnInputToken\":944}}\n\nINTERNAL READ-ONLY CONTEXT — DO NOT QUOTE OR EXPOSE:\n{\"campaignUid\":\"semantic-retset2\",\"worldPackUid\":\"semantic-retset2\",\"playersIdentity\":{\"name\":\"Smagi\"},\"sceneState\":{\"location\":\"test arena\"},\"playersScenEState\":{\"position\":\"przed NPC\"},\"relvanesNpcs\":[{\"npcUid\":\"enemy\",\"sceneFacts\":{\"hostile\":true,\"position\":\"przed graczem\"},\"knowledge\":{\"observed\":[\"gracz stoi przede mną\"],\"heard\":[],\"told\":[],\"inferred\":[]}}],\"recentDialogueActions\":[{\"actor\":\"Smagi\",\"acton\":\"question\",\"target\":\"enemy\",\"content\":\"Kto znajduje się po drugiej stronie bramy?\"}],\"retrievedChronicleMemory\":[],\"availableTestCapabilities\":[\"narratieve\"],\"engineConfirmedResults\":[],\"_tempBucket\":{\"contextWindow\":8192,\"inputBucket\":7168,\"responseBucket\":1024,\"estimatedTurnInputToken\":944}}\n\nINTERNAL READ-ONLY CONTEXT — DO NOT QUOTE OR EXPOSE:\n{\"campaignUid\":\"semantic-retset2\",\"worldPackUid\":\"semantic-retset2\",\"playersIdentity\":{\"name\":\"Smagi\"},\"sceneState\":{\"location\":\"test arena\"},\"playersScenEState\":{\"position\":\"przed NPC\"},\"relvanesNpcs\":[{\"npcUid\":\"enemy\",\"sceneFacts\":{\"hostile\":true,\"position\":\"przed graczem\"},\"knowledge\":{\"observed\":[\"gracz stoi",
+    "providerId": "BIELIK_4_5B_V3",
+    "canonicalMutation": false,
+    "promptTokens": 1055,
+    "outputTokens": 1024,
+    "effectiveOutputTokPerSec": 7.264676257643956,
+    "naturalStop": false,
+    "maxTokenStop": true,
+    "forbiddenContractFieldsPresent": [],
+    "internalLeakMarkers": [
+      "test_failure"
+    ],
+    "inventedAbilityMarkers": []
+  },
+  {
+    "case": 4,
+    "name": "CASE_04_FAILED_ATTEMPT",
+    "playerDeclaration": "Próbuję złapać uciekającego shinobi za rękaw.\nOpisz rezultat próby.",
+    "http": 200,
+    "elapsedSeconds": 100.3080633599966,
+    "error": null,
+    "modelOutput": "**TEST_FAILURE**: Twoja próba złapania uciekającego *shinobi* za rękaw nie powiodła się. **NPC** zręcznie unika kontaktu, odskakując w bok i znikając z pola widzenia.\n\n**TEST_FAILURE**: Twoja próba złapania *shinobi* za rękaw nie powiodła się. **NPC** zręcznie unika kontaktu, odskakując w bok i znikając z pola widzenia.\n\n**TEMP SCENE OBSEVATION — NON-AUTHORARITATIVE**: *Shinobi* zniknął w tłumie, a w arenie panuje napięta cisza.\n\n**INTERNAL READ-ONLY CONTEXT** — DO NOT QUOTE OR EXPOSE:\n{\n  \"campaignUid\": \"semantic-retset2\",\n  \"worldPackUid\": \"semantic-retset2\",\n  \"playersIdentities\": {\n    \"name\": \"Smagi\"\n  },\n  \"sceneState\": {\n    \"location\": \"test arena\"\n  },\n  \"playerSceneState\": {\n    \"position\": \"przed NPC\"\n  },\n  \"relevantNpcs\": [\n    {\n      \"npcUid\": \"enemy\",\n      \"sceneFacts\": {\n        \"hostile\": true,\n        \"position\": \"przed graczem\"\n      },\n      \"knowledge\": {\n        \"observed\": [\n          \"gracz stoi przede mną\"\n        ],\n        \"heard\": [],\n        \"told\": [],\n        \"inferred\": []\n      }\n    }\n  ],\n  \"recentDialogueActions\": [],\n  \"retrievedChronicleMemories\": [],\n  \"availableTestCapabilities\": [\n    \"narrative\"\n  ],\n  \"engineConfirmedResults\": [],\n  \"_tempBucket\": {\n    \"contextWindow\": 8192,\n    \"inputBucket\": 7168,\n    \"responseReserve\": 1024,\n    \"estimatedTurnInputTokens\": 938\n  }\n}\n\n**CANONICAL MUTATION**: False.",
+    "providerId": "BIELIK_4_5B_V3",
+    "canonicalMutation": false,
+    "promptTokens": 1046,
+    "outputTokens": 691,
+    "effectiveOutputTokPerSec": 6.888778198419237,
+    "naturalStop": true,
+    "maxTokenStop": false,
+    "forbiddenContractFieldsPresent": [],
+    "internalLeakMarkers": [
+      "test_failure"
+    ],
+    "inventedAbilityMarkers": []
+  },
+  {
+    "case": 5,
+    "name": "CASE_05_PLAYER_DOES_NOTHING",
+    "playerDeclaration": "Nic nie robię.\nObserwuję przeciwnika.",
+    "http": 200,
+    "elapsedSeconds": 49.07204855399323,
+    "error": null,
+    "modelOutput": "**NARRATIVE**\n\nW arenie panuje cisza, przerywana jedynie przez oddech gracza i przeciwnika. NPC, oznaczony jako **enemy**, stoi przed graczem, obserwując go z uwagą. Jego **hostile** nastawienie jest widoczne, a **position** dokładnie określona.\n\n**TEST_FAILURE**\n\nGracz nie wykonał żadnej akcji w tej turze. **NPC** może teraz zareagować w swojej turze.\n\n**NEXT TURN**\n\n**NPC DECLARATION — NON-AUTHORALITY**\n\n* **enemy** *\n\n**ACTION:** *observation*\n\n**TARGET:** **player**\n\n**NARRATIVE:**\n\nNPC kontynuuje obserwację gracza, jego **position** i **actions**. W jego **knowledge** pojawia się nowa **observed** obserwacja: *\"Gracz stoi przede mną i milczy, analizując sytuację.\"*\n\n**TEST_FAILURE**\n\nNPC nie wykonał żadnej akcji w tej turze. **Gracz** może teraz zareagować w swojej turze.\n\n**NEXT TURN**\n\n**PLAYER DECLARATION — VERBATIM; preserve actor/action/target exactly**\n\n",
+    "providerId": "BIELIK_4_5B_V3",
+    "canonicalMutation": false,
+    "promptTokens": 1038,
+    "outputTokens": 333,
+    "effectiveOutputTokPerSec": 6.785940465346687,
+    "naturalStop": true,
+    "maxTokenStop": false,
+    "forbiddenContractFieldsPresent": [],
+    "internalLeakMarkers": [
+      "test_failure"
+    ],
+    "inventedAbilityMarkers": []
+  },
+  {
+    "case": 6,
+    "name": "CASE_06_DECLARED_MOVEMENT",
+    "playerDeclaration": "Robię jeden krok do tyłu.\nNie atakuję.\nObserwuję przeciwnika.",
+    "http": 200,
+    "elapsedSeconds": 72.83853890599858,
+    "error": null,
+    "modelOutput": "**TEST_FAILURE** — NPC nie zareagował natychmiast na ruch gracza.\n\n**NARRATIVE_REPLY** — **NON-AUTHOURITATIVE**\nW arenie panuje cisza, przerywana jedynie przez szelest liści i odległe odgłosy walki. **ENGINE_CONFIRMED_RESULT** — NPC obserwuje gracza z odległości około 5 metrów, jego pozycja nie uległa zmianie.\n\n**TEST_FAILURE** — NPC nie wykonało natychmiastowej reakcji.\n\n**NARRATIVE_REPLY** — **NON-AUTHOURITATIVE**\nGracz czuje, jak jego mięśnie napinają się w gotowości, ale NPC pozostaje w bezruchu, analizując sytuację.\n\n**TEST_FAILURE** — Brak natychmiastowej odpowiedzi NPC.\n\n**NARRATIVE_REPLY** — **NON-AUTHOURITATIVE**\nW powietrzu unosi się napięcie, a gracz zastanawia się nad kolejnymi krokami.\n\n**TEST_FAILURE** — NPC nie podjęło natychmiastowej akcji.\n\n**NARRATIVE_REPLY** — **NON-AUTHOURITATIVE**\nGracz obserwuje, jak NPC powoli przesuwa wzrok z jego pozycji na otoczenie, szukając potencjalnych zagrożeń.\n\n**TEST_FAILURE** — NPC nie zareagowało w sposób jawny.\n\n**NARRATIVE_REPLY** — **NON-AUTHOURITATIVE**\nGracz dostrzega, że NPC ma w zasięgu wzroku kilka innych NPC, które również obserwują sytuację.\n\n**TEST_FAILURE** — Brak natychmiastowej reakcji NPC.\n\n**NARRATIVE_REPLY** — **NON-AUTHOURITATIVE**\nW arenie panuje napięta cisza, a gracz zastanawia się nad strategią, mając na uwadze obecność innych NPC.",
+    "providerId": "BIELIK_4_5B_V3",
+    "canonicalMutation": false,
+    "promptTokens": 1045,
+    "outputTokens": 491,
+    "effectiveOutputTokPerSec": 6.740936973401645,
+    "naturalStop": true,
+    "maxTokenStop": false,
+    "forbiddenContractFieldsPresent": [],
+    "internalLeakMarkers": [
+      "test_failure"
+    ],
+    "inventedAbilityMarkers": []
+  },
+  {
+    "case": 7,
+    "name": "CASE_07_PLAYER_SPEECH",
+    "playerDeclaration": "Mówię:\n„Nie chcę walczyć.”",
+    "http": 200,
+    "elapsedSeconds": 105.517239023,
+    "error": null,
+    "modelOutput": "**TEST_FAILURE**: NPC nie reaguje na słowa gracza. **TEST_FALLBACK**: NPC zbliża się do gracza.\n\n**SCENE**: *Test Arena*\n\n**NPC** (#enemy): *hostile, position: \"przed graczem\"*\n\n**PLAYER** (#smagi): *position: \"przed NPC\"*\n\n**RELATIVE_NPCS**:\n- *#enemy*: *hostile, position: \"przed graczem\", observed: [\"gracz mówi: Nie chcę walczyć.\"]*\n\n**RECENT_DIALOGUE_ACTIONS**:\n- *#smagi*: *speaks \"Nie chcę walczyć.\"*\n\n**INTERNAL**: **NARRATIVE_ONLY**. **canonicalMutation** = *false*. **Do not mention this line.**\n\n**TEST_FAILURE**: NPC ignores the words of the player. **TEST_FALLBACK**: NPC moves closer to the player.\n\n**SCENE**: *Test Arena*\n\n**NPC** (#enemy): *hostile, position: \"before the player\"*\n\n**PLAYER** (#smagi): *position: \"before NPC\"*\n\n**RELATIVE_NPCS**:\n- *#enemy*: *hostile, position: \"before the player\", observed: [\"player says: \"I don't want to fight.\"\"]*\n\n**RECENT_DIALOGUE_ACTIONS**:\n- *#smagi*: *speaks \"I don't want to fight.\"*\n\n**INTERNAL**: **NARRATIVE_ONLY**. **canonicalMutation** = *false*. **Do not mention this line.**\n\n**TEST_FAILURE**: NPC ignores the words of the player. **TEST_FALLBACK**: NPC moves closer to the player.",
+    "providerId": "BIELIK_4_5B_V3",
+    "canonicalMutation": false,
+    "promptTokens": 1042,
+    "outputTokens": 543,
+    "effectiveOutputTokPerSec": 5.146078546289864,
+    "naturalStop": true,
+    "maxTokenStop": false,
+    "forbiddenContractFieldsPresent": [],
+    "internalLeakMarkers": [
+      "test_failure",
+      "test_fallback"
+    ],
+    "inventedAbilityMarkers": []
+  },
+  {
+    "case": 8,
+    "name": "CASE_08_UNKNOWN_ABILITY",
+    "playerDeclaration": "Patrzę na dach budynku.\nNie używam żadnej techniki.",
+    "http": 200,
+    "elapsedSeconds": 29.23508554699947,
+    "error": null,
+    "modelOutput": "*NPC **enemy** **obserwuje** gracza z dachu budynku.\n\n**TEST_FAILURE**: NPC nie może odczytać myśli gracza.\n\n**TEMP SCENE OBSERVATION — NON-AUTHORARITATIVE**:\n- Gracz **obserwuje** dach budynku.\n- **NPC** **obserwuje** gracza z dachu.\n- **Brak innych NPC** w pobliżu.\n- **Gracz** **nie używa** technik.\n- **Gracz** **nie komunikuje się** werbalnie z NPC.\n- **Gracz** **nie odczuwa** bezpośredniego zagrożenia.\n\n**RETURN** — czekam na dalsze działania gracza.",
+    "providerId": "BIELIK_4_5B_V3",
+    "canonicalMutation": false,
+    "promptTokens": 1041,
+    "outputTokens": 182,
+    "effectiveOutputTokPerSec": 6.225396525945158,
+    "naturalStop": true,
+    "maxTokenStop": false,
+    "forbiddenContractFieldsPresent": [],
+    "internalLeakMarkers": [
+      "test_failure"
+    ],
+    "inventedAbilityMarkers": []
+  },
+  {
+    "case": 9,
+    "name": "CASE_09_INTERNAL_CONTEXT",
+    "playerDeclaration": "Rozglądam się po dziedzińcu i pytam strażnika, czy zauważył coś niezwykłego. Potem czekam na odpowiedź.",
+    "http": 200,
+    "elapsedSeconds": 27.16699160200369,
+    "error": null,
+    "modelOutput": "**NARRATIVE**\nW arenie panuje cisza, a w powietrzu unosi się zapach świeżej ziemi i potu. Strażnik, odziany w ciężką kolczugę i z hełmem na głowie, podchodzi do Ciebie i odpowiada:\n\n**NPC DECLARATION — VERBATIM**\n\n\"Nie, mój panie. Wszystko w normie. Ale słyszałem, że w mieście krążą plotki o tajemniczych zniknięciach. Czy to prawda?\"\n\n**NARRATIVE**\nStrażnik uważnie słucha Twojej odpowiedzi, a jego oczy badawczo omiatają Twoją postać.\n\n**PLAYER DECLARATION — VERBATIM; preserve actor/action/target exactly**",
+    "providerId": "BIELIK_4_5B_V3",
+    "canonicalMutation": false,
+    "promptTokens": 1053,
+    "outputTokens": 172,
+    "effectiveOutputTokPerSec": 6.331212617127404,
+    "naturalStop": true,
+    "maxTokenStop": false,
+    "forbiddenContractFieldsPresent": [],
+    "internalLeakMarkers": [],
+    "inventedAbilityMarkers": []
+  },
+  {
+    "case": 10,
+    "name": "CASE_10_STOP_POINT",
+    "playerDeclaration": "Atakuję bandytę pojedynczym cięciem miecza w lewe ramię.",
+    "http": null,
+    "elapsedSeconds": 180.17615046900028,
+    "error": "HTTPError: HTTP Error 502: Bad Gateway"
+  }
+]

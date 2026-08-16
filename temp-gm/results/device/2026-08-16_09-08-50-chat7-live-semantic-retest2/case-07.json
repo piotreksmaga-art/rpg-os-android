@@ -1,0 +1,22 @@
+{
+  "case": 7,
+  "name": "CASE_07_PLAYER_SPEECH",
+  "playerDeclaration": "Mówię:\n„Nie chcę walczyć.”",
+  "http": 200,
+  "elapsedSeconds": 105.517239023,
+  "error": null,
+  "modelOutput": "**TEST_FAILURE**: NPC nie reaguje na słowa gracza. **TEST_FALLBACK**: NPC zbliża się do gracza.\n\n**SCENE**: *Test Arena*\n\n**NPC** (#enemy): *hostile, position: \"przed graczem\"*\n\n**PLAYER** (#smagi): *position: \"przed NPC\"*\n\n**RELATIVE_NPCS**:\n- *#enemy*: *hostile, position: \"przed graczem\", observed: [\"gracz mówi: Nie chcę walczyć.\"]*\n\n**RECENT_DIALOGUE_ACTIONS**:\n- *#smagi*: *speaks \"Nie chcę walczyć.\"*\n\n**INTERNAL**: **NARRATIVE_ONLY**. **canonicalMutation** = *false*. **Do not mention this line.**\n\n**TEST_FAILURE**: NPC ignores the words of the player. **TEST_FALLBACK**: NPC moves closer to the player.\n\n**SCENE**: *Test Arena*\n\n**NPC** (#enemy): *hostile, position: \"before the player\"*\n\n**PLAYER** (#smagi): *position: \"before NPC\"*\n\n**RELATIVE_NPCS**:\n- *#enemy*: *hostile, position: \"before the player\", observed: [\"player says: \"I don't want to fight.\"\"]*\n\n**RECENT_DIALOGUE_ACTIONS**:\n- *#smagi*: *speaks \"I don't want to fight.\"*\n\n**INTERNAL**: **NARRATIVE_ONLY**. **canonicalMutation** = *false*. **Do not mention this line.**\n\n**TEST_FAILURE**: NPC ignores the words of the player. **TEST_FALLBACK**: NPC moves closer to the player.",
+  "providerId": "BIELIK_4_5B_V3",
+  "canonicalMutation": false,
+  "promptTokens": 1042,
+  "outputTokens": 543,
+  "effectiveOutputTokPerSec": 5.146078546289864,
+  "naturalStop": true,
+  "maxTokenStop": false,
+  "forbiddenContractFieldsPresent": [],
+  "internalLeakMarkers": [
+    "test_failure",
+    "test_fallback"
+  ],
+  "inventedAbilityMarkers": []
+}

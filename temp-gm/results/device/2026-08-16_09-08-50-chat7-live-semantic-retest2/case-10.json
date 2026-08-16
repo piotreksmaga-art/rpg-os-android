@@ -1,0 +1,8 @@
+{
+  "case": 10,
+  "name": "CASE_10_STOP_POINT",
+  "playerDeclaration": "Atakuję bandytę pojedynczym cięciem miecza w lewe ramię.",
+  "http": null,
+  "elapsedSeconds": 180.17615046900028,
+  "error": "HTTPError: HTTP Error 502: Bad Gateway"
+}

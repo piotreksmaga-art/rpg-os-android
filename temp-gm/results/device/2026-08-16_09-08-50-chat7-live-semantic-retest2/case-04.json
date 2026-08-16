@@ -1,0 +1,21 @@
+{
+  "case": 4,
+  "name": "CASE_04_FAILED_ATTEMPT",
+  "playerDeclaration": "Próbuję złapać uciekającego shinobi za rękaw.\nOpisz rezultat próby.",
+  "http": 200,
+  "elapsedSeconds": 100.3080633599966,
+  "error": null,
+  "modelOutput": "**TEST_FAILURE**: Twoja próba złapania uciekającego *shinobi* za rękaw nie powiodła się. **NPC** zręcznie unika kontaktu, odskakując w bok i znikając z pola widzenia.\n\n**TEST_FAILURE**: Twoja próba złapania *shinobi* za rękaw nie powiodła się. **NPC** zręcznie unika kontaktu, odskakując w bok i znikając z pola widzenia.\n\n**TEMP SCENE OBSEVATION — NON-AUTHORARITATIVE**: *Shinobi* zniknął w tłumie, a w arenie panuje napięta cisza.\n\n**INTERNAL READ-ONLY CONTEXT** — DO NOT QUOTE OR EXPOSE:\n{\n  \"campaignUid\": \"semantic-retset2\",\n  \"worldPackUid\": \"semantic-retset2\",\n  \"playersIdentities\": {\n    \"name\": \"Smagi\"\n  },\n  \"sceneState\": {\n    \"location\": \"test arena\"\n  },\n  \"playerSceneState\": {\n    \"position\": \"przed NPC\"\n  },\n  \"relevantNpcs\": [\n    {\n      \"npcUid\": \"enemy\",\n      \"sceneFacts\": {\n        \"hostile\": true,\n        \"position\": \"przed graczem\"\n      },\n      \"knowledge\": {\n        \"observed\": [\n          \"gracz stoi przede mną\"\n        ],\n        \"heard\": [],\n        \"told\": [],\n        \"inferred\": []\n      }\n    }\n  ],\n  \"recentDialogueActions\": [],\n  \"retrievedChronicleMemories\": [],\n  \"availableTestCapabilities\": [\n    \"narrative\"\n  ],\n  \"engineConfirmedResults\": [],\n  \"_tempBucket\": {\n    \"contextWindow\": 8192,\n    \"inputBucket\": 7168,\n    \"responseReserve\": 1024,\n    \"estimatedTurnInputTokens\": 938\n  }\n}\n\n**CANONICAL MUTATION**: False.",
+  "providerId": "BIELIK_4_5B_V3",
+  "canonicalMutation": false,
+  "promptTokens": 1046,
+  "outputTokens": 691,
+  "effectiveOutputTokPerSec": 6.888778198419237,
+  "naturalStop": true,
+  "maxTokenStop": false,
+  "forbiddenContractFieldsPresent": [],
+  "internalLeakMarkers": [
+    "test_failure"
+  ],
+  "inventedAbilityMarkers": []
+}

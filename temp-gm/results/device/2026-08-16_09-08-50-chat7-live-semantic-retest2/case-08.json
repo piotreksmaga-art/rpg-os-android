@@ -1,0 +1,21 @@
+{
+  "case": 8,
+  "name": "CASE_08_UNKNOWN_ABILITY",
+  "playerDeclaration": "Patrzę na dach budynku.\nNie używam żadnej techniki.",
+  "http": 200,
+  "elapsedSeconds": 29.23508554699947,
+  "error": null,
+  "modelOutput": "*NPC **enemy** **obserwuje** gracza z dachu budynku.\n\n**TEST_FAILURE**: NPC nie może odczytać myśli gracza.\n\n**TEMP SCENE OBSERVATION — NON-AUTHORARITATIVE**:\n- Gracz **obserwuje** dach budynku.\n- **NPC** **obserwuje** gracza z dachu.\n- **Brak innych NPC** w pobliżu.\n- **Gracz** **nie używa** technik.\n- **Gracz** **nie komunikuje się** werbalnie z NPC.\n- **Gracz** **nie odczuwa** bezpośredniego zagrożenia.\n\n**RETURN** — czekam na dalsze działania gracza.",
+  "providerId": "BIELIK_4_5B_V3",
+  "canonicalMutation": false,
+  "promptTokens": 1041,
+  "outputTokens": 182,
+  "effectiveOutputTokPerSec": 6.225396525945158,
+  "naturalStop": true,
+  "maxTokenStop": false,
+  "forbiddenContractFieldsPresent": [],
+  "internalLeakMarkers": [
+    "test_failure"
+  ],
+  "inventedAbilityMarkers": []
+}

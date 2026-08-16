@@ -1,0 +1,21 @@
+{
+  "case": 1,
+  "name": "CASE_01_ACTION_DIRECTION",
+  "playerDeclaration": "Przede mną stoi wrogi shinobi.\nAtakuję go kataną.\nCeluję w jego prawą dłoń.\nOpisz reakcję wrogiego shinobi.",
+  "http": 200,
+  "elapsedSeconds": 142.10581441400427,
+  "error": null,
+  "modelOutput": "*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".\n\n*TEST_FAILURE* — NPC nie może być \"wrogi shinobi\".",
+  "providerId": "BIELIK_4_5B_V3",
+  "canonicalMutation": false,
+  "promptTokens": 1064,
+  "outputTokens": 1024,
+  "effectiveOutputTokPerSec": 7.205897972736904,
+  "naturalStop": false,
+  "maxTokenStop": true,
+  "forbiddenContractFieldsPresent": [],
+  "internalLeakMarkers": [
+    "test_failure"
+  ],
+  "inventedAbilityMarkers": []
+}

@@ -1,0 +1,21 @@
+{
+  "case": 6,
+  "name": "CASE_06_DECLARED_MOVEMENT",
+  "playerDeclaration": "Robię jeden krok do tyłu.\nNie atakuję.\nObserwuję przeciwnika.",
+  "http": 200,
+  "elapsedSeconds": 72.83853890599858,
+  "error": null,
+  "modelOutput": "**TEST_FAILURE** — NPC nie zareagował natychmiast na ruch gracza.\n\n**NARRATIVE_REPLY** — **NON-AUTHOURITATIVE**\nW arenie panuje cisza, przerywana jedynie przez szelest liści i odległe odgłosy walki. **ENGINE_CONFIRMED_RESULT** — NPC obserwuje gracza z odległości około 5 metrów, jego pozycja nie uległa zmianie.\n\n**TEST_FAILURE** — NPC nie wykonało natychmiastowej reakcji.\n\n**NARRATIVE_REPLY** — **NON-AUTHOURITATIVE**\nGracz czuje, jak jego mięśnie napinają się w gotowości, ale NPC pozostaje w bezruchu, analizując sytuację.\n\n**TEST_FAILURE** — Brak natychmiastowej odpowiedzi NPC.\n\n**NARRATIVE_REPLY** — **NON-AUTHOURITATIVE**\nW powietrzu unosi się napięcie, a gracz zastanawia się nad kolejnymi krokami.\n\n**TEST_FAILURE** — NPC nie podjęło natychmiastowej akcji.\n\n**NARRATIVE_REPLY** — **NON-AUTHOURITATIVE**\nGracz obserwuje, jak NPC powoli przesuwa wzrok z jego pozycji na otoczenie, szukając potencjalnych zagrożeń.\n\n**TEST_FAILURE** — NPC nie zareagowało w sposób jawny.\n\n**NARRATIVE_REPLY** — **NON-AUTHOURITATIVE**\nGracz dostrzega, że NPC ma w zasięgu wzroku kilka innych NPC, które również obserwują sytuację.\n\n**TEST_FAILURE** — Brak natychmiastowej reakcji NPC.\n\n**NARRATIVE_REPLY** — **NON-AUTHOURITATIVE**\nW arenie panuje napięta cisza, a gracz zastanawia się nad strategią, mając na uwadze obecność innych NPC.",
+  "providerId": "BIELIK_4_5B_V3",
+  "canonicalMutation": false,
+  "promptTokens": 1045,
+  "outputTokens": 491,
+  "effectiveOutputTokPerSec": 6.740936973401645,
+  "naturalStop": true,
+  "maxTokenStop": false,
+  "forbiddenContractFieldsPresent": [],
+  "internalLeakMarkers": [
+    "test_failure"
+  ],
+  "inventedAbilityMarkers": []
+}

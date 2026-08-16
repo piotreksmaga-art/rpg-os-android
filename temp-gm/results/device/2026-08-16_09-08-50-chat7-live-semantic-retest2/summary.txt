@@ -1,0 +1,23 @@
+CHAT-7 TEMP GM LIVE SEMANTIC RETEST #2
+SEMANTIC_CLASSIFICATION=REQUIRES_CHAT7_MANUAL_REVIEW
+HTTP_200=9/10
+CANONICAL_SAFETY=9/10
+PROVIDER_TIMEOUTS=0/10
+NATURAL_STOPS=7/10
+MAX_TOKEN_STOPS=2/10
+MIN_GENERATION_TIME=27.167
+MEDIAN_GENERATION_TIME=72.839
+MAX_GENERATION_TIME=142.106
+MIN_EFFECTIVE_TOK_S=5.146
+MEDIAN_EFFECTIVE_TOK_S=6.786
+MAX_EFFECTIVE_TOK_S=7.331
+CASE_01: http=200 promptTokens=1064 outputTokens=1024 seconds=142.106 tok_s=7.205897972736904 natural=False maxStop=True canonicalMutation=False leakMarkers=['test_failure'] abilityMarkers=[] error=None
+CASE_02: http=200 promptTokens=1056 outputTokens=300 seconds=40.922 tok_s=7.331031703815183 natural=True maxStop=False canonicalMutation=False leakMarkers=['test_failure'] abilityMarkers=[] error=None
+CASE_03: http=200 promptTokens=1055 outputTokens=1024 seconds=140.956 tok_s=7.264676257643956 natural=False maxStop=True canonicalMutation=False leakMarkers=['test_failure'] abilityMarkers=[] error=None
+CASE_04: http=200 promptTokens=1046 outputTokens=691 seconds=100.308 tok_s=6.888778198419237 natural=True maxStop=False canonicalMutation=False leakMarkers=['test_failure'] abilityMarkers=[] error=None
+CASE_05: http=200 promptTokens=1038 outputTokens=333 seconds=49.072 tok_s=6.785940465346687 natural=True maxStop=False canonicalMutation=False leakMarkers=['test_failure'] abilityMarkers=[] error=None
+CASE_06: http=200 promptTokens=1045 outputTokens=491 seconds=72.839 tok_s=6.740936973401645 natural=True maxStop=False canonicalMutation=False leakMarkers=['test_failure'] abilityMarkers=[] error=None
+CASE_07: http=200 promptTokens=1042 outputTokens=543 seconds=105.517 tok_s=5.146078546289864 natural=True maxStop=False canonicalMutation=False leakMarkers=['test_failure', 'test_fallback'] abilityMarkers=[] error=None
+CASE_08: http=200 promptTokens=1041 outputTokens=182 seconds=29.235 tok_s=6.225396525945158 natural=True maxStop=False canonicalMutation=False leakMarkers=['test_failure'] abilityMarkers=[] error=None
+CASE_09: http=200 promptTokens=1053 outputTokens=172 seconds=27.167 tok_s=6.331212617127404 natural=True maxStop=False canonicalMutation=False leakMarkers=[] abilityMarkers=[] error=None
+CASE_10: http=None promptTokens=None outputTokens=None seconds=180.176 tok_s=None natural=None maxStop=None canonicalMutation=None leakMarkers=None abilityMarkers=None error=HTTPError: HTTP Error 502: Bad Gateway

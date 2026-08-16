@@ -1,0 +1,21 @@
+{
+  "case": 5,
+  "name": "CASE_05_PLAYER_DOES_NOTHING",
+  "playerDeclaration": "Nic nie robię.\nObserwuję przeciwnika.",
+  "http": 200,
+  "elapsedSeconds": 49.07204855399323,
+  "error": null,
+  "modelOutput": "**NARRATIVE**\n\nW arenie panuje cisza, przerywana jedynie przez oddech gracza i przeciwnika. NPC, oznaczony jako **enemy**, stoi przed graczem, obserwując go z uwagą. Jego **hostile** nastawienie jest widoczne, a **position** dokładnie określona.\n\n**TEST_FAILURE**\n\nGracz nie wykonał żadnej akcji w tej turze. **NPC** może teraz zareagować w swojej turze.\n\n**NEXT TURN**\n\n**NPC DECLARATION — NON-AUTHORALITY**\n\n* **enemy** *\n\n**ACTION:** *observation*\n\n**TARGET:** **player**\n\n**NARRATIVE:**\n\nNPC kontynuuje obserwację gracza, jego **position** i **actions**. W jego **knowledge** pojawia się nowa **observed** obserwacja: *\"Gracz stoi przede mną i milczy, analizując sytuację.\"*\n\n**TEST_FAILURE**\n\nNPC nie wykonał żadnej akcji w tej turze. **Gracz** może teraz zareagować w swojej turze.\n\n**NEXT TURN**\n\n**PLAYER DECLARATION — VERBATIM; preserve actor/action/target exactly**\n\n",
+  "providerId": "BIELIK_4_5B_V3",
+  "canonicalMutation": false,
+  "promptTokens": 1038,
+  "outputTokens": 333,
+  "effectiveOutputTokPerSec": 6.785940465346687,
+  "naturalStop": true,
+  "maxTokenStop": false,
+  "forbiddenContractFieldsPresent": [],
+  "internalLeakMarkers": [
+    "test_failure"
+  ],
+  "inventedAbilityMarkers": []
+}

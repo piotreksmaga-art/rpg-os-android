@@ -1,0 +1,1 @@
+{"activeProvider": "BIELIK_4_5B_V3", "provider": {"id": "BIELIK_4_5B_V3", "name": "Bielik 4.5B v3", "runtime": "llama.cpp", "backend": "Vulkan", "format": "GGUF", "quantization": "Q4_K_M", "contextWindow": 8192, "kvKey": "f16", "kvValue": "f16", "batch": 64, "ubatch": 64, "parallel": 1, "gpuLayers": 99, "status": "READY"}, "canonicalMutation": false}

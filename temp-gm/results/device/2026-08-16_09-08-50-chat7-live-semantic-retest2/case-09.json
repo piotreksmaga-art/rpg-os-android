@@ -1,0 +1,19 @@
+{
+  "case": 9,
+  "name": "CASE_09_INTERNAL_CONTEXT",
+  "playerDeclaration": "Rozglądam się po dziedzińcu i pytam strażnika, czy zauważył coś niezwykłego. Potem czekam na odpowiedź.",
+  "http": 200,
+  "elapsedSeconds": 27.16699160200369,
+  "error": null,
+  "modelOutput": "**NARRATIVE**\nW arenie panuje cisza, a w powietrzu unosi się zapach świeżej ziemi i potu. Strażnik, odziany w ciężką kolczugę i z hełmem na głowie, podchodzi do Ciebie i odpowiada:\n\n**NPC DECLARATION — VERBATIM**\n\n\"Nie, mój panie. Wszystko w normie. Ale słyszałem, że w mieście krążą plotki o tajemniczych zniknięciach. Czy to prawda?\"\n\n**NARRATIVE**\nStrażnik uważnie słucha Twojej odpowiedzi, a jego oczy badawczo omiatają Twoją postać.\n\n**PLAYER DECLARATION — VERBATIM; preserve actor/action/target exactly**",
+  "providerId": "BIELIK_4_5B_V3",
+  "canonicalMutation": false,
+  "promptTokens": 1053,
+  "outputTokens": 172,
+  "effectiveOutputTokPerSec": 6.331212617127404,
+  "naturalStop": true,
+  "maxTokenStop": false,
+  "forbiddenContractFieldsPresent": [],
+  "internalLeakMarkers": [],
+  "inventedAbilityMarkers": []
+}
