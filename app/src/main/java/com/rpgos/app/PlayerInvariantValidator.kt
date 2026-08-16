@@ -41,6 +41,19 @@ class PlayerInvariantSnapshot private constructor(
         ArrayList(authorizations.sortedBy { it.authorizationUid })
     )
 
+    val fingerprint: String = progressionFingerprint(
+        "PLAYER_INVARIANT_SNAPSHOT",
+        campaignUid,
+        this.authorizations.joinToString(",") {
+            progressionFingerprint(
+                "DURABLE_REGRESSION_AUTHORIZATION",
+                it.authorizationUid, it.campaignUid, it.characterUid, it.changeUid,
+                it.targetKindUid, it.targetUid, it.causeKindUid, it.causeUid,
+                it.evidenceUid, it.ruleUid, it.ruleVersion
+            )
+        }
+    )
+
     init {
         require(campaignUid.isNotBlank())
         require(this.authorizations.all { it.campaignUid == campaignUid })
@@ -56,6 +69,17 @@ class PlayerInvariantSnapshot private constructor(
             campaignUid: String,
             authorizations: List<DurableRegressionAuthorization> = emptyList()
         ) = PlayerInvariantSnapshot(campaignUid, authorizations)
+    }
+}
+
+/** Read-only boundary for obtaining one immutable validation snapshot per resolution. */
+internal fun interface PlayerInvariantSnapshotResolver {
+    fun snapshotFor(campaignUid: String, characterUid: String): PlayerInvariantSnapshot
+
+    companion object {
+        fun empty(): PlayerInvariantSnapshotResolver = PlayerInvariantSnapshotResolver { campaignUid, _ ->
+            PlayerInvariantSnapshot.create(campaignUid)
+        }
     }
 }
 
@@ -105,7 +129,7 @@ object PlayerInvariantValidator {
         is StatChange -> if (payload.delta.units < 0L) ProgressionTargetKinds.STAT to payload.statUid else null
         is SkillChange -> if (payload.progressDelta.units < 0L) ProgressionTargetKinds.SKILL to payload.skillUid else null
         is TechniqueChange -> if (payload.progressDelta.units < 0L) ProgressionTargetKinds.TECHNIQUE to payload.techniqueUid else null
-        else -> null // resources/inventory/equipment/runtime/etc. are not earned progression by sign alone
+        else -> null
     }
 
     private fun authorizationMatches(
