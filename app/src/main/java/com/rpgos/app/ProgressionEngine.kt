@@ -117,6 +117,19 @@ data class ProgressionCalculationFactor(
     )
 }
 
+internal object ProgressionCalculationFactorCanonicalOrder {
+    private val comparator: Comparator<ProgressionCalculationFactor> = compareBy<ProgressionCalculationFactor>(
+        { it.factorKindUid },
+        { it.evidenceUid },
+        { it.sourceValue.scaledUnits },
+        { it.appliedFactor.scaledUnits },
+        { it.fingerprint() }
+    )
+
+    fun canonicalize(factors: List<ProgressionCalculationFactor>): List<ProgressionCalculationFactor> =
+        factors.sortedWith(comparator)
+}
+
 class ProgressionProfileModifierEvidence private constructor(
     val axis: ProgressionProfileAxis,
     val evidenceUid: String,
@@ -192,7 +205,8 @@ class ProgressionStimulus private constructor(
     val expectedWorldPackVersion: String?,
     dependencyVersions: Map<String, String>
 ) {
-    val calculationFactors: List<ProgressionCalculationFactor> = immutableProgressionList(calculationFactors.sortedWith(compareBy({ it.factorKindUid }, { it.evidenceUid })))
+    val calculationFactors: List<ProgressionCalculationFactor> =
+        immutableProgressionList(ProgressionCalculationFactorCanonicalOrder.canonicalize(calculationFactors))
     val evidenceRefs: List<DomainRef> = immutableProgressionList(evidenceRefs)
     val dependencyVersions: Map<String, String> = Collections.unmodifiableMap(TreeMap(dependencyVersions))
 
@@ -280,7 +294,8 @@ class ProgressionEvaluationInput private constructor(
     val progressionEngineVersion: String,
     dependencyVersions: Map<String, String>
 ) {
-    val calculationFactors: List<ProgressionCalculationFactor> = immutableProgressionList(calculationFactors.sortedWith(compareBy({ it.factorKindUid }, { it.evidenceUid })))
+    val calculationFactors: List<ProgressionCalculationFactor> =
+        immutableProgressionList(ProgressionCalculationFactorCanonicalOrder.canonicalize(calculationFactors))
     val dependencyVersions: Map<String, String> = Collections.unmodifiableMap(TreeMap(dependencyVersions))
 
     val inputFingerprint: String = progressionFingerprint(
@@ -441,11 +456,11 @@ class ProgressionEngine(
     fun evaluate(input: ProgressionEvaluationInput): ProgressionResult {
         validateInput(input)
         val base = input.effortUnits ?: fail("MISSING_CAUSAL_PROGRESSION_EFFORT")
-        val factors = buildList {
+        val factors = ProgressionCalculationFactorCanonicalOrder.canonicalize(buildList {
             addAll(input.calculationFactors)
             input.talentEvidence?.let { add(it.asCalculationFactor()) }
             input.potentialEvidence?.let { add(it.asCalculationFactor()) }
-        }.sortedWith(compareBy({ it.factorKindUid }, { it.evidenceUid }))
+        })
         val finalGrant = ProgressionNumericPolicy.applyFactors(base, factors)
         val progressionUid = "RPGOS-PROGRESSION:" + progressionFingerprint("PROGRESSION_UID", input.inputFingerprint)
         val computationFingerprint = progressionFingerprint(
