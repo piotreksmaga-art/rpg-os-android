@@ -24,6 +24,7 @@ internal object PlayerResolutionReferenceKinds {
     const val PROJECT_MILESTONE = "PROJECT_MILESTONE"
     const val SKILL = "SKILL"
     const val TECHNIQUE = "TECHNIQUE"
+    const val PROGRESSION_DOMAIN = "PROGRESSION_DOMAIN"
 }
 
 data class ResolutionEntropyEvidence(
@@ -196,20 +197,23 @@ internal class PlayerResolutionDraft private constructor(
     changes: List<PlayerDomainChange>,
     eventIntents: List<PlayerEventIntent>,
     ledgerIntents: List<PlayerLedgerIntent>,
-    warnings: List<ChangeSetWarning>
+    warnings: List<ChangeSetWarning>,
+    progressionStimuli: List<ProgressionStimulus>
 ) {
     val changes: List<PlayerDomainChange> = immutableList(changes)
     val eventIntents: List<PlayerEventIntent> = immutableList(eventIntents)
     val ledgerIntents: List<PlayerLedgerIntent> = immutableList(ledgerIntents)
     val warnings: List<ChangeSetWarning> = immutableList(warnings)
+    val progressionStimuli: List<ProgressionStimulus> = immutableList(progressionStimuli)
 
     companion object {
         fun create(
             changes: List<PlayerDomainChange> = emptyList(),
             eventIntents: List<PlayerEventIntent> = emptyList(),
             ledgerIntents: List<PlayerLedgerIntent> = emptyList(),
-            warnings: List<ChangeSetWarning> = emptyList()
-        ): PlayerResolutionDraft = PlayerResolutionDraft(changes, eventIntents, ledgerIntents, warnings)
+            warnings: List<ChangeSetWarning> = emptyList(),
+            progressionStimuli: List<ProgressionStimulus> = emptyList()
+        ): PlayerResolutionDraft = PlayerResolutionDraft(changes, eventIntents, ledgerIntents, warnings, progressionStimuli)
     }
 }
 
@@ -269,7 +273,8 @@ class PlayerDomainEngine internal constructor(
     private val commandRegistry: PlayerCommandKindRegistry = PlayerCommandKindRegistry.core(),
     private val changeRegistry: TypedPlayerChangeRegistry = TypedPlayerChangeRegistry.core(),
     private val worldRuleRegistry: WorldRuleProviderRegistry = WorldRuleProviderRegistry.empty(),
-    private val worldPackAuthority: WorldPackAuthorityResolver = WorldPackAuthoritySnapshot.empty()
+    private val worldPackAuthority: WorldPackAuthorityResolver = WorldPackAuthoritySnapshot.empty(),
+    private val progressionEngine: ProgressionEngine = ProgressionEngine()
 ) {
     fun resolve(
         command: PlayerCommand<out PlayerCommandPayload>,
@@ -350,7 +355,26 @@ class PlayerDomainEngine internal constructor(
                     )
                 }
 
-                val effectSnapshot = WorldRuleEffectSnapshot.create(outcome.draft)
+                val augmentedDraft = try {
+                    augmentWithProgression(canonicalCommand, commandFingerprint, context, outcome.draft)
+                } catch (e: PlayerDomainEngineStructuralException) {
+                    throw e
+                } catch (e: ProgressionStructuralException) {
+                    throw PlayerDomainEngineStructuralException("PROGRESSION_ENGINE_FAILURE:${e.code}", e)
+                } catch (e: IllegalArgumentException) {
+                    throw PlayerDomainEngineStructuralException("PROGRESSION_ENGINE_FAILURE", e)
+                } catch (e: Throwable) {
+                    throw PlayerDomainEngineStructuralException("PROGRESSION_ENGINE_FAILURE", e)
+                }
+
+                validateReferences(context, draftReferences(augmentedDraft))?.let {
+                    return PlayerResolutionOutcome.Rejected(
+                        it,
+                        evidence(contextFingerprint, context, component, ruleTrace)
+                    )
+                }
+
+                val effectSnapshot = WorldRuleEffectSnapshot.create(augmentedDraft)
                 evaluateWorldRules(
                     stage = WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK,
                     canonicalCommand = canonicalCommand,
@@ -375,7 +399,7 @@ class PlayerDomainEngine internal constructor(
                     canonicalCommand,
                     contextFingerprint,
                     component,
-                    outcome.draft,
+                    augmentedDraft,
                     ruleTrace
                 )
                 PlayerChangeSetValidator.validate(proposal, changeRegistry)
@@ -385,6 +409,121 @@ class PlayerDomainEngine internal constructor(
                 )
             }
         }
+    }
+
+    private fun augmentWithProgression(
+        command: PlayerCommand<out PlayerCommandPayload>,
+        commandFingerprint: String,
+        context: PlayerResolutionContext,
+        draft: PlayerResolutionDraft
+    ): PlayerResolutionDraft {
+        if (draft.progressionStimuli.isEmpty()) return draft
+        val seenStimulusUids = HashSet<String>()
+        val generatedChanges = ArrayList<PlayerDomainChange>()
+        val generatedLedgerIntents = ArrayList<PlayerLedgerIntent>()
+        draft.progressionStimuli.forEach { stimulus ->
+            if (!seenStimulusUids.add(stimulus.stimulusUid)) fail("DUPLICATE_PROGRESSION_STIMULUS_UID")
+            val input = progressionInput(command, commandFingerprint, context, stimulus)
+            val result = progressionEngine.evaluate(input)
+            result.grants.forEach { grant ->
+                generatedChanges += progressionGrantChange(stimulus.subject, grant)
+            }
+            generatedLedgerIntents += result.ledgerIntents
+        }
+        return PlayerResolutionDraft.create(
+            changes = draft.changes + generatedChanges,
+            eventIntents = draft.eventIntents,
+            ledgerIntents = draft.ledgerIntents + generatedLedgerIntents,
+            warnings = draft.warnings,
+            progressionStimuli = draft.progressionStimuli
+        )
+    }
+
+    private fun progressionInput(
+        command: PlayerCommand<out PlayerCommandPayload>,
+        commandFingerprint: String,
+        context: PlayerResolutionContext,
+        stimulus: ProgressionStimulus
+    ): ProgressionEvaluationInput {
+        val binding = when (val mode = context.worldRuleMode) {
+            is WorldRuleMode.Bound -> mode.binding
+            UnboundGenericWorldRuleMode -> null
+        }
+        if (stimulus.expectedWorldPackUid != null) {
+            if (binding == null || binding.worldPackUid != stimulus.expectedWorldPackUid ||
+                binding.worldPackVersion != stimulus.expectedWorldPackVersion) fail("PROGRESSION_WORLD_PACK_MISMATCH")
+        }
+        if (stimulus.progressionDomainUid != null) {
+            if (binding == null || stimulus.progressionDomainWorldPackUid == null ||
+                stimulus.progressionDomainWorldPackUid != binding.worldPackUid) fail("PROGRESSION_DOMAIN_WORLD_PACK_MISMATCH")
+        } else if (stimulus.progressionDomainWorldPackUid != null) {
+            fail("PROGRESSION_DOMAIN_WORLD_PACK_WITHOUT_DOMAIN")
+        }
+        val dependencies = TreeMap(context.dependencyVersions)
+        stimulus.dependencyVersions.forEach { (key, value) ->
+            val existing = dependencies[key]
+            if (existing != null && existing != value) fail("PROGRESSION_DEPENDENCY_VERSION_MISMATCH")
+            dependencies[key] = value
+        }
+        return ProgressionEvaluationInput.create(
+            campaignUid = context.campaignUid,
+            characterUid = stimulus.subject.uid,
+            sourceTypeUid = stimulus.sourceTypeUid,
+            sourceChannelUid = stimulus.sourceChannelUid,
+            stimulusUid = stimulus.stimulusUid,
+            sourceCommandUid = command.commandUid,
+            commandKindUid = command.commandKindUid,
+            commandFingerprint = commandFingerprint,
+            targetKindUid = stimulus.targetKindUid,
+            targetUid = stimulus.targetUid,
+            progressionDomainUid = stimulus.progressionDomainUid,
+            targetValueEvidence = stimulus.targetValueEvidence,
+            progressSemanticsUid = stimulus.progressSemanticsUid,
+            progressSemanticsVersion = stimulus.progressSemanticsVersion,
+            effortUnits = stimulus.effortUnits,
+            durationUnits = stimulus.durationUnits,
+            intensity = stimulus.intensity,
+            methodUid = stimulus.methodUid,
+            calculationFactors = stimulus.calculationFactors,
+            talentEvidence = stimulus.talentEvidence,
+            potentialEvidence = stimulus.potentialEvidence,
+            worldPackUid = binding?.worldPackUid,
+            worldPackVersion = binding?.worldPackVersion,
+            worldPackBindingIdentity = progressionWorldPackBindingIdentity(binding),
+            progressionPolicyUid = stimulus.progressionPolicyUid,
+            progressionPolicyVersion = stimulus.progressionPolicyVersion,
+            progressionEngineUid = progressionEngine.engineUid,
+            progressionEngineVersion = progressionEngine.engineVersion,
+            dependencyVersions = dependencies
+        )
+    }
+
+    private fun progressionGrantChange(subject: DomainRef, grant: ProgressionGrant): PlayerDomainChange {
+        if (subject.uid != grant.characterUid) fail("PROGRESSION_GRANT_SUBJECT_MISMATCH")
+        val payload: PlayerDomainChangePayload
+        val kindUid: String
+        when (grant.targetKindUid) {
+            ProgressionTargetKinds.STAT -> {
+                kindUid = PlayerChangeKinds.STAT
+                payload = StatChange(subject, grant.targetUid, ExactLongDelta.of(grant.grantUnits))
+            }
+            ProgressionTargetKinds.SKILL -> {
+                kindUid = PlayerChangeKinds.SKILL
+                payload = SkillChange(subject, grant.targetUid, ExactLongDelta.of(grant.grantUnits))
+            }
+            ProgressionTargetKinds.TECHNIQUE -> {
+                kindUid = PlayerChangeKinds.TECHNIQUE
+                payload = TechniqueChange(subject, grant.targetUid, ExactLongDelta.of(grant.grantUnits))
+            }
+            else -> fail("UNSUPPORTED_PROGRESSION_TARGET")
+        }
+        return PlayerDomainChange.create(
+            changeUid = grant.causalChangeUid,
+            changeKindUid = kindUid,
+            payload = payload,
+            sourceRuleUid = grant.policyUid,
+            registry = changeRegistry
+        )
     }
 
     private fun validateWorldRuleAuthority(context: PlayerResolutionContext) {
@@ -661,12 +800,24 @@ internal fun draftReferences(draft: PlayerResolutionDraft): List<DomainRef> = bu
         if (payload is DomainEffectEventIntentPayload) add(payload.subject)
     }
     draft.ledgerIntents.forEach { intent ->
-        val payload = intent.payload
-        if (payload is FinancialTransferLedgerIntentPayload) {
-            add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.fromAccountUid))
-            add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.toAccountUid))
-            add(DomainRef(PlayerResolutionReferenceKinds.CURRENCY, payload.currencyUid))
+        when (val payload = intent.payload) {
+            is FinancialTransferLedgerIntentPayload -> {
+                add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.fromAccountUid))
+                add(DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.toAccountUid))
+                add(DomainRef(PlayerResolutionReferenceKinds.CURRENCY, payload.currencyUid))
+            }
+            is ProgressionLedgerIntentPayload -> {
+                add(DomainRef("PLAYER", payload.characterUid))
+                add(DomainRef(payload.targetKindUid, payload.targetUid))
+                payload.progressionDomainUid?.let { add(DomainRef(PlayerResolutionReferenceKinds.PROGRESSION_DOMAIN, it)) }
+            }
         }
+    }
+    draft.progressionStimuli.forEach { stimulus ->
+        add(stimulus.subject)
+        add(DomainRef(stimulus.targetKindUid, stimulus.targetUid))
+        stimulus.progressionDomainUid?.let { add(DomainRef(PlayerResolutionReferenceKinds.PROGRESSION_DOMAIN, it)) }
+        addAll(stimulus.evidenceRefs)
     }
 }
 
@@ -689,4 +840,3 @@ private fun resolveTyped(
     val typedCommand = command as PlayerCommand<PlayerCommandPayload>
     return typedComponent.resolve(typedCommand, context)
 }
-
