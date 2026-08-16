@@ -2,12 +2,16 @@ package com.rpgos.app
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
-import java.util.concurrent.atomic.AtomicInteger
 
 class Phase19CanonicalRegressionTest {
     private val actor = CommandActorRef("PLAYER", "P1")
     private val binding = WorldPackRuleBinding("WORLD-A", "1")
+
+    @Before fun resetProbe() {
+        Probe.calls = 0
+    }
 
     @Test fun P19_P17_REGRESSION_playerChangeSetRemainsDeterministicTransientProposal() {
         val result = boundEngine(AllowProvider()).resolve(command("P17"), boundContext()) as PlayerResolutionOutcome.Resolved
@@ -22,17 +26,16 @@ class Phase19CanonicalRegressionTest {
     }
 
     @Test fun P19_P18_REGRESSION_referenceValidationAndGenericOrchestrationRemainIntact() {
-        val calls = AtomicInteger()
         val invalid = command("P18-BAD").copy(
             payload = TrainCommandPayload(DomainRef("STAT", "UNKNOWN"), 10L, "METHOD")
         )
         val rejected = PlayerDomainEngine(
             PlayerResolutionComponentRegistry.of(listOf(TrainComponent())),
-            worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(CountingProvider(calls))),
+            worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(CountingProvider())),
             worldPackAuthority = WorldPackAuthoritySnapshot.single("C1", binding)
         ).resolve(invalid, boundContext()) as PlayerResolutionOutcome.Rejected
         assertEquals(PlayerResolutionRejectionReason.UNKNOWN_REFERENCE, rejected.rejection.reason)
-        assertEquals(0, calls.get())
+        assertEquals(0, Probe.calls)
 
         val generic = PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(TrainComponent())))
         val genericResult = generic.resolve(command("P18-GENERIC"), unboundContext())
@@ -73,13 +76,17 @@ class Phase19CanonicalRegressionTest {
         CampaignScopedDomainRef("C1", DomainRef("STAT", "STR"))
     )
 
+    private object Probe {
+        var calls: Int = 0
+    }
+
     private class AllowProvider : WorldRuleProvider("P19-REGRESSION", "1", "WORLD-A", "1") {
         override fun evaluate(request: WorldRuleRequest) = WorldRuleDecision.Allowed.create("P19-REGRESSION-RULE")
     }
 
-    private class CountingProvider(private val calls: AtomicInteger) : WorldRuleProvider("P19-REGRESSION-COUNT", "1", "WORLD-A", "1") {
+    private class CountingProvider : WorldRuleProvider("P19-REGRESSION-COUNT", "1", "WORLD-A", "1") {
         override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
-            calls.incrementAndGet()
+            Probe.calls++
             return WorldRuleDecision.Allowed.create("P19-REGRESSION-RULE")
         }
     }
