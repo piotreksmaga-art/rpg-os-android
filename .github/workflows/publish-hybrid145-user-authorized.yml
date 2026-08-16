@@ -12,7 +12,7 @@ permissions:
 env:
   ACCEPTED_SHA: 97d560b955cffd132f03ef79f106ac8a05c0f64a
   VALIDATION_RUN_ID: "31953200345"
-  VALIDATION_ARTIFACT: RPG-OS-VALIDATION-1.2.0-alpha5-hybrid145-97d560b955cffd132f03ef79f106ac8a05c0f64a
+  VALIDATION_ARTIFACT_ID: "9265286704"
   VERSION_NAME: 1.2.0-alpha5-hybrid145
   VERSION_CODE: "145"
   EXPECTED_APK_SHA256: 037f171e26de4cc4fd9ebd1b6c88279623a6a49362808a9d1d4c5e7c3ec2a098
@@ -37,7 +37,7 @@ jobs:
             exit 1
           fi
 
-      - name: Verify exact validation run
+      - name: Verify exact validation run and artifact
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -46,9 +46,13 @@ jobs:
           RUN_SHA=$(gh api repos/${GITHUB_REPOSITORY}/actions/runs/$VALIDATION_RUN_ID --jq '.head_sha')
           RUN_STATUS=$(gh api repos/${GITHUB_REPOSITORY}/actions/runs/$VALIDATION_RUN_ID --jq '.status')
           RUN_CONCLUSION=$(gh api repos/${GITHUB_REPOSITORY}/actions/runs/$VALIDATION_RUN_ID --jq '.conclusion')
+          ART_SHA=$(gh api repos/${GITHUB_REPOSITORY}/actions/artifacts/$VALIDATION_ARTIFACT_ID --jq '.workflow_run.head_sha')
+          ART_EXPIRED=$(gh api repos/${GITHUB_REPOSITORY}/actions/artifacts/$VALIDATION_ARTIFACT_ID --jq '.expired')
           test "$RUN_SHA" = "$ACCEPTED_SHA"
           test "$RUN_STATUS" = "completed"
           test "$RUN_CONCLUSION" = "success"
+          test "$ART_SHA" = "$ACCEPTED_SHA"
+          test "$ART_EXPIRED" = "false"
 
       - name: Download exact validated immutable artifact
         env:
@@ -57,7 +61,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir validated
-          gh run download "$VALIDATION_RUN_ID" -n "$VALIDATION_ARTIFACT" -D validated
+          curl --fail --location \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${VALIDATION_ARTIFACT_ID}/zip" \
+            -o validated.zip
+          unzip -q validated.zip -d validated
           find validated -maxdepth 2 -type f -print
 
       - name: Verify validated APK bytes and provenance
