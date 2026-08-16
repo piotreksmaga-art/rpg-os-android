@@ -121,21 +121,16 @@ class Phase22PlayerInvariantValidatorTest {
     }
 
     @Test fun P22_10_canonicalResolveKeepsLegalNegativeResourceChange() {
-        val command = PlayerCommand(
-            commandUid = "CMD-RESOURCE", campaignUid = "C1", actor = actor,
-            commandKindUid = PlayerCommandKinds.USE_RESOURCE_ACTION,
-            payload = UseResourceActionCommandPayload(DomainRef("RESOURCE", "CHAKRA"), 5L, "ACTION"),
-            provenance = CommandProvenance("P22-TEST")
-        )
         val context = PlayerResolutionContext.createUnboundGeneric(
             "C1", actor, setOf(
                 CampaignScopedDomainRef("C1", DomainRef("PLAYER", "P1")),
+                CampaignScopedDomainRef("C1", DomainRef("STAT", "STR")),
                 CampaignScopedDomainRef("C1", DomainRef("RESOURCE", "CHAKRA"))
             )
         )
         val result = PlayerDomainEngine(
             PlayerResolutionComponentRegistry.of(listOf(NegativeResourceComponent()))
-        ).resolve(command, context)
+        ).resolve(trainCommand(), context)
         assertTrue(result is PlayerResolutionOutcome.Resolved)
         assertEquals(-5L, ((result as PlayerResolutionOutcome.Resolved).proposal.changes.single().payload as ResourceChange).delta.units)
     }
@@ -188,12 +183,12 @@ class Phase22PlayerInvariantValidatorTest {
         )
     }
 
-    private class NegativeResourceComponent : PlayerResolutionComponent<UseResourceActionCommandPayload>(
-        PlayerCommandKinds.USE_RESOURCE_ACTION, UseResourceActionCommandPayload::class,
+    private class NegativeResourceComponent : PlayerResolutionComponent<TrainCommandPayload>(
+        PlayerCommandKinds.TRAIN, TrainCommandPayload::class,
         "RPGOS-COMPONENT:P22-NEGATIVE-RESOURCE", "1"
     ) {
         override fun resolve(
-            command: PlayerCommand<UseResourceActionCommandPayload>,
+            command: PlayerCommand<TrainCommandPayload>,
             context: PlayerResolutionContext
         ) = PlayerResolutionComponentOutcome.Resolved(
             PlayerResolutionDraft.create(
