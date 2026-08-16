@@ -42,6 +42,10 @@ internal class CanonicalSelectionWorldPackAuthoritySource(
 
             val campaignUid = ActiveCampaignRef.resolve(saves, campaignDirName).campaignId
             val worldPackDir = File(worldpacks, worldPackDirName)
+            val unsettledRollback = worldpacks.listFiles().orEmpty().any {
+                it.name.startsWith(".${worldPackDir.name}.rollback-")
+            }
+            check(!unsettledRollback) { "Active World Pack replacement is unsettled." }
             val validation = PackageValidator().validateWorldPack(worldPackDir)
             require(validation.ok) { "Active World Pack is invalid: ${validation.message}" }
             val uid = validation.packageId?.takeIf { it.isNotBlank() }
