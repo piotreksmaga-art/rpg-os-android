@@ -1,16 +1,16 @@
-name: P19 Consolidated Recovery Repro Runner
+name: P19 Consolidated Hardening Runner
 on:
   push:
     branches: [master]
 permissions:
   contents: read
 jobs:
-  repro:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: chat1/p19-consolidated-recovery-repro
+          ref: chat1/p19-consolidated-recovery-hardening
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -21,4 +21,5 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
-      - run: gradle --no-daemon :app:testDebugUnitTest --tests com.rpgos.app.Phase19ConsolidatedRecoveryReproTest --stacktrace
+      - run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+      - run: gradle --no-daemon :app:assembleDebug --stacktrace
