@@ -167,35 +167,3 @@ object PlayerInvariantValidator {
     private fun invalid(changeUid: String?, kindUid: String?, targetUid: String?, detailUid: String) =
         PlayerInvariantValidationResult.Invalid(listOf(violation(changeUid, kindUid, targetUid, detailUid)))
 }
-
-/**
- * Canonical Phase-22 post-resolution stage. It runs the existing PlayerDomainEngine exactly once,
- * therefore the accepted COMMAND_PRECHECK / one DRAFT_EFFECT_CHECK sequence is untouched, then
- * validates only an already structurally valid PlayerChangeSet proposal against one immutable snapshot.
- * Phase 26 may later enforce this entry point as the single mutation path; Phase 22 does not.
- */
-internal fun PlayerDomainEngine.resolveWithPlayerInvariants(
-    command: PlayerCommand<out PlayerCommandPayload>,
-    context: PlayerResolutionContext,
-    snapshotResolver: PlayerInvariantSnapshotResolver
-): PlayerResolutionOutcome {
-    val outcome = resolve(command, context)
-    if (outcome !is PlayerResolutionOutcome.Resolved) return outcome
-    val snapshot = try {
-        snapshotResolver.snapshotFor(outcome.proposal.campaignUid, outcome.proposal.actor.actorUid)
-    } catch (e: PlayerDomainEngineStructuralException) {
-        throw e
-    } catch (e: Throwable) {
-        throw PlayerDomainEngineStructuralException("PLAYER_INVARIANT_SNAPSHOT_READ_FAILED", e)
-    }
-    return when (val validation = PlayerInvariantValidator.validate(outcome.proposal, snapshot)) {
-        PlayerInvariantValidationResult.Valid -> outcome
-        is PlayerInvariantValidationResult.Invalid -> PlayerResolutionOutcome.Rejected(
-            PlayerResolutionRejection.create(
-                PlayerResolutionRejectionReason.DOMAIN_REJECTED,
-                detailUid = validation.violations.first().detailUid
-            ),
-            outcome.evidence
-        )
-    }
-}
