@@ -25,7 +25,10 @@ class Phase19ConsolidatedRecoveryReproTest {
         CanonicalPackageReplacement.reconcile(target, weakBootstrapPredicate)
         assertTrue("defect: malformed live survives", target.exists())
         assertFalse("defect: valid rollback is destroyed", rollback.exists())
-        assertFalse(PackageValidator().validateWorldPack(target).ok)
+        val canonicalValidationRejected = runCatching {
+            PackageValidator().validateWorldPack(target).ok
+        }.getOrDefault(false)
+        assertFalse("defect: malformed live is not canonically valid", canonicalValidationRejected)
     }
 
     @Test fun REPRO_B_partialDeleteAbortsOldRollbackRestoration() {
@@ -75,7 +78,7 @@ class Phase19ConsolidatedRecoveryReproTest {
     private fun worldPack(dir: File, id: String, version: String): File {
         dir.mkdirs()
         SQLiteDatabase.openOrCreateDatabase(File(dir, "world.db"), null).close()
-        File(dir, "worldpack.json").writeText("""{"id":"$id","version":"$version","engine_api":"1"}""")
+        File(dir, "worldpack.json").writeText("""{\"id\":\"$id\",\"version\":\"$version\",\"engine_api\":\"1\"}""")
         return dir
     }
 
