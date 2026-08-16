@@ -454,6 +454,52 @@ private fun WorldRuleCanonicalWriter.appendCanonicalLedgerIntent(intent: PlayerL
                 longField("AMOUNT_MINOR", payload.amountMinor); field("CURRENCY_UID", payload.currencyUid)
                 field("TRANSACTION_TYPE_UID", payload.transactionTypeUid)
             }
+            is ProgressionLedgerIntentPayload -> record("PROGRESSION_LEDGER_INTENT_PAYLOAD") {
+                field("PROGRESSION_UID", payload.progressionUid)
+                field("CAMPAIGN_UID", payload.campaignUid)
+                field("CHARACTER_UID", payload.characterUid)
+                field("TARGET_KIND_UID", payload.targetKindUid)
+                field("TARGET_UID", payload.targetUid)
+                field("SOURCE_TYPE_UID", payload.sourceTypeUid)
+                field("SOURCE_CHANNEL_UID", payload.sourceChannelUid)
+                field("SOURCE_COMMAND_UID", payload.sourceCommandUid)
+                field("STIMULUS_UID", payload.stimulusUid)
+                nullableField("PROGRESSION_DOMAIN_UID", payload.progressionDomainUid)
+                nullableField("METHOD_UID", payload.methodUid)
+                field("CURRENT_VALUE_EVIDENCE_UID", payload.currentValueEvidenceUid)
+                field("CURRENT_VALUE_CANONICAL", payload.currentValueCanonical)
+                field("CURRENT_VALUE_SEMANTICS_UID", payload.currentValueSemanticsUid)
+                field("CURRENT_VALUE_SEMANTICS_VERSION", payload.currentValueSemanticsVersion)
+                list("CALCULATION_FACTORS", payload.calculationFactors) { factor ->
+                    record("PROGRESSION_LEDGER_FACTOR") {
+                        field("FACTOR_KIND_UID", factor.factorKindUid)
+                        field("EVIDENCE_UID", factor.evidenceUid)
+                        longField("SOURCE_VALUE_SCALED", factor.sourceValueScaled)
+                        longField("APPLIED_FACTOR_SCALED", factor.appliedFactorScaled)
+                        longField("SCALE", factor.scale)
+                    }
+                }
+                nullableField("TALENT_EVIDENCE_UID", payload.talentEvidenceUid)
+                nullableLongField("TALENT_FACTOR_SCALED", payload.talentFactorScaled)
+                nullableField("POTENTIAL_EVIDENCE_UID", payload.potentialEvidenceUid)
+                nullableLongField("POTENTIAL_FACTOR_SCALED", payload.potentialFactorScaled)
+                longField("BASE_GRANT_UNITS", payload.baseGrantUnits)
+                longField("FINAL_GRANT_UNITS", payload.finalGrantUnits)
+                field("PROGRESS_SEMANTICS_UID", payload.progressSemanticsUid)
+                field("PROGRESS_SEMANTICS_VERSION", payload.progressSemanticsVersion)
+                field("ENGINE_UID", payload.engineUid)
+                field("ENGINE_VERSION", payload.engineVersion)
+                field("NUMERIC_POLICY_UID", payload.numericPolicyUid)
+                field("NUMERIC_POLICY_VERSION", payload.numericPolicyVersion)
+                field("PROGRESSION_POLICY_UID", payload.progressionPolicyUid)
+                field("PROGRESSION_POLICY_VERSION", payload.progressionPolicyVersion)
+                nullableField("WORLD_PACK_UID", payload.worldPackUid)
+                nullableField("WORLD_PACK_VERSION", payload.worldPackVersion)
+                field("WORLD_PACK_BINDING_IDENTITY", payload.worldPackBindingIdentity)
+                field("INPUT_FINGERPRINT", payload.inputFingerprint)
+                field("COMPUTATION_FINGERPRINT", payload.computationFingerprint)
+                field("GRANT_UID", payload.grantUid)
+            }
         }
     }
 }
