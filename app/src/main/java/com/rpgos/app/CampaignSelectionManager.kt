@@ -2,6 +2,7 @@ package com.rpgos.app
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.database.sqlite.SQLiteDatabase
 import java.io.File
 import java.util.UUID
 
@@ -119,23 +120,12 @@ class CampaignSelectionManager private constructor(
         return WorldRuleMode.Bound(WorldPackRuleBinding(uid, version))
     }
 
-    /**
-     * One coherent canonical authority observation for Phase 19.
-     * campaignUid + World Pack uid/version are derived from one captured selection snapshot and the
-     * matching package content while the shared package-authority read gate is held.
-     */
     internal fun currentWorldPackAuthority(): CurrentWorldPackAuthority =
         worldPackAuthoritySource.currentAuthority()
 
-    /** Read-only Phase-19 authority resolver backed by the canonical app selection. */
     internal fun activeWorldPackAuthorityResolver(): WorldPackAuthorityResolver =
         CurrentSelectionWorldPackAuthorityResolver(worldPackAuthoritySource)
 
-    /**
-     * Compatibility entry point retained for existing callers. Despite the historical name,
-     * this returns the live canonical resolver so long-lived engines observe the newest completed
-     * coherent authority observation on every resolution.
-     */
     internal fun activeWorldPackAuthoritySnapshot(): WorldPackAuthorityResolver =
         activeWorldPackAuthorityResolver()
 
@@ -168,18 +158,13 @@ class CampaignSelectionManager private constructor(
         val staging = File(saves, ".clone-$safe-${UUID.randomUUID()}")
 
         try {
-            // Snapshot one coherent source generation. Supported campaign replacement/import writers
-            // use the write side of this same gate, so they cannot interleave with the directory copy.
             CanonicalPackageAuthorityGate.observe {
                 require(source.isDirectory) { "Brak szablonu kampanii." }
                 require(!target.exists()) { "Kampania już istnieje." }
-                check(campaignTreeCopier.copy(source, staging)) { "CAMPAIGN_CLONE_COPY_FAILED" }
+                copyCampaignTreeFromCoherentSqliteSnapshot(source, staging)
             }
 
             File(staging, "backups").mkdirs()
-
-            // A cloned campaign must receive its own logical identity instead of silently inheriting
-            // the template campaign ID. Validation after the rewrite is the acceptance boundary.
             rewriteClonedCampaignManifestId(staging, ActiveCampaignRef.fallbackCampaignId(target.name))
             val validation = runCatching { PackageValidator().validateCampaign(staging) }
                 .getOrElse { throw IllegalStateException("CAMPAIGN_CLONE_VALIDATION_FAILED", it) }
@@ -196,10 +181,33 @@ class CampaignSelectionManager private constructor(
             }
             return target
         } catch (t: Throwable) {
-            // Staging is never authority. A failed/incomplete clone must not survive as a selectable
-            // canonical package and must never become active.
             if (staging.exists()) staging.deleteRecursively()
             throw t
+        }
+    }
+
+    /**
+     * Package-authority locking prevents replacement/import races, but ordinary gameplay writes use
+     * independent SQLiteDatabase connections. Hold SQLite's EXCLUSIVE transaction on the source DB
+     * while the bounded local tree copy is made, so every filesystem byte belongs to one committed
+     * database generation. The production open path does not opt into WAL; sidecar files, if any,
+     * are copied while this source write lock is held and the staged package is fully validated
+     * before it can become authority.
+     */
+    private fun copyCampaignTreeFromCoherentSqliteSnapshot(source: File, staging: File) {
+        val sourceDbFile = File(source, "campaign.db")
+        require(sourceDbFile.isFile) { "CAMPAIGN_CLONE_SOURCE_DB_MISSING" }
+        SQLiteDatabase.openDatabase(
+            sourceDbFile.absolutePath,
+            null,
+            SQLiteDatabase.OPEN_READWRITE
+        ).use { sourceDb ->
+            sourceDb.beginTransaction()
+            try {
+                check(campaignTreeCopier.copy(source, staging)) { "CAMPAIGN_CLONE_COPY_FAILED" }
+            } finally {
+                sourceDb.endTransaction()
+            }
         }
     }
 
