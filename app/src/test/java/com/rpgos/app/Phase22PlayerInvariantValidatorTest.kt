@@ -43,7 +43,7 @@ class Phase22PlayerInvariantValidatorTest {
         val changes = listOf(
             PlayerDomainChange.create("C-RES", PlayerChangeKinds.RESOURCE, ResourceChange(subject, "CHAKRA", ExactLongDelta.of(-10L))),
             PlayerDomainChange.create("C-INV", PlayerChangeKinds.INVENTORY, InventoryChange(subject, "ITEM-1", ExactLongDelta.of(-1L))),
-            PlayerDomainChange.create("C-EQ", PlayerChangeKinds.EQUIPMENT, EquipmentChange(subject, "HAND", EquipmentOperation.UNEQUIP, "ITEM-1"))
+            PlayerDomainChange.create("C-EQ", PlayerChangeKinds.EQUIPMENT, EquipmentChange(subject, "HAND", EquipmentOperation.UNEQUIP, null))
         )
         assertEquals(PlayerInvariantValidationResult.Valid,
             PlayerInvariantValidator.validate(proposal(changes), PlayerInvariantSnapshot.create("C1")))
