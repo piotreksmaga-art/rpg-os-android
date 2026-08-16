@@ -3,6 +3,7 @@ package com.rpgos.app
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -12,64 +13,65 @@ class Phase19CanonicalCoherenceTest {
     private val a1 = WorldPackRuleBinding("WORLD-A", "1")
     private val b1 = WorldPackRuleBinding("WORLD-B", "1")
 
+    @Before fun resetProbe() {
+        Probe.seen.clear()
+        Probe.calls = 0
+    }
+
     @Test fun P19_COHERENCE_01_oneCoherentAuthorityObservationThroughoutResolution() {
         val backing = AtomicReference(a1)
         val reads = AtomicInteger()
-        val seen = mutableListOf<WorldPackRuleBinding>()
         val resolver = WorldPackAuthorityResolver {
             reads.incrementAndGet()
             val observed = backing.get()
             backing.set(b1)
             observed
         }
-        val result = engine(resolver, listOf(RecordingProvider(a1, seen)))
+        val result = engine(resolver, listOf(RecordingProvider(a1)))
             .resolve(command("COH01"), context("C1", a1))
         assertTrue(result is PlayerResolutionOutcome.Resolved)
         assertEquals(1, reads.get())
-        assertEquals(listOf(a1, a1), seen)
+        assertEquals(listOf(a1, a1), Probe.seen)
         assertEquals(b1, backing.get())
     }
 
     @Test fun P19_COHERENCE_02_legalAuthorityChangeVisibleOnNextResolution() {
         val backing = AtomicReference(a1)
         val reads = AtomicInteger()
-        val aSeen = mutableListOf<WorldPackRuleBinding>()
-        val bSeen = mutableListOf<WorldPackRuleBinding>()
         val resolver = WorldPackAuthorityResolver {
             reads.incrementAndGet()
             backing.get()
         }
         val engine = engine(
             resolver,
-            listOf(RecordingProvider(a1, aSeen), RecordingProvider(b1, bSeen))
+            listOf(RecordingProvider(a1), RecordingProvider(b1))
         )
         assertTrue(engine.resolve(command("COH02-A"), context("C1", a1)) is PlayerResolutionOutcome.Resolved)
+        assertEquals(listOf(a1, a1), Probe.seen)
+        Probe.seen.clear()
         backing.set(b1)
         assertTrue(engine.resolve(command("COH02-B"), context("C1", b1)) is PlayerResolutionOutcome.Resolved)
         assertEquals(2, reads.get())
-        assertEquals(listOf(a1, a1), aSeen)
-        assertEquals(listOf(b1, b1), bSeen)
+        assertEquals(listOf(b1, b1), Probe.seen)
     }
 
     @Test fun P19_COHERENCE_03_mixedCampaignAndWorldPackObservationRejected() {
-        val calls = AtomicInteger()
         structural("WORLD_RULE_BINDING_AUTHORITY_MISMATCH") {
             engine(
                 WorldPackAuthorityResolver { a1 },
-                listOf(CountingProvider(b1, calls))
+                listOf(CountingProvider(b1))
             ).resolve(command("COH03"), context("C1", b1))
         }
-        assertEquals(0, calls.get())
+        assertEquals(0, Probe.calls)
     }
 
     @Test fun P19_COHERENCE_04_precheckAndEffectCheckUseExactSameBinding() {
-        val seen = mutableListOf<WorldPackRuleBinding>()
         val result = engine(
             WorldPackAuthorityResolver { a1 },
-            listOf(RecordingProvider(a1, seen))
+            listOf(RecordingProvider(a1))
         ).resolve(command("COH04"), context("C1", a1))
         assertTrue(result is PlayerResolutionOutcome.Resolved)
-        assertEquals(listOf(a1, a1), seen)
+        assertEquals(listOf(a1, a1), Probe.seen)
         val records = (result as PlayerResolutionOutcome.Resolved).evidence.worldRuleDecisions
         assertEquals(listOf(WorldRuleEvaluationStage.COMMAND_PRECHECK, WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK), records.map { it.stage })
         assertTrue(records.all { it.worldPackUid == a1.worldPackUid && it.worldPackVersion == a1.worldPackVersion })
@@ -81,7 +83,7 @@ class Phase19CanonicalCoherenceTest {
             reads.incrementAndGet()
             a1
         }
-        val result = engine(resolver, listOf(RecordingProvider(a1, mutableListOf())))
+        val result = engine(resolver, listOf(RecordingProvider(a1)))
             .resolve(command("COH05"), context("C1", a1))
         assertTrue(result is PlayerResolutionOutcome.Resolved)
         assertEquals(1, reads.get())
@@ -124,22 +126,25 @@ class Phase19CanonicalCoherenceTest {
         }
     }
 
+    private object Probe {
+        val seen = mutableListOf<WorldPackRuleBinding>()
+        var calls: Int = 0
+    }
+
     private class RecordingProvider(
-        binding: WorldPackRuleBinding,
-        private val seen: MutableList<WorldPackRuleBinding>
+        binding: WorldPackRuleBinding
     ) : WorldRuleProvider("P19-REC-${binding.worldPackUid}", "1", binding.worldPackUid, binding.worldPackVersion) {
         override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
-            seen += request.worldPack
+            Probe.seen += request.worldPack
             return WorldRuleDecision.Allowed.create("P19-CANONICAL-RULE")
         }
     }
 
     private class CountingProvider(
-        binding: WorldPackRuleBinding,
-        private val calls: AtomicInteger
+        binding: WorldPackRuleBinding
     ) : WorldRuleProvider("P19-COUNT-${binding.worldPackUid}", "1", binding.worldPackUid, binding.worldPackVersion) {
         override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
-            calls.incrementAndGet()
+            Probe.calls++
             return WorldRuleDecision.Allowed.create("P19-CANONICAL-RULE")
         }
     }
