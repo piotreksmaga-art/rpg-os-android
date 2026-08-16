@@ -132,30 +132,38 @@ object PlayerChangeSetValidator {
 
         val ledgerIds = HashSet<String>()
         val representedFinancialChangeUids = HashSet<String>()
+        val representedProgressionChangeUids = HashSet<String>()
         changeSet.ledgerIntents.forEach { intent ->
             if (intent.ledgerIntentUid.isBlank() || !ledgerIds.add(intent.ledgerIntentUid)) fail("INVALID_LEDGER_INTENT")
-            if (intent.ledgerKindUid != PlayerLedgerIntentKinds.FINANCIAL_TRANSFER) fail("UNKNOWN_LEDGER_INTENT_KIND")
             if (intent.causalChangeUids.any { it.isBlank() || it !in changesByUid }) fail("INVALID_LEDGER_INTENT")
-            val payload = intent.payload as? FinancialTransferLedgerIntentPayload ?: fail("LEDGER_PAYLOAD_TYPE_MISMATCH")
-            validateFinancialTerms(
-                payload.fromAccountUid, payload.toAccountUid, payload.amountMinor,
-                payload.currencyUid, payload.transactionTypeUid, "INVALID_LEDGER_INTENT"
-            )
-
-            var matchingFinancialCauseFound = intent.causalChangeUids.isEmpty()
-            val financialCausesThisIntent = LinkedHashSet<String>()
-            intent.causalChangeUids.forEach { causalUid ->
-                val causalChange = changesByUid.getValue(causalUid)
-                if (causalChange.changeKindUid == PlayerChangeKinds.FINANCIAL) {
-                    val financial = causalChange.payload as? FinancialChange ?: fail("CHANGE_PAYLOAD_TYPE_MISMATCH")
-                    if (!financialTermsMatch(financial, payload)) fail("FINANCIAL_LEDGER_TERMS_MISMATCH")
-                    financialCausesThisIntent.add(causalUid)
-                    matchingFinancialCauseFound = true
+            when (intent.ledgerKindUid) {
+                PlayerLedgerIntentKinds.FINANCIAL_TRANSFER -> {
+                    val payload = intent.payload as? FinancialTransferLedgerIntentPayload ?: fail("LEDGER_PAYLOAD_TYPE_MISMATCH")
+                    validateFinancialTerms(
+                        payload.fromAccountUid, payload.toAccountUid, payload.amountMinor,
+                        payload.currencyUid, payload.transactionTypeUid, "INVALID_LEDGER_INTENT"
+                    )
+                    var matchingFinancialCauseFound = intent.causalChangeUids.isEmpty()
+                    val financialCausesThisIntent = LinkedHashSet<String>()
+                    intent.causalChangeUids.forEach { causalUid ->
+                        val causalChange = changesByUid.getValue(causalUid)
+                        if (causalChange.changeKindUid == PlayerChangeKinds.FINANCIAL) {
+                            val financial = causalChange.payload as? FinancialChange ?: fail("CHANGE_PAYLOAD_TYPE_MISMATCH")
+                            if (!financialTermsMatch(financial, payload)) fail("FINANCIAL_LEDGER_TERMS_MISMATCH")
+                            financialCausesThisIntent.add(causalUid)
+                            matchingFinancialCauseFound = true
+                        }
+                    }
+                    if (!matchingFinancialCauseFound) fail("FINANCIAL_LEDGER_CAUSAL_CHANGE_REQUIRED")
+                    financialCausesThisIntent.forEach { causalUid ->
+                        if (!representedFinancialChangeUids.add(causalUid)) fail("DUPLICATE_FINANCIAL_LEDGER_CAUSAL_CHANGE")
+                    }
                 }
-            }
-            if (!matchingFinancialCauseFound) fail("FINANCIAL_LEDGER_CAUSAL_CHANGE_REQUIRED")
-            financialCausesThisIntent.forEach { causalUid ->
-                if (!representedFinancialChangeUids.add(causalUid)) fail("DUPLICATE_FINANCIAL_LEDGER_CAUSAL_CHANGE")
+                PlayerLedgerIntentKinds.PROGRESSION -> {
+                    val payload = intent.payload as? ProgressionLedgerIntentPayload ?: fail("LEDGER_PAYLOAD_TYPE_MISMATCH")
+                    validateProgressionLedger(changeSet, intent, payload, changesByUid, representedProgressionChangeUids)
+                }
+                else -> fail("UNKNOWN_LEDGER_INTENT_KIND")
             }
         }
 
@@ -164,6 +172,62 @@ object PlayerChangeSetValidator {
             if (warning.relatedChangeUid?.isBlank() == true) fail("INVALID_WARNING")
             if (warning.relatedChangeUid != null && warning.relatedChangeUid !in changesByUid) fail("INVALID_WARNING")
         }
+    }
+
+    private fun validateProgressionLedger(
+        changeSet: PlayerChangeSet,
+        intent: PlayerLedgerIntent,
+        payload: ProgressionLedgerIntentPayload,
+        changesByUid: Map<String, PlayerDomainChange>,
+        representedProgressionChangeUids: MutableSet<String>
+    ) {
+        if (payload.campaignUid != changeSet.campaignUid || payload.sourceCommandUid != changeSet.sourceCommandUid) {
+            fail("PROGRESSION_LEDGER_SCOPE_MISMATCH")
+        }
+        if (payload.progressionUid.isBlank() || payload.characterUid.isBlank() || payload.targetKindUid.isBlank() ||
+            payload.targetUid.isBlank() || payload.sourceTypeUid.isBlank() || payload.sourceChannelUid.isBlank() ||
+            payload.stimulusUid.isBlank() || payload.currentValueEvidenceUid.isBlank() || payload.currentValueCanonical.isBlank() ||
+            payload.currentValueSemanticsUid.isBlank() || payload.currentValueSemanticsVersion.isBlank() ||
+            payload.progressSemanticsUid.isBlank() || payload.progressSemanticsVersion.isBlank() ||
+            payload.engineUid.isBlank() || payload.engineVersion.isBlank() || payload.numericPolicyUid.isBlank() ||
+            payload.numericPolicyVersion.isBlank() || payload.progressionPolicyUid.isBlank() ||
+            payload.progressionPolicyVersion.isBlank() || payload.worldPackBindingIdentity.isBlank() ||
+            payload.inputFingerprint.isBlank() || payload.computationFingerprint.isBlank() || payload.grantUid.isBlank()) {
+            fail("INVALID_PROGRESSION_LEDGER_INTENT")
+        }
+        if (payload.progressionDomainUid?.isBlank() == true || payload.methodUid?.isBlank() == true ||
+            payload.baseGrantUnits < 0L || payload.finalGrantUnits <= 0L) fail("INVALID_PROGRESSION_LEDGER_INTENT")
+        if ((payload.worldPackUid == null) != (payload.worldPackVersion == null) ||
+            payload.worldPackUid?.isBlank() == true || payload.worldPackVersion?.isBlank() == true) fail("INVALID_PROGRESSION_LEDGER_INTENT")
+        if ((payload.talentEvidenceUid == null) != (payload.talentFactorScaled == null) ||
+            (payload.potentialEvidenceUid == null) != (payload.potentialFactorScaled == null) ||
+            payload.talentEvidenceUid?.isBlank() == true || payload.potentialEvidenceUid?.isBlank() == true ||
+            (payload.talentFactorScaled ?: 0L) < 0L || (payload.potentialFactorScaled ?: 0L) < 0L) fail("INVALID_PROGRESSION_LEDGER_INTENT")
+        if (payload.calculationFactors.any {
+                it.factorKindUid.isBlank() || it.evidenceUid.isBlank() || it.sourceValueScaled < 0L ||
+                    it.appliedFactorScaled < 0L || it.scale <= 0L
+            }) fail("INVALID_PROGRESSION_LEDGER_INTENT")
+        if (intent.causalChangeUids.size != 1) fail("PROGRESSION_LEDGER_CAUSAL_CHANGE_REQUIRED")
+        val causalUid = intent.causalChangeUids.single()
+        if (!representedProgressionChangeUids.add(causalUid)) fail("DUPLICATE_PROGRESSION_LEDGER_CAUSAL_CHANGE")
+        val change = changesByUid.getValue(causalUid)
+        if (change.sourceRuleUid != payload.progressionPolicyUid) fail("PROGRESSION_LEDGER_POLICY_LINK_MISMATCH")
+        val matches = when (payload.targetKindUid) {
+            ProgressionTargetKinds.STAT -> change.changeKindUid == PlayerChangeKinds.STAT &&
+                (change.payload as? StatChange)?.let {
+                    it.subject.uid == payload.characterUid && it.statUid == payload.targetUid && it.delta.units == payload.finalGrantUnits
+                } == true
+            ProgressionTargetKinds.SKILL -> change.changeKindUid == PlayerChangeKinds.SKILL &&
+                (change.payload as? SkillChange)?.let {
+                    it.subject.uid == payload.characterUid && it.skillUid == payload.targetUid && it.progressDelta.units == payload.finalGrantUnits
+                } == true
+            ProgressionTargetKinds.TECHNIQUE -> change.changeKindUid == PlayerChangeKinds.TECHNIQUE &&
+                (change.payload as? TechniqueChange)?.let {
+                    it.subject.uid == payload.characterUid && it.techniqueUid == payload.targetUid && it.progressDelta.units == payload.finalGrantUnits
+                } == true
+            else -> false
+        }
+        if (!matches) fail("PROGRESSION_LEDGER_CAUSAL_CHANGE_MISMATCH")
     }
 
     private fun fail(code: String): Nothing = throw PlayerChangeSetStructuralException(code)
@@ -469,6 +533,7 @@ private fun encodeLedgerIntent(intent: PlayerLedgerIntent): JsonObject {
             "amountMinor" to pcsJ(p.amountMinor), "currencyUid" to pcsJ(p.currencyUid),
             "transactionTypeUid" to pcsJ(p.transactionTypeUid)
         )
+        is ProgressionLedgerIntentPayload -> encodeProgressionLedgerPayload(p)
         else -> throw PlayerChangeSetStructuralException("LEDGER_PAYLOAD_TYPE_MISMATCH")
     }
     return pcsObj(
@@ -477,20 +542,106 @@ private fun encodeLedgerIntent(intent: PlayerLedgerIntent): JsonObject {
     )
 }
 
+private fun encodeProgressionLedgerPayload(p: ProgressionLedgerIntentPayload): JsonObject = pcsObj(
+    "progressionUid" to pcsJ(p.progressionUid), "campaignUid" to pcsJ(p.campaignUid),
+    "characterUid" to pcsJ(p.characterUid), "targetKindUid" to pcsJ(p.targetKindUid), "targetUid" to pcsJ(p.targetUid),
+    "sourceTypeUid" to pcsJ(p.sourceTypeUid), "sourceChannelUid" to pcsJ(p.sourceChannelUid),
+    "sourceCommandUid" to pcsJ(p.sourceCommandUid), "stimulusUid" to pcsJ(p.stimulusUid),
+    "progressionDomainUid" to pcsJn(p.progressionDomainUid), "methodUid" to pcsJn(p.methodUid),
+    "currentValueEvidenceUid" to pcsJ(p.currentValueEvidenceUid), "currentValueCanonical" to pcsJ(p.currentValueCanonical),
+    "currentValueSemanticsUid" to pcsJ(p.currentValueSemanticsUid), "currentValueSemanticsVersion" to pcsJ(p.currentValueSemanticsVersion),
+    "calculationFactors" to JsonArray(p.calculationFactors.map(::encodeProgressionLedgerFactor)),
+    "talentEvidenceUid" to pcsJn(p.talentEvidenceUid), "talentFactorScaled" to (p.talentFactorScaled?.let(::JsonPrimitive) ?: JsonNull),
+    "potentialEvidenceUid" to pcsJn(p.potentialEvidenceUid), "potentialFactorScaled" to (p.potentialFactorScaled?.let(::JsonPrimitive) ?: JsonNull),
+    "baseGrantUnits" to pcsJ(p.baseGrantUnits), "finalGrantUnits" to pcsJ(p.finalGrantUnits),
+    "progressSemanticsUid" to pcsJ(p.progressSemanticsUid), "progressSemanticsVersion" to pcsJ(p.progressSemanticsVersion),
+    "engineUid" to pcsJ(p.engineUid), "engineVersion" to pcsJ(p.engineVersion),
+    "numericPolicyUid" to pcsJ(p.numericPolicyUid), "numericPolicyVersion" to pcsJ(p.numericPolicyVersion),
+    "progressionPolicyUid" to pcsJ(p.progressionPolicyUid), "progressionPolicyVersion" to pcsJ(p.progressionPolicyVersion),
+    "worldPackUid" to pcsJn(p.worldPackUid), "worldPackVersion" to pcsJn(p.worldPackVersion),
+    "worldPackBindingIdentity" to pcsJ(p.worldPackBindingIdentity), "inputFingerprint" to pcsJ(p.inputFingerprint),
+    "computationFingerprint" to pcsJ(p.computationFingerprint), "grantUid" to pcsJ(p.grantUid)
+)
+
+private fun encodeProgressionLedgerFactor(f: ProgressionLedgerFactorEvidence): JsonObject = pcsObj(
+    "factorKindUid" to pcsJ(f.factorKindUid), "evidenceUid" to pcsJ(f.evidenceUid),
+    "sourceValueScaled" to pcsJ(f.sourceValueScaled), "appliedFactorScaled" to pcsJ(f.appliedFactorScaled),
+    "scale" to pcsJ(f.scale)
+)
+
 private fun decodeLedgerIntent(obj: JsonObject): PlayerLedgerIntent {
     obj.pcsOnlyKeys(setOf("ledgerIntentUid", "ledgerKindUid", "causalChangeUids", "payload"))
     val kind = obj.pcsReqString("ledgerKindUid")
-    if (kind != PlayerLedgerIntentKinds.FINANCIAL_TRANSFER) throw PlayerChangeSetStructuralException("UNKNOWN_LEDGER_INTENT_KIND")
-    val payload = obj.pcsReqObject("payload").pcsOnlyKeys(setOf("fromAccountUid", "toAccountUid", "amountMinor", "currencyUid", "transactionTypeUid"))
+    val payloadObj = obj.pcsReqObject("payload")
+    val payload: PlayerLedgerIntentPayload = when (kind) {
+        PlayerLedgerIntentKinds.FINANCIAL_TRANSFER -> {
+            val p = payloadObj.pcsOnlyKeys(setOf("fromAccountUid", "toAccountUid", "amountMinor", "currencyUid", "transactionTypeUid"))
+            FinancialTransferLedgerIntentPayload(
+                p.pcsReqString("fromAccountUid"), p.pcsReqString("toAccountUid"), p.pcsReqLong("amountMinor"),
+                p.pcsReqString("currencyUid"), p.pcsReqString("transactionTypeUid")
+            )
+        }
+        PlayerLedgerIntentKinds.PROGRESSION -> decodeProgressionLedgerPayload(payloadObj)
+        else -> throw PlayerChangeSetStructuralException("UNKNOWN_LEDGER_INTENT_KIND")
+    }
     return PlayerLedgerIntent.create(
         ledgerIntentUid = obj.pcsReqString("ledgerIntentUid"),
         ledgerKindUid = kind,
         causalChangeUids = obj.pcsReqArray("causalChangeUids").map { it.pcsStringValue() },
-        payload = FinancialTransferLedgerIntentPayload(
-            payload.pcsReqString("fromAccountUid"), payload.pcsReqString("toAccountUid"), payload.pcsReqLong("amountMinor"),
-            payload.pcsReqString("currencyUid"), payload.pcsReqString("transactionTypeUid")
-        )
+        payload = payload
     )
+}
+
+private val progressionLedgerKeys = setOf(
+    "progressionUid", "campaignUid", "characterUid", "targetKindUid", "targetUid", "sourceTypeUid", "sourceChannelUid",
+    "sourceCommandUid", "stimulusUid", "progressionDomainUid", "methodUid", "currentValueEvidenceUid", "currentValueCanonical",
+    "currentValueSemanticsUid", "currentValueSemanticsVersion", "calculationFactors", "talentEvidenceUid", "talentFactorScaled",
+    "potentialEvidenceUid", "potentialFactorScaled", "baseGrantUnits", "finalGrantUnits", "progressSemanticsUid", "progressSemanticsVersion",
+    "engineUid", "engineVersion", "numericPolicyUid", "numericPolicyVersion", "progressionPolicyUid", "progressionPolicyVersion",
+    "worldPackUid", "worldPackVersion", "worldPackBindingIdentity", "inputFingerprint", "computationFingerprint", "grantUid"
+)
+
+private fun decodeProgressionLedgerPayload(obj: JsonObject): ProgressionLedgerIntentPayload {
+    val p = obj.pcsOnlyKeys(progressionLedgerKeys)
+    return try {
+        ProgressionLedgerIntentPayload.create(
+            progressionUid = p.pcsReqString("progressionUid"), campaignUid = p.pcsReqString("campaignUid"),
+            characterUid = p.pcsReqString("characterUid"), targetKindUid = p.pcsReqString("targetKindUid"),
+            targetUid = p.pcsReqString("targetUid"), sourceTypeUid = p.pcsReqString("sourceTypeUid"),
+            sourceChannelUid = p.pcsReqString("sourceChannelUid"), sourceCommandUid = p.pcsReqString("sourceCommandUid"),
+            stimulusUid = p.pcsReqString("stimulusUid"), progressionDomainUid = p.pcsOptString("progressionDomainUid"),
+            methodUid = p.pcsOptString("methodUid"), currentValueEvidenceUid = p.pcsReqString("currentValueEvidenceUid"),
+            currentValueCanonical = p.pcsReqString("currentValueCanonical"), currentValueSemanticsUid = p.pcsReqString("currentValueSemanticsUid"),
+            currentValueSemanticsVersion = p.pcsReqString("currentValueSemanticsVersion"),
+            calculationFactors = p.pcsReqArray("calculationFactors").map { decodeProgressionLedgerFactor(it.jsonObject) },
+            talentEvidenceUid = p.pcsOptString("talentEvidenceUid"), talentFactorScaled = p.pcsOptLong("talentFactorScaled"),
+            potentialEvidenceUid = p.pcsOptString("potentialEvidenceUid"), potentialFactorScaled = p.pcsOptLong("potentialFactorScaled"),
+            baseGrantUnits = p.pcsReqLong("baseGrantUnits"), finalGrantUnits = p.pcsReqLong("finalGrantUnits"),
+            progressSemanticsUid = p.pcsReqString("progressSemanticsUid"), progressSemanticsVersion = p.pcsReqString("progressSemanticsVersion"),
+            engineUid = p.pcsReqString("engineUid"), engineVersion = p.pcsReqString("engineVersion"),
+            numericPolicyUid = p.pcsReqString("numericPolicyUid"), numericPolicyVersion = p.pcsReqString("numericPolicyVersion"),
+            progressionPolicyUid = p.pcsReqString("progressionPolicyUid"), progressionPolicyVersion = p.pcsReqString("progressionPolicyVersion"),
+            worldPackUid = p.pcsOptString("worldPackUid"), worldPackVersion = p.pcsOptString("worldPackVersion"),
+            worldPackBindingIdentity = p.pcsReqString("worldPackBindingIdentity"), inputFingerprint = p.pcsReqString("inputFingerprint"),
+            computationFingerprint = p.pcsReqString("computationFingerprint"), grantUid = p.pcsReqString("grantUid")
+        )
+    } catch (e: PlayerChangeSetStructuralException) {
+        throw e
+    } catch (e: IllegalArgumentException) {
+        throw PlayerChangeSetStructuralException("INVALID_PROGRESSION_LEDGER_INTENT")
+    }
+}
+
+private fun decodeProgressionLedgerFactor(obj: JsonObject): ProgressionLedgerFactorEvidence {
+    val p = obj.pcsOnlyKeys(setOf("factorKindUid", "evidenceUid", "sourceValueScaled", "appliedFactorScaled", "scale"))
+    return try {
+        ProgressionLedgerFactorEvidence(
+            p.pcsReqString("factorKindUid"), p.pcsReqString("evidenceUid"), p.pcsReqLong("sourceValueScaled"),
+            p.pcsReqLong("appliedFactorScaled"), p.pcsReqLong("scale")
+        )
+    } catch (e: IllegalArgumentException) {
+        throw PlayerChangeSetStructuralException("INVALID_PROGRESSION_LEDGER_INTENT")
+    }
 }
 
 private fun encodeChangeSetActor(actor: CommandActorRef): JsonObject = pcsObj(
