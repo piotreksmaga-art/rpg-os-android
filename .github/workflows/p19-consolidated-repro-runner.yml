@@ -1,0 +1,24 @@
+name: P19 Consolidated Recovery Repro Runner
+on:
+  push:
+    branches: [master]
+permissions:
+  contents: read
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chat1/p19-consolidated-recovery-repro
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - run: gradle --no-daemon :app:testDebugUnitTest --tests com.rpgos.app.Phase19ConsolidatedRecoveryReproTest --stacktrace
