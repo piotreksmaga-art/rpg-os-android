@@ -7,6 +7,7 @@ import org.junit.Test
 
 class Phase22PlayerInvariantValidatorTest {
     private val subject = DomainRef("PLAYER", "P1")
+    private val actor = CommandActorRef("PLAYER", "P1")
 
     @Test fun P22_01_unexplainedPermanentStatRegressionRejects() {
         val result = PlayerInvariantValidator.validate(
@@ -79,6 +80,52 @@ class Phase22PlayerInvariantValidatorTest {
         assertTrue(PlayerInvariantValidator::class.java.declaredMethods.any { it.name == "validate" })
     }
 
+    @Test fun P22_08_snapshotFingerprintIsDeterministicAndOrderIndependent() {
+        val a = DurableRegressionAuthorization(
+            "AUTH-A", "C1", "P1", "CHANGE-A", ProgressionTargetKinds.STAT, "STR",
+            DurableRegressionCauseKinds.INJURY, "CAUSE-A", "E-A", "RULE-A", "1"
+        )
+        val b = DurableRegressionAuthorization(
+            "AUTH-B", "C1", "P1", "CHANGE-B", ProgressionTargetKinds.SKILL, "SK",
+            DurableRegressionCauseKinds.RESPEC, "CAUSE-B", "E-B", "RULE-B", "1"
+        )
+        val left = PlayerInvariantSnapshot.create("C1", listOf(a, b))
+        val right = PlayerInvariantSnapshot.create("C1", listOf(b, a))
+        assertEquals(left.fingerprint, right.fingerprint)
+        assertEquals(left.authorizations, right.authorizations)
+    }
+
+    @Test fun P22_09_canonicalPostResolutionStageRejectsUnexplainedAndAcceptsTypedCause() {
+        val engine = PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(NegativeStatComponent())))
+        val command = PlayerCommand(
+            commandUid = "CMD-P22", campaignUid = "C1", actor = actor, commandKindUid = PlayerCommandKinds.TRAIN,
+            payload = TrainCommandPayload(DomainRef("STAT", "STR"), 1L, "METHOD"),
+            provenance = CommandProvenance("P22-TEST")
+        )
+        val context = PlayerResolutionContext.createUnboundGeneric(
+            "C1", actor, setOf(
+                CampaignScopedDomainRef("C1", DomainRef("PLAYER", "P1")),
+                CampaignScopedDomainRef("C1", DomainRef("STAT", "STR"))
+            )
+        )
+        val rejected = engine.resolveWithPlayerInvariants(command, context, PlayerInvariantSnapshotResolver.empty())
+        assertTrue(rejected is PlayerResolutionOutcome.Rejected)
+        assertEquals(PlayerResolutionRejectionReason.DOMAIN_REJECTED, (rejected as PlayerResolutionOutcome.Rejected).rejection.reason)
+        assertEquals("UNEXPLAINED_DURABLE_PROGRESSION_REGRESSION", rejected.rejection.detailUid)
+
+        val authorization = DurableRegressionAuthorization(
+            "AUTH-ENGINE", "C1", "P1", "C-ENGINE", ProgressionTargetKinds.STAT, "STR",
+            DurableRegressionCauseKinds.INJURY, "INJURY-ENGINE", "E-ENGINE", "RULE-INJURY", "1"
+        )
+        val accepted = engine.resolveWithPlayerInvariants(
+            command, context, PlayerInvariantSnapshotResolver { campaignUid, _ ->
+                PlayerInvariantSnapshot.create(campaignUid, listOf(authorization))
+            }
+        )
+        assertTrue(accepted is PlayerResolutionOutcome.Resolved)
+        assertEquals(-1L, ((accepted as PlayerResolutionOutcome.Resolved).proposal.changes.single().payload as StatChange).delta.units)
+    }
+
     private fun statChange(uid: String, delta: Long, rule: String) = PlayerDomainChange.create(
         uid, PlayerChangeKinds.STAT, StatChange(subject, "STR", ExactLongDelta.of(delta)), rule
     )
@@ -86,12 +133,31 @@ class Phase22PlayerInvariantValidatorTest {
     private fun proposal(change: PlayerDomainChange) = proposal(listOf(change))
     private fun proposal(changes: List<PlayerDomainChange>) = PlayerChangeSet.create(
         changeSetUid = "CS-" + changes.joinToString("-") { it.changeUid },
-        campaignUid = "C1", sourceCommandUid = "CMD", actor = CommandActorRef("PLAYER", "P1"),
+        campaignUid = "C1", sourceCommandUid = "CMD", actor = actor,
         changes = changes, provenance = ChangeSetProvenance("CMD", "TEST", "1")
     )
 
     private fun assertInvalid(result: PlayerInvariantValidationResult, detail: String) {
         assertTrue(result is PlayerInvariantValidationResult.Invalid)
         assertEquals(detail, (result as PlayerInvariantValidationResult.Invalid).violations.first().detailUid)
+    }
+
+    private class NegativeStatComponent : PlayerResolutionComponent<TrainCommandPayload>(
+        PlayerCommandKinds.TRAIN, TrainCommandPayload::class, "RPGOS-COMPONENT:P22-NEGATIVE-STAT", "1"
+    ) {
+        override fun resolve(
+            command: PlayerCommand<TrainCommandPayload>,
+            context: PlayerResolutionContext
+        ) = PlayerResolutionComponentOutcome.Resolved(
+            PlayerResolutionDraft.create(
+                changes = listOf(
+                    PlayerDomainChange.create(
+                        "C-ENGINE", PlayerChangeKinds.STAT,
+                        StatChange(DomainRef("PLAYER", command.actor.actorUid), "STR", ExactLongDelta.of(-1L)),
+                        "RULE-INJURY"
+                    )
+                )
+            )
+        )
     }
 }
