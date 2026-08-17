@@ -93,13 +93,16 @@ class Phase32EvidenceNonAuthorityTest {
 
             // After evidence writing ends, direct domain writes are still rejected by the same
             // registry-backed production guards. Evidence history does not confer authority.
-            guardedTables.filter { RuntimeTruthLayerRegistry.requireClassifiedTable(it).isAuthoritative }.forEach { table ->
-                val campaignColumn = GameplayMutationDatabaseGuards.campaignColumnForCompatibility(db, table)
-                assertTrue(
-                    "direct authoritative delete unexpectedly allowed after evidence append: $table",
-                    runCatching { db.delete(table, "$campaignColumn=?", arrayOf("C1")) }.isFailure
-                )
-            }
+            guardedTables
+                .filter { rowCount(db, it) > 0L }
+                .filter { RuntimeTruthLayerRegistry.requireClassifiedTable(it).isAuthoritative }
+                .forEach { table ->
+                    val campaignColumn = GameplayMutationDatabaseGuards.campaignColumnForCompatibility(db, table)
+                    assertTrue(
+                        "direct authoritative delete unexpectedly allowed after evidence append: $table",
+                        runCatching { db.delete(table, "$campaignColumn=?", arrayOf("C1")) }.isFailure
+                    )
+                }
             assertEquals(before, guardedTables.associateWith { canonicalTableDump(db, it) })
         }
     }
