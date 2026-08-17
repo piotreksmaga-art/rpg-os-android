@@ -5,7 +5,7 @@ Architecture: `docs/RPG_OS_MASTER_ARCHITECTURE.md`
 Coordination: `docs/PARALLEL_WORK_COORDINATION.md`, `docs/architecture/CHAT_COORDINATION_POLICY.md`
 Operational protocol: `docs/PROJECT_WORK_PROTOCOL.md`
 
-> Aktualizacja 2026-08-16: Player Core Completion — Phase 21–25 została globalnie zaakceptowana przez koordynatora na exact runtime SHA `c028aa355d9b7e1663166a2fedb910c1a2dad795`, po zamknięciu blockera `P21-25-INVARIANT-BYPASS-01` i niezależnej exact-SHA rewalidacji CHAT-4 oraz CHAT-5. Następny etap to Phase 26 — Single Truth Mutation Path enforcement, rozpoczynany od AUDIT FIRST.
+> Aktualizacja 2026-08-17: Transaction Integrity — Phase 26–29 została globalnie zaakceptowana przez koordynatora na exact runtime SHA `45ff53457bff16c4ff72a4cccdecac89124109c3`, po finalnym architectural enforcement repair WORK-20260817-026 i niezależnych exact-SHA rewalidacjach CHAT-4 (`WORK-20260817-027`) oraz CHAT-5 (`WORK-20260817-028`). Następny blok to Phase 30–32, rozpoczynany od AUDIT FIRST.
 
 ## Statusy
 - `[x] COMPLETE` — globalnie zaakceptowany etap; wdrożony i zweryfikowany zgodnie z wymaganiami danego etapu.
@@ -17,12 +17,11 @@ Sama klasa, tabela, raport audytowy albo zielone CI nie oznacza COMPLETE. Global
 
 # AKTUALNY BASELINE PROJEKTU
 
-- Canonical accepted Player Core runtime through Phase 25: `c028aa355d9b7e1663166a2fedb910c1a2dad795`.
-- Exact acceptance CI: run #607 / ID `31968919354` — SUCCESS.
-- Final exact-SHA revalidation: CHAT-4 PASS (`WORK-20260816-016`), CHAT-5 PASS (`WORK-20260816-017`).
-- Closed blocker: `P21-25-INVARIANT-BYPASS-01`.
-- Schema/migration delta for Phase 21–25: **NONE**.
-- Phase 26: **NOT STARTED / AUDIT FIRST**.
+- Canonical accepted runtime through Phase 29: `45ff53457bff16c4ff72a4cccdecac89124109c3`.
+- Exact acceptance CI: run #703 / ID `32038070404` — SUCCESS.
+- Final exact-SHA revalidation: CHAT-4 PASS (`WORK-20260817-027`), CHAT-5 PASS (`WORK-20260817-028`).
+- Final architectural enforcement repair: `WORK-20260817-026`.
+- Phase 30: **NOT STARTED / AUDIT FIRST**.
 
 # FAZA 0 — BASELINE / AUDYT
 - [x] 0. Baseline / audit foundation
@@ -112,13 +111,11 @@ Accepted scope:
 - Phase 24: CharacterPanelSnapshotV2 as DERIVED_PRESENTATION with delete/rebuild safety and no authoritative ownership;
 - Phase 25: deterministic PlayerSnapshotBuilder with FULL / COMBAT / PROGRESSION / ECONOMY / SOCIAL / GM_CONTEXT as DERIVED_PROJECTION profiles preserving FACT / BELIEF / NARRATIVE separation.
 
-No accepted Phase 21–25 delta creates Phase-26 Single Truth Mutation Path enforcement, TurnTransaction, global commit/retry/idempotency, second Player Engine, second WorldRuleProvider, global writable unified player ledger, NPC Knowledge authority, Temporal/Scheduler runtime, or schema/migration changes.
-
 # FAZA B — INTEGRALNOŚĆ KAMPANII
-- [-] 26. Single Truth Mutation Path enforcement
-- [-] 27. Turn Transaction atomic commit/rollback
-- [ ] 28. Idempotency + double-commit protection
-- [ ] 29. Crash recovery / LAST VALID COMMIT
+- [x] 26. Single Truth Mutation Path enforcement
+- [x] 27. Turn Transaction atomic commit/rollback
+- [x] 28. Idempotency + double-commit protection
+- [x] 29. Crash recovery / LAST VALID COMMIT
 - [-] 30. Event Store append-only
 - [-] 31. Causal Graph
 - [ ] 32. Authoritative / Derived / Cache / Presentation runtime enforcement
@@ -126,6 +123,33 @@ No accepted Phase 21–25 delta creates Phase-26 Single Truth Mutation Path enfo
 - [-] 34. Automatic snapshot retention max 6
 - [-] 35. Canon Divergence
 - [-] 36. Schema Versioning + migration safety + legacy provenance
+
+# FAZA 26–29 — TRANSACTION INTEGRITY — COMPLETE
+
+**STATUS: ACCEPTED / COMPLETE**
+
+Accepted runtime SHA:
+`45ff53457bff16c4ff72a4cccdecac89124109c3`
+
+Exact acceptance CI:
+- run #703
+- ID `32038070404`
+- conclusion `success`
+
+Final exact-SHA revalidation:
+- CHAT-4 / `WORK-20260817-027` — PASS
+- CHAT-5 / `WORK-20260817-028` — PASS
+
+Final repair:
+- `WORK-20260817-026` — final architectural enforcement repair.
+
+Accepted scope:
+- Phase 26: supported normal gameplay uses one canonical commit path through repository `commitTurn(...)` and `TurnTransaction`; writable gameplay DB remains private/internal and production initialization installs required schema/receipt/guard enforcement before gameplay mutation;
+- Phase 27: authoritative effects and commit evidence are atomic under one turn transaction; rollback leaves no partial committed reality;
+- Phase 28: durable transaction-level idempotency binds campaign/turn/command/transaction identity and semantic PlayerChangeSet fingerprint; committed retry does not duplicate effects and semantic mismatch fails closed;
+- Phase 29: campaign-scoped monotonic committed ordering and recovery derive LAST VALID COMMIT from committed transaction receipts, while legacy V1 receipts without historical ordering retain `commitOrder = NULL` rather than fabricated chronology.
+
+Cross-boundary guarantees verified by final revalidation include full proposal/effect/receipt binding, retry/rollback safety, G28→G29 migration preservation, read-only recovery, supported end-to-end progression commit without creation of a second progression authority, and no Phase-30 Event Store implementation.
 
 # FAZA C — CZAS, WIEDZA I RETRIEVAL
 - [-] 37. NPC Knowledge model + acquisition provenance
@@ -196,10 +220,10 @@ Frontend może być rozwijany wraz z funkcjonalnością, ale należy zachować z
 - [ ] save -> close -> load authoritative equality
 - [ ] snapshot -> replay -> same authoritative state
 - [ ] old campaign -> migration -> valid load
-- [ ] failed turn -> rollback -> no partial mutation
-- [ ] retry transaction -> no duplicate effects
-- [ ] simulated crash -> last valid commit recovery
-- [x] no unexplained permanent regression — Phase 22 accepted proposal gate; full transaction/replay enforcement remains later
+- [x] failed turn -> rollback -> no partial mutation — Phase 27/29 accepted transaction/recovery gate
+- [x] retry transaction -> no duplicate effects — Phase 28 accepted idempotency gate
+- [x] simulated crash -> last valid commit recovery — Phase 29 accepted recovery gate
+- [x] no unexplained permanent regression — Phase 22 accepted proposal gate; transaction enforcement now covered through Phase 29
 - [ ] money conservation / ledger auditability
 - [ ] unique item / ownership integrity
 - [ ] NPC knowledge isolation
@@ -210,16 +234,16 @@ Frontend może być rozwijany wraz z funkcjonalnością, ale należy zachować z
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
 
-Player Core through Phase 25 jest globalnie **ACCEPTED / COMPLETE**.
+Runtime through Phase 29 jest globalnie **ACCEPTED / COMPLETE**.
 
-Następny etap:
-`Phase 26 — Single Truth Mutation Path enforcement`
+Następny blok:
+`Phase 30–32 — Event Store / Causal Graph / runtime truth-layer enforcement`
 
 Obowiązkowa sekwencja:
 `AUDIT FIRST -> classify COMPLETE / PARTIAL / MISSING / BLOCKED -> coordinator work split -> explicit implementation authorization`
 
 Do czasu zakończenia audytu i jawnej decyzji koordynatora:
-**PHASE 26 = NOT STARTED / NOT AUTHORIZED FOR IMPLEMENTATION.**
+**PHASE 30–32 = NOT ACCEPTED / IMPLEMENTATION REQUIRES EXPLICIT AUTHORIZATION.**
 
 # ZASADA AKTUALIZACJI ROADMAPY
 
