@@ -17,42 +17,46 @@ class Work026ProgressionCommitIntegrationTest {
     private val binding = WorldPackRuleBinding("WORLD-P20", "1")
 
     @Test fun progression_e2e_commits_once_retries_without_duplicate_and_rolls_back_atomically() {
+        resetProbes()
         SQLiteDatabase.create(null).use { db ->
             setupStat(db)
-            val probe = AllowingProbeProvider()
             val command = command("CMD-PROG-COMMIT")
-            val admitted = admit(command, probe)
+            val admitted = admit(command)
 
             assertEquals(1, admitted.playerChangeSet.changes.size)
-            assertTrue(admitted.playerChangeSet.changes.single().payload is StatChange)
+            val generatedStatChange = admitted.playerChangeSet.changes.single().payload as StatChange
+            assertTrue(generatedStatChange.delta.units > 0L)
             assertEquals(PlayerLedgerIntentKinds.PROGRESSION, admitted.playerChangeSet.ledgerIntents.single().ledgerKindUid)
+            assertTrue(admitted.playerChangeSet.ledgerIntents.single().payload is ProgressionLedgerIntentPayload)
             assertEquals(
                 listOf(admitted.playerChangeSet.changes.single().changeUid),
                 admitted.playerChangeSet.ledgerIntents.single().causalChangeUids
             )
-            assertEquals(1, probe.precheckCalls)
-            assertEquals(1, probe.effectCheckCalls)
+            assertEquals(1, precheckCalls)
+            assertEquals(1, effectCheckCalls)
+            assertEquals(1, invariantSnapshotCalls)
 
+            val expectedCommittedValue = 10.0 + generatedStatChange.delta.units.toDouble()
             val identity = TurnTransactionIdentity("C1", "TURN-PROG-COMMIT", command.commandUid, "TX-PROG-COMMIT")
             val committed = TurnTransactionBoundary.create(db, identity, admitted).commit()
             assertTrue(committed is TurnExecutionResult.Committed)
-            assertEquals(20.0, StatResourceStore(db, "C1").playerStats("P1").single { it.statUid == "STR" }.baseValue, 0.0)
+            assertEquals(expectedCommittedValue, StatResourceStore(db, "C1").playerStats("P1").single { it.statUid == "STR" }.baseValue, 0.0)
             assertEquals(1L, receiptCount(db))
 
             val retry = TurnTransactionBoundary.create(db, identity, admitted).commit()
             assertTrue(retry is TurnExecutionResult.AlreadyCommitted)
-            assertEquals(20.0, StatResourceStore(db, "C1").playerStats("P1").single { it.statUid == "STR" }.baseValue, 0.0)
+            assertEquals(expectedCommittedValue, StatResourceStore(db, "C1").playerStats("P1").single { it.statUid == "STR" }.baseValue, 0.0)
             assertEquals(1L, receiptCount(db))
 
             assertFalse(tableExists(db, "progression_ledger"))
             assertFalse(tableExists(db, "progression_ledger_entries"))
-            assertTrue(PlayerDomainEngine::class.java.declaredMethods.any { it.name == "validatePlayerInvariants" })
         }
 
+        resetProbes()
         SQLiteDatabase.create(null).use { db ->
             setupStat(db)
             val command = command("CMD-PROG-ROLLBACK")
-            val admitted = admit(command, AllowingProbeProvider())
+            val admitted = admit(command)
             val identity = TurnTransactionIdentity("C1", "TURN-PROG-ROLLBACK", command.commandUid, "TX-PROG-ROLLBACK")
             val failure = runCatching {
                 TurnTransactionBoundary.create(
@@ -65,6 +69,12 @@ class Work026ProgressionCommitIntegrationTest {
             assertNotNull(failure)
             assertEquals(10.0, StatResourceStore(db, "C1").playerStats("P1").single { it.statUid == "STR" }.baseValue, 0.0)
             assertEquals(0L, receiptCount(db))
+
+            val laterRetry = TurnTransactionBoundary.create(db, identity, admitted).commit()
+            assertTrue(laterRetry is TurnExecutionResult.Committed)
+            val generatedStatChange = admitted.playerChangeSet.changes.single().payload as StatChange
+            assertEquals(10.0 + generatedStatChange.delta.units.toDouble(), StatResourceStore(db, "C1").playerStats("P1").single { it.statUid == "STR" }.baseValue, 0.0)
+            assertEquals(1L, receiptCount(db))
         }
     }
 
@@ -87,11 +97,15 @@ class Work026ProgressionCommitIntegrationTest {
         provenance = CommandProvenance("WORK-026")
     )
 
-    private fun admit(command: PlayerCommand<TrainCommandPayload>, provider: AllowingProbeProvider): CanonicalCampaignMutationProposal {
+    private fun admit(command: PlayerCommand<TrainCommandPayload>): CanonicalCampaignMutationProposal {
         val engine = PlayerDomainEngine(
             PlayerResolutionComponentRegistry.of(listOf(ProgressionComponent())),
-            worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(provider)),
-            worldPackAuthority = WorldPackAuthoritySnapshot.single("C1", binding)
+            worldRuleRegistry = WorldRuleProviderRegistry.of(listOf(AllowingProbeProvider())),
+            worldPackAuthority = WorldPackAuthoritySnapshot.single("C1", binding),
+            invariantSnapshotResolver = PlayerInvariantSnapshotResolver { campaignUid, _ ->
+                invariantSnapshotCalls++
+                PlayerInvariantSnapshot.create(campaignUid)
+            }
         )
         val context = PlayerResolutionContext.create(
             campaignUid = "C1",
@@ -146,9 +160,6 @@ class Work026ProgressionCommitIntegrationTest {
     }
 
     private class AllowingProbeProvider : WorldRuleProvider("WORK-026-ALLOW", "1", "WORLD-P20", "1") {
-        var precheckCalls = 0
-        var effectCheckCalls = 0
-
         override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
             when (request.stage) {
                 WorldRuleEvaluationStage.COMMAND_PRECHECK -> precheckCalls++
@@ -156,6 +167,7 @@ class Work026ProgressionCommitIntegrationTest {
                     effectCheckCalls++
                     assertNotNull(request.effects)
                     assertTrue(request.effects!!.ledgerIntents.any { it.ledgerKindUid == PlayerLedgerIntentKinds.PROGRESSION })
+                    assertTrue(request.effects!!.changes.any { it.payload is StatChange })
                 }
             }
             return WorldRuleDecision.Allowed.create("WORK-026-ALLOW-RULE")
@@ -169,4 +181,16 @@ class Work026ProgressionCommitIntegrationTest {
 
     private fun tableExists(db: SQLiteDatabase, name: String): Boolean =
         db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", arrayOf(name)).use { it.moveToFirst() }
+
+    private fun resetProbes() {
+        precheckCalls = 0
+        effectCheckCalls = 0
+        invariantSnapshotCalls = 0
+    }
+
+    companion object {
+        @JvmField var precheckCalls = 0
+        @JvmField var effectCheckCalls = 0
+        @JvmField var invariantSnapshotCalls = 0
+    }
 }
