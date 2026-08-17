@@ -199,6 +199,22 @@ AiProvider jest wymienny. Lokalny kod obsługuje lookup/mechanikę/filtry, mniej
 
 AI zwraca strukturę: narrative, proposedEvents, state/knowledge/relationship changes, memory writes, chronicle entries, threads, timeAdvance, npcIntentions, warnings. AI proponuje; system waliduje; transaction commit zatwierdza.
 
+### 32.0 Product strategy — LOCAL-FIRST, PROVIDER-NEUTRAL, CLOUD-LATER
+
+RPG OS jest rozwijany jako **LOCAL-FIRST**: pierwszym docelowym i kanonicznie akceptowanym produkcyjnym GM providerem ma być model uruchamiany lokalnie na urządzeniu z Androidem. Lokalny GM jest podstawowym targetem ukończenia GM Engine; kampania ma być grywalna bez obowiązkowego płatnego API i bez zewnętrznego providera.
+
+Jednocześnie architektura pozostaje **PROVIDER-NEUTRAL**. `AiProvider`, `AiCapabilityContract`, structured output, `GmToolGateway`, validators, TurnTransaction oraz ownership trwałej pamięci/stanu nie mogą zależeć od tego, czy inference jest lokalny czy cloud. Zmiana providera nie może wymagać migracji kampanii ani nadawać nowemu modelowi dodatkowej authority.
+
+**CLOUD-LATER:** integracja płatnego/cloud modelu jest świadomie odłożona na późny etap projektu. Nie jest warunkiem ukończenia podstawowego GM Engine ani acceptance Phase 48. Gdy zostanie dodana, ma być opcjonalnym providerem jakościowym używającym dokładnie tych samych granic semantycznych i bezpieczeństwa co local AI.
+
+**MODEL QUALITY IS VARIABLE; PROVIDER IS REPLACEABLE.** Architektura nie koduje założenia `local = słaby` ani `cloud = dobry`. Produktowo zakładamy, że późniejszy silniejszy/płatny model może istotnie poprawić różnorodność narracji, subtelność dialogów, wielowątkowe rozumowanie i jakość najważniejszych scen, ale nie może dzięki temu otrzymać prawa do samodzielnego liczenia mechaniki, nadawania statystyk/umiejętności, zapisu trwałej pamięci ani commitowania rzeczywistości.
+
+Local-first oznacza również, że mały model nie może być zmuszony do „udawania całego RPG OS”. Retrieval, wiedza NPC, temporal filtering, mechanika, progression, economy, state, memory, consistency i transaction integrity pozostają odpowiedzialnością systemu. Lokalny model ma interpretować kontrolowany kontekst i tworzyć proposal/narrację w granicach swoich capabilities.
+
+Docelowo dopuszczony jest tryb **LOCAL / CLOUD / HYBRID**. `ModelRouter` może w przyszłości kierować zwykłe tury do modelu lokalnego, a wybrane wysokowartościowe sceny do silniejszego providera cloud, albo działać zgodnie z wyborem użytkownika. Routing nie może zmieniać campaign authority, memory ownership, legalnej ścieżki mutation ani conformance requirements.
+
+Dla Phase 48 priorytetem acceptance jest rzeczywista integracja pierwszego produkcyjnego **local Android AiProvider + LocalInferenceRuntime**. Integracja płatnego/cloud providera pozostaje osobną, późną bramką projektową i nie zmienia obecnej kolejności roadmapy.
+
 ### 32.1 Future AI Provider & Native Local Inference Architecture — CANONICAL REQUIREMENTS, IMPLEMENTATION DEFERRED
 
 Poniższe wymagania są kanonicznym kierunkiem przyszłej Phase 48+, ale **nie autoryzują obecnie implementacji Phase 48 i nie zmieniają kolejności roadmapy**.
@@ -291,7 +307,7 @@ Testujemy docelowo 10k/100k turns, 1M events, 5M+ words. Kontrolujemy fact recal
 ## 40. Performance i AI cost
 Android jest głównym targetem. Typowa tura nie może wymagać liniowego skanowania pełnej historii. Używamy working state, indexes, bounded retrieval, snapshots, LOD, cache, derived values i semantic retrieval tylko gdy potrzebne.
 
-Najdroższy model tylko tam, gdzie daje realną wartość. Nie używamy LLM do sumowania pieniędzy, deterministic rules, prostych SQLite lookupów ani prostych decyzji NPC.
+Domyślną strategią produktu jest local-first: typowa kampania i zwykłe tury mają działać bez płatnego API. Późniejszy płatny/cloud model może być używany tam, gdzie daje realną wartość jakościową — szczególnie dla narracji i złożonych, wysokowartościowych scen — ale nie zastępuje deterministycznych rules ani campaign authority. Nie używamy LLM do sumowania pieniędzy, deterministic rules, prostych SQLite lookupów ani prostych decyzji NPC.
 
 **Future local-inference profiling requirement:** profilowanie Android/local AI obejmuje co najmniej model storage, load/unload time, TTFT, prefill tok/s, decode tok/s, peak/steady RSS, KV/runtime cache, battery drain, temperature, thermal throttling, cancel latency, OOM recovery, process death/restart i sustained 10–30+ turn workload. Wyniki z innego urządzenia są tylko evidence/reference, nie automatycznie profilem target device.
 
