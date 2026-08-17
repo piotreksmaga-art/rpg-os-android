@@ -11,8 +11,8 @@ android {
         applicationId = "com.rpgos.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 145
-        versionName = "1.2.0-alpha5-hybrid145"
+        versionCode = 146
+        versionName = "1.2.0-alpha6-hybrid146"
         buildConfigField("String", "RPGOS_BACKEND_URL", "\"https://YOUR-BACKEND.example\"")
         buildConfigField(
             "String",
