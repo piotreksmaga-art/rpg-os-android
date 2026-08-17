@@ -6,7 +6,7 @@ private data class ActiveGameplayMutation(val db: SQLiteDatabase, val campaignUi
 private val activeGameplayMutation = ThreadLocal<ActiveGameplayMutation?>()
 
 internal object GameplayMutationDatabaseGuards {
-    private const val CONTEXT_TABLE = "rpgos_gameplay_mutation_context"
+    internal const val CONTEXT_TABLE_NAME = "rpgos_gameplay_mutation_context"
 
     /** Existing domain authorities remain the owners of these tables. */
     private val authoritativeTables = listOf(
@@ -34,9 +34,12 @@ internal object GameplayMutationDatabaseGuards {
         "project_outcomes"
     )
 
+    internal fun authoritativeTablesForCompatibility(): List<String> = authoritativeTables
+    internal fun campaignColumnForCompatibility(db: SQLiteDatabase, table: String): String = campaignColumn(db, table)
+
     fun ensureInstalled(db: SQLiteDatabase) {
         db.execSQL(
-            "CREATE TABLE IF NOT EXISTS $CONTEXT_TABLE(" +
+            "CREATE TABLE IF NOT EXISTS $CONTEXT_TABLE_NAME(" +
                 "campaign_uid TEXT PRIMARY KEY," +
                 "capability_kind TEXT NOT NULL CHECK(capability_kind IN ('TURN','ADMIN')))"
         )
@@ -48,35 +51,49 @@ internal object GameplayMutationDatabaseGuards {
         }
     }
 
-    fun isInstalled(db: SQLiteDatabase): Boolean = tableExists(db, CONTEXT_TABLE)
+    fun isInstalled(db: SQLiteDatabase): Boolean = tableExists(db, CONTEXT_TABLE_NAME)
 
     fun enterTurn(db: SQLiteDatabase, campaignUid: String) {
         require(db.inTransaction()) { "gameplay capability requires outer transaction" }
         enter(db, campaignUid, "TURN")
+        try {
+            CampaignIntelligencePhase30Schema.enterWriter(db, campaignUid)
+        } catch (failure: Throwable) {
+            leave(db, campaignUid, "TURN")
+            throw failure
+        }
     }
 
     fun leaveTurn(db: SQLiteDatabase, campaignUid: String) {
+        CampaignIntelligencePhase30Schema.leaveWriter(db, campaignUid)
         leave(db, campaignUid, "TURN")
     }
 
     fun enterAdmin(db: SQLiteDatabase, campaignUid: String) {
         require(db.inTransaction()) { "administrative capability requires outer transaction" }
         enter(db, campaignUid, "ADMIN")
+        try {
+            CampaignIntelligencePhase30Schema.enterWriter(db, campaignUid)
+        } catch (failure: Throwable) {
+            leave(db, campaignUid, "ADMIN")
+            throw failure
+        }
     }
 
     fun leaveAdmin(db: SQLiteDatabase, campaignUid: String) {
+        CampaignIntelligencePhase30Schema.leaveWriter(db, campaignUid)
         leave(db, campaignUid, "ADMIN")
     }
 
     private fun enter(db: SQLiteDatabase, campaignUid: String, kind: String) {
         db.execSQL(
-            "INSERT INTO $CONTEXT_TABLE(campaign_uid,capability_kind) VALUES(?,?)",
+            "INSERT INTO $CONTEXT_TABLE_NAME(campaign_uid,capability_kind) VALUES(?,?)",
             arrayOf(campaignUid, kind)
         )
     }
 
     private fun leave(db: SQLiteDatabase, campaignUid: String, kind: String) {
-        db.delete(CONTEXT_TABLE, "campaign_uid=? AND capability_kind=?", arrayOf(campaignUid, kind))
+        db.delete(CONTEXT_TABLE_NAME, "campaign_uid=? AND capability_kind=?", arrayOf(campaignUid, kind))
     }
 
     private fun createGuard(
@@ -90,7 +107,7 @@ internal object GameplayMutationDatabaseGuards {
         db.execSQL(
             """CREATE TRIGGER IF NOT EXISTS $name BEFORE $op ON $table
                WHEN NOT EXISTS(
-                   SELECT 1 FROM $CONTEXT_TABLE
+                   SELECT 1 FROM $CONTEXT_TABLE_NAME
                    WHERE campaign_uid=$row.$campaignColumn AND capability_kind IN ('TURN','ADMIN')
                )
                BEGIN
@@ -152,11 +169,7 @@ internal fun <T> withCanonicalGameplayMutationForTurn(
     }
 }
 
-/**
- * Explicit non-gameplay authority for migration/install/recovery infrastructure.
- * This is not a secret token. Safety comes from keeping writable DB ownership
- * out of the normal gameplay API and from not exporting this internal scope.
- */
+/** Explicit non-gameplay authority for migration/install/recovery infrastructure. */
 internal fun <T> withAdministrativeMutationAuthority(
     db: SQLiteDatabase,
     campaignUid: String,
