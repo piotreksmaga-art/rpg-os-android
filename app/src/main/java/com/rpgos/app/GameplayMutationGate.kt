@@ -7,11 +7,12 @@ private val activeGameplayMutation = ThreadLocal<ActiveGameplayMutation?>()
 
 internal object GameplayMutationDatabaseGuards {
     internal const val CONTEXT_TABLE_NAME = "rpgos_gameplay_mutation_context"
-    private val authoritativeTables = listOf("player_inventory_stacks","player_inventory_unique","item_instances","financial_ledger_transactions","ownership_records","ownership_operations","campaign_truth_records","player_stats","player_resources","player_skills_v2","player_techniques_v2","player_equipment","player_equipment_slots","development_projects","project_status_history","project_requirements","project_requirement_satisfactions","project_milestone_definitions","project_milestone_achievements","project_work_records","project_dependencies","project_outcomes")
+    private val authoritativeTables:List<String> get() = RuntimeTruthLayerRegistry.authoritativePersistentTables().toList()
     internal fun authoritativeTablesForCompatibility():List<String> = authoritativeTables
     internal fun campaignColumnForCompatibility(db:SQLiteDatabase,table:String):String=campaignColumn(db,table)
 
     fun ensureInstalled(db:SQLiteDatabase){
+        RuntimeTruthLayerRegistry.validateCanonicalInventory()
         db.execSQL("CREATE TABLE IF NOT EXISTS $CONTEXT_TABLE_NAME(campaign_uid TEXT PRIMARY KEY,capability_kind TEXT NOT NULL CHECK(capability_kind IN ('TURN','ADMIN')))")
         authoritativeTables.filter{tableExists(db,it)}.forEach{table->val column=campaignColumn(db,table);createGuard(db,table,column,"INSERT","NEW");createGuard(db,table,column,"UPDATE","NEW");createGuard(db,table,column,"DELETE","OLD")}
         if(tableExists(db,"turn_transaction_receipts")){
@@ -37,4 +38,9 @@ internal fun requireCanonicalGameplayMutation(db:SQLiteDatabase,campaignUid:Stri
 internal fun isCanonicalGameplayMutationActive(db:SQLiteDatabase,campaignUid:String):Boolean{val a=activeGameplayMutation.get();return a!=null&&a.db===db&&a.campaignUid==campaignUid}
 internal fun<T>withCanonicalGameplayMutationForTurn(db:SQLiteDatabase,campaignUid:String,canonicalSeal:Any,block:()->T):T{require(TurnTransactionBoundary.acceptsCanonicalSeal(canonicalSeal)){"RPGOS-MUTATION-GATE:INVALID_TURN_CAPABILITY"};RuntimeTruthLayerRegistry.requireGameplayCapability(RuntimeMutationCapability.CANONICAL_TURN);val previous=activeGameplayMutation.get();require(previous==null){"RPGOS-MUTATION-GATE:NESTED_GAMEPLAY_CAPABILITY"};GameplayMutationDatabaseGuards.enterTurn(db,campaignUid);activeGameplayMutation.set(ActiveGameplayMutation(db,campaignUid));return try{block()}finally{activeGameplayMutation.set(previous);GameplayMutationDatabaseGuards.leaveTurn(db,campaignUid)}}
 /** Explicit non-gameplay authority for migration/install/recovery infrastructure. */
-internal fun<T>withAdministrativeMutationAuthority(db:SQLiteDatabase,campaignUid:String,block:()->T):T{require(GameplayMutationDatabaseGuards.isInstalled(db)){"RPGOS-MUTATION-GATE:ADMIN_GUARDS_NOT_INSTALLED"};val owns=!db.inTransaction();if(owns)db.beginTransaction();GameplayMutationDatabaseGuards.enterAdmin(db,campaignUid);return try{val result=block();GameplayMutationDatabaseGuards.leaveAdmin(db,campaignUid);if(owns)db.setTransactionSuccessful();result}finally{runCatching{GameplayMutationDatabaseGuards.leaveAdmin(db,campaignUid)};if(owns&&db.inTransaction())db.endTransaction()}}
+internal fun<T>withAdministrativeMutationAuthority(db:SQLiteDatabase,campaignUid:String,block:()->T):T{
+    require(activeGameplayMutation.get()==null){"RPGOS-G32:GAMEPLAY_CANNOT_INVOKE_ADMIN_AUTHORITY"}
+    require(GameplayMutationDatabaseGuards.isInstalled(db)){"RPGOS-MUTATION-GATE:ADMIN_GUARDS_NOT_INSTALLED"}
+    val owns=!db.inTransaction();if(owns)db.beginTransaction();GameplayMutationDatabaseGuards.enterAdmin(db,campaignUid)
+    return try{val result=block();GameplayMutationDatabaseGuards.leaveAdmin(db,campaignUid);if(owns)db.setTransactionSuccessful();result}finally{runCatching{GameplayMutationDatabaseGuards.leaveAdmin(db,campaignUid)};if(owns&&db.inTransaction())db.endTransaction()}
+}
