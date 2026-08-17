@@ -22,17 +22,10 @@ enum class TurnFailurePoint { BEFORE_FIRST_WRITE, AFTER_FIRST_WRITE, AFTER_SECON
 
 fun interface TurnFailureInjector {
     fun failIfRequested(point: TurnFailurePoint)
-
-    companion object {
-        val NONE = TurnFailureInjector { }
-    }
+    companion object { val NONE = TurnFailureInjector { } }
 }
 
-/**
- * Phase-27 outer SQLite transaction owner. It coordinates already-validated writes only; gameplay
- * rules remain in domain engines/stores. Participants receive the same database connection and may
- * join it, but they must not own an independent commit while this transaction is active.
- */
+/** Phase-27 outer SQLite transaction owner. Rules remain in domain engines/stores. */
 class TurnTransaction internal constructor(
     private val db: SQLiteDatabase,
     val identity: TurnTransactionIdentity,
@@ -48,8 +41,7 @@ class TurnTransaction internal constructor(
         db.beginTransaction()
         state = TurnTransactionState.IN_PROGRESS
         return try {
-            val scope = TurnTransactionScope(db, identity, failureInjector)
-            val result = scope.block()
+            val result = TurnTransactionScope(db, identity, failureInjector).block()
             failureInjector.failIfRequested(TurnFailurePoint.BEFORE_COMMIT)
             db.setTransactionSuccessful()
             db.endTransaction()
@@ -81,7 +73,7 @@ class TurnTransactionScope internal constructor(
     fun financialStore(): FinancialStore = FinancialStore(db, identity.campaignUid)
     fun ownershipStore(): OwnershipStore = OwnershipStore(db, identity.campaignUid)
     fun inventoryStore(): InventoryStore = InventoryStore(db, identity.campaignUid)
-    fun statResourceStore(): StatResourceStore = StatResourceStore(db, identity.campaignUid)
+    internal fun statResourceStore(): StatResourceStore = StatResourceStore(db, identity.campaignUid)
     fun developmentProjectStore(): DevelopmentProjectStore = DevelopmentProjectStore(db, identity.campaignUid)
 }
 
