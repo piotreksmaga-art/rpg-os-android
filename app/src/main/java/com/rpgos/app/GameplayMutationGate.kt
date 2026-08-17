@@ -52,14 +52,31 @@ internal object GameplayMutationDatabaseGuards {
 
     fun enterTurn(db: SQLiteDatabase, campaignUid: String) {
         require(db.inTransaction()) { "gameplay capability requires outer transaction" }
-        db.execSQL(
-            "INSERT INTO $CONTEXT_TABLE(campaign_uid,capability_kind) VALUES(?,'TURN')",
-            arrayOf(campaignUid)
-        )
+        enter(db, campaignUid, "TURN")
     }
 
     fun leaveTurn(db: SQLiteDatabase, campaignUid: String) {
-        db.delete(CONTEXT_TABLE, "campaign_uid=? AND capability_kind='TURN'", arrayOf(campaignUid))
+        leave(db, campaignUid, "TURN")
+    }
+
+    fun enterAdmin(db: SQLiteDatabase, campaignUid: String) {
+        require(db.inTransaction()) { "administrative capability requires outer transaction" }
+        enter(db, campaignUid, "ADMIN")
+    }
+
+    fun leaveAdmin(db: SQLiteDatabase, campaignUid: String) {
+        leave(db, campaignUid, "ADMIN")
+    }
+
+    private fun enter(db: SQLiteDatabase, campaignUid: String, kind: String) {
+        db.execSQL(
+            "INSERT INTO $CONTEXT_TABLE(campaign_uid,capability_kind) VALUES(?,?)",
+            arrayOf(campaignUid, kind)
+        )
+    }
+
+    private fun leave(db: SQLiteDatabase, campaignUid: String, kind: String) {
+        db.delete(CONTEXT_TABLE, "campaign_uid=? AND capability_kind=?", arrayOf(campaignUid, kind))
     }
 
     private fun createGuard(
@@ -132,5 +149,32 @@ internal fun <T> withCanonicalGameplayMutationForTurn(
     } finally {
         activeGameplayMutation.set(previous)
         GameplayMutationDatabaseGuards.leaveTurn(db, campaignUid)
+    }
+}
+
+/**
+ * Explicit non-gameplay authority for migration/install/recovery infrastructure.
+ * This is not a secret token. Safety comes from keeping writable DB ownership
+ * out of the normal gameplay API and from not exporting this internal scope.
+ */
+internal fun <T> withAdministrativeMutationAuthority(
+    db: SQLiteDatabase,
+    campaignUid: String,
+    block: () -> T
+): T {
+    require(GameplayMutationDatabaseGuards.isInstalled(db)) {
+        "RPGOS-MUTATION-GATE:ADMIN_GUARDS_NOT_INSTALLED"
+    }
+    val ownsTransaction = !db.inTransaction()
+    if (ownsTransaction) db.beginTransaction()
+    GameplayMutationDatabaseGuards.enterAdmin(db, campaignUid)
+    return try {
+        val result = block()
+        GameplayMutationDatabaseGuards.leaveAdmin(db, campaignUid)
+        if (ownsTransaction) db.setTransactionSuccessful()
+        result
+    } finally {
+        runCatching { GameplayMutationDatabaseGuards.leaveAdmin(db, campaignUid) }
+        if (ownsTransaction && db.inTransaction()) db.endTransaction()
     }
 }
