@@ -81,6 +81,15 @@ jobs:
       - name: Run JVM unit tests
         run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
 
+      - name: Upload failed unit test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPG-OS-FAILED-TESTS-${{ github.sha }}
+          path: app/build/test-results/testDebugUnitTest/
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Build signed validation APK
         run: gradle --no-daemon :app:assembleRelease --stacktrace
 
