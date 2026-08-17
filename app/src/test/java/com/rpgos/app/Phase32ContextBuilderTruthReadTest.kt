@@ -66,7 +66,9 @@ class Phase32ContextBuilderTruthReadTest {
                 assertEquals(expectedTruth, bundle.campaignTruth)
                 assertEquals(expectedPlayerState, bundle.playerState)
                 assertEquals("FACT", bundle.campaignTruth.single()["truth_kind"])
-                assertEquals("P", bundle.playerState["player_uid"])
+                @Suppress("UNCHECKED_CAST")
+                val activePlayer = bundle.playerState["active_player"] as Map<String, Any?>
+                assertEquals("P", activePlayer["player_uid"])
 
                 // Freshness/content of a derived ContextBundle has no authority path. A caller may
                 // construct contradictory or newer in-memory context, but canonical stores remain
@@ -82,7 +84,7 @@ class Phase32ContextBuilderTruthReadTest {
                         )
                     ),
                     playerState = mapOf(
-                        "player_uid" to "ATTACKER",
+                        "active_player" to mapOf("campaign_id" to "C", "player_uid" to "ATTACKER"),
                         "freshness" to Long.MAX_VALUE
                     )
                 )
