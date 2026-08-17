@@ -340,7 +340,9 @@ class Phase26To29PostAuditBlockerRepairTest {
     }
 
     private fun setupProject(d:SQLiteDatabase){
-        CurrentSchema.ensure(d,"C1");val store=DevelopmentProjectStore(d,"C1")
+        CurrentSchema.ensure(d,"C1")
+        OwnershipReferenceRegistry(d,"C1").registerOwner(owner("P1"),"SETUP")
+        val store=DevelopmentProjectStore(d,"C1")
         store.registerProjectType(ProjectTypeDefinition("TYPE1","TEST",provenance="SETUP"))
         store.createProject(DevelopmentProject("C1","PROJ1","TYPE1",owner("P1"),title="P",objectiveSummary="O",targetDomainUid="TEST",createdOrder=1,provenance="SETUP"),"STATUS-1")
     }
