@@ -6,7 +6,11 @@ import java.io.File
 import java.io.FileOutputStream
 import java.util.zip.ZipInputStream
 
-class LocalGameStore(private val context: Context) {
+/**
+ * Internal storage/infrastructure implementation. It is deliberately not a
+ * gameplay-facing repository contract; raw writable DB access stays here.
+ */
+internal class LocalGameStore(private val context: Context) {
     private val baseDir = File(context.filesDir, "rpgos")
     private val selection = CampaignSelectionManager(context)
     private val saveDir: File get() = File(baseDir, "saves/${selection.activeCampaignDirName()}")
@@ -52,14 +56,44 @@ class LocalGameStore(private val context: Context) {
             var entry = zip.nextEntry
             while (entry != null) {
                 val outFile = File(target, entry.name)
-                if (entry.isDirectory) outFile.mkdirs() else { outFile.parentFile?.mkdirs(); FileOutputStream(outFile).use { output -> zip.copyTo(output) } }
+                if (entry.isDirectory) outFile.mkdirs() else { outFile.parentFile?.mkdirs(); FileOutputStream(outFile).use { output -> input.copyTo(output) } }
                 zip.closeEntry(); entry = zip.nextEntry
             }
         } }
     }
 
     private fun copyAsset(assetName: String, target: File) { target.parentFile?.mkdirs(); context.assets.open(assetName).use { input -> FileOutputStream(target).use { output -> input.copyTo(output) } } }
-    fun openSaveDb(): SQLiteDatabase = openSave()
+
+    /** Infrastructure/admin raw write handle. Never exported by CampaignRepository. */
+    internal fun openSaveDb(): SQLiteDatabase = openSave()
+
+    /**
+     * Production gameplay open boundary. Once this returns, current schema,
+     * transaction receipt schema and authoritative-table guards are all ready.
+     * Re-open is also fail-closed before any TurnTransaction is created.
+     */
+    internal fun openGameplaySaveDb(): SQLiteDatabase {
+        val db = openSave()
+        val campaignUid = selection.activeCampaignRef().campaignId
+        return try {
+            if (GameplayMutationDatabaseGuards.isInstalled(db)) {
+                withAdministrativeMutationAuthority(db, campaignUid) {
+                    ensureCurrentSchema(db)
+                    TurnTransactionReceiptSchema.ensureReady(db)
+                    GameplayMutationDatabaseGuards.ensureInstalled(db)
+                }
+            } else {
+                ensureCurrentSchema(db)
+                TurnTransactionReceiptSchema.ensureReady(db)
+                GameplayMutationDatabaseGuards.ensureInstalled(db)
+            }
+            db
+        } catch (failure: Throwable) {
+            db.close()
+            throw failure
+        }
+    }
+
     fun openWorldDb(): SQLiteDatabase = SQLiteDatabase.openDatabase(File(worldDir, "world.db").absolutePath, null, SQLiteDatabase.OPEN_READONLY)
     fun openCoreDb(): SQLiteDatabase = SQLiteDatabase.openDatabase(File(coreDir, "rpg_core.db").absolutePath, null, SQLiteDatabase.OPEN_READONLY)
 
@@ -119,7 +153,7 @@ class LocalGameStore(private val context: Context) {
     fun packageManager(): RpgPackageManager = RpgPackageManager(context)
     fun backups(): List<String> = BackupManager(context).listBackups().map { it.absolutePath }
     fun finalizeChapter(chapter: Int, title: String): Pair<String, String> { openSaveDb().use { save -> val hash = ChapterSaveManager(save).finalizeChapter(chapter, title); val backup = BackupManager(context).createBackup("chapter_$chapter"); return hash to backup.absolutePath } }
-    fun applyPatch(patch: StatePatch): PatchResult { openSaveDb().use { save -> openCoreDb().use { core -> return StatePatchEngine(save, SourceOfTruthRegistry(core)).apply(patch) } } }
+    internal fun applyPatch(patch: StatePatch): PatchResult { openSaveDb().use { save -> openCoreDb().use { core -> return StatePatchEngine(save, SourceOfTruthRegistry(core)).apply(patch) } } }
     private fun openSave(): SQLiteDatabase = SQLiteDatabase.openDatabase(File(saveDir, "campaign.db").absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
     private fun ensureCurrentSchema(saveDb: SQLiteDatabase) { CurrentSchema.ensure(saveDb, selection.activeCampaignRef().campaignId) }
 
