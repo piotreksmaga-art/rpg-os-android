@@ -183,6 +183,8 @@ Tylko trzy główne poziomy: Working, Episodic, Semantic Campaign Memory. Rozdzi
 
 Consolidation: raw events -> importance -> deduplication -> conflict detection -> episodic -> semantic conclusions. Zakazane recursive summary-of-summary. Event history pozostaje historycznym źródłem.
 
+**Future AI invariant:** żaden AiProvider, model, runtime inference, KV cache, conversation/session cache ani hardware backend nie jest właścicielem trwałej pamięci kampanii. Model może posiadać wyłącznie transient inference/session memory. Po unloadzie, zmianie modelu, restarcie procesu lub urządzenia potrzebny kontekst musi być odbudowywalny z CampaignRepository + authoritative/event/memory/knowledge systems + retrieval/context pipeline. Zmiana modelu lub runtime nie może wymagać migracji historii kampanii.
+
 ## 31. Retrieval, Intent, Turn Planner, Context
 Retrieval łączy według potrzeb SQL + Knowledge Graph + Vector Search + Temporal Filter + Knowledge Filter. Jest iteracyjny i bounded.
 
@@ -190,10 +192,66 @@ Intent Parser rozpoznaje strukturę intencji, nie rozstrzyga mechaniki. Turn Pla
 
 Context Budget jest dynamiczny. Context Bundle może zawierać system rules, style, time/location, player, visible world, NPC state/knowledge, threads, history, canon, simulation results, action i output contract.
 
+**Future model-capability requirement:** Context Budget Manager nie może zakładać stałego okna kontekstu ani stałego output budgetu (np. CTX=8192). Musi otrzymywać provider/model capabilities, w tym co najmniej efektywny context window i output limit/recommended output budget, a Turn Planner powinien móc dobierać tylko potrzebne output capabilities. Actor/action/target z normalized intent pozostają strukturą wejściową; nie wolno polegać wyłącznie na modelu jako parserze semantyki akcji.
+
 ## 32. AI Adapter i Structured GM Output
 AiProvider jest wymienny. Lokalny kod obsługuje lookup/mechanikę/filtry, mniejsze modele proste zadania, silny GM ważną narrację/rozumowanie.
 
 AI zwraca strukturę: narrative, proposedEvents, state/knowledge/relationship changes, memory writes, chronicle entries, threads, timeAdvance, npcIntentions, warnings. AI proponuje; system waliduje; transaction commit zatwierdza.
+
+### 32.1 Future AI Provider & Native Local Inference Architecture — CANONICAL REQUIREMENTS, IMPLEMENTATION DEFERRED
+
+Poniższe wymagania są kanonicznym kierunkiem przyszłej Phase 48+, ale **nie autoryzują obecnie implementacji Phase 48 i nie zmieniają kolejności roadmapy**.
+
+**Wymienność:** model, inference runtime i hardware backend są trzema niezależnymi osiami. Nie tworzymy architektury typu `BielikEngine`, `PLLuMEngine` lub `GemmaEngine`. Kampania ma pozostać poprawna po zmianie modelu, runtime lub backendu.
+
+Docelowy podział odpowiedzialności:
+
+```text
+AI GM orchestration
+  -> AiProvider
+       -> AiCapabilityContract
+       -> ModelProfile
+       -> GmToolGateway
+       -> LocalInferenceRuntime
+            -> runtime implementation (np. LiteRT-LM / ExecuTorch / przyszły runtime)
+            -> RuntimeBackendSelector
+                 -> CPU / GPU / NPU / AUTO
+```
+
+Nazwy konkretnych implementacji runtime są przykładami technologii i nie są wymaganiem, aby Phase 48 hardcodowała dzisiejszego zwycięzcę technologicznego.
+
+**AiProvider** definiuje provider-independent kontrakt semantyczny generacji (`generate`, `generateStream`, `cancel` lub równoważny), przyjmuje kontrolowany `GmRequest/ContextBundle` i zwraca provider-independent wynik/proposal. Nie zna GGUF path, CLI flags, portu localhost, konkretnego GPU API ani biblioteki NPU. Nie posiada raw DB ani mutation authority.
+
+**AiCapabilityContract** deklaruje co najmniej capabilities typu TEXT, STREAMING, STRUCTURED_OUTPUT, TOOL_REQUESTS/TOOLS, CONSTRAINED_DECODING tam gdzie wspierane, maksymalne context/output limits i supported languages; vision/audio pozostają opcjonalnymi capabilities.
+
+**ModelProfile** jest data-driven i zawiera stabilną tożsamość modelu oraz jego family/version/format, context/output capabilities, runtime/backend compatibility, language/capability metadata, storage/RAM/device expectations oraz wersjonowany prompt/semantic contract. Model artifact może być pobierany/usuwany bez usuwania kampanii.
+
+**LocalInferenceRuntime** odpowiada wyłącznie za inference execution: load/unload, generation, streaming, cancel, tokenization/runtime preparation, runtime metrics, memory pressure i backend availability. Nie odpowiada za mechanikę RPG, campaign memory ani committed state.
+
+**RuntimeBackend / RuntimeBackendSelector** rozdziela CPU/GPU/NPU/AUTO od wyboru modelu. Backend wybiera się na podstawie rzeczywistego runtime/model compatibility, urządzenia, dostępnej pamięci i późniejszych policy/performance constraints; Vulkan ani NPU nie są wpisane na stałe do GM core.
+
+**ModelLifecycleController** docelowo kontroluje co najmniej NOT_INSTALLED/AVAILABLE/LOADING/READY/GENERATING/UNLOADING/ERROR lub równoważne stany, checksum/artifact verification, load/unload, cancel, OOM/process-death recovery i brak kampanijnych skutków ubocznych awarii inference. Szczegółowy download/update UX pozostaje decyzją późniejszej implementacji/product layer.
+
+**GmToolGateway** jest allowlisted brokerem. AI może QUERY / REQUEST / PROPOSE, ale nie może dostać bezpośrednich operacji `UPDATE DB`, `COMMIT`, `SET HP`, `GRANT SKILL`, `ADD MONEY` ani raw writable database handle. Tool request wymagający mechaniki wraca do istniejących domen/rules/validators/TurnTransaction. Tool calling jest opcjonalną capability provider/runtime, nie warunkiem dla wszystkich modeli.
+
+**Provider-independent Structured GM Output:** canonical schema nie zależy od Bielika, PLLuM, Gemmy, LiteRT-LM, ExecuTorch ani cloud provider. Adapter provider/runtime może się różnić. Turn Planner może wyznaczyć `requiredOutputCapabilities`, aby mały model nie musiał generować wszystkich sekcji na każdej turze.
+
+### 32.2 Player Agency i Actor/Action/Target — GLOBAL GM INVARIANTS
+
+**VOLITIONAL PLAYER ACTION SOURCE = USER / VALIDATED PLAYER COMMAND ONLY.** AI-GM nie może sam dopisywać graczowi dobrowolnego ruchu, wypowiedzi, ataku, uniku, kontrataku, wyboru celu ani użycia zdolności, których użytkownik nie zadeklarował i których nie wynika legalnie z wcześniej committed command/state. System/mechanika może natomiast narzucić graczowi konsekwencję niezależną od woli, np. knockback, stun, upadek lub utratę przytomności; to nie jest „akcja gracza”.
+
+**ACTOR / ACTION / TARGET preservation:** normalized intent i Turn Plan zachowują strukturalnie co najmniej actor identity, action semantics i target identity/part/ref, jeżeli występują. Model nie jest jedynym parserem semantyki akcji i nie może odwrócić kierunku `PLAYER attacks NPC` na `NPC attacks PLAYER` bez nowego legalnego źródła działania.
+
+Każdy przyszły AiProvider/model używany jako GM musi przejść provider-conformance tests obejmujące co najmniej player agency, actor/action/target direction, NPC knowledge isolation, fact/belief separation, stop point, brak invented abilities/dialogue, brak internal-context leakage oraz brak mutation authority.
+
+### 32.3 TEMP Local GM i R&D
+
+TEMP-GM może pozostać niekanoniczną infrastrukturą testową/semantycznym laboratorium. Termux, localhost bridge, llama.cpp/Vulkan i konkretny model referencyjny są **TEST INFRASTRUCTURE / REFERENCE BASELINE**, nie production architecture.
+
+Dozwolone jest niezależne R&D/benchmarking modeli i runtime'ów (np. Bielik, PLLuM, Gemma, LiteRT-LM, ExecuTorch lub przyszłe odpowiedniki), pod warunkiem: brak canonical integration, brak zmiany acceptance status, brak startu Phase 48 i brak bocznej mutation authority. Wyniki R&D są evidence dla przyszłego repo-first Phase-48 audit.
+
+Publiczne benchmarki nie zastępują własnego **RPG OS LOCAL GM / Provider Conformance benchmarku**. Ocena musi obejmować zarówno semantykę RPG/Polish quality/agency/knowledge/continuity/structured output, jak i model size, load time, TTFT, prefill/decode throughput, peak/steady RAM, battery, temperature/thermal throttling, cancel, OOM/recovery, load/unload/process death oraz sustained multi-turn tests.
 
 ## 33. Validation, Counterfactual Guard, Repair
 Consistency Validator sprawdza canon/divergence, timeline, dead NPC, techniques, NPC knowledge leakage, stats/resources, inventory/ownership/location, causality, projects, World Pack legality i unsupported history.
@@ -234,6 +292,10 @@ Testujemy docelowo 10k/100k turns, 1M events, 5M+ words. Kontrolujemy fact recal
 Android jest głównym targetem. Typowa tura nie może wymagać liniowego skanowania pełnej historii. Używamy working state, indexes, bounded retrieval, snapshots, LOD, cache, derived values i semantic retrieval tylko gdy potrzebne.
 
 Najdroższy model tylko tam, gdzie daje realną wartość. Nie używamy LLM do sumowania pieniędzy, deterministic rules, prostych SQLite lookupów ani prostych decyzji NPC.
+
+**Future local-inference profiling requirement:** profilowanie Android/local AI obejmuje co najmniej model storage, load/unload time, TTFT, prefill tok/s, decode tok/s, peak/steady RSS, KV/runtime cache, battery drain, temperature, thermal throttling, cancel latency, OOM recovery, process death/restart i sustained 10–30+ turn workload. Wyniki z innego urządzenia są tylko evidence/reference, nie automatycznie profilem target device.
+
+**Future routing requirement:** późniejsza optymalizacja rozdziela `ModelRouter` (którego modelu użyć) od `RuntimeBackendSelector` (na czym kompatybilny model uruchomić). Ten sam model może używać różnych backendów; różne modele mogą używać tego samego runtime. Routing kosztu/jakości nie może zmienić campaign authority ani durable memory ownership.
 
 ## 41. Finalny pipeline tury
 PLAYER INPUT -> Input Normalizer -> Intent Parser -> Turn Planner -> Initial Retrieval -> Missing Context -> Follow-up Retrieval -> Knowledge Filter -> Temporal Filter -> Rule/Simulation Precheck -> PlayerDomain/Other Mechanics -> Director Context -> Context Budget -> Context Bundle -> AI GM -> Structured Proposal -> Mechanics Resolution -> ChangeSets -> Consistency/Invariant/Counterfactual Validation -> Repair -> Transaction(events/state/knowledge/relations/ledgers/ownership/projects/threads/chronicle/memory) -> COMMIT -> PlayerSnapshotBuilder -> CharacterPanelSnapshot -> committed narrative -> deferred low-priority consolidation -> snapshot when required.
