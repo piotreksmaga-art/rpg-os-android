@@ -190,7 +190,7 @@ class Phase30EventStoreTest {
                 actorRef = subject,
                 targetRefs = listOf(subject),
                 causalChangeUids = listOf(changeUid),
-                payload = DomainEffectEventIntentPayload(effectKind, subject)
+                payload = DomainEffectEventIntentPayload(subject = subject, effectKindUid = effectKind)
             )
             return PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(changes = listOf(change), eventIntents = listOf(event)))
         }
