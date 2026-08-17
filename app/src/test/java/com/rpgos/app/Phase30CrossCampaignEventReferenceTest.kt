@@ -29,7 +29,7 @@ class Phase30CrossCampaignEventReferenceTest {
             )
         )
         val engine = PlayerDomainEngine(
-            PlayerResolutionComponentRegistry.of(listOf(ForeignEventTargetComponent(foreignTarget)))
+            PlayerResolutionComponentRegistry.of(listOf(ForeignEventTargetComponent()))
         )
 
         val admission = CampaignMutationBoundary.resolveAndAdmit(campaignUid, engine, command, context)
@@ -40,9 +40,7 @@ class Phase30CrossCampaignEventReferenceTest {
         )
     }
 
-    private class ForeignEventTargetComponent(
-        private val foreignTarget: DomainRef
-    ) : PlayerResolutionComponent<TransferFundsCommandPayload>(
+    private class ForeignEventTargetComponent : PlayerResolutionComponent<TransferFundsCommandPayload>(
         PlayerCommandKinds.TRANSFER_FUNDS,
         TransferFundsCommandPayload::class,
         "RPGOS-COMPONENT:PHASE30-CROSS-CAMPAIGN-EVENT",
@@ -52,6 +50,7 @@ class Phase30CrossCampaignEventReferenceTest {
             command: PlayerCommand<TransferFundsCommandPayload>,
             context: PlayerResolutionContext
         ): PlayerResolutionComponentOutcome {
+            val foreignTarget = DomainRef("NPC", "N-FOREIGN")
             val changeUid = "CHANGE-${command.commandUid}-1"
             val change = PlayerDomainChange.create(
                 changeUid,
