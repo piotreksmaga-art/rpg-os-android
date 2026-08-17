@@ -3,7 +3,6 @@ package com.rpgos.app
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import java.io.File
-import java.util.UUID
 
 /** Canonical repository facade for the application layer. */
 class UnifiedGameRepository(context: Context) : CampaignRepository {
@@ -28,16 +27,22 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun setActiveWorldPack(dirName: String) = store.setActiveWorldPack(dirName)
     override fun createCampaign(name: String): File = store.createCampaign(name)
 
-    override fun openSaveDb(): SQLiteDatabase {
-        val db = store.openSaveDb()
-        val campaignUid = activeCampaignRef().campaignId
-        MigrationManager().ensureV15(db, campaignUid)
-        TurnTransactionReceiptSchema.ensureReady(db)
-        GameplayMutationDatabaseGuards.ensureInstalled(db)
-        return db
-    }
+    /**
+     * Writable campaign DB ownership stays inside the repository/transaction layer.
+     * Production gameplay callers never receive this handle.
+     */
+    private fun openGameplaySaveDb(): SQLiteDatabase = store.openGameplaySaveDb()
+
     override fun openWorldDb(): SQLiteDatabase = store.openWorldDb()
     override fun openCoreDb(): SQLiteDatabase = store.openCoreDb()
+
+    override fun commitTurn(
+        identity: TurnTransactionIdentity,
+        proposal: CanonicalCampaignMutationProposal,
+        failureInjector: TurnFailureInjector
+    ): TurnExecutionResult<TurnCommitAppliedResult> = openGameplaySaveDb().use { db ->
+        TurnTransactionBoundary.create(db, identity, proposal, failureInjector).commit()
+    }
 
     override fun buildContext(playerInput: String, chapter: Int): ContextBundle = store.buildContext(playerInput, chapter)
     override fun fullCharacterPanel(): CharacterPanelSnapshot = store.fullCharacterPanel()
@@ -45,10 +50,7 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun time(): TimeSnapshot = store.time()
     override fun chronicle(): List<ChronicleEntry> = store.chronicle()
 
-    override fun recordTruth(kind:TruthKind,predicate:String,provenance:Provenance,subjectUid:String?,objectValue:String?,perspectiveUid:String?,narrativeText:String?,truthUid:String?,supersedesTruthUid:String?):CampaignTruthRecord = openSaveDb().use { db ->
-        CampaignTruthStore(db,activeCampaignRef().campaignId).record(kind,predicate,provenance,subjectUid,objectValue,perspectiveUid,narrativeText,truthUid?:"TRUTH-${UUID.randomUUID()}",supersedesTruthUid)
-    }
-    override fun truthRecords(kind:TruthKind?,subjectUid:String?,perspectiveUid:String?,limit:Int):List<CampaignTruthRecord> = openSaveDb().use { db ->
+    override fun truthRecords(kind:TruthKind?,subjectUid:String?,perspectiveUid:String?,limit:Int):List<CampaignTruthRecord> = openGameplaySaveDb().use { db ->
         CampaignTruthStore(db,activeCampaignRef().campaignId).active(kind,subjectUid,perspectiveUid,limit)
     }
 
@@ -77,5 +79,4 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun backups(): List<String> = store.backups()
     override fun restoreBackup(path: String): String = store.restoreBackup(path)
     override fun finalizeChapter(chapter: Int, title: String): Pair<String, String> = store.finalizeChapter(chapter, title)
-    override fun applyPatch(patch: StatePatch): PatchResult = store.applyPatch(patch)
 }
