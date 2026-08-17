@@ -9,6 +9,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+import java.lang.reflect.InvocationTargetException
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[34])
@@ -23,9 +24,41 @@ class Phase26MutationBoundaryTest{
 
  @Test fun P26_03_crossCampaignAdmissionRejectedBeforeCapability(){val actor=CommandActorRef("PLAYER","P1");val cmd=PlayerCommand(commandUid="CMD",campaignUid="C1",actor=actor,commandKindUid=PlayerCommandKinds.TRANSFER_FUNDS,payload=TransferFundsCommandPayload("A","B",1,"CUR"),provenance=CommandProvenance("T"),requestedEffectiveOrder=1);val ctx=PlayerResolutionContext.createUnboundGeneric("C1",actor,emptySet());val admission=CampaignMutationBoundary.resolveAndAdmit("OTHER",PlayerDomainEngine(PlayerResolutionComponentRegistry.empty()),cmd,ctx);assertTrue(admission is CampaignMutationAdmission.Rejected);assertEquals(CampaignMutationBoundary.CAMPAIGN_MISMATCH,(admission as CampaignMutationAdmission.Rejected).reasonUid)}
 
- @Test fun P26_04_manualResolvedCannotBeAdmitted(){assertTrue(CampaignMutationBoundary::class.java.declaredMethods.none{it.name=="admitPlayerProposal"});assertTrue(CanonicalCampaignMutationProposal::class.java.declaredConstructors.none{java.lang.reflect.Modifier.isPublic(it.modifiers)})}
+ @Test fun P26_04_forgedProposalSealAndTurnCapabilityFailClosedBeforeAuthoritativeCommit(){
+  val canonical=GroupATransactionTestFixtures.admittedFinancialProposal(commandUid="CMD-FORGE")
+  val proposalCtor=CanonicalCampaignMutationProposal::class.java.declaredConstructors.single()
+  val proposalFailure=runCatching{
+   proposalCtor.newInstance("C1",canonical.playerChangeSet,MutationAuthorityClass.GAMEPLAY_AUTHORITATIVE,Any())
+  }.exceptionOrNull()
+  assertNotNull(proposalFailure)
+  assertEquals("RPGOS-MUTATION-GATE:FORGED_CANONICAL_PROPOSAL",rootCause(proposalFailure!!).message)
+
+  SQLiteDatabase.openOrCreateDatabase(saveFile,null).use{db->
+   GroupATransactionTestFixtures.setupFinance(db)
+   val turnCtor=TurnTransaction::class.java.declaredConstructors.single()
+   val commitAttemptFailure=runCatching{
+    val forged=turnCtor.newInstance(
+     db,
+     TurnTransactionIdentity("C1","TURN-FORGE","CMD-FORGE","TX-FORGE"),
+     canonical,
+     TurnFailureInjector.NONE,
+     Any()
+    ) as TurnTransaction
+    forged.commit()
+   }.exceptionOrNull()
+   assertNotNull(commitAttemptFailure)
+   assertEquals("RPGOS-TURN-TRANSACTION:FORGED_CAPABILITY",rootCause(commitAttemptFailure!!).message)
+   assertEquals(100L,FinancialStore(db,"C1").balance("A"))
+  }
+ }
 
  @Test fun P26_05_administrativeCapabilityRemainsDistinct(){val migration=AdministrativeMutationCapabilities.forMigration("MIGRATION:TEST");assertEquals(MutationAuthorityClass.ADMINISTRATIVE_MIGRATION_INSTALL_RECOVERY,migration.authorityClass)}
 
  @Test fun P26_06_boundaryDoesNotDuplicateFinanceOwnershipInventory(){val fields=CanonicalCampaignMutationProposal::class.java.declaredFields.map{it.type.name};assertTrue(fields.none{it.contains("FinancialStore")||it.contains("OwnershipStore")||it.contains("InventoryStore")})}
+
+ private fun rootCause(t:Throwable):Throwable{
+  var current=t
+  while(current is InvocationTargetException && current.cause!=null)current=current.cause!!
+  return current
+ }
 }
