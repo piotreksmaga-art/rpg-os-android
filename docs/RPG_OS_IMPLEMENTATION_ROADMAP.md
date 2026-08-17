@@ -53,6 +53,67 @@ Sama klasa, tabela, raport audytowy albo zielone CI nie oznacza COMPLETE. Global
 - [x] 24. CharacterPanelSnapshot v2
 - [x] 25. PlayerSnapshotBuilder + FULL/COMBAT/PROGRESSION/ECONOMY/SOCIAL/GM_CONTEXT profiles
 
+# FAZY 1–19 — WYNIKI ZAAKCEPTOWANEGO PLAYER-CORE FOUNDATION
+
+Poniższe wpisy porządkują wcześniej zaakceptowane fazy. Nie zmieniają ich zakresu ani acceptance status; są skrótem kanonicznego wyniku, a szczegółowe dowody pozostają w historycznych dokumentach implementacyjnych, acceptance records, testach i audytach repozytorium.
+
+## FAZA 1 — WYNIK
+Unified Repository + active campaign identity jest **COMPLETE**. Spełniono pięć kryteriów delta Phase 1; dowód implementacyjny i CI znajduje się w `docs/PHASE_1_UNIFIED_REPOSITORY.md`.
+
+## FAZA 2 — WYNIK
+Campaign Source of Truth + FACT/BELIEF/NARRATIVE + provenance jest **COMPLETE**. Typowana prawda kampanii jest persisted, odseparowana per campaign, przekazywana do ContextBundle i interpretowana przez backend zgodnie z kontraktem. Generic StatePatch nie może ominąć truth API. Migracja istniejących kampanii jest addytywna i nie fabrykuje historycznego provenance. Dowody: `docs/PHASE_2_SOURCE_OF_TRUTH.md`.
+
+## FAZA 3 — WYNIK
+Player State Contract: Persistent / Derived / Runtime jest **COMPLETE**. ActivePlayerRef jest persisted per campaign, legacy player resolution jest wykonywany jednorazowo przy migracji, a następnie główne read paths używają jednego Player UID. PlayerStateStore i CampaignRepository udostępniają canonical player read contract, ContextBundle przekazuje oddzielne warstwy stanu do GM, a legacy CharacterPanel pozostaje presentation adapterem. Dowody: `docs/PHASE_3_PLAYER_STATE_CONTRACT.md`.
+
+## FAZA 4 — WYNIK
+Dynamic StatDefinition / PlayerStat oraz ResourceDefinition / PlayerResource są **COMPLETE**. Runtime posiada typowany, dynamiczny model statystyk i zasobów gracza zamiast zamkniętej listy pól specyficznych dla jednego uniwersum; stan jest powiązany ze stabilną tożsamością kampanii i gracza.
+
+## FAZA 5 — WYNIK
+DerivedValueResolver + modifier model jest **COMPLETE**. Wartości pochodne są rozdzielone od persistent authority i obliczane przez deterministyczny model zależności/modyfikatorów zamiast utrwalania wyniku prezentacyjnego jako drugiego źródła prawdy.
+
+## FAZA 6 — WYNIK
+TalentProfile + PotentialProfile jest **COMPLETE**. Talenty i potencjał mają jawny model domenowy odseparowany od bieżącego poziomu statystyki/umiejętności i mogą uczestniczyć w dalszych mechanikach bez utożsamiania potencjału z osiągniętym mastery.
+
+## FAZA 7 — WYNIK
+Skill model jest **COMPLETE**. Umiejętności gracza mają typowaną tożsamość i stan runtime, z zachowaniem rozdzielenia definicji, posiadania i poziomu/mastery oraz z integracją z player-state foundation.
+
+## FAZA 8 — WYNIK
+Technique model jest **COMPLETE**. Techniki są osobnym typowanym bytem domenowym, nie aliasem skill/stat; ich stan może być walidowany, odczytywany i zmieniany przez późniejszy canonical player pipeline.
+
+## FAZA 9 — WYNIK
+Innate / Racial / Bloodline / Evolution runtime model jest **COMPLETE**. Runtime potrafi reprezentować wrodzone i ewolucyjne właściwości postaci jako odrębną kategorię domenową, bez wymuszania ich reprezentacji jako zwykłych skills lub techniques.
+
+## FAZA 10 — WYNIK
+Inventory model jest **COMPLETE**. Ekwipunek magazynowy/stacki mają typowaną authority, stabilne identyfikatory i operacje domenowe stanowiące podstawę późniejszej transakcyjnej integracji.
+
+## FAZA 11 — WYNIK
+Equipment domain/loadout model jest **COMPLETE**. Założone wyposażenie i loadout są odseparowane od samego posiadania przedmiotu; obowiązują typowane operacje i walidacja domenowa zamiast traktowania equipment jako pola prezentacyjnego.
+
+## FAZA 12 — WYNIK
+OwnershipRecord domain jest **COMPLETE**. Własność ma własny model authority i historię temporalną, z walidacją udziałów, stron i zmian własności; późniejsze fazy transakcyjne wykorzystują tę authority zamiast ją duplikować.
+
+## FAZA 13 — WYNIK
+Financial Ledger / Economy model jest **COMPLETE**. Finanse posiadają append-oriented authoritative ledger, trwałe identyfikatory operacji oraz rebuildable balance projection; saldo nie jest niezależnym drugim źródłem prawdy.
+
+## FAZA 14 — WYNIK
+Assets / debts / obligations / net-worth model jest **COMPLETE**. Model ekonomiczny obejmuje nie tylko bieżące środki, ale również aktywa, zobowiązania i projekcję wartości netto, zachowując rozdzielenie authority i wartości wyliczanych.
+
+## FAZA 15 — WYNIK
+DevelopmentProject model jest **COMPLETE**. Projekty rozwojowe posiadają typowany lifecycle, uczestników/referencje, stan i reguły legalnych przejść, które są później respektowane przez canonical mutation pipeline.
+
+## FAZA 16 — WYNIK
+PlayerCommand contract jest **COMPLETE**. Intencja mechaniczna gracza ma typowany kontrakt wejściowy i stabilną tożsamość, dzięki czemu późniejsze resolution nie musi interpretować swobodnego tekstu jako bezpośredniej durable mutation.
+
+## FAZA 17 — WYNIK
+PlayerChangeSet contract jest **COMPLETE**. Wynik mechaniczny jest reprezentowany jako typowany proposal zmian z deterministyczną strukturą, referencjami i walidacją; ChangeSet jest granicą pomiędzy resolution a późniejszym commitowaniem authority.
+
+## FAZA 18 — WYNIK
+PlayerDomainEngine orchestration jest **COMPLETE**. Canonical player resolution scala command validation, domenowe resolution i budowę proposal bez bezpośredniego zapisu authoritative state. Późniejsze fazy rozszerzają tę samą ścieżkę zamiast tworzyć drugi Player Engine.
+
+## FAZA 19 — WYNIK
+WorldRuleProvider contract jest **COMPLETE**. World-specific authority jest przypinana do resolution i uczestniczy w COMMAND_PRECHECK oraz dokładnie jednym finalnym DRAFT_EFFECT_CHECK. Core nie przejmuje reguł konkretnego uniwersum, a późniejsza progresja musi przejść przez tę samą przypiętą World Pack authority. Kanoniczne dowody: `docs/architecture/PHASE19_WORLD_RULE_PROVIDER_CANONICAL_SCOPE.md`, `docs/architecture/PHASE19_ACCEPTANCE.md` oraz `docs/architecture/PHASE19_DEFERRED_FINDINGS.md`.
+
 ## Evidence dla globalnie zaakceptowanej linii 1–25
 
 Phase 1–19 pozostają zaakceptowane zgodnie z wcześniejszymi acceptance records i evidence. Phase 20 została zaakceptowana na runtime `38dafe5cc48c87f16218e346d9c0f9a96b6cee50`. Phase 21–25 zostały zaakceptowane jako Player Core Completion na exact runtime `c028aa355d9b7e1663166a2fedb910c1a2dad795`, exact CI #607 / `31968919354`, po targeted fix `WORK-20260816-015` oraz finalnym PASS CHAT-4 (`WORK-20260816-016`) i CHAT-5 (`WORK-20260816-017`) na tym samym SHA.
