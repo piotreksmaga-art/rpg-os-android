@@ -7,6 +7,8 @@ Operational protocol: `docs/PROJECT_WORK_PROTOCOL.md`
 
 > Aktualizacja 2026-08-17: Transaction Integrity — Phase 26–29 została globalnie zaakceptowana przez koordynatora na exact runtime SHA `45ff53457bff16c4ff72a4cccdecac89124109c3`, po finalnym architectural enforcement repair WORK-20260817-026 i niezależnych exact-SHA rewalidacjach CHAT-4 (`WORK-20260817-027`) oraz CHAT-5 (`WORK-20260817-028`). Następny blok to Phase 30–32, rozpoczynany od AUDIT FIRST.
 
+> Future architecture update 2026-08-17: zaakceptowano kierunek native/local AI-GM jako wymagania przyszłych faz, bez rozpoczęcia Phase 48 i bez zmiany aktualnej kolejności roadmapy. Model, inference runtime i hardware backend mają być wymienne; RPG OS pozostaje właścicielem durable reality/memory/rules/transactions. TEMP-GM/Termux/localhost/llama.cpp/Bielik pozostają niekanoniczną infrastrukturą R&D/reference baseline.
+
 ## Statusy
 - `[x] COMPLETE` — globalnie zaakceptowany etap; wdrożony i zweryfikowany zgodnie z wymaganiami danego etapu.
 - `[-] PARTIAL` — realny fundament istnieje, ale nie spełnia pełnego kontraktu MASTER.
@@ -22,6 +24,7 @@ Sama klasa, tabela, raport audytowy albo zielone CI nie oznacza COMPLETE. Global
 - Final exact-SHA revalidation: CHAT-4 PASS (`WORK-20260817-027`), CHAT-5 PASS (`WORK-20260817-028`).
 - Final architectural enforcement repair: `WORK-20260817-026`.
 - Phase 30: **NOT STARTED / AUDIT FIRST**.
+- Future local-AI requirements are canonical documentation only; **Phase 48 remains NOT STARTED**.
 
 # FAZA 0 — BASELINE / AUDYT
 - [x] 0. Baseline / audit foundation
@@ -222,24 +225,46 @@ Cross-boundary guarantees verified by final revalidation include full proposal/e
 - [ ] 43. Intent Parser
 - [ ] 44. Turn Planner
 - [-] 45. Context Builder
-- [ ] 46. Context Budget Manager
+- [ ] 46. Context Budget Manager — **future requirement: ModelProfile/AiCapability-aware; no fixed CTX/output budget**
 - [ ] 47. Iterative Retrieval + missing-context loop
 
 # FAZA D — GM ENGINE
-- [ ] 48. AiProvider abstraction
-- [-] 49. Structured GM Output contract
+- [ ] 48. AI Provider & Local Inference Architecture
+- [-] 49. Structured GM Output contract — **provider-independent; turn/capability-dependent required outputs**
 - [ ] 50. Mechanics Resolution integration
 - [-] 51. Consistency Validator
 - [ ] 52. Counterfactual Guard
 - [ ] 53. Repair Pass dla proposal/narrative
 - [ ] 54. Committed narrative delivery only after valid transaction
 
+## FUTURE REQUIREMENTS — PHASE 48 (NOT STARTED)
+
+Phase 48 ma objąć kontrakty architektoniczne potrzebne dla wymiennego lokalnego/cloud AI, ale **nie jest obecnie autoryzowana do implementacji**. Repo-first audit w momencie rozpoczęcia fazy ma rozstrzygnąć minimalny rzeczywisty delta.
+
+Docelowy scope/acceptance powinien uwzględnić:
+- `AiProvider` canonical provider-independent semantic contract;
+- `AiCapabilityContract`;
+- data-driven `ModelProfile`;
+- `LocalInferenceRuntime` poniżej AiProvider;
+- `RuntimeBackend` CPU/GPU/NPU/AUTO oraz oddzielny `RuntimeBackendSelector`;
+- minimalny `ModelLifecycleController` dla load/unload/cancel/error/OOM/process restart i artifact verification;
+- allowlisted `GmToolGateway`, bez raw DB i mutation authority;
+- provider-independent semantic/structured output contract;
+- **VOLITIONAL PLAYER ACTION SOURCE = USER / VALIDATED PLAYER COMMAND ONLY**;
+- strukturalne **ACTOR/ACTION/TARGET preservation**;
+- provider/model conformance suite: player agency, direction, NPC knowledge isolation, FACT/BELIEF, stop point, invented abilities/dialogue, internal-context leak, structured output i canonical mutation boundary;
+- provider crash/cancel/process death nie może tworzyć partial committed turn;
+- model/runtime/backend replacement nie może wymagać migracji kampanii;
+- real Android integration/validation jako acceptance evidence.
+
+Nie hardcodować jako canonical wymogu konkretnego modelu (Bielik/PLLuM/Gemma), formatu (GGUF) ani runtime (LiteRT-LM/ExecuTorch/llama.cpp). Wynik R&D ma być evidence, nie architecture lock-in.
+
 # FAZA E — PAMIĘĆ I DŁUGOTERMINOWA SYMULACJA
-- [-] 55. Working Memory
-- [-] 56. Episodic Memory
-- [-] 57. Semantic Campaign Memory
-- [ ] 58. Memory Consolidation without recursive summary degradation
-- [ ] 59. Vector/Semantic Retrieval engine/index integration
+- [-] 55. Working Memory — **AI provider/model nie jest durable owner**
+- [-] 56. Episodic Memory — **AI provider/model nie jest durable owner**
+- [-] 57. Semantic Campaign Memory — **AI provider/model nie jest durable owner**
+- [ ] 58. Memory Consolidation without recursive summary degradation — **provider-independent durable memory invariant**
+- [ ] 59. Vector/Semantic Retrieval engine/index integration — **retrieval reconstructs context after model/runtime replacement**
 - [ ] 60. Time Skip Processor
 - [-] 61. NPC Brain
 - [-] 62. NPC Decision Engine
@@ -262,8 +287,8 @@ Cross-boundary guarantees verified by final revalidation include full proposal/e
 - [ ] 75. Replay Debugger
 - [-] 76. Integrity Test Suite
 - [-] 77. Long Campaign Stress Tests
-- [-] 78. Android performance profiling/optimization
-- [-] 79. AI cost optimization / model routing
+- [-] 78. Android performance profiling/optimization — **local inference: storage/load/TTFT/prefill/decode/RAM/KV/battery/thermal/OOM/cancel/process-death/sustained turns**
+- [-] 79. AI Provider / Model / Runtime routing — **separate ModelRouter from RuntimeBackendSelector; do not change roadmap position**
 
 # FAZA H — WORLD PACK HARDENING
 - [ ] 80. Naruto WorldRuleProvider integration test pack
@@ -271,6 +296,19 @@ Cross-boundary guarantees verified by final revalidation include full proposal/e
 - [ ] 82. Canon/divergence automated test scenarios
 - [ ] 83. World-specific progression/evolution automated tests
 - [ ] 84. World Pack update compatibility automated tests
+
+# TEMP LOCAL AI-GM / R&D — NONCANONICAL IMPLEMENTATION TRACK
+
+TEMP-GM pozostaje dozwolonym laboratorium semantycznym i device/model benchmark harness. Termux, localhost bridge, llama.cpp/Vulkan i Bielik reference model nie są production architecture.
+
+Dozwolone równoległe R&D bez rozpoczęcia Phase 48 może obejmować feasibility/benchmarking Bielik/PLLuM/Gemma/LiteRT-LM/ExecuTorch/przyszłych odpowiedników, pod warunkiem:
+- osobny scope/branch;
+- brak canonical runtime integration;
+- brak statusu COMPLETE/ACCEPTED dla Phase 48;
+- brak production provider;
+- brak AI-owned durable memory;
+- brak mutation authority;
+- wynik tylko jako evidence dla przyszłego Phase-48 audit.
 
 # FRONTEND
 - [x] ACTIVE DEVELOPMENT / STYLE PRESERVATION BY PROJECT DECISION
@@ -292,6 +330,9 @@ Frontend może być rozwijany wraz z funkcjonalnością, ale należy zachować z
 - [ ] divergence survives canon updates
 - [x] CharacterPanelSnapshot delete/rebuild -> no data loss — Phase 24 accepted read-model gate
 - [ ] cache/index delete/rebuild -> no data loss
+- [ ] AI provider/model replacement -> no campaign migration/data loss
+- [ ] local AI player-agency + actor/action/target conformance
+- [ ] provider crash/cancel/process death -> no partial committed turn
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
 
@@ -305,6 +346,8 @@ Obowiązkowa sekwencja:
 
 Do czasu zakończenia audytu i jawnej decyzji koordynatora:
 **PHASE 30–32 = NOT ACCEPTED / IMPLEMENTATION REQUIRES EXPLICIT AUTHORIZATION.**
+
+Future local-AI requirements nie zmieniają tej kolejności. **Phase 48 pozostaje NOT STARTED**; dopuszczone jest wyłącznie odseparowane R&D/evidence gathering zgodne z MASTER.
 
 # ZASADA AKTUALIZACJI ROADMAPY
 
