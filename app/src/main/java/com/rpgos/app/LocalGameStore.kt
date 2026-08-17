@@ -56,7 +56,7 @@ internal class LocalGameStore(private val context: Context) {
             var entry = zip.nextEntry
             while (entry != null) {
                 val outFile = File(target, entry.name)
-                if (entry.isDirectory) outFile.mkdirs() else { outFile.parentFile?.mkdirs(); FileOutputStream(outFile).use { output -> input.copyTo(output) } }
+                if (entry.isDirectory) outFile.mkdirs() else { outFile.parentFile?.mkdirs(); FileOutputStream(outFile).use { output -> zip.copyTo(output) } }
                 zip.closeEntry(); entry = zip.nextEntry
             }
         } }
