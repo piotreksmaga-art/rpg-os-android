@@ -35,8 +35,7 @@ class CampaignTruthStore(
             "Nieprawidłowy CampaignTruthRecord: ${CampaignTruthPolicy.validate(record).joinToString()}"
         }
 
-        db.beginTransaction()
-        try {
+        tx {
             if (!supersedesTruthUid.isNullOrBlank()) {
                 val oldCampaign = campaignForTruth(supersedesTruthUid)
                 require(oldCampaign == null || oldCampaign == campaignId) {
@@ -72,9 +71,6 @@ class CampaignTruthStore(
                 put("active", if (record.active) 1 else 0)
             }
             db.insertOrThrow("campaign_truth_records", null, values)
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
         }
         return record
     }
@@ -170,6 +166,18 @@ class CampaignTruthStore(
             "SELECT campaign_id FROM campaign_truth_records WHERE truth_uid=? LIMIT 1",
             arrayOf(truthUid)
         ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+
+    private fun <T> tx(block: () -> T): T {
+        if (db.inTransaction()) return block()
+        db.beginTransaction()
+        return try {
+            val result = block()
+            db.setTransactionSuccessful()
+            result
+        } finally {
+            db.endTransaction()
+        }
+    }
 
     private fun android.database.Cursor.getStringOrNull(index: Int): String? =
         if (isNull(index)) null else getString(index)
