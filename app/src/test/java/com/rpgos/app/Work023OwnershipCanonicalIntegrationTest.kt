@@ -76,7 +76,11 @@ class Work023OwnershipCanonicalIntegrationTest {
             payload=TransferFundsCommandPayload("A","B",5,"CUR"),provenance=CommandProvenance("WORK-023-OWNERSHIP"),requestedEffectiveOrder=10
         )
         val refs=setOf(
-            scoped("PLAYER","P1"),scoped("ASSET","A1"),scoped("CHARACTER","P1"),scoped("CHARACTER","P2")
+            scoped("PLAYER","P1"),
+            scoped(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT,"A"),
+            scoped(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT,"B"),
+            scoped(PlayerResolutionReferenceKinds.CURRENCY,"CUR"),
+            scoped("ASSET","A1"),scoped("CHARACTER","P1"),scoped("CHARACTER","P2")
         )
         val context=PlayerResolutionContext.createUnboundGeneric("C1",actor,refs)
         val engine=PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(OwnershipComponent())))
@@ -94,7 +98,7 @@ class Work023OwnershipCanonicalIntegrationTest {
                 PlayerResolutionDraft.create(changes=listOf(
                     PlayerDomainChange.create(
                         "CH-OWN",PlayerChangeKinds.OWNERSHIP,
-                        OwnershipChange("OWN-1",assetRef(),ownerRef("P1"),ownerRef("P2"),OwnershipShare.full())
+                        OwnershipChange("OWN-1",asset(),owner("P1"),owner("P2"),OwnershipShare.full())
                     )
                 ))
             )
