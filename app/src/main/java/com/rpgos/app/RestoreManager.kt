@@ -8,6 +8,10 @@ class RestoreManager(private val context: Context) {
     private val selection = CampaignSelectionManager(context)
 
     fun restoreBackup(campaignDirName: String, backupPath: String): File {
+        // Restore is administrative/recovery work. Reject before reading selection or touching files
+        // when a canonical gameplay capability is active on this thread.
+        requireAdministrativeRecoveryEntryPoint()
+
         val active = selection.activeCampaignRef()
         require(campaignDirName == active.directoryName) {
             "Restore może dotyczyć wyłącznie aktywnej kampanii ${active.directoryName}."
