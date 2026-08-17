@@ -79,14 +79,19 @@ jobs:
         run: gradle --no-daemon :app:tasks --stacktrace
 
       - name: Run JVM unit tests
-        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon :app:testDebugUnitTest --stacktrace 2>&1 | tee "$RUNNER_TEMP/work023-unit.log"
 
       - name: Upload failed unit test diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: RPG-OS-FAILED-TESTS-${{ github.sha }}
-          path: app/build/test-results/testDebugUnitTest/
+          path: |
+            ${{ runner.temp }}/work023-unit.log
+            app/build/test-results/testDebugUnitTest/
           if-no-files-found: error
           retention-days: 1
 
