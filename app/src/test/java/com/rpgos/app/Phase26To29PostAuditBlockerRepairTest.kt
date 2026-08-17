@@ -345,6 +345,8 @@ class Phase26To29PostAuditBlockerRepairTest {
         val store=DevelopmentProjectStore(d,"C1")
         store.registerProjectType(ProjectTypeDefinition("TYPE1","TEST",provenance="SETUP"))
         store.createProject(DevelopmentProject("C1","PROJ1","TYPE1",owner("P1"),title="P",objectiveSummary="O",targetDomainUid="TEST",createdOrder=1,provenance="SETUP"),"STATUS-1")
+        store.changeStatus(ProjectStatusEvent("C1","STATUS-2","PROJ1",ProjectStatus.REQUIREMENTS,2,provenance="SETUP"))
+        store.changeStatus(ProjectStatusEvent("C1","STATUS-3","PROJ1",ProjectStatus.PROTOTYPE,3,provenance="SETUP"))
     }
 
     private fun arm(d:SQLiteDatabase){TurnTransactionReceiptSchema.ensureReady(d);GameplayMutationDatabaseGuards.ensureInstalled(d)}
