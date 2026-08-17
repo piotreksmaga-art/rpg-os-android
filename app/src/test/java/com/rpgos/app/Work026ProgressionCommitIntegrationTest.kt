@@ -6,7 +6,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class Work026ProgressionCommitIntegrationTest {
     private val actor = CommandActorRef("PLAYER", "P1")
     private val binding = WorldPackRuleBinding("WORLD-P20", "1")
