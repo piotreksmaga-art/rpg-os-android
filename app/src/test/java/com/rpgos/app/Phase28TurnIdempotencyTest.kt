@@ -125,10 +125,13 @@ class Phase28TurnIdempotencyTest {
 
     @Test fun P28_07_duplicateFinancialEffectIsAppliedExactlyOnce() {
         db().use { d ->
+            CurrentSchema.ensure(d, "C1")
+            val accountOwner = OwnershipOwnerRef("CHARACTER", "P1")
+            OwnershipReferenceRegistry(d, "C1").registerOwner(accountOwner, "P28-finance-holder")
             val finance = FinancialStore(d, "C1")
             finance.registerCurrency(CurrencyDefinition("CUR", "coin", "Coin", 1L, "P28"))
             finance.registerTransactionType("P28-CREDIT", FinancialFlowKind.SOURCE, "P28")
-            finance.openAccount(FinancialAccount("C1", "A", OwnershipOwnerRef("PLAYER", "P1"), FINANCIAL_ACCOUNT_TYPE_DEFAULT, "CUR", 1L, "P28"))
+            finance.openAccount(FinancialAccount("C1", "A", accountOwner, FINANCIAL_ACCOUNT_TYPE_DEFAULT, "CUR", 1L, "P28"))
             val p = proposal("C1", "CMD-FIN", 7L)
             val identity = id("C1", "TURN-FIN", "CMD-FIN", "TX-FIN")
             TurnTransactionBoundary.create(d, identity, p).execute {
@@ -144,10 +147,16 @@ class Phase28TurnIdempotencyTest {
 
     @Test fun P28_08_duplicateOwnershipTransferIsAppliedExactlyOnce() {
         db().use { d ->
-            val store = OwnershipStore(d, "C1")
-            val from = OwnershipOwnerRef("PLAYER", "P1")
-            val to = OwnershipOwnerRef("PLAYER", "P2")
+            CurrentSchema.ensure(d, "C1")
+            val from = OwnershipOwnerRef("CHARACTER", "P1")
+            val to = OwnershipOwnerRef("CHARACTER", "P2")
             val asset = OwnedAssetRef("ASSET", "A1")
+            val refs = OwnershipReferenceRegistry(d, "C1")
+            refs.registerAssetKind("ASSET", "P28-asset-kind")
+            refs.registerOwner(from, "P28-owner-from")
+            refs.registerOwner(to, "P28-owner-to")
+            refs.registerAsset(asset, "P28-asset")
+            val store = OwnershipStore(d, "C1")
             store.acquire(OwnershipRecord("C1", "OWN-START", from, asset, "OWNER", OwnershipShare.full(), 1L, sourceEventUid = "E0", provenance = "P28"))
             val p = proposal("C1", "CMD-OWN", 8L)
             val identity = id("C1", "TURN-OWN", "CMD-OWN", "TX-OWN")
