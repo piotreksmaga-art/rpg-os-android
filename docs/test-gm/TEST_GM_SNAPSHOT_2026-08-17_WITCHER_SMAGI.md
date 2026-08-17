@@ -8,42 +8,25 @@ Status: TEST SESSION SNAPSHOT / DERIVED PRESENTATION / NON-AUTHORITATIVE
 
 ## 0. Snapshot semantics
 
-This file is a TEST-GM-local derived snapshot of the current conversational TEST SESSION STATE.
-
-It is intentionally aligned with the accepted Phase 24–25 invariants:
-
-- `CharacterPanelSnapshotV2` / snapshot semantics are DERIVED_PRESENTATION;
-- snapshot data is not authoritative player state;
-- deletion/rebuild of this file must not imply authoritative data loss;
-- this file must never overwrite current authoritative/runtime sources;
-- `FACT != BELIEF != NARRATIVE` remains mandatory;
-- omission from this snapshot does not imply nonexistence in campaign reality.
-
-Accepted Phase 21–25 runtime reference:
-`c028aa355d9b7e1663166a2fedb910c1a2dad795`
-
-Important limitation: this Markdown artifact was produced by TEST GM from conversational TEST SESSION STATE. It is not a claim that the Android/Kotlin runtime persisted or committed this campaign state through a production mutation/transaction path. Phase 26 Single Truth Mutation Path enforcement is outside the accepted scope represented here.
+TEST-GM-local derived snapshot of current conversational TEST SESSION STATE. Phase 24–25 semantics apply: DERIVED_PRESENTATION; not authoritative player state; `FACT != BELIEF != NARRATIVE`; omission does not imply nonexistence. Accepted Phase 21–25 runtime reference: `c028aa355d9b7e1663166a2fedb910c1a2dad795`.
 
 ## 1. Identity / scene
 
 - Name: Smagi
 - Birth year: 1173
 - Current age: 6
-- Universe / World Pack context: The Witcher (TEST GM architecture fallback for missing formal Witcher World Pack surfaces where required)
+- Universe: The Witcher
 - Current campaign date: 1179-08-17
-- Current campaign time: 18:20
-- Clock status: exact campaign clock explicitly established by user/GM decision; future time advances should follow played actions, travel, training, sleep, and events.
+- Current campaign time: 18:25
 - Current location: family home after return from Vengerberg
-- Current scene: Smagi is telling his family about Vengerberg and the magical evaluation; mother is waiting to hear what the mages said about Smagi's abilities.
-- Physical condition: conscious; no established injury or lasting negative condition from the completed tests.
+- Current scene: Smagi is explaining to his mother and older sister that the Vengerberg air-effect test reproduced the same basic idea he had used at home with the leaf: imagining the leaf/object being carried by wind rather than directly commanding the object itself.
+- Physical condition: conscious; no established injury or lasting negative condition.
 
-## 2. Temporary numeric baseline established by explicit user decision
+## 2. Temporary numeric baseline
 
-The campaign began before a legal numeric character-bootstrap path was available to TEST GM. On 2026-08-17 the user explicitly authorized TEST GM to establish a temporary numeric baseline and adapt it to already-played experience until later project phases remove this blocker.
+Scale: 0–100.
 
-Scale used for this TEST SESSION baseline: 0–100.
-
-| Stat | Start baseline | Experience delta | Current |
+| Stat | Start | Experience delta | Current |
 |---|---:|---:|---:|
 | Strength | 7 | +0 | 7 |
 | Endurance | 9 | +0 | 9 |
@@ -55,14 +38,9 @@ Scale used for this TEST SESSION baseline: 0–100.
 | Concentration | 14 | +2 | 16 |
 | Magic Control | 3 | +4 | 7 |
 
-### Magic potential
+Magical potential: EXISTS; numeric value UNKNOWN / NOT ASSESSED.
 
-- Magical potential: EXISTS as an explicitly established innate premise of character creation.
-- Numeric value: UNKNOWN / NOT ASSESSED.
-- Do not treat unknown as zero.
-- Do not infer exact potential from current manifestations.
-
-## 3. Skill-level TEST SESSION baseline
+## 3. Skills
 
 | Skill / competency | Level | Status |
 |---|---:|---|
@@ -70,132 +48,77 @@ Scale used for this TEST SESSION baseline: 0–100.
 | Herbalism | 3/100 | early family-taught knowledge |
 | Controlled shaping of magical manifestation | 7/100 | practiced through repeated controlled exercises |
 
-Not established as skills yet:
+Not established as formal skills: Air Magic / Air Manipulation; Telekinesis.
 
-- Air Magic / Air Manipulation — NOT CONFIRMED as a formal skill, specialization, or technique.
-- Telekinesis — NOT CONFIRMED as a distinct formal technique.
-
-Observed effects must not be silently promoted into named mastered capabilities.
-
-## 4. Magical evidence / manifestations
-
-Established observations from play:
+## 4. Magical evidence
 
 1. First spontaneous manifestation involved moving/deflecting a knife through intent.
-2. Smagi later demonstrated a leaf-moving effect while imagining wind.
-3. He attracted/moved a selected piece of parchment.
+2. At home Smagi demonstrated a leaf-moving effect while imagining the leaf being carried by wind.
+3. He later attracted/moved a selected piece of parchment.
 4. He lifted a feather to approximately eye level and briefly maintained its position.
 5. He selectively moved one of several similar light targets without moving the others.
-6. He applied an instructed control model: `START -> PATH -> TARGET`.
-7. He successfully performed a more complex path: `A -> B -> C`, including a directional change.
-8. During blind observation exercises he produced evidence consistent with sensitivity to another person's magical action, but this remains unconfirmed as a formal sensing capability.
-9. In a later controlled test, Smagi focused on an empty area and imagined a local vortex of air; multiple independent lightweight objects reacted and local air movement consistent with the intended effect was observed.
+6. He applied `START -> PATH -> TARGET`.
+7. He performed `A -> B -> C`, including directional change.
+8. Blind observation produced evidence consistent with possible sensitivity to another person's magical action; not confirmed as a formal sensing capability.
+9. Controlled Vengerberg test: Smagi focused on an empty area and imagined a local vortex of air; multiple independent lightweight objects reacted and local air movement consistent with intent was observed.
+10. Family-conversation clarification: Smagi explicitly identifies the Vengerberg wind experiment as the same basic intentional model used in the earlier home leaf demonstration. This strengthens provenance linking the two observations but does NOT by itself confirm elemental specialization.
 
-Epistemic status:
-`PLAYER INTENT -> OBSERVATION -> HYPOTHESIS -> CONTROLLED TEST -> STRONGER EVIDENCE`
+Epistemic status: `PLAYER INTENT -> OBSERVATION -> HYPOTHESIS -> CONTROLLED TEST -> STRONGER EVIDENCE`, not automatically `CONFIRMED ELEMENTAL SPECIALIZATION` or `MASTERED TECHNIQUE`.
 
-but NOT automatically `CONFIRMED ELEMENTAL SPECIALIZATION` or `MASTERED TECHNIQUE`.
+## 5. Learned model
 
-## 5. Learned conceptual exercise
-
-Known exercise/model: `START -> PATH -> TARGET`
-
-- learned concept: YES;
-- practical application: YES;
-- mastered named technique: NO.
+`START -> PATH -> TARGET`: learned concept YES; practical application YES; mastered named technique NO.
 
 ## 6. Training evidence
 
-### Reading
-- learning letters with father Mirog;
-- identifying letters on signs in Vengerberg;
-- following text while Mirog read the Ban Ard material aloud;
-- independently decoding simple/repeated words;
-- a long evening reading session;
-- additional practice during the return journey.
+Reading: letters with Mirog, Vengerberg signs, following Ban Ard text, simple/repeated words, long evening session, return-journey practice.
 
-### Herbalism / plant observation
-- asking mother about herbs, their uses, and mixtures;
-- observing differences in smell, shape, and color;
-- following mother's practical herbal work.
+Herbalism: questions to mother about herbs/mixtures; smell/shape/color observation; following practical herbal work.
 
-### Magic control
-Repeated intentional object movement, holding position, selectivity tests, planned trajectories, correction during movement, A-B-C routing, and controlled air-effect experiments.
+Magic control: repeated intentional object movement, holding position, selectivity tests, trajectories, corrections, A-B-C routing, controlled air-effect experiments.
 
-## 7. Education / Ban Ard process
+No new training/progression award occurred in the current family-conversation round.
 
-Committed TEST SESSION facts:
-- Elvar performed an early assessment and referred Smagi onward.
-- Odran and Celene conducted a more structured magical assessment.
-- Roderik participated in the later procedural discussion.
-- Smagi was considered suitable for further formal evaluation for magical education.
-- Mirog explicitly authorized forwarding Smagi's documentation/candidacy for further consideration.
+## 7. Education / Ban Ard
 
-NOT committed:
-- admission to Ban Ard;
-- tuition amount;
-- financing;
-- patronage;
-- travel requirement;
-- transfer of guardianship;
-- enrollment;
-- start of formal magical education.
+Committed: Elvar early assessment/referral; Odran and Celene structured assessment; Roderik procedural participation; suitable for further formal evaluation; Mirog authorized forwarding documentation/candidacy.
 
-Current process status: `AUTHORIZED FOR FURTHER CONSIDERATION / PENDING RESPONSE`.
+NOT committed: admission, tuition, financing, patronage, travel requirement, guardianship transfer, enrollment, start of formal education.
 
-## 8. Important NPCs / relationships
+Status: `AUTHORIZED FOR FURTHER CONSIDERATION / PENDING RESPONSE`.
 
-Confirmed identity:
-- Mirog — father; supportive; taught Smagi reading and accompanied him to Vengerberg.
-- Elvar — early magical assessor/referral contact.
-- Odran — formal assessment participant.
-- Celene — assessment participant/instructor for first structured control exercise.
-- Roderik — participated in forwarding/education procedure discussion.
+## 8. NPCs / relationships
 
-Identity continuity warning:
-- Mother's previously supplied name `Alina` is NOT promoted here as authoritative because TEST GM later identified possible NPC identity drift.
-- Older sister's previously supplied name `Mira` is likewise NOT promoted here as authoritative for the same reason.
+Confirmed: Mirog — father; Elvar; Odran; Celene; Roderik.
 
-Current safe references:
-- Mother — family member, herbal knowledge source.
-- Older sister — family member, awaiting stories about Vengerberg.
+Identity continuity warning remains: previously supplied names `Alina` (mother) and `Mira` (older sister) are not promoted as authoritative pending stronger evidence or explicit confirmation.
+
+Current safe references: Mother; Older sister.
 
 ## 9. Important items / documents
 
-- Ban Ard book/copy/material purchased by Mirog and used for reading practice; currently with the family.
-- Elvar referral letter existed and was used in the evaluation process.
-- Odran/Celene assessment documentation was prepared for the candidacy process.
+- Ban Ard book/copy/material purchased by Mirog; with family.
+- Elvar referral letter existed and was used.
+- Odran/Celene assessment documentation prepared for candidacy.
 
 ## 10. Current goals / active threads
 
+- Continue family conversation about magical evaluation.
 - Continue learning to read.
-- Continue safe ordinary life while awaiting the result of the education inquiry.
-- Do not test maximum magical force without an appropriate teacher.
-- Await further response regarding formal magical education.
-- Preserve evidence/hypotheses without prematurely converting them into permanent named abilities.
+- Await education inquiry response.
+- Avoid maximum-force magical testing without teacher.
+- Preserve evidence/hypotheses without premature skill promotion.
 
-## 11. Provenance classification
+## 11. Provenance
 
-### FACT / committed TEST SESSION facts
-- Smagi is six years old and was born in 1173.
-- Exact campaign clock anchor is 1179-08-17 18:20 at the family home.
-- Smagi's magical potential exists as a character-creation premise.
-- The listed magical manifestations occurred in play.
-- The temporary numeric stat/skill baseline was explicitly authorized by the user on 2026-08-17 for TEST SESSION continuity.
-- Mirog authorized forwarding the magical-education candidacy.
+FACT: Smagi is 6, born 1173; exact campaign clock currently 1179-08-17 18:25; magical potential exists; listed manifestations occurred; temporary numeric baseline was user-authorized; Mirog authorized candidacy forwarding; Smagi has now explicitly linked the home leaf-wind intention to the later Vengerberg wind experiment.
 
-### BELIEF / HYPOTHESIS
-- Smagi may have a particular affinity/capability involving air.
-- Smagi may possess some sensitivity to others' magic.
-- Exact magnitude of magical potential is unknown.
+BELIEF/HYPOTHESIS: possible air-related affinity/capability; possible magical sensitivity; exact magical potential unknown.
 
-### NARRATIVE / presentation-only
-Narrative descriptions, emotional tone, scene prose, and GM framing do not independently create permanent truth beyond the explicit facts/evidence listed above.
+NARRATIVE: presentation/emotional prose does not independently create permanent truth.
 
-## 12. Phase boundary note
+## 12. Phase boundary
 
-Phase 21–25 are accepted and provide deterministic progression-factor semantics, invariant validation, bounded provenance semantics, CharacterPanelSnapshotV2 derived presentation, and deterministic PlayerSnapshotBuilder projections.
-
-This TEST GM file remains non-authoritative. It does not implement or claim Phase 26 Single Truth Mutation Path, TurnTransaction, crash recovery, authoritative snapshot persistence, NPC Knowledge runtime, Temporal Engine, or other later systems.
+Phase 21–25 accepted. This file remains non-authoritative and does not claim Phase 26+ mutation/transaction/persistence/NPC Knowledge/Temporal Engine implementation.
 
 END SNAPSHOT
