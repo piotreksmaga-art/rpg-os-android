@@ -1,6 +1,7 @@
 # RPG OS — TEST GM ACCEPTED RUNTIME GUIDE
 
 Status: NON-CANONICAL INDEX / MUST BE RECHECKED AGAINST CURRENT ROADMAP
+Last refreshed: 2026-08-17
 
 This file is only a navigation aid for a fresh Test GM. It is not an acceptance record and must never override `docs/RPG_OS_IMPLEMENTATION_ROADMAP.md` or canonical acceptance documents.
 
@@ -10,21 +11,44 @@ At the start of every Test GM session, read the current roadmap and determine wh
 
 Do not assume this list stays current forever.
 
-## Accepted baseline known when this harness was created
+## Current accepted baseline
 
-At creation time, phases 1–19 had been globally accepted, with Phase 19 explicitly accepted on canonical runtime:
+Current canonical roadmap confirms Player Core phases **1–25 globally ACCEPTED / COMPLETE**.
+
+Canonical accepted Player Core runtime through Phase 25:
+
+`c028aa355d9b7e1663166a2fedb910c1a2dad795`
+
+Exact acceptance CI for Phase 21–25:
+
+- run #607
+- ID `31968919354`
+- conclusion `success`
+
+Final exact-SHA revalidation:
+
+- CHAT-4 / `WORK-20260816-016` — PASS
+- CHAT-5 / `WORK-20260816-017` — PASS
+
+Closed blocker:
+
+- `P21-25-INVARIANT-BYPASS-01`
+
+Phase 20 was separately accepted on runtime:
+
+`38dafe5cc48c87f16218e346d9c0f9a96b6cee50`
+
+Exact Phase-20 acceptance CI:
+
+- run #578
+- ID `31961047982`
+- conclusion `success`
+
+Phase 19 canonical runtime referenced by its acceptance record:
 
 `5754f28ccd4f7c1f3522c0af6c34bcaf65e2dcf8`
 
-Phase 19 acceptance evidence lives in:
-
-- `docs/architecture/PHASE19_ACCEPTANCE.md`
-- `docs/architecture/PHASE19_WORLD_RULE_PROVIDER_CANONICAL_SCOPE.md`
-- `docs/architecture/PHASE19_DEFERRED_FINDINGS.md`
-
-The Test GM should treat accepted phases 1–19 as implemented mechanics, but must inspect their current runtime surfaces rather than rely on summaries here.
-
-## Accepted Phase 1–19 domains to inspect as needed
+## Accepted Phase 1–25 domains to inspect as needed
 
 1. Unified Repository + stable UID
 2. Campaign Source of Truth + FACT/BELIEF/NARRATIVE + provenance
@@ -45,14 +69,40 @@ The Test GM should treat accepted phases 1–19 as implemented mechanics, but mu
 17. PlayerChangeSet contract
 18. PlayerDomainEngine orchestration
 19. WorldRuleProvider contract
+20. ProgressionEngine + Progression Ledger
+21. Diminishing Returns + passive progression hooks
+22. Player Invariant Validator + No-Retrogression
+23. Unified Player ledgers + provenance integration within accepted Phase-23 scope
+24. CharacterPanelSnapshot v2 as DERIVED_PRESENTATION
+25. PlayerSnapshotBuilder + FULL / COMBAT / PROGRESSION / ECONOMY / SOCIAL / GM_CONTEXT derived projection profiles
 
-## Phase 20 and later
+The Test GM should treat phases 1–25 as accepted mechanics, but must inspect their current runtime contracts and canonical acceptance scope before using details. This guide is not a substitute for those contracts.
 
-Never classify a later phase from this guide alone.
+## Important accepted-scope boundaries
 
-At harness creation time, a Phase-20 candidate existed in current master history, but global acceptance still required coordinator decision and independent post-audits. Therefore the Test GM must check the current roadmap/acceptance records before deciding whether Phase 20 is runtime or architecture fallback.
+Phase 21–25 acceptance does **not** create or imply:
 
-The same rule applies to all later phases.
+- Phase-26 Single Truth Mutation Path enforcement;
+- TurnTransaction atomic commit/rollback;
+- global commit/retry/idempotency guarantees;
+- crash recovery / LAST VALID COMMIT;
+- a second Player Engine;
+- a second WorldRuleProvider;
+- a global writable unified player ledger;
+- NPC Knowledge authority;
+- Temporal/Scheduler runtime;
+- Mechanics Resolution integration;
+- schema/migration changes.
+
+Do not infer later-phase authority from Player Core acceptance.
+
+## Phase 26 and later
+
+Current roadmap identifies Phase 26 — Single Truth Mutation Path enforcement — as the next campaign-integrity stage. Its roadmap item is not globally COMPLETE; implementation/partial foundations must not be treated as accepted merely because code or documents exist.
+
+Never classify Phase 26 or any later phase from this guide alone. Recheck the current roadmap and canonical acceptance evidence every session.
+
+For mechanics owned by phases that are not globally `ACCEPTED / COMPLETE`, use the architecture fallback rules below.
 
 ## Fallback rule for unfinished phases
 
@@ -63,7 +113,16 @@ When a needed phase is not globally accepted:
 3. use the smallest conservative logical resolution sufficient to continue the playtest;
 4. do not claim the result came from implemented runtime;
 5. avoid irreversible/permanent state inventions when architecture does not determine them safely;
-6. never create a second authority path.
+6. never create a second authority path;
+7. preserve causal evidence and unresolved state so a future accepted mechanic can resolve it without fabricated history or double counting.
+
+## Canonical acceptance references
+
+- `docs/architecture/PHASE19_ACCEPTANCE.md`
+- `docs/architecture/PHASE19_WORLD_RULE_PROVIDER_CANONICAL_SCOPE.md`
+- `docs/architecture/PHASE19_DEFERRED_FINDINGS.md`
+- `docs/architecture/PHASE20_ACCEPTANCE.md`
+- `docs/architecture/PHASE21_25_ACCEPTANCE.md`
 
 ## Useful canonical references
 
