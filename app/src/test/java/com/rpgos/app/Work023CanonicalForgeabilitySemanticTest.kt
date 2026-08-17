@@ -44,6 +44,7 @@ class Work023CanonicalForgeabilitySemanticTest {
                         identity = TurnTransactionIdentity("C1", "TURN-FORGE-TX", "CMD-FORGE-TX", "TX-FORGE-TX"),
                         proposal = proposal,
                         failureInjector = TurnFailureInjector.NONE,
+                        causalRelationIntents = emptyList(),
                         seal = Any()
                     )
                 }.exceptionOrNull()
