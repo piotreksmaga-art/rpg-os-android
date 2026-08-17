@@ -15,38 +15,59 @@ enum class MutationAuthorityClass {
 }
 
 sealed interface CampaignMutationAdmission {
-    data class Accepted internal constructor(val proposal: CanonicalCampaignMutationProposal) : CampaignMutationAdmission
+    class Accepted private constructor(val proposal: CanonicalCampaignMutationProposal) : CampaignMutationAdmission {
+        internal companion object {
+            fun create(proposal: CanonicalCampaignMutationProposal): Accepted = Accepted(proposal)
+        }
+    }
     data class Rejected(val reasonUid: String) : CampaignMutationAdmission
 }
 
 /**
  * Opaque envelope proving that the proposal crossed the canonical Phase-26 admission boundary.
- * Construction is intentionally internal so callers cannot present an arbitrary change set as an
- * admitted gameplay mutation.
+ * Construction is private so callers cannot present an arbitrary change set as an admitted
+ * gameplay mutation. Only the module-internal factory is used by CampaignMutationBoundary.
  */
-class CanonicalCampaignMutationProposal internal constructor(
+class CanonicalCampaignMutationProposal private constructor(
     val campaignUid: String,
     val playerChangeSet: PlayerChangeSet,
-    val authorityClass: MutationAuthorityClass = MutationAuthorityClass.GAMEPLAY_AUTHORITATIVE
-)
+    val authorityClass: MutationAuthorityClass
+) {
+    internal companion object {
+        fun create(campaignUid: String, playerChangeSet: PlayerChangeSet): CanonicalCampaignMutationProposal =
+            CanonicalCampaignMutationProposal(
+                campaignUid = campaignUid,
+                playerChangeSet = playerChangeSet,
+                authorityClass = MutationAuthorityClass.GAMEPLAY_AUTHORITATIVE
+            )
+    }
+}
 
 /** Explicitly non-gameplay capability used by migration/install/recovery code paths. */
-class AdministrativeMutationCapability internal constructor(
+class AdministrativeMutationCapability private constructor(
     val operationUid: String,
-    val authorityClass: MutationAuthorityClass = MutationAuthorityClass.ADMINISTRATIVE_MIGRATION_INSTALL_RECOVERY
+    val authorityClass: MutationAuthorityClass
 ) {
     init { require(operationUid.isNotBlank()) }
+
+    internal companion object {
+        fun create(operationUid: String): AdministrativeMutationCapability =
+            AdministrativeMutationCapability(
+                operationUid,
+                MutationAuthorityClass.ADMINISTRATIVE_MIGRATION_INSTALL_RECOVERY
+            )
+    }
 }
 
 internal object AdministrativeMutationCapabilities {
     fun forMigration(operationUid: String): AdministrativeMutationCapability =
-        AdministrativeMutationCapability(operationUid)
+        AdministrativeMutationCapability.create(operationUid)
 
     fun forInstall(operationUid: String): AdministrativeMutationCapability =
-        AdministrativeMutationCapability(operationUid)
+        AdministrativeMutationCapability.create(operationUid)
 
     fun forRecovery(operationUid: String): AdministrativeMutationCapability =
-        AdministrativeMutationCapability(operationUid)
+        AdministrativeMutationCapability.create(operationUid)
 }
 
 /**
@@ -72,8 +93,8 @@ object CampaignMutationBoundary {
         }
         // PlayerChangeSet instances are structurally validated by their factory. Phase-22 invariant
         // validation is mandatory inside PlayerDomainEngine.resolve(), before Resolved is returned.
-        return CampaignMutationAdmission.Accepted(
-            CanonicalCampaignMutationProposal(expectedCampaignUid, proposal)
+        return CampaignMutationAdmission.Accepted.create(
+            CanonicalCampaignMutationProposal.create(expectedCampaignUid, proposal)
         )
     }
 }
