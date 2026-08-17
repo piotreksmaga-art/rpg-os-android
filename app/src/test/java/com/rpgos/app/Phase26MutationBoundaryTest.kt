@@ -89,7 +89,10 @@ class Phase26MutationBoundaryTest {
         val migration = AdministrativeMutationCapabilities.forMigration("MIGRATION:PHASE26-TEST")
         assertEquals(MutationAuthorityClass.ADMINISTRATIVE_MIGRATION_INSTALL_RECOVERY, migration.authorityClass)
         assertFalse(migration.authorityClass == MutationAuthorityClass.GAMEPLAY_AUTHORITATIVE)
-        assertTrue(CanonicalCampaignMutationProposal::class.java.declaredConstructors.none { constructor ->
+        val sourceConstructors = CanonicalCampaignMutationProposal::class.java.declaredConstructors
+            .filterNot { it.isSynthetic }
+        assertTrue(sourceConstructors.isNotEmpty())
+        assertTrue(sourceConstructors.none { constructor ->
             java.lang.reflect.Modifier.isPublic(constructor.modifiers)
         })
     }
