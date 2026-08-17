@@ -21,10 +21,29 @@ class Phase32TruthLayerDatabaseTest {
 
  @Test fun financeBalanceProjectionDeletesAndRebuildsExactlyFromLedger(){db().use{d->
   Phase32ProductionReadyTestFixture.setup(d)
-  val f=FinancialStore(d,"C1");val before=f.balance("A");val ledger=count(d,"financial_ledger_transactions");val events=count(d,"canonical_gameplay_events");val receipts=count(d,"turn_transaction_receipts")
+  val asset=OwnedAssetRef("G32-ASSET-KIND","G32-ASSET")
+  withAdministrativeMutationAuthority(d,"C1"){
+   val refs=OwnershipReferenceRegistry(d,"C1")
+   refs.registerAssetKind(asset.assetKindUid,"G32")
+   refs.registerAsset(asset,"G32")
+   OwnershipStore(d,"C1").acquire(OwnershipRecord("C1","G32-OWN",OwnershipOwnerRef("CHARACTER","P1"),asset,"OWNER",OwnershipShare.full(),1L,provenance="G32"))
+  }
+  val f=FinancialStore(d,"C1")
+  val before=f.balance("A")
+  val ledger=count(d,"financial_ledger_transactions")
+  val events=count(d,"canonical_gameplay_events")
+  val causal=count(d,"canonical_causal_relations")
+  val receipts=count(d,"turn_transaction_receipts")
+  val ownership=OwnershipStore(d,"C1").history(asset)
   d.delete("financial_account_balances","campaign_id=? AND account_uid=?",arrayOf("C1","A"))
   assertTrue(runCatching{f.balance("A")}.isFailure)
-  assertEquals(before,f.rebuildBalance("A"));assertEquals(before,f.balance("A"));assertEquals(ledger,count(d,"financial_ledger_transactions"));assertEquals(events,count(d,"canonical_gameplay_events"));assertEquals(receipts,count(d,"turn_transaction_receipts"))
+  assertEquals(before,f.rebuildBalance("A"))
+  assertEquals(before,f.balance("A"))
+  assertEquals(ledger,count(d,"financial_ledger_transactions"))
+  assertEquals(events,count(d,"canonical_gameplay_events"))
+  assertEquals(causal,count(d,"canonical_causal_relations"))
+  assertEquals(receipts,count(d,"turn_transaction_receipts"))
+  assertEquals(ownership,OwnershipStore(d,"C1").history(asset))
  }}
 
  @Test fun receiptEventAndCausalHistoryHaveDatabaseImmutabilityGuards(){db().use{d->
