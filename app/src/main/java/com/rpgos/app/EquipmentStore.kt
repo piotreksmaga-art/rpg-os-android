@@ -15,8 +15,7 @@ class EquipmentStore(private val db: SQLiteDatabase, private val campaignId: Str
             require(it.worldPackUid == worldPackUid) { "Equipment slot belongs to another World Pack" }
         }
         require(slots.map { it.slotUid }.distinct().size == slots.size) { "Duplicate slot UID in registration batch" }
-        db.beginTransaction()
-        try {
+        tx {
             slots.sortedBy { it.slotUid }.forEach { slot ->
                 require(!slotExists(slot.slotUid)) { "Duplicate equipment slot UID: ${slot.slotUid}" }
                 require(!slotKeyExists(slot.worldPackUid, slot.key)) { "Duplicate equipment slot key in World Pack: ${slot.key}" }
@@ -26,8 +25,7 @@ class EquipmentStore(private val db: SQLiteDatabase, private val campaignId: Str
                     arrayOf<Any?>(slot.slotUid,slot.worldPackUid,slot.key,slot.displayName,slot.slotGroupUid,slot.capacity,slot.exclusiveGroupUid,slot.definitionStatus.name,slot.definitionVersion,slot.provenance,slot.metadataJson)
                 )
             }
-            db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        }
     }
 
     fun slotDefinitions(worldPackUid: String? = null): List<EquipmentSlotDefinition> {
@@ -57,8 +55,7 @@ class EquipmentStore(private val db: SQLiteDatabase, private val campaignId: Str
             }
         }
         require(rules.map { it.ruleUid }.distinct().size == rules.size) { "Duplicate equipment rule UID in registration batch" }
-        db.beginTransaction()
-        try {
+        tx {
             rules.sortedBy { it.ruleUid }.forEach { rule ->
                 require(!ruleExists(rule.ruleUid)) { "Duplicate equipment compatibility rule UID: ${rule.ruleUid}" }
                 db.execSQL("INSERT INTO equipment_compatibility_rules(rule_uid,world_pack_uid,item_definition_uid,exclusive_group_uid,rule_version,provenance) VALUES(?,?,?,?,?,?)",
@@ -67,8 +64,7 @@ class EquipmentStore(private val db: SQLiteDatabase, private val campaignId: Str
                     db.execSQL("INSERT INTO equipment_rule_slots(rule_uid,slot_uid) VALUES(?,?)", arrayOf(rule.ruleUid,slotUid))
                 }
             }
-            db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        }
     }
 
     fun compatibilityRules(worldPackUid: String? = null): List<EquipmentCompatibilityRule> {
@@ -121,16 +117,14 @@ class EquipmentStore(private val db: SQLiteDatabase, private val campaignId: Str
         val conflicts = proposedGroups.intersect(activeConflictGroups(characterUid,DEFAULT_EQUIPMENT_LOADOUT_UID)).sortedWith(compareBy<Pair<String,String>>({it.first},{it.second}))
         require(conflicts.isEmpty()) { "Equipment exclusive-group conflict: ${conflicts.joinToString { "${it.first}:${it.second}" }}" }
 
-        db.beginTransaction()
-        try {
+        tx {
             db.execSQL("INSERT INTO player_equipment(campaign_id,character_uid,equipment_entry_uid,item_instance_uid,compatibility_rule_uid,loadout_uid,entry_version,provenance) VALUES(?,?,?,?,?,?,?,?)",
                 arrayOf(entry.campaignId,entry.characterUid,entry.equipmentEntryUid,entry.itemInstanceUid,entry.compatibilityRuleUid,entry.loadoutUid,entry.entryVersion,entry.provenance))
             canonicalSlots.forEach { slotUid ->
                 db.execSQL("INSERT INTO player_equipment_slots(campaign_id,character_uid,equipment_entry_uid,slot_uid) VALUES(?,?,?,?)", arrayOf(campaignId,characterUid,equipmentEntryUid,slotUid))
             }
             ModifierStore(db,campaignId).setSourceActive(characterUid,EQUIPMENT_MODIFIER_SOURCE_TYPE,itemInstanceUid,true,ModifierLifecycle.EQUIPMENT)
-            db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        }
         return EquipmentRecord(entry,instance,canonicalSlots)
     }
 
@@ -138,14 +132,12 @@ class EquipmentStore(private val db: SQLiteDatabase, private val campaignId: Str
         require(characterUid.isNotBlank() && equipmentEntryUid.isNotBlank()) { "equipment identity must not be blank" }
         val record = equipment(characterUid).singleOrNull { it.equipment.equipmentEntryUid == equipmentEntryUid }
             ?: error("Equipment entry not found: $equipmentEntryUid")
-        db.beginTransaction()
-        try {
+        tx {
             ModifierStore(db,campaignId).setSourceActive(characterUid,EQUIPMENT_MODIFIER_SOURCE_TYPE,record.equipment.itemInstanceUid,false,ModifierLifecycle.EQUIPMENT)
             db.delete("player_equipment_slots","campaign_id=? AND character_uid=? AND equipment_entry_uid=?",arrayOf(campaignId,characterUid,equipmentEntryUid))
             val removed = db.delete("player_equipment","campaign_id=? AND character_uid=? AND equipment_entry_uid=?",arrayOf(campaignId,characterUid,equipmentEntryUid))
             require(removed == 1) { "Equipment entry disappeared during unequip: $equipmentEntryUid" }
-            db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        }
         return record
     }
 
@@ -174,8 +166,7 @@ class EquipmentStore(private val db: SQLiteDatabase, private val campaignId: Str
         requireInstance(itemInstanceUid)
         val activeNow = isEquipped(itemInstanceUid)
         val store = ModifierStore(db,campaignId)
-        db.beginTransaction()
-        try {
+        tx {
             modifiers.forEach { modifier ->
                 require(modifier.campaignId == campaignId && modifier.characterUid == characterUid) { "Equipment modifier scope mismatch" }
                 require(modifier.lifecycle == ModifierLifecycle.EQUIPMENT) { "Equipment modifier must use EQUIPMENT lifecycle" }
@@ -183,8 +174,7 @@ class EquipmentStore(private val db: SQLiteDatabase, private val campaignId: Str
                 require(modifier.sourceUid == itemInstanceUid) { "Equipment modifier sourceUid must be exact ItemInstance UID" }
                 store.save(modifier.copy(sourceActive=activeNow))
             }
-            db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+        }
     }
 
     fun isEquipped(itemInstanceUid: String): Boolean = db.rawQuery("SELECT 1 FROM player_equipment WHERE campaign_id=? AND item_instance_uid=? LIMIT 1",arrayOf(campaignId,itemInstanceUid)).use { it.moveToFirst() }
@@ -225,4 +215,5 @@ class EquipmentStore(private val db: SQLiteDatabase, private val campaignId: Str
     private fun slotExists(uid:String)=db.rawQuery("SELECT 1 FROM equipment_slot_definitions WHERE slot_uid=? LIMIT 1",arrayOf(uid)).use{it.moveToFirst()}
     private fun slotKeyExists(pack:String,key:String)=db.rawQuery("SELECT 1 FROM equipment_slot_definitions WHERE world_pack_uid=? AND slot_key=? LIMIT 1",arrayOf(pack,key)).use{it.moveToFirst()}
     private fun ruleExists(uid:String)=db.rawQuery("SELECT 1 FROM equipment_compatibility_rules WHERE rule_uid=? LIMIT 1",arrayOf(uid)).use{it.moveToFirst()}
+    private fun <T> tx(block:()->T):T { if(db.inTransaction()) return block(); db.beginTransaction(); return try { val result=block(); db.setTransactionSuccessful(); result } finally { db.endTransaction() } }
 }
