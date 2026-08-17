@@ -31,6 +31,12 @@ class ActivePlayerStore(
         require(playerIdentityExists(ref.playerUid)) {
             "Player UID does not exist in campaign data: ${ref.playerUid}"
         }
+        if (GameplayMutationDatabaseGuards.isInstalled(db)) {
+            return withAdministrativeMutationAuthority(db, campaignId) {
+                persist(ref)
+                ref
+            }
+        }
         persist(ref)
         return ref
     }
