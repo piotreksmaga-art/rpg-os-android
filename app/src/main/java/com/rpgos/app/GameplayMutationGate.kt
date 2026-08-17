@@ -2,16 +2,14 @@ package com.rpgos.app
 
 import android.database.sqlite.SQLiteDatabase
 
-/**
- * Group-A gameplay mutation gate.
- *
- * Legacy/admin databases that have not entered Group-A transactional mode retain their historical
- * write contracts. Once the transaction receipt schema is installed, authoritative gameplay writes
- * require the active canonical TurnTransaction on the same SQLite connection and campaign.
- */
 private data class ActiveGameplayMutation(val db: SQLiteDatabase, val campaignUid: String)
 private val activeGameplayMutation = ThreadLocal<ActiveGameplayMutation?>()
 
+/**
+ * Authoritative gameplay writers call this before mutation. Legacy/admin databases which have not
+ * entered Group-A transactional mode keep their historical contracts; schema-ready gameplay DBs
+ * require the active canonical TurnTransaction on the same connection/campaign.
+ */
 internal fun requireCanonicalGameplayMutation(db: SQLiteDatabase, campaignUid: String) {
     if (!TurnTransactionReceiptSchema.isReady(db)) return
     val active = activeGameplayMutation.get()
@@ -25,8 +23,8 @@ internal fun isCanonicalGameplayMutationActive(db: SQLiteDatabase, campaignUid: 
     return active != null && active.db === db && active.campaignUid == campaignUid
 }
 
-/** File-private activation: ordinary production callers cannot manufacture gameplay authority. */
-internal inline fun <T> withCanonicalGameplayMutationForTurn(
+/** Activation requires the private TurnTransaction seal and is used only by canonical commit. */
+internal fun <T> withCanonicalGameplayMutationForTurn(
     db: SQLiteDatabase,
     campaignUid: String,
     canonicalSeal: Any,
