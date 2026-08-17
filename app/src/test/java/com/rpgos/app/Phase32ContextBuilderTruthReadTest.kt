@@ -38,13 +38,13 @@ class Phase32ContextBuilderTruthReadTest {
         val worldFile = File(root, "world.db")
         SQLiteDatabase.openOrCreateDatabase(saveFile, null).use { save ->
             SQLiteDatabase.openOrCreateDatabase(worldFile, null).use { world ->
-                CurrentSchema.ensure(save, "C")
-                save.execSQL(
-                    "INSERT OR REPLACE INTO active_player_ref(campaign_id,player_uid,updated_at) VALUES('C','P',1)"
-                )
+                Phase32ProductionReadyTestFixture.setup(save, "C")
 
                 val truthStore = CampaignTruthStore(save, "C")
                 withAdministrativeMutationAuthority(save, "C") {
+                    save.execSQL(
+                        "INSERT OR REPLACE INTO active_player_ref(campaign_id,player_uid,updated_at) VALUES('C','P',1)"
+                    )
                     truthStore.record(
                         kind = TruthKind.FACT,
                         predicate = "context.fact",
@@ -68,7 +68,7 @@ class Phase32ContextBuilderTruthReadTest {
                 assertEquals("FACT", bundle.campaignTruth.single()["truth_kind"])
                 assertEquals("P", bundle.playerState["player_uid"])
 
-                // Freshness/content of a derived ContextBundle has no authority path.  A caller may
+                // Freshness/content of a derived ContextBundle has no authority path. A caller may
                 // construct contradictory or newer in-memory context, but canonical stores remain
                 // the only source read by the next production build.
                 val contradictory = bundle.copy(
