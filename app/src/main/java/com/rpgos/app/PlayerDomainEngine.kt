@@ -807,6 +807,7 @@ internal fun draftReferences(draft: PlayerResolutionDraft): List<DomainRef> = bu
                 add(DomainRef(payload.fromOwner.ownerKindUid, payload.fromOwner.ownerUid))
                 add(DomainRef(payload.toOwner.ownerKindUid, payload.toOwner.ownerUid))
             }
+            is CampaignTruthChange -> Unit
             is ConditionChange -> { add(payload.subject); add(DomainRef("CONDITION", payload.conditionUid)) }
             is RuntimeChange -> { add(payload.subject); add(DomainRef("RUNTIME_COUNTER", payload.runtimeCounterUid)) }
             is DevelopmentProjectChange -> {
