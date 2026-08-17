@@ -1,12 +1,5 @@
 package com.rpgos.app
 
-/**
- * Phase 26 authority classification for persisted writes.
- *
- * This is a capability classification, not a second rules engine. Gameplay rules remain owned by
- * PlayerDomainEngine / the relevant domain engines. This boundary only admits already-resolved
- * proposals into the commit program.
- */
 enum class MutationAuthorityClass {
     GAMEPLAY_AUTHORITATIVE,
     ADMINISTRATIVE_MIGRATION_INSTALL_RECOVERY,
@@ -14,87 +7,80 @@ enum class MutationAuthorityClass {
     APPEND_ONLY_COMMIT_EVIDENCE
 }
 
+private val CANONICAL_PROPOSAL_SEAL = Any()
+
 sealed interface CampaignMutationAdmission {
-    class Accepted private constructor(val proposal: CanonicalCampaignMutationProposal) : CampaignMutationAdmission {
-        internal companion object {
-            fun create(proposal: CanonicalCampaignMutationProposal): Accepted = Accepted(proposal)
-        }
-    }
+    data class Accepted(val proposal: CanonicalCampaignMutationProposal) : CampaignMutationAdmission
     data class Rejected(val reasonUid: String) : CampaignMutationAdmission
 }
 
-/**
- * Opaque envelope proving that the proposal crossed the canonical Phase-26 admission boundary.
- * Construction is private so callers cannot present an arbitrary change set as an admitted
- * gameplay mutation. Only the module-internal factory is used by CampaignMutationBoundary.
- */
-class CanonicalCampaignMutationProposal private constructor(
+/** Opaque proof that PlayerDomainEngine.resolve() completed the canonical legality pipeline. */
+class CanonicalCampaignMutationProposal internal constructor(
     val campaignUid: String,
     val playerChangeSet: PlayerChangeSet,
-    val authorityClass: MutationAuthorityClass
+    val authorityClass: MutationAuthorityClass,
+    private val seal: Any
 ) {
-    internal companion object {
-        fun create(campaignUid: String, playerChangeSet: PlayerChangeSet): CanonicalCampaignMutationProposal =
-            CanonicalCampaignMutationProposal(
-                campaignUid = campaignUid,
-                playerChangeSet = playerChangeSet,
-                authorityClass = MutationAuthorityClass.GAMEPLAY_AUTHORITATIVE
-            )
+    init {
+        require(seal === CANONICAL_PROPOSAL_SEAL) { "RPGOS-MUTATION-GATE:FORGED_CANONICAL_PROPOSAL" }
+        require(authorityClass == MutationAuthorityClass.GAMEPLAY_AUTHORITATIVE)
+        require(campaignUid == playerChangeSet.campaignUid)
     }
+    internal fun isCanonical(): Boolean = seal === CANONICAL_PROPOSAL_SEAL
 }
 
-/** Explicitly non-gameplay capability used by migration/install/recovery code paths. */
 class AdministrativeMutationCapability private constructor(
     val operationUid: String,
     val authorityClass: MutationAuthorityClass
 ) {
     init { require(operationUid.isNotBlank()) }
-
     internal companion object {
-        fun create(operationUid: String): AdministrativeMutationCapability =
-            AdministrativeMutationCapability(
-                operationUid,
-                MutationAuthorityClass.ADMINISTRATIVE_MIGRATION_INSTALL_RECOVERY
-            )
+        fun create(operationUid: String) = AdministrativeMutationCapability(
+            operationUid, MutationAuthorityClass.ADMINISTRATIVE_MIGRATION_INSTALL_RECOVERY
+        )
     }
 }
 
 internal object AdministrativeMutationCapabilities {
-    fun forMigration(operationUid: String): AdministrativeMutationCapability =
-        AdministrativeMutationCapability.create(operationUid)
-
-    fun forInstall(operationUid: String): AdministrativeMutationCapability =
-        AdministrativeMutationCapability.create(operationUid)
-
-    fun forRecovery(operationUid: String): AdministrativeMutationCapability =
-        AdministrativeMutationCapability.create(operationUid)
+    fun forMigration(operationUid: String) = AdministrativeMutationCapability.create(operationUid)
+    fun forInstall(operationUid: String) = AdministrativeMutationCapability.create(operationUid)
+    fun forRecovery(operationUid: String) = AdministrativeMutationCapability.create(operationUid)
 }
 
-/**
- * Canonical Phase-26 gameplay mutation admission boundary.
- *
- * Only a successful canonical PlayerDomainEngine outcome can be admitted. Rejected/unresolved AI
- * output and raw StatePatch payloads never become gameplay mutation capability here.
- */
 object CampaignMutationBoundary {
     const val NOT_RESOLVED = "RPGOS-MUTATION-ADMISSION:NOT_RESOLVED"
     const val CAMPAIGN_MISMATCH = "RPGOS-MUTATION-ADMISSION:CAMPAIGN_MISMATCH"
 
-    fun admitPlayerProposal(
+    /**
+     * Only production admission API. It invokes the canonical PlayerDomainEngine itself; callers
+     * cannot hand this boundary a manually constructed Resolved outcome.
+     */
+    fun <P : PlayerCommandPayload> resolveAndAdmit(
         expectedCampaignUid: String,
-        resolution: PlayerResolutionOutcome
+        engine: PlayerDomainEngine,
+        command: PlayerCommand<P>,
+        context: PlayerResolutionContext
     ): CampaignMutationAdmission {
         require(expectedCampaignUid.isNotBlank())
-        val resolved = resolution as? PlayerResolutionOutcome.Resolved
-            ?: return CampaignMutationAdmission.Rejected(NOT_RESOLVED)
-        val proposal = resolved.proposal
-        if (proposal.campaignUid != expectedCampaignUid) {
+        if (command.campaignUid != expectedCampaignUid || context.campaignUid != expectedCampaignUid) {
             return CampaignMutationAdmission.Rejected(CAMPAIGN_MISMATCH)
         }
-        // PlayerChangeSet instances are structurally validated by their factory. Phase-22 invariant
-        // validation is mandatory inside PlayerDomainEngine.resolve(), before Resolved is returned.
-        return CampaignMutationAdmission.Accepted.create(
-            CanonicalCampaignMutationProposal.create(expectedCampaignUid, proposal)
-        )
+        return when (val resolution = engine.resolve(command, context)) {
+            is PlayerResolutionOutcome.Rejected -> CampaignMutationAdmission.Rejected(NOT_RESOLVED)
+            is PlayerResolutionOutcome.Resolved -> {
+                if (resolution.proposal.campaignUid != expectedCampaignUid) {
+                    CampaignMutationAdmission.Rejected(CAMPAIGN_MISMATCH)
+                } else {
+                    CampaignMutationAdmission.Accepted(
+                        CanonicalCampaignMutationProposal(
+                            expectedCampaignUid,
+                            resolution.proposal,
+                            MutationAuthorityClass.GAMEPLAY_AUTHORITATIVE,
+                            CANONICAL_PROPOSAL_SEAL
+                        )
+                    )
+                }
+            }
+        }
     }
 }
