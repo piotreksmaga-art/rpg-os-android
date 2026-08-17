@@ -12,12 +12,11 @@ data class TurnCommitReceipt(
     val transactionUid: String,
     val semanticFingerprint: String,
     val resultFingerprint: String,
-    val commitOrder: Long,
+    val commitOrder: Long?,
     val receiptVersion: Int = TURN_TRANSACTION_RECEIPT_VERSION
 )
 
 enum class TurnRecoveryState { NOT_RECORDED, COMMITTED }
-
 data class TurnRecoveryStatus(val state: TurnRecoveryState, val receipt: TurnCommitReceipt? = null)
 
 sealed interface TurnExecutionResult<out T> {
@@ -27,19 +26,100 @@ sealed interface TurnExecutionResult<out T> {
 
 class TurnIdempotencyConflictException(val code: String) : IllegalStateException(code)
 
-/**
- * Durable transaction receipt authority for Phase 28 idempotency and Phase 29 crash recovery.
- *
- * Only fully committed turns are durable here. There is deliberately no durable IN_PROGRESS row:
- * SQLite rollback/reopen semantics make an absent receipt mean that no post-upgrade committed turn
- * is recorded for that identity. commit_order is campaign-scoped, monotonic and allocated while the
- * same outer write transaction owns all authoritative effects; it is never inferred from time/UIDs.
- */
-internal class TurnTransactionReceiptStore(private val db: SQLiteDatabase) {
-    init { ensureSchema() }
+/** Explicit schema/migration boundary. Readers never call this object. */
+internal object TurnTransactionReceiptSchema {
+    const val MIGRATION_V28 = "RPGOS-28.0-TURN-IDEMPOTENCY"
+    const val MIGRATION_V29 = "RPGOS-29.0-CRASH-RECOVERY"
 
+    fun isReady(db: SQLiteDatabase): Boolean = tableExists(db, "turn_transaction_receipts") &&
+        hasColumn(db, "turn_transaction_receipts", "commit_order")
+
+    fun ensureReady(db: SQLiteDatabase) {
+        val ownsTx = !db.inTransaction()
+        if (ownsTx) db.beginTransaction()
+        try {
+            db.execSQL("""CREATE TABLE IF NOT EXISTS rpgos_schema_migrations(
+                migration_id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL, notes TEXT)""")
+            if (!tableExists(db, "turn_transaction_receipts")) {
+                createCurrentTable(db, "turn_transaction_receipts")
+            } else if (!hasColumn(db, "turn_transaction_receipts", "commit_order") || hasV1OnlyCheck(db)) {
+                migrateV28Table(db)
+            }
+            createIndexes(db)
+            db.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES(?,strftime('%s','now'),?)",
+                arrayOf(MIGRATION_V28, "Append-only committed turn receipts; prospective only"))
+            db.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES(?,strftime('%s','now'),?)",
+                arrayOf(MIGRATION_V29, "Adds nullable prospective commit_order; existing V1 receipt order remains UNKNOWN"))
+            if (ownsTx) db.setTransactionSuccessful()
+        } finally { if (ownsTx) db.endTransaction() }
+    }
+
+    private fun migrateV28Table(db: SQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS turn_transaction_receipts_v29_new")
+        createCurrentTable(db, "turn_transaction_receipts_v29_new")
+        val hasOrder = hasColumn(db, "turn_transaction_receipts", "commit_order")
+        if (hasOrder) {
+            db.execSQL("""INSERT INTO turn_transaction_receipts_v29_new(
+                transaction_uid,campaign_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,commit_order,receipt_version,commit_state)
+                SELECT transaction_uid,campaign_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,commit_order,receipt_version,commit_state
+                FROM turn_transaction_receipts""")
+        } else {
+            db.execSQL("""INSERT INTO turn_transaction_receipts_v29_new(
+                transaction_uid,campaign_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,commit_order,receipt_version,commit_state)
+                SELECT transaction_uid,campaign_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,NULL,receipt_version,commit_state
+                FROM turn_transaction_receipts""")
+        }
+        db.execSQL("DROP TABLE turn_transaction_receipts")
+        db.execSQL("ALTER TABLE turn_transaction_receipts_v29_new RENAME TO turn_transaction_receipts")
+    }
+
+    private fun createCurrentTable(db: SQLiteDatabase, table: String) {
+        db.execSQL("""CREATE TABLE $table(
+            transaction_uid TEXT PRIMARY KEY,
+            campaign_uid TEXT NOT NULL,
+            turn_uid TEXT NOT NULL,
+            command_uid TEXT NOT NULL,
+            semantic_fingerprint TEXT NOT NULL,
+            result_fingerprint TEXT NOT NULL,
+            commit_order INTEGER NULL CHECK(commit_order IS NULL OR commit_order > 0),
+            receipt_version INTEGER NOT NULL CHECK(receipt_version IN (1,2)),
+            commit_state TEXT NOT NULL CHECK(commit_state='COMMITTED'),
+            UNIQUE(campaign_uid,command_uid))""")
+    }
+
+    private fun createIndexes(db: SQLiteDatabase) {
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_turn_receipts_campaign_order ON turn_transaction_receipts(campaign_uid,commit_order) WHERE commit_order IS NOT NULL")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_turn_receipts_campaign ON turn_transaction_receipts(campaign_uid,transaction_uid)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_turn_receipts_command ON turn_transaction_receipts(campaign_uid,command_uid)")
+    }
+
+    private fun hasV1OnlyCheck(db: SQLiteDatabase): Boolean = db.rawQuery(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='turn_transaction_receipts'", null
+    ).use { c ->
+        if (!c.moveToFirst() || c.isNull(0)) false else {
+            val sql = c.getString(0).replace(" ", "").lowercase()
+            sql.contains("check(receipt_version=1)")
+        }
+    }
+
+    private fun tableExists(db: SQLiteDatabase, name: String): Boolean = db.rawQuery(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", arrayOf(name)
+    ).use { it.moveToFirst() }
+
+    private fun hasColumn(db: SQLiteDatabase, table: String, column: String): Boolean = db.rawQuery(
+        "PRAGMA table_info($table)", null
+    ).use { c ->
+        val idx = c.getColumnIndex("name")
+        while (c.moveToNext()) if (c.getString(idx) == column) return@use true
+        false
+    }
+}
+
+/** APPEND-ONLY COMMIT EVIDENCE. Construction performs no DDL. */
+internal class TurnTransactionReceiptStore(private val db: SQLiteDatabase) {
     fun replay(identity: TurnTransactionIdentity, semanticFingerprint: String): TurnCommitReceipt? {
         require(semanticFingerprint.isNotBlank())
+        if (!TurnTransactionReceiptSchema.isReady(db)) return null
         byTransaction(identity.transactionUid)?.let { existing ->
             if (existing.campaignUid != identity.campaignUid) conflict(CROSS_CAMPAIGN_TRANSACTION_UID)
             if (existing.commandUid != identity.commandUid || existing.turnUid != identity.turnUid) conflict(TRANSACTION_IDENTITY_MISMATCH)
@@ -55,179 +135,66 @@ internal class TurnTransactionReceiptStore(private val db: SQLiteDatabase) {
 
     fun lastValidCommit(campaignUid: String): TurnCommitReceipt? {
         require(campaignUid.isNotBlank())
-        return query(
-            "SELECT campaign_uid,turn_uid,command_uid,transaction_uid,semantic_fingerprint,result_fingerprint,commit_order,receipt_version FROM turn_transaction_receipts WHERE campaign_uid=? AND commit_state='COMMITTED' ORDER BY commit_order DESC LIMIT 1",
-            arrayOf(campaignUid)
-        )
+        if (!TurnTransactionReceiptSchema.isReady(db)) return null
+        return query("""SELECT campaign_uid,turn_uid,command_uid,transaction_uid,semantic_fingerprint,result_fingerprint,commit_order,receipt_version
+            FROM turn_transaction_receipts WHERE campaign_uid=? AND commit_state='COMMITTED' AND commit_order IS NOT NULL
+            ORDER BY commit_order DESC LIMIT 1""", arrayOf(campaignUid))
     }
 
-    fun committedTransaction(transactionUid: String): TurnCommitReceipt? {
-        require(transactionUid.isNotBlank())
-        return byTransaction(transactionUid)
-    }
-
-    fun committedCommand(campaignUid: String, commandUid: String): TurnCommitReceipt? {
-        require(campaignUid.isNotBlank()); require(commandUid.isNotBlank())
-        return byCommand(campaignUid, commandUid)
-    }
+    fun committedTransaction(transactionUid: String): TurnCommitReceipt? = if (!TurnTransactionReceiptSchema.isReady(db)) null else byTransaction(transactionUid)
+    fun committedCommand(campaignUid: String, commandUid: String): TurnCommitReceipt? = if (!TurnTransactionReceiptSchema.isReady(db)) null else byCommand(campaignUid, commandUid)
 
     fun appendCommitted(identity: TurnTransactionIdentity, semanticFingerprint: String): TurnCommitReceipt {
         require(db.inTransaction()) { "turn receipt must join active outer transaction" }
+        require(TurnTransactionReceiptSchema.isReady(db)) { "turn receipt schema must be initialized before commit" }
         replay(identity, semanticFingerprint)?.let { return it }
-        val commitOrder = nextCommitOrder(identity.campaignUid)
-        val receipt = TurnCommitReceipt(
-            campaignUid = identity.campaignUid,
-            turnUid = identity.turnUid,
-            commandUid = identity.commandUid,
-            transactionUid = identity.transactionUid,
-            semanticFingerprint = semanticFingerprint,
-            resultFingerprint = receiptFingerprint(identity, semanticFingerprint, commitOrder),
-            commitOrder = commitOrder
-        )
-        db.execSQL(
-            """INSERT INTO turn_transaction_receipts(
-                transaction_uid,campaign_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,commit_order,receipt_version,commit_state
-            ) VALUES(?,?,?,?,?,?,?,?,'COMMITTED')""".trimIndent(),
-            arrayOf(
-                receipt.transactionUid, receipt.campaignUid, receipt.turnUid, receipt.commandUid,
-                receipt.semanticFingerprint, receipt.resultFingerprint, receipt.commitOrder, receipt.receiptVersion
-            )
-        )
+        val order = nextCommitOrder(identity.campaignUid)
+        val receipt = TurnCommitReceipt(identity.campaignUid, identity.turnUid, identity.commandUid, identity.transactionUid,
+            semanticFingerprint, receiptFingerprint(identity, semanticFingerprint, order), order)
+        db.execSQL("""INSERT INTO turn_transaction_receipts(
+            transaction_uid,campaign_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,commit_order,receipt_version,commit_state)
+            VALUES(?,?,?,?,?,?,?,?,'COMMITTED')""",
+            arrayOf(receipt.transactionUid,receipt.campaignUid,receipt.turnUid,receipt.commandUid,receipt.semanticFingerprint,
+                receipt.resultFingerprint,receipt.commitOrder,receipt.receiptVersion))
         return receipt
     }
 
     private fun nextCommitOrder(campaignUid: String): Long = db.rawQuery(
-        "SELECT COALESCE(MAX(commit_order),0)+1 FROM turn_transaction_receipts WHERE campaign_uid=? AND commit_state='COMMITTED'",
+        "SELECT COALESCE(MAX(commit_order),0)+1 FROM turn_transaction_receipts WHERE campaign_uid=? AND commit_state='COMMITTED' AND commit_order IS NOT NULL",
         arrayOf(campaignUid)
-    ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
+    ).use { c -> c.moveToFirst(); c.getLong(0) }
 
-    private fun byTransaction(transactionUid: String): TurnCommitReceipt? = query(
-        "SELECT campaign_uid,turn_uid,command_uid,transaction_uid,semantic_fingerprint,result_fingerprint,commit_order,receipt_version FROM turn_transaction_receipts WHERE transaction_uid=? AND commit_state='COMMITTED'",
-        arrayOf(transactionUid)
-    )
+    private fun byTransaction(uid: String) = query("""SELECT campaign_uid,turn_uid,command_uid,transaction_uid,semantic_fingerprint,result_fingerprint,commit_order,receipt_version
+        FROM turn_transaction_receipts WHERE transaction_uid=? AND commit_state='COMMITTED'""", arrayOf(uid))
+    private fun byCommand(campaignUid: String, commandUid: String) = query("""SELECT campaign_uid,turn_uid,command_uid,transaction_uid,semantic_fingerprint,result_fingerprint,commit_order,receipt_version
+        FROM turn_transaction_receipts WHERE campaign_uid=? AND command_uid=? AND commit_state='COMMITTED'""", arrayOf(campaignUid,commandUid))
 
-    private fun byCommand(campaignUid: String, commandUid: String): TurnCommitReceipt? = query(
-        "SELECT campaign_uid,turn_uid,command_uid,transaction_uid,semantic_fingerprint,result_fingerprint,commit_order,receipt_version FROM turn_transaction_receipts WHERE campaign_uid=? AND command_uid=? AND commit_state='COMMITTED'",
-        arrayOf(campaignUid, commandUid)
-    )
-
-    private fun query(sql: String, args: Array<String>): TurnCommitReceipt? = db.rawQuery(sql, args).use { cursor ->
-        if (!cursor.moveToFirst()) return@use null
-        TurnCommitReceipt(
-            campaignUid = cursor.getString(0),
-            turnUid = cursor.getString(1),
-            commandUid = cursor.getString(2),
-            transactionUid = cursor.getString(3),
-            semanticFingerprint = cursor.getString(4),
-            resultFingerprint = cursor.getString(5),
-            commitOrder = cursor.getLong(6),
-            receiptVersion = cursor.getInt(7)
-        )
+    private fun query(sql: String, args: Array<String>): TurnCommitReceipt? = db.rawQuery(sql,args).use { c ->
+        if (!c.moveToFirst()) null else TurnCommitReceipt(c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),
+            if(c.isNull(6)) null else c.getLong(6), c.getInt(7))
     }
 
-    private fun ensureSchema() {
-        db.execSQL(
-            """CREATE TABLE IF NOT EXISTS turn_transaction_receipts(
-                transaction_uid TEXT PRIMARY KEY,
-                campaign_uid TEXT NOT NULL,
-                turn_uid TEXT NOT NULL,
-                command_uid TEXT NOT NULL,
-                semantic_fingerprint TEXT NOT NULL,
-                result_fingerprint TEXT NOT NULL,
-                commit_order INTEGER NOT NULL CHECK(commit_order > 0),
-                receipt_version INTEGER NOT NULL CHECK(receipt_version IN (1,2)),
-                commit_state TEXT NOT NULL CHECK(commit_state = 'COMMITTED'),
-                UNIQUE(campaign_uid, command_uid),
-                UNIQUE(campaign_uid, commit_order)
-            )""".trimIndent()
-        )
-        if (!hasColumn("turn_transaction_receipts", "commit_order")) {
-            // Existing Phase-28 rows are real committed receipts. Give only those proven receipts a
-            // deterministic per-campaign order; no pre-Phase-28 history is synthesized.
-            db.execSQL("ALTER TABLE turn_transaction_receipts ADD COLUMN commit_order INTEGER")
-            val campaigns = mutableListOf<String>()
-            db.rawQuery("SELECT DISTINCT campaign_uid FROM turn_transaction_receipts ORDER BY campaign_uid", null).use { c ->
-                while (c.moveToNext()) campaigns += c.getString(0)
-            }
-            campaigns.forEach { campaign ->
-                val txs = mutableListOf<String>()
-                db.rawQuery("SELECT transaction_uid FROM turn_transaction_receipts WHERE campaign_uid=? ORDER BY rowid", arrayOf(campaign)).use { c ->
-                    while (c.moveToNext()) txs += c.getString(0)
-                }
-                txs.forEachIndexed { index, tx ->
-                    db.execSQL("UPDATE turn_transaction_receipts SET commit_order=? WHERE transaction_uid=?", arrayOf(index + 1L, tx))
-                }
-            }
-        }
-        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_turn_receipts_campaign_order ON turn_transaction_receipts(campaign_uid,commit_order)")
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_turn_receipts_campaign ON turn_transaction_receipts(campaign_uid,transaction_uid)")
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_turn_receipts_command ON turn_transaction_receipts(campaign_uid,command_uid)")
-        db.execSQL(
-            """CREATE TABLE IF NOT EXISTS rpgos_schema_migrations(
-                migration_id TEXT PRIMARY KEY,
-                applied_at INTEGER NOT NULL,
-                notes TEXT
-            )""".trimIndent()
-        )
-        db.execSQL(
-            "INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('RPGOS-28.0-TURN-IDEMPOTENCY',strftime('%s','now'),'Adds append-only committed turn receipts prospectively; no legacy transaction history is fabricated')"
-        )
-        db.execSQL(
-            "INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('RPGOS-29.0-CRASH-RECOVERY',strftime('%s','now'),'Adds deterministic campaign-scoped commit ordering to proven Phase-28+ committed receipts only')"
-        )
-    }
-
-    private fun hasColumn(table: String, column: String): Boolean = db.rawQuery("PRAGMA table_info($table)", null).use { c ->
-        val nameIndex = c.getColumnIndex("name")
-        while (c.moveToNext()) if (c.getString(nameIndex) == column) return@use true
-        false
-    }
-
-    private fun receiptFingerprint(identity: TurnTransactionIdentity, semanticFingerprint: String, commitOrder: Long): String = sha256(
-        listOf(
-            "RPGOS-TURN-RECEIPT-V2", identity.campaignUid, commitOrder.toString(), identity.turnUid,
-            identity.commandUid, identity.transactionUid, semanticFingerprint
-        ).joinToString("\u001f")
-    )
-
-    private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
-        .digest(value.toByteArray(Charsets.UTF_8))
-        .joinToString("") { "%02x".format(it) }
-
-    private fun conflict(code: String): Nothing = throw TurnIdempotencyConflictException(code)
+    private fun receiptFingerprint(identity: TurnTransactionIdentity, semantic: String, order: Long) = sha256(
+        listOf("RPGOS-TURN-RECEIPT-V2",identity.campaignUid,order.toString(),identity.turnUid,identity.commandUid,identity.transactionUid,semantic).joinToString("\u001f"))
+    private fun sha256(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}
+    private fun conflict(code:String):Nothing=throw TurnIdempotencyConflictException(code)
 
     companion object {
-        const val CROSS_CAMPAIGN_TRANSACTION_UID = "RPGOS-TURN-IDEMPOTENCY:CROSS_CAMPAIGN_TRANSACTION_UID"
-        const val TRANSACTION_IDENTITY_MISMATCH = "RPGOS-TURN-IDEMPOTENCY:TRANSACTION_IDENTITY_MISMATCH"
-        const val SEMANTIC_FINGERPRINT_MISMATCH = "RPGOS-TURN-IDEMPOTENCY:SEMANTIC_FINGERPRINT_MISMATCH"
-        const val COMMAND_SEMANTIC_FINGERPRINT_MISMATCH = "RPGOS-TURN-IDEMPOTENCY:COMMAND_SEMANTIC_FINGERPRINT_MISMATCH"
+        const val CROSS_CAMPAIGN_TRANSACTION_UID="RPGOS-TURN-IDEMPOTENCY:CROSS_CAMPAIGN_TRANSACTION_UID"
+        const val TRANSACTION_IDENTITY_MISMATCH="RPGOS-TURN-IDEMPOTENCY:TRANSACTION_IDENTITY_MISMATCH"
+        const val SEMANTIC_FINGERPRINT_MISMATCH="RPGOS-TURN-IDEMPOTENCY:SEMANTIC_FINGERPRINT_MISMATCH"
+        const val COMMAND_SEMANTIC_FINGERPRINT_MISMATCH="RPGOS-TURN-IDEMPOTENCY:COMMAND_SEMANTIC_FINGERPRINT_MISMATCH"
     }
 }
 
-/** Read-only recovery facade. It never writes gameplay state. */
+/** Pure read facade: no schema creation, DDL or migration. */
 class TurnRecoveryReader(private val db: SQLiteDatabase) {
     private val receipts = TurnTransactionReceiptStore(db)
-
-    fun lastValidCommit(campaignUid: String): TurnCommitReceipt? = receipts.lastValidCommit(campaignUid)
-
-    fun transaction(transactionUid: String): TurnRecoveryStatus = receipts.committedTransaction(transactionUid)?.let {
-        TurnRecoveryStatus(TurnRecoveryState.COMMITTED, it)
-    } ?: TurnRecoveryStatus(TurnRecoveryState.NOT_RECORDED)
-
-    fun command(campaignUid: String, commandUid: String): TurnRecoveryStatus = receipts.committedCommand(campaignUid, commandUid)?.let {
-        TurnRecoveryStatus(TurnRecoveryState.COMMITTED, it)
-    } ?: TurnRecoveryStatus(TurnRecoveryState.NOT_RECORDED)
+    fun lastValidCommit(campaignUid:String)=receipts.lastValidCommit(campaignUid)
+    fun transaction(transactionUid:String)=receipts.committedTransaction(transactionUid)?.let{TurnRecoveryStatus(TurnRecoveryState.COMMITTED,it)}?:TurnRecoveryStatus(TurnRecoveryState.NOT_RECORDED)
+    fun command(campaignUid:String,commandUid:String)=receipts.committedCommand(campaignUid,commandUid)?.let{TurnRecoveryStatus(TurnRecoveryState.COMMITTED,it)}?:TurnRecoveryStatus(TurnRecoveryState.NOT_RECORDED)
 }
 
 internal object TurnSemanticFingerprint {
-    fun forProposal(proposal: CanonicalCampaignMutationProposal): String =
-        PlayerChangeSetCodec.fingerprint(proposal.playerChangeSet)
-
-    fun identityOnlyForInternalTest(identity: TurnTransactionIdentity): String {
-        val value = listOf("RPGOS-TURN-INTERNAL-V1", identity.campaignUid, identity.turnUid, identity.commandUid, identity.transactionUid)
-            .joinToString("\u001f")
-        return MessageDigest.getInstance("SHA-256")
-            .digest(value.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
-    }
+    fun forProposal(proposal:CanonicalCampaignMutationProposal)=PlayerChangeSetCodec.fingerprint(proposal.playerChangeSet)
 }
