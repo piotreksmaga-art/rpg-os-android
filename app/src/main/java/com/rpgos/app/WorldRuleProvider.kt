@@ -364,6 +364,7 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
         is FinancialChange -> "FINANCIAL_CHANGE"
         is AssetChange -> "ASSET_CHANGE"
         is OwnershipChange -> "OWNERSHIP_CHANGE"
+        is CampaignTruthChange -> "CAMPAIGN_TRUTH_CHANGE"
         is ConditionChange -> "CONDITION_CHANGE"
         is RuntimeChange -> "RUNTIME_CHANGE"
         is DevelopmentProjectChange -> "DEVELOPMENT_PROJECT_CHANGE"
@@ -410,6 +411,16 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
                 field("FROM_OWNER_KIND_UID", payload.fromOwner.ownerKindUid); field("FROM_OWNER_UID", payload.fromOwner.ownerUid)
                 field("TO_OWNER_KIND_UID", payload.toOwner.ownerKindUid); field("TO_OWNER_UID", payload.toOwner.ownerUid)
                 longField("SHARE_UNITS", payload.share.units)
+            }
+            is CampaignTruthChange -> {
+                field("TRUTH_UID", payload.truthUid)
+                field("TRUTH_KIND", payload.kind.name)
+                nullableField("SUBJECT_UID", payload.subjectUid)
+                field("PREDICATE", payload.predicate)
+                nullableField("OBJECT_VALUE", payload.objectValue)
+                nullableField("PERSPECTIVE_UID", payload.perspectiveUid)
+                nullableField("NARRATIVE_TEXT", payload.narrativeText)
+                nullableField("SUPERSEDES_TRUTH_UID", payload.supersedesTruthUid)
             }
             is ConditionChange -> {
                 domainRef("SUBJECT", payload.subject); field("CONDITION_UID", payload.conditionUid); field("OPERATION", payload.operation.name)
