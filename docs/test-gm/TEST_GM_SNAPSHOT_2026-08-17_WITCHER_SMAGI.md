@@ -6,161 +6,138 @@ Player Character: Smagi
 Scope: `docs/test-gm/**` only
 Status: TEST SESSION SNAPSHOT / DERIVED PRESENTATION / NON-AUTHORITATIVE
 
-## 0. Snapshot semantics / corrective directive
-This is a TEST-GM-local derived presentation snapshot, not authoritative production state. Phase 1–25 are treated as ACCEPTED/COMPLETE for TEST GM. Preserve `FACT != BELIEF != NARRATIVE`, `AI OUTPUT != COMMITTED REALITY`, `IMPLEMENTED != ACCEPTED`, `TESTED != ACCEPTED`.
+## 0. Snapshot semantics
+CharacterPanelSnapshot is treated as a rebuildable presentation/projection, not authoritative truth. Architecture basis: Authoritative Player State + Derived Values + Runtime State + Ledger Summaries. TEST GM may synthesize missing fallback inputs/values from project architecture, but every such element must be explicitly provenance-marked and must not masquerade as accepted-runtime output.
 
-Corrective directive in force: GM records causal evidence and progression candidates; GM does not invent arbitrary permanent `+X`. If accepted runtime cannot legally resolve progression, preserve evidence/progress via ARCHITECTURE FALLBACK. Required order after a legal durable change: resolution -> authoritative state/commit if available -> rebuild projection -> TEST GM snapshot.
+Preserve: `FACT != BELIEF != NARRATIVE`, `AI OUTPUT != COMMITTED REALITY`, `IMPLEMENTED != ACCEPTED`, `TESTED != ACCEPTED`.
 
-## 1. Identity / current scene
+### Provenance classes used in this snapshot
+- `RUNTIME_RECONCILED` — previously reconciled TEST SESSION numeric state / accepted presentation basis.
+- `ARCHITECTURE_DERIVED` — calculated directly from known facts using architectural rules.
+- `ARCHITECTURE_SYNTHETIC` — missing numeric/mechanical value conservatively created by TEST GM because architecture defines the concept but accepted runtime does not currently provide the full resolver.
+- `OBSERVATION` — played/observed campaign fact.
+- `HYPOTHESIS` — interpretation not yet classified as capability/skill/technique.
+
+Architecture rule for synthetic values: time alone is not power. Synthesis considers duration, difficulty, mentor, environment, method, repetition, novelty, failures, adaptation, outcome, fatigue, current level, quality and diminishing-return intent. Synthetic values are TEST GM playtest projections and are migration/reconciliation candidates if a future accepted resolver becomes available.
+
+## 1. Identity / runtime presentation
 - Name: Smagi
 - Birth year: 1173
 - Age: 6
 - Universe: The Witcher
-- Current campaign date/time: 1179-08-23 06:27
+- Campaign date/time: 1179-08-23 06:27
 - Location: family home
-- Condition: rested after sleep
-- Current scene: waking after an intensive 22 August training/education day.
-- Routine: herbalism/mathematics with mother; controlled magic practice; reading; sleep.
+- Runtime condition: rested after sleep
+- Current scene: waking after an intensive 22 August training/education day
+- Education thread: Ban Ard — `AUTHORIZED FOR FURTHER CONSIDERATION / PENDING RESPONSE`
 
-## 2. Last legally reconciled numeric presentation
+# 2. PLAYER PANEL — FULL / PROGRESSION
+
+## 2.1 Stats
 Scale: 0–100.
 
-| Stat | Original baseline | Last reconciled |
-|---|---:|---:|
-| Strength | 7 | 7 |
-| Endurance | 9 | 9 |
-| Dexterity | 11 | 11 |
-| Speed | 10 | 10 |
-| Perception | 13 | 15 |
-| Intelligence | 14 | 16 |
-| Willpower | 15 | 16 |
-| Concentration | 14 | 17 |
-| Magic Control | 3 | 9 |
+| Stat | RUNTIME_RECONCILED basis | TEST GM current projection | Provenance |
+|---|---:|---:|---|
+| Strength | 7 | 7 | RUNTIME_RECONCILED |
+| Endurance | 9 | 9 | RUNTIME_RECONCILED |
+| Dexterity | 11 | 11 | RUNTIME_RECONCILED |
+| Speed | 10 | 10 | RUNTIME_RECONCILED |
+| Perception | 15 | 15 | RUNTIME_RECONCILED; no sufficient new physical/perceptual progression evidence |
+| Intelligence | 16 | 17 | ARCHITECTURE_SYNTHETIC — sustained mathematics, reading comprehension, herbal classification and self-designed experiments |
+| Willpower | 16 | 17 | ARCHITECTURE_SYNTHETIC — repeated failure/adaptation cycles and sustained deliberate practice |
+| Concentration | 17 | 19 | ARCHITECTURE_SYNTHETIC — long deliberate-focus blocks, closed-eye control, start/stop discrimination, reading and mathematics |
+| Magic Control | 9 | 12 | ARCHITECTURE_SYNTHETIC — repeated multi-material control, range refinement, complex shaping, ignition refinement, interoceptive control work |
 
-Magical potential: EXISTS; magnitude UNKNOWN / NOT ASSESSED.
+**Magical potential:** EXISTS; magnitude `UNKNOWN / NOT ASSESSED`. No synthetic numeric potential is created because evidence describes current performance rather than long-term ceiling.
 
-IMPORTANT: later manually proposed values (`Magic Control 11`, `Concentration 18`, `Willpower 17`, etc.) were not produced by a verified accepted-runtime ProgressionEngine resolution and therefore are NOT promoted here as authoritative permanent progression. Their underlying training evidence is retained below.
+### Synthetic stat delta provenance
+The fallback projection deliberately uses small integer changes despite very high training volume. This is a conservative diminishing-return interpretation: 21–22 August contained many hours of practice, but fatigue, beginner instability, repeated failures and overlapping training targets prevent converting raw time directly into large permanent stat growth.
 
-## 3. Skills / competencies — last reconciled plus unresolved evidence
-| Skill / competency | Durable presentation |
-|---|---|
-| Reading | 9/100 + substantial unresolved evidence |
-| Herbalism | 8/100 + substantial unresolved evidence |
-| Controlled shaping of magical manifestation | 12/100 + substantial unresolved evidence |
-| Mathematics | BEGINNER; training evidenced; numeric resolution pending |
+## 2.2 Skills / competencies
+Scale: 0–100 where a numeric projection is meaningful.
 
-Air/Water/Earth/Fire observations are not automatically four affinities or four skills. Telekinesis remains unconfirmed as a distinct technique.
+| Skill / competency | RUNTIME_RECONCILED basis | TEST GM current projection | Provenance |
+|---|---:|---:|---|
+| Reading | 9 | 14 | ARCHITECTURE_SYNTHETIC |
+| Herbalism | 8 | 13 | ARCHITECTURE_SYNTHETIC |
+| Controlled shaping of magical manifestation | 12 | 21 | ARCHITECTURE_SYNTHETIC |
+| Mathematics | BEGINNER / unresolved | 7 | ARCHITECTURE_SYNTHETIC |
 
-## 4. Magical evidence retained through 22 August
-### Earlier retained evidence
-Knife intent effect; leaf/wind effect; parchment/feather manipulation; target selectivity; START->PATH->TARGET / A->B->C routing; Vengerberg controlled local-air test; contained-air bladder deformation; sphere/elongated/flattened forms; dual bulges; approximate loaf/bowl/spoon forms; whole-form mental model.
+### Reading — evidence behind 14/100
+- repeated evening literacy practice;
+- 22 Aug 13:04–16:42 difficult herbal text with active decoding, questions after independent attempt, rereading and recall;
+- 22 Aug 18:37–20:06 book about Ban Ard, sentence rereading and own-word summaries;
+- familiar words increasingly recognized without letter-by-letter decoding;
+- unfamiliar text still slow.
 
-### 21 August — water
-- Two-cup controlled test.
-- Initial partial transfer with spill.
-- Repetition/adaptation until full A -> B transfer became repeatable without visible spilling.
-- Useful model: coherent stream and A -> PATH -> B.
-Status: repeated controlled water-manipulation observation.
+### Herbalism — evidence behind 13/100
+- repeated identification/sorting/preparation;
+- practical mentoring from mother;
+- multi-feature identification rather than one visual cue;
+- observed mistake on a similar plant and self-correction using stem/smell;
+- integration of written herbarium knowledge with physical specimens and recall tests.
 
-### 21 August — earth
-- Single loose clod deliberately lifted/moved.
-- Multi-clod control initially unstable.
-- Larger loose-soil whole-form attempt produced a short low barrier/embankment that partially collapsed.
-Status: controlled earth/material manipulation observation; stable wall not mastered.
+### Controlled shaping of magical manifestation — evidence behind 21/100
+- stable basic bladder forms already established;
+- animal-form progression: fish -> snake -> bird -> quadruped;
+- failure of part-by-part control followed by holistic-form adaptation;
+- repeatable water transfer and range extension work;
+- temporary soil barrier refinement;
+- prepared-wick ignition and existing-flame size modulation;
+- interoceptive start/stop practice and partially blinded control attempts.
 
-### 21 August — fire
-- Existing flame A deliberately elongated/directed to ignite wick B; A remained burning, so literal transfer was not established.
-- Separate no-second-flame ignition test initially failed.
-- Method changed from imagining finished flame to initiation process.
-- Sequence observed: smoke -> repeated smoke -> brief ember/orange point -> glowing wick -> sustained flame.
-Status: first controlled evidence of prepared-wick fire initiation; unrestricted fire creation not established.
+This remains ONE broad TEST-GM competency projection. It does **not** classify Air, Water, Earth and Fire as four skills or affinities.
 
-### 22 August — interoception / self-observation
-- Repeated baseline -> concentration without magic -> active manifestation -> stop -> recovery comparisons.
-- Similar internal subjective change noticed during successful air, water and earth effects.
-- Closed-eye / partially blinded tests attempted with both hits and ambiguous/weak results.
-- Start/stop pulses made onset/offset easier to notice.
-- Hard nonmagical concentration was used as a control; perceived difference did not disappear completely.
-Hypothesis H1: different observed magical effects may share a recognizable user-side stage/state.
-Status: OBSERVATION + strengthened HYPOTHESIS only; not confirmed `magic sense`, mana sensing, technique or skill.
+### Mathematics — evidence behind 7/100
+- concrete counting/addition/subtraction;
+- grouping and intuitive division;
+- extended mentored 22 Aug block;
+- examples solved include 18 -> 6 equal groups -> 3 each, 3×4 -> 12, 12 grouped by 3 -> 4 groups;
+- increasing mental calculation without physical aids;
+- larger operations still require deliberate counting.
 
-### 22 August — air-form complexity
-- ~49 min controlled bladder practice.
-- Forms attempted: fish -> snake -> bird -> quadruped.
-- Failure pattern: separately maintaining many small components destabilized the whole.
-- Adaptation: holistic whole-animal silhouette improved stability.
-Status: progression candidate for controlled shaping/concentration; no arbitrary +X.
+## 2.3 Confirmed observations vs classifications
+### OBSERVATION
+- deliberate household-scale effects involving air, water, loose earth and flame;
+- repeatable water transfer A -> B;
+- temporary earth barrier creation/refinement;
+- prepared-wick ignition without a second immediate flame source;
+- enlargement/reduction of an existing candle flame;
+- complex contained-air shaping;
+- repeatable subjective internal difference associated imperfectly with active manifestation.
 
-### 22 August — water range
-- Cup separation progressively increased.
-- Greater distance caused stream narrowing/wobble and spills.
-- Adaptation toward maintaining the entire A -> B path improved results.
-- A session-specific repeatable range boundary was encountered; not formalized as permanent maximum.
-Status: progression/discovery evidence.
+### HYPOTHESES — unresolved
+- four elemental affinities;
+- one broad manipulation/control faculty;
+- another common magical mechanism;
+- internal sensation as a precursor to a future magic-sensing/control capability.
 
-### 22 August — earth wall refinement
-- Repeated attempt to make barrier higher/more wall-like.
-- Pure lifting caused lateral collapse.
-- Adaptation: lifting + drawing material inward produced a narrower/higher temporary barrier.
-- Form still partially collapsed after active control ceased.
-Observation: creating/forcing a shape != passive structural stability after release.
+### NOT YET LEGALLY CLASSIFIED
+- Water Magic skill;
+- Earth Magic skill;
+- Fire Magic skill;
+- Air Magic affinity;
+- Magic Sense skill;
+- Telekinesis technique;
+- any mastered elemental technique.
 
-### 22 August — fire refinement
-- Prepared-wick ignition repeated; not initially immediate.
-- Attempts made to shorten ignition sequence by recognizing the internal state studied earlier.
-- Existing candle flame deliberately enlarged and returned toward normal size repeatedly.
-- Larger flame was less stable.
-- Mechanism remains unresolved: direct flame control vs combustion conditions/air interaction vs combination.
-Status: progression/discovery evidence; no new elemental skill classification.
+Preserve: `OBSERVATION != HYPOTHESIS != CONFIRMED CAPABILITY != SKILL != TECHNIQUE != MASTERY`.
 
-## 5. Education evidence — 21–22 August
-### Mathematics
-- Practical counting, addition, subtraction, grouping and intuitive division with seeds/leaves/herbal materials.
-- 22 Aug 09:06–12:18: extended mentored block integrated with herbal work.
-- Examples included 18 objects -> 6 equal groups -> 3 each; 3 groups of 4 -> 12; 12 divided into groups of 3 -> 4 groups.
-- Increasing use of mental calculation without physical aids; larger grouping still required deliberate counting.
-Status: legal progression candidate; numeric resolution pending.
+## 2.4 Techniques / innate / potential
+- Formal techniques: NONE legally classified from the recent experiments.
+- Innate abilities: magical capability exists observationally; exact canonical/system classification unresolved.
+- Magical potential: UNKNOWN.
+- Talent profile: no legal numeric profile currently available; TEST GM does not fabricate one solely from fast early progress.
 
-### Herbalism
-- Repeated identification, sorting, drying/preparation and selection of useful plant parts.
-- Similar-looking plant error occurred; Smagi rechecked using more than one feature (including stem/smell) and self-corrected.
-- 22 Aug 13:04–16:42: old household herbal book/herbarium used as a learning source with mother available as mentor.
-- Text knowledge was compared with real specimens; recall tests included errors and rechecking.
-Status: substantial causal evidence; no arbitrary +X.
+## 2.5 Runtime condition
+- HP/resources: not numerically modeled in this TEST SESSION panel.
+- Fatigue: recovered after overnight sleep; prior-day fatigue retained historically as training evidence, not as current penalty.
+- Injuries: none documented.
+- Temporary buffs/debuffs: none documented.
 
-### Reading
-- Continued beginner literacy practice.
-- 22 Aug 13:04–16:42: reading the herbal book, decoding difficult words, asking mother only after own attempt, rereading after explanation, linking text to specimens, active recall.
-- 22 Aug 18:37–20:06: evening reading of the book about Ben Ard; independent decoding, rereading difficult sentences, asking Mirog for help when stuck, summarizing meaning in own words.
-- Repeated/familiar words increasingly recognized without letter-by-letter decoding; unfamiliar text remains slow.
-Status: substantial causal evidence; no arbitrary +X.
+## 3. Progression fallback ledger summary
+The following played blocks are preserved and have been used to construct the `ARCHITECTURE_SYNTHETIC` presentation values above. They are NOT claimed to be accepted-runtime ProgressionGrant records and no fabricated eventUid/transactionUid/ledgerUid is created.
 
-## 6. Epistemic model
-OBSERVATION != HYPOTHESIS != CONFIRMED CAPABILITY != SKILL != TECHNIQUE != MASTERY.
-
-Confirmed observations: deliberate household-scale effects involving air, water, loose earth and flame; repeated shaping; prepared-wick ignition; subjective internal difference correlated imperfectly with active manifestation.
-
-Unresolved hypotheses: four elemental affinities vs broader magical faculty vs another mechanism; exact relationship between internal sensation and magic; mechanism of enlarged flame; exact magical potential.
-
-GM canonical lore knowledge must remain separate from Smagi's character knowledge.
-
-## 7. Items / training resources
-- Prepared animal bladder/membrane filled with air.
-- Two cups for water-transfer tests.
-- Loose soil/clods for earth tests.
-- Candles for flame tests.
-- Old household herbal book/herbarium with drawings/notes; available for continued study.
-- Book about Ben Ard; used for literacy practice.
-
-## 8. NPC / education continuity
-- Mirog: father.
-- Mother: active mentor in herbalism and basic mathematics; name continuity remains unresolved in this snapshot.
-- Older sister: exists; name continuity remains unresolved in this snapshot.
-- Other confirmed names retained: Elvar, Odran, Celene, Roderik.
-- Ban Ard status: `AUTHORIZED FOR FURTHER CONSIDERATION / PENDING RESPONSE`.
-
-## 9. Accumulated unresolved progression candidates
-Do NOT discard or double-count these on later resolution:
 1. 21 Aug intensive water/earth/fire experimentation.
 2. 21 Aug mathematics/herbalism practice and evening reading.
 3. 22 Aug 07:16–09:06 interoception and controlled magic experiments.
@@ -168,20 +145,57 @@ Do NOT discard or double-count these on later resolution:
 5. 22 Aug 13:04–16:42 herbal-book reading + herbalism integration.
 6. 22 Aug 16:42–17:31 animal-form air shaping.
 7. 22 Aug 17:31–18:37 water-range / earth-wall / fire-refinement block.
-8. 22 Aug 18:37–20:06 Ben Ard reading practice.
+8. 22 Aug 18:37–20:06 Ban Ard reading practice.
 
-Resolution rule: accepted runtime ProgressionEngine if legally executable; otherwise ARCHITECTURE FALLBACK preserves evidence/progress without invented permanent numbers.
+### Synthetic resolution note
+Accepted `ProgressionEngine` requires resolved causal numeric inputs such as `effortUnits`; the missing evidence->input resolver is not supplied by the currently usable accepted pipeline. Under the player's updated directive, TEST GM therefore created conservative presentation deltas from the MASTER architecture factors. These numbers are explicitly `ARCHITECTURE_SYNTHETIC`, not `RUNTIME_RESOLVED`, and must remain distinguishable for future reconciliation.
 
-## 10. Current goals / active threads
-- Continue campaign from 23 Aug 1179 06:27 without reset.
-- Continue literacy, herbalism and mathematics.
-- Continue safe controlled magical experiments.
-- Investigate internal sensation associated with magic without premature classification.
-- Determine through evidence/training whether elemental observations share a deeper mechanism.
-- Await Ban Ard education response.
-- Resolve accumulated progression candidates only through accepted mechanics.
+No raw time-to-power conversion was used. Relative weighting favored deliberate practice, novelty, method correction, mentor-supported learning, repeatability and demonstrated outcome; it discounted fatigue, overlap among targets, beginner instability and repetition/diminishing-return effects.
 
-## 11. Phase boundary / write scope
-Only formally accepted Phase 1–25 runtime may be treated as available. Phase 26+ remains unavailable unless formally accepted later. TEST GM writes only under `docs/test-gm/`.
+## 4. Magical evidence chronology
+### Earlier retained
+Knife intent effect; home leaf/wind effect; parchment/feather manipulation; target selectivity; START->PATH->TARGET / A->B->C routing; Vengerberg controlled local-air test; contained-air bladder deformation; near-spherical form; sphere/elongated/flattened transitions; dual bulges; approximate loaf/bowl/spoon forms; whole-form mental model.
+
+### 21 Aug — water
+Initial spill -> repeated practice -> repeatable full transfer A -> B without visible spill. Method: coherent stream / whole path.
+
+### 21 Aug — earth
+Single clod movement -> unstable multi-clod control -> larger loose-soil whole-form attempt -> short low barrier that partially collapsed.
+
+### 21 Aug — fire
+Existing flame directed to ignite another wick; later independent prepared-wick ignition after failures and method change. Sequence: failure -> smoke -> repeated smoke -> ember -> glowing wick -> sustained flame.
+
+### 22 Aug — interoception
+Baseline/concentration-only/active-magic/recovery comparisons; closed-eye attempts; hits and ambiguous results; start/stop pulses; hard nonmagical concentration control. H1 strengthened but not confirmed as Magic Sense.
+
+### 22 Aug — refinement
+Air animal shapes; water range extension; earth wall narrowing/heightening via inward gathering; ignition repetition and faster initiation attempts; existing flame enlargement/reduction.
+
+## 5. Items / learning resources
+- prepared animal bladder/membrane filled with air;
+- two cups for water-transfer tests;
+- loose earth/clods;
+- candles;
+- old household herbal book/herbarium with drawings/notes;
+- book about Ban Ard.
+
+## 6. NPC / relationship continuity
+- Mirog — father; observed multiple magical training sessions and assists with reading.
+- Mother — mentor in herbalism and basic mathematics; name not securely recovered in this snapshot.
+- Older sister — exists; name not securely recovered in this snapshot.
+- Other retained names: Elvar, Odran, Celene, Roderik.
+
+GM knowledge != NPC knowledge. NPCs may only use observed/told/plausibly known information.
+
+## 7. Current goals
+- continue literacy, herbalism and mathematics;
+- continue controlled magic experiments;
+- improve reliability/precision/range without prematurely classifying elemental affinities;
+- investigate the internal sensation associated with magic;
+- await Ban Ard response;
+- preserve distinction between synthetic TEST GM progression and future accepted-runtime reconciliation.
+
+## 8. Phase / write boundary
+TEST GM treats formally accepted Phase 1–25 runtime as direct mechanics where usable. Missing transformations use MASTER ARCHITECTURE fallback. TEST GM writes only under `docs/test-gm/` and does not modify runtime, Kotlin, schemas, migrations, roadmap, acceptance records, canonical architecture, production tests or World Packs.
 
 END SNAPSHOT
