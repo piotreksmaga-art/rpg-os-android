@@ -8,6 +8,10 @@ import java.io.File
  *
  * UI/application code should depend on this contract instead of coordinating
  * storage, campaign selection, backups and package managers independently.
+ *
+ * Authoritative gameplay writes are intentionally absent from this surface.
+ * The only gameplay-authoritative commit API is [commitTurn], which consumes
+ * an already-admitted canonical proposal and delegates to TurnTransaction.
  */
 interface CampaignRepository {
     fun bootstrap()
@@ -30,27 +34,22 @@ interface CampaignRepository {
     fun setActiveWorldPack(dirName: String)
     fun createCampaign(name: String): File
 
-    fun openSaveDb(): SQLiteDatabase
+    /** Read-only package databases; campaign writable database is deliberately not exposed. */
     fun openWorldDb(): SQLiteDatabase
     fun openCoreDb(): SQLiteDatabase
+
+    /** Sole supported NORMAL GAMEPLAY durable mutation entry on the repository facade. */
+    fun commitTurn(
+        identity: TurnTransactionIdentity,
+        proposal: CanonicalCampaignMutationProposal,
+        failureInjector: TurnFailureInjector = TurnFailureInjector.NONE
+    ): TurnExecutionResult<TurnCommitAppliedResult>
 
     fun buildContext(playerInput: String, chapter: Int): ContextBundle
     fun fullCharacterPanel(): CharacterPanelSnapshot
     fun status(): StatusSnapshot
     fun time(): TimeSnapshot
     fun chronicle(): List<ChronicleEntry>
-
-    fun recordTruth(
-        kind: TruthKind,
-        predicate: String,
-        provenance: Provenance,
-        subjectUid: String? = null,
-        objectValue: String? = null,
-        perspectiveUid: String? = null,
-        narrativeText: String? = null,
-        truthUid: String? = null,
-        supersedesTruthUid: String? = null
-    ): CampaignTruthRecord
 
     fun truthRecords(
         kind: TruthKind? = null,
@@ -95,5 +94,4 @@ interface CampaignRepository {
     fun backups(): List<String>
     fun restoreBackup(path: String): String
     fun finalizeChapter(chapter: Int, title: String): Pair<String, String>
-    fun applyPatch(patch: StatePatch): PatchResult
 }
