@@ -5,17 +5,20 @@ import android.database.sqlite.SQLiteDatabase
 internal object GroupATransactionTestFixtures {
     fun admittedFinancialProposal(
         campaignUid:String="C1",commandUid:String="CMD-1",amountMinor:Long=5L,effectiveOrder:Long=10L,
-        fromAccountUid:String="A",toAccountUid:String="B",changeCount:Int=1
+        fromAccountUid:String="A",toAccountUid:String="B",changeCount:Int=1,includeUnsupportedResource:Boolean=false
     ):CanonicalCampaignMutationProposal{
         require(changeCount>=1)
         val actor=CommandActorRef("PLAYER","P1")
         val command=PlayerCommand(commandUid=commandUid,campaignUid=campaignUid,actor=actor,commandKindUid=PlayerCommandKinds.TRANSFER_FUNDS,
             payload=TransferFundsCommandPayload(fromAccountUid,toAccountUid,amountMinor,"CUR"),provenance=CommandProvenance("GROUP-A-TEST"),requestedEffectiveOrder=effectiveOrder)
-        val context=PlayerResolutionContext.createUnboundGeneric(campaignUid,actor,setOf(
+        val refs=mutableSetOf(
+            CampaignScopedDomainRef(campaignUid,DomainRef("PLAYER","P1")),
             CampaignScopedDomainRef(campaignUid,DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT,fromAccountUid)),
             CampaignScopedDomainRef(campaignUid,DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT,toAccountUid)),
-            CampaignScopedDomainRef(campaignUid,DomainRef(PlayerResolutionReferenceKinds.CURRENCY,"CUR"))))
-        val engine=PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(FinancialComponent(changeCount))))
+            CampaignScopedDomainRef(campaignUid,DomainRef(PlayerResolutionReferenceKinds.CURRENCY,"CUR")))
+        if(includeUnsupportedResource) refs+=CampaignScopedDomainRef(campaignUid,DomainRef("RESOURCE","ENERGY"))
+        val context=PlayerResolutionContext.createUnboundGeneric(campaignUid,actor,refs)
+        val engine=PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(FinancialComponent(changeCount,includeUnsupportedResource))))
         return when(val admission=CampaignMutationBoundary.resolveAndAdmit(campaignUid,engine,command,context)){
             is CampaignMutationAdmission.Accepted->admission.proposal
             is CampaignMutationAdmission.Rejected->error("canonical admission rejected: ${admission.reasonUid}")
@@ -33,11 +36,16 @@ internal object GroupATransactionTestFixtures {
         finance.creditExternal("OPEN-$campaignUid","A",openingBalance,2L,"opening","GROUP-A-TEST")
     }
 
-    private class FinancialComponent(private val count:Int):PlayerResolutionComponent<TransferFundsCommandPayload>(
+    private class FinancialComponent(private val count:Int,private val unsupported:Boolean):PlayerResolutionComponent<TransferFundsCommandPayload>(
         PlayerCommandKinds.TRANSFER_FUNDS,TransferFundsCommandPayload::class,"RPGOS-COMPONENT:GROUP-A-FINANCIAL","1"){
-        override fun resolve(command:PlayerCommand<TransferFundsCommandPayload>,context:PlayerResolutionContext)=PlayerResolutionComponentOutcome.Resolved(
-            PlayerResolutionDraft.create(changes=(1..count).map{index->PlayerDomainChange.create(
+        override fun resolve(command:PlayerCommand<TransferFundsCommandPayload>,context:PlayerResolutionContext):PlayerResolutionComponentOutcome{
+            val changes=mutableListOf<PlayerDomainChange>()
+            (1..count).forEach{index->changes+=PlayerDomainChange.create(
                 "CHANGE-${command.commandUid}-$index",PlayerChangeKinds.FINANCIAL,
-                FinancialChange(command.payload.fromAccountUid,command.payload.toAccountUid,command.payload.amountMinor,command.payload.currencyUid,"RPGOS-FIN-TYPE:TRANSFER"))}))
+                FinancialChange(command.payload.fromAccountUid,command.payload.toAccountUid,command.payload.amountMinor,command.payload.currencyUid,"RPGOS-FIN-TYPE:TRANSFER"))}
+            if(unsupported)changes+=PlayerDomainChange.create("CHANGE-${command.commandUid}-RESOURCE",PlayerChangeKinds.RESOURCE,
+                ResourceChange(DomainRef("PLAYER","P1"),"ENERGY",ExactLongDelta.of(-1)))
+            return PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(changes=changes))
+        }
     }
 }
