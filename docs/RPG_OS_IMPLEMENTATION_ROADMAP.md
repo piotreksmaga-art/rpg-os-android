@@ -9,6 +9,8 @@ Operational protocol: `docs/PROJECT_WORK_PROTOCOL.md`
 
 > Future architecture update 2026-08-17: zaakceptowano kierunek native/local AI-GM jako wymagania przyszłych faz, bez rozpoczęcia Phase 48 i bez zmiany aktualnej kolejności roadmapy. Model, inference runtime i hardware backend mają być wymienne; RPG OS pozostaje właścicielem durable reality/memory/rules/transactions. TEMP-GM/Termux/localhost/llama.cpp/Bielik pozostają niekanoniczną infrastrukturą R&D/reference baseline.
 
+> Product strategy update 2026-08-17: RPG OS przyjmuje **LOCAL-FIRST, PROVIDER-NEUTRAL, CLOUD-LATER**. Pierwszym produkcyjnym GM providerem i priorytetem acceptance Phase 48 ma być realny local Android AI-GM. Płatny/cloud provider zostaje świadomie odłożony na późny etap projektu jako opcjonalna warstwa jakości narracyjnej i nie jest wymagany do ukończenia podstawowego GM Engine ani Phase 48. Przyszły local/cloud/hybrid routing musi używać tych samych contractów, validators, mutation boundary i durable memory ownership.
+
 ## Statusy
 - `[x] COMPLETE` — globalnie zaakceptowany etap; wdrożony i zweryfikowany zgodnie z wymaganiami danego etapu.
 - `[-] PARTIAL` — realny fundament istnieje, ale nie spełnia pełnego kontraktu MASTER.
@@ -24,7 +26,7 @@ Sama klasa, tabela, raport audytowy albo zielone CI nie oznacza COMPLETE. Global
 - Final exact-SHA revalidation: CHAT-4 PASS (`WORK-20260817-027`), CHAT-5 PASS (`WORK-20260817-028`).
 - Final architectural enforcement repair: `WORK-20260817-026`.
 - Phase 30: **NOT STARTED / AUDIT FIRST**.
-- Future local-AI requirements are canonical documentation only; **Phase 48 remains NOT STARTED**.
+- Future AI strategy is canonical documentation only: **LOCAL-FIRST / PROVIDER-NEUTRAL / CLOUD-LATER**; **Phase 48 remains NOT STARTED** and current Phase 30–32 order is unchanged.
 
 # FAZA 0 — BASELINE / AUDYT
 - [x] 0. Baseline / audit foundation
@@ -229,7 +231,7 @@ Cross-boundary guarantees verified by final revalidation include full proposal/e
 - [ ] 47. Iterative Retrieval + missing-context loop
 
 # FAZA D — GM ENGINE
-- [ ] 48. AI Provider & Local Inference Architecture
+- [ ] 48. AI Provider & Local Inference Architecture — **LOCAL-FIRST production acceptance**
 - [-] 49. Structured GM Output contract — **provider-independent; turn/capability-dependent required outputs**
 - [ ] 50. Mechanics Resolution integration
 - [-] 51. Consistency Validator
@@ -239,7 +241,9 @@ Cross-boundary guarantees verified by final revalidation include full proposal/e
 
 ## FUTURE REQUIREMENTS — PHASE 48 (NOT STARTED)
 
-Phase 48 ma objąć kontrakty architektoniczne potrzebne dla wymiennego lokalnego/cloud AI, ale **nie jest obecnie autoryzowana do implementacji**. Repo-first audit w momencie rozpoczęcia fazy ma rozstrzygnąć minimalny rzeczywisty delta.
+Phase 48 ma objąć kontrakty architektoniczne potrzebne dla wymiennego AI oraz **pierwszą realną produkcyjną integrację local Android AI-GM**. Nie jest obecnie autoryzowana do implementacji. Repo-first audit w momencie rozpoczęcia fazy ma rozstrzygnąć minimalny rzeczywisty delta.
+
+**Acceptance priority:** Phase 48 nie może zostać uznana za ukończoną wyłącznie dzięki abstrakcji providerów lub testowemu bridge. Wymagany jest rzeczywisty local Android `AiProvider` działający przez kanoniczny `LocalInferenceRuntime`, z lifecycle, structured output, conformance i ochroną transaction/memory boundaries. Płatny/cloud provider nie jest wymagany do Phase 48 i pozostaje odłożony do późnej bramki projektu.
 
 Docelowy scope/acceptance powinien uwzględnić:
 - `AiProvider` canonical provider-independent semantic contract;
@@ -250,6 +254,7 @@ Docelowy scope/acceptance powinien uwzględnić:
 - minimalny `ModelLifecycleController` dla load/unload/cancel/error/OOM/process restart i artifact verification;
 - allowlisted `GmToolGateway`, bez raw DB i mutation authority;
 - provider-independent semantic/structured output contract;
+- **pierwszy produkcyjny local Android provider end-to-end**, nie tylko TEMP-GM/localhost bridge;
 - **VOLITIONAL PLAYER ACTION SOURCE = USER / VALIDATED PLAYER COMMAND ONLY**;
 - strukturalne **ACTOR/ACTION/TARGET preservation**;
 - provider/model conformance suite: player agency, direction, NPC knowledge isolation, FACT/BELIEF, stop point, invented abilities/dialogue, internal-context leak, structured output i canonical mutation boundary;
@@ -257,7 +262,7 @@ Docelowy scope/acceptance powinien uwzględnić:
 - model/runtime/backend replacement nie może wymagać migracji kampanii;
 - real Android integration/validation jako acceptance evidence.
 
-Nie hardcodować jako canonical wymogu konkretnego modelu (Bielik/PLLuM/Gemma), formatu (GGUF) ani runtime (LiteRT-LM/ExecuTorch/llama.cpp). Wynik R&D ma być evidence, nie architecture lock-in.
+Nie hardcodować jako canonical wymogu konkretnego modelu (Bielik/PLLuM/Gemma), formatu (GGUF) ani runtime (LiteRT-LM/ExecuTorch/llama.cpp). Wynik R&D ma być evidence, nie architecture lock-in. Nie kodować także założenia `local = słaby` / `cloud = dobry`; jakość modelu jest zmienna, provider jest wymienny.
 
 # FAZA E — PAMIĘĆ I DŁUGOTERMINOWA SYMULACJA
 - [-] 55. Working Memory — **AI provider/model nie jest durable owner**
@@ -297,6 +302,23 @@ Nie hardcodować jako canonical wymogu konkretnego modelu (Bielik/PLLuM/Gemma), 
 - [ ] 83. World-specific progression/evolution automated tests
 - [ ] 84. World Pack update compatibility automated tests
 
+# LATE-PROJECT — CLOUD / PAID AI PROVIDER INTEGRATION — DEFERRED
+
+Ten blok jest **kanonicznym późnym wymaganiem produktowym**, ale pozostaje celowo bez numeru fazy, aby nie zmieniać obecnej kolejności 30–84. Numer i dokładne miejsce execution zostaną nadane dopiero przy późnym harmonogramowaniu projektu.
+
+Nie rozpoczynać go przed stabilnym, zaakceptowanym local GM pipeline i odpowiednimi systemami jakości/skalowania. Zakres ma obejmować co najmniej:
+- implementację co najmniej jednego realnego cloud/paid `AiProvider` na tym samym provider-independent kontrakcie co local AI;
+- brak nowych mutation privileges, raw DB access albo AI-owned durable memory;
+- te same player-agency, actor/action/target, knowledge, FACT/BELIEF, stop-point i structured-output conformance gates;
+- przełączenie **LOCAL ↔ CLOUD** bez migracji kampanii, utraty eventów, pamięci, statystyk, wiedzy NPC albo divergence;
+- możliwość trybu LOCAL-ONLY oraz opcjonalnie CLOUD/HYBRID, bez uzależnienia poprawności kampanii od dostępności sieci lub płatnego API;
+- porównawczy benchmark jakości narracji, dialogu, różnorodności, continuity i złożonych scen przy tym samym kontrolowanym ContextBundle;
+- ewentualny hybrid `ModelRouter`, który może kierować wybrane wysokowartościowe sceny do silniejszego providera, ale nie może zmieniać authority ani legalnej ścieżki commit;
+- failure/cancel/rate-limit/network-error handling bez partial committed turn;
+- provider replacement i provider removal bez migracji durable campaign state.
+
+Celem tego bloku jest podniesienie jakości GM/narracji, nie naprawianie braków mechaniki, pamięci, retrieval, knowledge isolation ani transaction integrity. Jeżeli cloud model jest wymagany do poprawności kampanii, wcześniejsza architektura jest niekompletna.
+
 # TEMP LOCAL AI-GM / R&D — NONCANONICAL IMPLEMENTATION TRACK
 
 TEMP-GM pozostaje dozwolonym laboratorium semantycznym i device/model benchmark harness. Termux, localhost bridge, llama.cpp/Vulkan i Bielik reference model nie są production architecture.
@@ -333,6 +355,8 @@ Frontend może być rozwijany wraz z funkcjonalnością, ale należy zachować z
 - [ ] AI provider/model replacement -> no campaign migration/data loss
 - [ ] local AI player-agency + actor/action/target conformance
 - [ ] provider crash/cancel/process death -> no partial committed turn
+- [ ] future LOCAL ↔ CLOUD provider switch -> same authoritative campaign / no migration
+- [ ] hybrid routing -> same authority/memory/transaction semantics as single-provider mode
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
 
@@ -347,7 +371,7 @@ Obowiązkowa sekwencja:
 Do czasu zakończenia audytu i jawnej decyzji koordynatora:
 **PHASE 30–32 = NOT ACCEPTED / IMPLEMENTATION REQUIRES EXPLICIT AUTHORIZATION.**
 
-Future local-AI requirements nie zmieniają tej kolejności. **Phase 48 pozostaje NOT STARTED**; dopuszczone jest wyłącznie odseparowane R&D/evidence gathering zgodne z MASTER.
+Future AI requirements nie zmieniają tej kolejności. Strategia pozostaje **LOCAL-FIRST / PROVIDER-NEUTRAL / CLOUD-LATER**. **Phase 48 pozostaje NOT STARTED**; dopuszczone jest wyłącznie odseparowane R&D/evidence gathering zgodne z MASTER, a cloud/paid integration pozostaje late-project deferred.
 
 # ZASADA AKTUALIZACJI ROADMAPY
 
