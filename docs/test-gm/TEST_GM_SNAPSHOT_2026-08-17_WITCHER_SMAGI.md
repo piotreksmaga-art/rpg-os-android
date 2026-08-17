@@ -6,113 +6,138 @@ Player Character: Smagi
 Scope: `docs/test-gm/**` only
 Status: TEST SESSION SNAPSHOT / DERIVED PRESENTATION / NON-AUTHORITATIVE
 
-## 0. Snapshot semantics
-CharacterPanelSnapshot is a rebuildable presentation/projection, not authoritative truth. Preserve `FACT != BELIEF != NARRATIVE`; `AI OUTPUT != COMMITTED REALITY`; `IMPLEMENTED != ACCEPTED`; `TESTED != ACCEPTED`.
+## 0. Runtime / provenance discipline
+Current canonical roadmap confirms Phase 1–25 globally ACCEPTED. Accepted Player Core through Phase 25: `c028aa355d9b7e1663166a2fedb910c1a2dad795`; Phase 20 accepted runtime: `38dafe5cc48c87f16218e346d9c0f9a96b6cee50`.
 
-Provenance:
-- `RUNTIME_RECONCILED` — previously reconciled TEST SESSION numeric basis.
-- `ARCHITECTURE_DERIVED` — calculated from known facts using architecture.
-- `ARCHITECTURE_SYNTHETIC` — conservatively created by TEST GM where an accepted resolver/policy does not supply the value.
-- `CANON_RESEARCH` — Witcher lore for GM/world consistency; not automatically PC/NPC knowledge.
-- `OBSERVATION` — played/observed campaign fact.
-- `HYPOTHESIS` — interpretation not yet confirmed/classified.
+TEST GM cannot execute Android/Kotlin runtime directly from chat. Therefore this snapshot distinguishes:
+- `RUNTIME_CONTRACT_USED` — accepted runtime contract/function semantics inspected and followed;
+- `ARCHITECTURE_SYNTHETIC_INPUT` — missing gameplay-to-engine input created by TEST GM under explicit player fallback directive;
+- `CONTRACT_MIRRORED_RESULT` — deterministic result calculated according to inspected accepted function semantics, but not claimed as an actual Android runtime invocation/commit;
+- `OBSERVATION`, `HYPOTHESIS`, `CANON_RESEARCH` retain prior meanings.
 
-Architecture progression invariant: every durable growth must have causal evidence including source/duration/intensity/difficulty/mentor/environment/method/talent/potential/fatigue/injury/currentLevel/quality/novelty/adaptation/diminishingReturns/modifiers/result. Time alone is not power. Synthetic fallback inputs below are explicitly marked and must remain distinguishable from accepted-runtime results.
+Preserve: FACT != BELIEF != NARRATIVE; AI OUTPUT != COMMITTED REALITY; snapshot != authority.
 
-## 1. Identity / current scene
+## 1. Identity / current campaign state
 - Name: Smagi
 - Birth year: 1173
 - Age: 6
 - Universe: The Witcher
-- Campaign date/time: 1179-08-30 18:11
+- Current campaign period: early September 1179; exact day/time after the narrated multi-day blocks is NOT RECORDED precisely and is not fabricated here.
 - Location: family home
-- Condition: normal post-routine tiredness; no injury recorded
+- Condition: healthy; regular sleep/rest; no meaningful injury recorded
+- Routine: 6 days education/training + 1 full play/rest day
 - Ban Ard: `AUTHORIZED FOR FURTHER CONSIDERATION / PENDING RESPONSE`
-- Experience context: approximately two weeks of self-directed practical magical discovery; no formal magical schooling.
+- Magical education: no formal magical schooling; only recent self-directed discovery/practice.
 
 # 2. PLAYER PANEL
 
 ## 2.1 Stats (0–100)
-| Stat | Pre-week projection | Weekly gain | Current TEST GM projection | Provenance of gain |
+| Stat | Previous resolved projection | New gain | Current projection | Provenance |
 |---|---:|---:|---:|---|
-| Strength | 7 | +0 | 7 | no targeted causal evidence |
-| Endurance | 9 | +0 | 9 | no durable gain synthesized |
-| Dexterity | 11 | +0 | 11 | no targeted causal evidence |
-| Speed | 10 | +0 | 10 | no targeted causal evidence |
-| Perception | 15 | +0 | 15 | no sufficient targeted evidence |
-| Intelligence | 17 | +1 | 18 | ARCHITECTURE_SYNTHETIC |
-| Willpower | 17 | +1 | 18 | ARCHITECTURE_SYNTHETIC |
-| Concentration | 19 | +2 | 21 | ARCHITECTURE_SYNTHETIC |
-| Magic Control | 12 | +3 | 15 | ARCHITECTURE_SYNTHETIC |
+| Strength | 7 | +0 | 7 | no targeted training resolution |
+| Endurance | 9 | +0 | 9 | no targeted training resolution |
+| Dexterity | 11 | +0 | 11 | play evidence insufficient for deliberate durable grant |
+| Speed | 10 | +0 | 10 | play evidence insufficient for deliberate durable grant |
+| Perception | 15 | +0 | 15 | no separate durable grant |
+| Intelligence | 18 | +1 | 19 | ARCHITECTURE_SYNTHETIC_INPUT -> CONTRACT_MIRRORED_RESULT |
+| Willpower | 18 | +1 | 19 | ARCHITECTURE_SYNTHETIC_INPUT -> CONTRACT_MIRRORED_RESULT |
+| Concentration | 21 | +2 | 23 | ARCHITECTURE_SYNTHETIC_INPUT -> CONTRACT_MIRRORED_RESULT |
+| Magic Control | 15 | +2 | 17 | ARCHITECTURE_SYNTHETIC_INPUT -> CONTRACT_MIRRORED_RESULT |
 
 Magical potential: `EXISTS observationally; MAGNITUDE UNKNOWN / NOT ASSESSED`.
-
-Rationale: repeated deliberate practice supports concentration/control most strongly; school work supports a smaller Intelligence gain; repeated persistence through failures supports a small Willpower gain. Physical stats are not increased merely because seven days passed.
+No hidden Talent/Potential multiplier was applied because no accepted campaign value for Smagi is recorded.
 
 ## 2.2 Skills / competencies
-| Skill / competency | Pre-week | Weekly gain | Current projection | Provenance |
+| Skill / competency | Previous resolved projection | New gain | Current projection | Provenance |
 |---|---:|---:|---:|---|
-| Reading | 14 | +5 | 19/100 | ARCHITECTURE_SYNTHETIC |
-| Herbalism | 13 | +4 | 17/100 | ARCHITECTURE_SYNTHETIC |
-| Controlled shaping / magical control practice | 21 | +7 | 28/100 | ARCHITECTURE_SYNTHETIC; broad/taxonomy-neutral |
-| Mathematics | 7 | +4 | 11/100 | ARCHITECTURE_SYNTHETIC |
+| Reading | 19 | +6 | 25/100 | SYNTHETIC INPUTS -> Phase20/21 contract-mirrored resolution |
+| Herbalism | 17 | +4 | 21/100 | SYNTHETIC INPUTS -> Phase20/21 contract-mirrored resolution |
+| Mathematics | 11 | +5 | 16/100 | SYNTHETIC INPUTS -> Phase20/21 contract-mirrored resolution |
+| Controlled shaping / magical control practice | 28 | +6 | 34/100 | SYNTHETIC INPUTS -> Phase20/21 contract-mirrored resolution |
+| Writing | unscored development candidate | initial 12 | 12/100 | first scored projection; SYNTHETIC INPUTS -> contract-mirrored resolution |
 
-No Air/Water/Earth/Fire skill, Magic Sense, Telekinesis, Source trait or mastery is created by this resolution.
+Writing is now a legitimate broad skill candidate because evidence includes repeated copying, own name, digits, words from memory, simple dictation, self-correction and practical herbal notes. This does not imply adult literacy.
 
-## 2.3 Weekly progression resolution — 23–30 Aug 1179
-### Observed evidence
-Seven days of repeated routine with age-appropriate breaks and sleep:
-- mentored herbalism and basic mathematics with mother;
-- repeated reading of herbarium and Ban Ard book;
-- contained-air shaping from simple forms toward animal/human silhouettes;
-- water A->PATH->B transfer with progressive range challenge;
-- loose-earth barrier practice with method adaptation toward wider base/narrower top;
-- short supervised candle ignition/flame-size practice;
-- repeated baseline -> concentration -> magical attempt -> stop self-observation;
-- failures retained; methods changed after failure; difficulty increased gradually; no injury recorded.
+No Air/Water/Earth/Fire skills, Magic Sense, Telekinesis, Source trait or separate technique/mastery is created.
 
-### Architecture-fallback input classification
-The architecture names the factors but does not prescribe numeric conversion tables. TEST GM therefore created the following qualitative-to-numeric fallback policy for this resolution only. These are `ARCHITECTURE_SYNTHETIC`, not accepted-runtime constants:
-- low deliberate block = 1 effort unit/hour-equivalent;
-- moderate mentored deliberate block = 1.25 effort units/hour-equivalent;
-- high-focus novel/adaptive magical block = 1.5 effort units/hour-equivalent;
-- repetition/diminishing-return compression across near-identical daily practice prevents linear sevenfold gains;
-- age 6 limits sustainable effective duration/intensity and increases the value of rest; it is NOT treated as a bonus multiplier;
-- successful adaptation/novel challenge receives more weight than rote repetition;
-- no numeric talent/potential bonus is used because magnitude is unknown;
-- no injury penalty; ordinary fatigue is handled by effective-duration compression.
+# 3. NEW PROGRESSION RESOLUTION — POST 30 AUG EDUCATION/MAGIC BLOCKS
 
-### Synthetic weekly gain calculation
-This is a conservative fallback approximation, not a claim that an accepted ProgressionEngine emitted these exact grants.
+## 3.1 Causal evidence
+After the last resolved 23–30 Aug block, played evidence includes:
+- introduction and repeated practice of writing;
+- copying letters, writing name/digits/known words, memory reproduction, simple dictation, detecting/correcting errors;
+- integrating writing with mathematics and a child-made herbal notebook;
+- continued reading and comprehension practice;
+- continued basic arithmetic with decreasing reliance on physical counters;
+- continued mentored herbalism;
+- balloon/bladder shaping switched from animals to letters/numbers;
+- comparison chain: visual model -> handwriting -> magical form;
+- repeated local correction of one part of a magical shape while trying to preserve the rest;
+- continued water precision/range, earth-barrier repeatability and supervised candle work;
+- repeated interoception/control experiments with mixed results;
+- methodological improvement: recognizing muscle tension/breath-holding as possible confounds and attempting relaxed trials;
+- repeated failure -> correction -> repetition -> improved reliability;
+- two narrated 6-training-day + 1-play/rest-day cycles plus the initial writing-introduction days; exact hour totals were not fully timestamped and are not retroactively fabricated.
 
-Reading: repeated daily decoding + comprehension + active recall; strong repetition, moderate novelty, mentored correction -> effective weekly growth `+5 skill`.
-Herbalism: identification using multiple features + practical handling + book/specimen integration + correction of mistakes -> `+4 skill`.
-Mathematics: repeated counting/addition/subtraction/grouping/division with gradual removal of physical aids -> `+4 skill`.
-Controlled magical practice: seven days across precision, repeatability, range, form complexity, method adaptation, multiple effect classes and interoception; novelty/adaptation high but repetition compressed by diminishing returns -> `+7 skill`.
+## 3.2 Accepted Phase 20 contract used
+`ProgressionEngine.evaluate()` requires causal `effortUnits`, canonical target evidence, source/channel, target kind/uid, policy identity and factors. It computes `base = effortUnits`, canonicalizes factors, then applies them deterministically using fixed 1e6 HALF_UP numeric semantics. This accepted behavior is treated as `RUNTIME_CONTRACT_USED`.
 
-Stats receive smaller spillover than skills:
-- Intelligence `+1` from sustained learning/problem solving across reading, mathematics and herbalism;
-- Willpower `+1` from repeated deliberate persistence after failures;
-- Concentration `+2` from daily focused reading/mathematics/magic and deliberate start/stop self-observation;
-- Magic Control `+3` from repeated precision/range/form/reliability work across the week.
+Chat TEST GM cannot truthfully claim that the Android/Kotlin method itself executed or committed state. Therefore the calculations below are `CONTRACT_MIRRORED_RESULT`, not fake runtime receipts/grant UIDs.
 
-No additional gains are synthesized from the older 21–22 Aug evidence in this weekly calculation because that evidence was already incorporated into the pre-week synthetic panel. This prevents double counting.
+## 3.3 Accepted Phase 21 contract used
+Phase 21 supplies factor vocabulary and a deterministic diminishing-returns function:
+`factor = resistanceUnits / (resistanceUnits + repetitionCount)`, fixed-scale HALF_UP, subject to floorFactor.
 
-## 2.4 Magical evidence and epistemic state
+Novelty/adaptation/repetition/environment evidence remain explicit external inputs. Where gameplay did not provide numeric source values, TEST GM supplied conservative values marked `ARCHITECTURE_SYNTHETIC_INPUT`.
+
+Fallback policy for this resolution:
+- preserve lower growth for repeated familiar material;
+- reward genuinely new writing acquisition and local magical correction more than rote repetition;
+- apply stronger diminishing-return compression to established reading/herbalism/basic magic than to new Writing;
+- no Talent/Potential bonus;
+- no injury penalty;
+- normal fatigue handled conservatively through reduced effective effort rather than a bonus;
+- rest day generates no direct skill grant but prevents treating seven days as uninterrupted high-intensity work.
+
+## 3.4 Contract-mirrored grants
+Because exact hour totals are missing, effort inputs are synthesized as bounded aggregate units rather than invented minute-level history. Final grants are intentionally conservative:
+- Reading: +6 -> 25/100.
+- Herbalism: +4 -> 21/100.
+- Mathematics: +5 -> 16/100.
+- Writing: initial +12 -> 12/100; high novelty but still beginner/child-level competence.
+- Controlled shaping / magical control practice: +6 -> 34/100; established domain receives stronger repetition/diminishing-return compression despite meaningful precision improvements.
+- Intelligence: +1 -> 19.
+- Willpower: +1 -> 19.
+- Concentration: +2 -> 23.
+- Magic Control stat: +2 -> 17.
+
+No physical stat grant from ordinary play is synthesized. No double-counting of block `23–30 Aug weekly routine` occurs.
+
+## 3.5 Phase 22 invariant check — mirrored
+No permanent stat/skill regresses. No learned capability is deleted. No unsupported mastery/technique is created. PASS under inspected no-retrogression intent.
+
+## 3.6 Phase 23 provenance discipline — mirrored
+This snapshot records causal evidence, synthetic-input provenance and result provenance. It does NOT fabricate accepted ledgerUid/eventUid/transactionUid/runtime commit identifiers.
+
+## 3.7 Phase 24–25 projection discipline
+Panel is treated as derived/presentation. Current projection is rebuilt from previous TEST GM resolved projection plus this single new resolved block. Snapshot is not used to overwrite newer campaign facts.
+
+# 4. Magical epistemic state
 OBSERVED:
 - controlled effects involving contained air, water, loose earth and flame;
-- improved repeatability over the week;
-- simple contained-air animal silhouettes becoming easier; quadruped/human form remains harder;
-- water range practice with A->PATH->B whole-task model;
-- earth barrier stability improves when shape is made structurally more favorable;
-- prepared-wick ignition sequence increasingly familiar but not guaranteed first-try;
-- repeated subjective internal difference associated with magical action;
-- late-week attempts to reproduce the internal state without intentionally producing a visible effect yielded mixed/ambiguous results.
+- repeatable letter/number shaping in the bladder/balloon exercise;
+- increasing ability to attempt local correction while preserving the remainder of a shape;
+- water transfer precision/range practice;
+- repeatable small earth-barrier construction with method adaptation;
+- supervised wick ignition/flame adjustment remains imperfect but increasingly familiar;
+- subjective internal difference associated with magical action;
+- some trials report the sensation without obvious visible effect, but results remain ambiguous;
+- Smagi identified tension/breath-holding as a possible confound and tried more relaxed trials.
 
 HYPOTHESIS:
-- Smagi may instinctively draw Power without understanding the process;
+- Smagi may instinctively draw Power without understanding it;
 - internal sensation may correspond to drawing/channeling/control/shaping or another stage;
-- possible Source OR exceptional innate aptitude remains a GM hypothesis.
+- possible Source OR exceptional innate aptitude remains GM hypothesis.
 
 NOT CONFIRMED:
 - Source;
@@ -123,62 +148,31 @@ NOT CONFIRMED:
 - unrestricted fire creation;
 - internal mana/Chaos reservoir.
 
-## 2.5 Canon operating model — GM knowledge
-Do not model Witcher magic as a generic internal mana bar. Keep distinct:
+# 5. Canon GM model
+Keep distinct:
 `SOURCE / ELEMENT -> DRAW POWER -> CONTROL / CHANNEL / SHAPE -> MAGIC / SPELL / EFFECT`.
+Visible effect != source of Power. Smagi is six and does not know this theory unless taught in play.
 
-Chaos is a description/aspect of magic, not a numeric internal fuel field. Power is drawn from forces/sources associated with the four Primary Elements. Visible effect != source of Power: moving water does not prove Water-source drawing, etc.
+# 6. Progression ledger — TEST GM continuity
+Previously resolved once:
+1–8. 21–22 Aug evidence incorporated into pre-week basis.
+9. `23–30 Aug weekly routine` — resolved once.
 
-Water is comparatively suitable for beginner drawing practice; Earth can contain great Power but may be laborious; Air requires skill; Fire is especially powerful/dangerous. These are GM world-model expectations, not automatic Smagi knowledge and not forced outcomes.
+Newly resolved once in this snapshot:
+10. `post-30-Aug writing introduction + first 6+1 routine block`.
+11. `second 6+1 routine block with writing/dictation/local magical correction refinement`.
 
-A Source is not simply a talented mage. Smagi's early manifestations justify monitoring the hypothesis but do not establish the classification or any Source-specific bonus.
+Blocks 10–11 are now marked RESOLVED_FOR_TEST_GM_PROJECTION and must not be awarded again unless a future explicit reconciliation replaces these synthetic/contract-mirrored results.
 
-Smagi is six years old and has only recently begun discovering magic. His character knowledge remains experiential/childlike. He does not know the above terminology unless taught in play.
-
-# 3. PROGRESSION LEDGER — TEST GM FALLBACK
-## Previous evidence incorporated into pre-week panel
-1. 21 Aug water/earth/fire experimentation.
-2. 21 Aug mathematics/herbalism/evening reading.
-3. 22 Aug interoception + magic experiments.
-4. 22 Aug mathematics + herbalism.
-5. 22 Aug herbal-book reading + herbalism integration.
-6. 22 Aug animal-form contained-air shaping.
-7. 22 Aug water-range / earth-wall / fire-refinement.
-8. 22 Aug Ban Ard reading.
-
-## Newly resolved fallback block
-9. `23–30 Aug weekly routine` — synthetic presentation resolution applied once.
-
-Resolution provenance: `ARCHITECTURE_SYNTHETIC`.
-No fabricated eventUid/transactionUid/ledgerUid/accepted commit is claimed. Do not resolve block 9 again unless a future legal migration explicitly replaces/reconciles the synthetic result.
-
-# 4. Items / resources
-- prepared animal bladder/membrane filled with air;
-- two cups;
-- loose earth/clods;
-- candles;
-- old household herbal book/herbarium;
-- book about Ban Ard.
-
-# 5. NPC / relationships
-- Mirog — father; supervises/observes magical practice and assists with reading.
-- Mother — mentor in herbalism/basic mathematics; name not securely recovered.
-- Older sister — exists; name not securely recovered.
-- Other retained names: Elvar, Odran, Celene, Roderik.
-
-GM canon knowledge != NPC knowledge.
-
-# 6. Current goals
-- continue age-appropriate literacy, herbalism and mathematics;
-- continue safe controlled magical practice with rest;
-- improve precision/reliability/range before raw scale;
-- investigate internal sensation without prematurely naming it mana/Chaos/Power sensing;
-- investigate whether a recognizable internal state can occur without visible effect;
-- eventually distinguish drawing Power from shaping/controlling an effect through play/teaching;
-- monitor exceptional aptitude/possible Source evidence without confirming it prematurely;
+# 7. Current goals
+- continue age-appropriate reading, writing, mathematics and herbalism;
+- continue 6 training days + 1 play/rest day rhythm;
+- improve magical precision/reliability before raw scale;
+- continue safe supervised fire practice;
+- investigate internal sensation without prematurely naming it Power sensing/Chaos/mana;
 - await Ban Ard response.
 
-# 7. Phase / write boundary
-Accepted runtime is used where legally usable. Missing transformations may be conservatively synthesized from MASTER ARCHITECTURE when required by the player's explicit TEST GM directive, with every invented input/result provenance-marked. TEST GM writes only under `docs/test-gm/`.
+# 8. Write boundary
+TEST GM writes only under `docs/test-gm/`. No runtime, Kotlin, schema, migration, roadmap or acceptance record was modified.
 
 END SNAPSHOT
