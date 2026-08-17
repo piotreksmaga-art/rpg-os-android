@@ -416,6 +416,22 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
         },
         conflicts = { setOf("OWNERSHIP:${it.ownershipRecordUid}", compositeConflictKey("OWNED_ASSET", it.asset.assetKindUid, it.asset.assetUid)) }
     ),
+    PlayerChangeKinds.CAMPAIGN_TRUTH to simpleCodec(
+        CampaignTruthChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
+        setOf("truthUid", "kind", "subjectUid", "predicate", "objectValue", "perspectiveUid", "narrativeText", "supersedesTruthUid"),
+        encode = { pcsObj("truthUid" to pcsJ(it.truthUid), "kind" to pcsJ(it.kind.name), "subjectUid" to pcsJn(it.subjectUid), "predicate" to pcsJ(it.predicate), "objectValue" to pcsJn(it.objectValue), "perspectiveUid" to pcsJn(it.perspectiveUid), "narrativeText" to pcsJn(it.narrativeText), "supersedesTruthUid" to pcsJn(it.supersedesTruthUid)) },
+        decode = { CampaignTruthChange(it.pcsReqString("truthUid"), enumValue(it.pcsReqString("kind"), "INVALID_TRUTH_KIND"), it.pcsOptString("subjectUid"), it.pcsReqString("predicate"), it.pcsOptString("objectValue"), it.pcsOptString("perspectiveUid"), it.pcsOptString("narrativeText"), it.pcsOptString("supersedesTruthUid")) },
+        validate = {
+            buildList {
+                if (it.truthUid.isBlank() || it.predicate.isBlank()) add("INVALID_CAMPAIGN_TRUTH_CHANGE")
+                if (it.subjectUid?.isBlank() == true || it.supersedesTruthUid?.isBlank() == true) add("INVALID_CAMPAIGN_TRUTH_CHANGE")
+                if (it.kind == TruthKind.BELIEF && it.perspectiveUid.isNullOrBlank()) add("INVALID_CAMPAIGN_TRUTH_CHANGE")
+                if (it.kind == TruthKind.NARRATIVE && it.narrativeText.isNullOrBlank()) add("INVALID_CAMPAIGN_TRUTH_CHANGE")
+                if (it.kind != TruthKind.NARRATIVE && !it.narrativeText.isNullOrBlank()) add("INVALID_CAMPAIGN_TRUTH_CHANGE")
+            }
+        },
+        conflicts = { setOf("CAMPAIGN_TRUTH:${it.truthUid}") }
+    ),
     PlayerChangeKinds.CONDITION to simpleCodec(
         ConditionChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
         setOf("subject", "conditionUid", "operation"),
