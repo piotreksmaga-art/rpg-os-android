@@ -189,6 +189,9 @@ internal class TurnTransactionReceiptStore(private val db: SQLiteDatabase) {
 
 /** Pure read facade: no schema creation, DDL or migration. */
 class TurnRecoveryReader(private val db: SQLiteDatabase) {
+    init {
+        require(TurnTransactionReceiptSchema.isReady(db)) { "RPGOS-TURN-RECOVERY:SCHEMA_NOT_READY" }
+    }
     private val receipts = TurnTransactionReceiptStore(db)
     fun lastValidCommit(campaignUid:String)=receipts.lastValidCommit(campaignUid)
     fun transaction(transactionUid:String)=receipts.committedTransaction(transactionUid)?.let{TurnRecoveryStatus(TurnRecoveryState.COMMITTED,it)}?:TurnRecoveryStatus(TurnRecoveryState.NOT_RECORDED)
