@@ -3,6 +3,7 @@ package com.rpgos.app
 import android.database.sqlite.SQLiteDatabase
 
 const val PHASE12_MIGRATION_ID = "RPGOS-12.0-OWNERSHIP"
+const val PHASE12_OPTIONAL_SOURCE_EVENT_MIGRATION_ID = "RPGOS-12.1-OWNERSHIP-OPTIONAL-SOURCE-EVENT"
 
 /** Additive Phase 12 legal OwnershipRecord history. Possession and Equipment remain independent authorities. */
 fun MigrationManager.ensureV12(saveDb: SQLiteDatabase, campaignId: String) {
@@ -93,13 +94,14 @@ fun MigrationManager.ensureV12(saveDb: SQLiteDatabase, campaignId: String) {
                 source_successor_uid TEXT,
                 destination_successor_uid TEXT,
                 effective_order INTEGER NOT NULL,
-                source_event_uid TEXT NOT NULL CHECK(length(trim(source_event_uid)) > 0),
+                source_event_uid TEXT CHECK(source_event_uid IS NULL OR length(trim(source_event_uid)) > 0),
                 provenance TEXT NOT NULL CHECK(length(trim(provenance)) > 0),
                 PRIMARY KEY(campaign_id,operation_uid),
                 FOREIGN KEY(campaign_id,source_record_uid) REFERENCES ownership_records(campaign_id,ownership_record_uid),
                 FOREIGN KEY(campaign_id,source_successor_uid) REFERENCES ownership_records(campaign_id,ownership_record_uid),
                 FOREIGN KEY(campaign_id,destination_successor_uid) REFERENCES ownership_records(campaign_id,ownership_record_uid))
         """.trimIndent())
+        repairOwnershipOperationSourceEventNullability(saveDb)
         saveDb.execSQL("""
             CREATE TABLE IF NOT EXISTS legacy_ownership_mappings(
                 campaign_id TEXT NOT NULL,
@@ -265,7 +267,7 @@ fun MigrationManager.ensureV12(saveDb: SQLiteDatabase, campaignId: String) {
               OR OLD.record_status<>'ACTIVE' OR OLD.valid_until_order IS NOT NULL
               OR NEW.record_status<>'CLOSED' OR NEW.valid_until_order IS NULL OR NEW.valid_until_order<=OLD.valid_from_order
               OR NEW.record_version<>OLD.record_version+1
-              OR NEW.closed_by_event_uid IS NULL OR length(trim(NEW.closed_by_event_uid))=0
+              OR (NEW.closed_by_event_uid IS NOT NULL AND length(trim(NEW.closed_by_event_uid))=0)
               OR NEW.closure_provenance IS NULL OR length(trim(NEW.closure_provenance))=0
             BEGIN SELECT RAISE(ABORT,'ownership record mutation is not a legal close transition'); END
         """.trimIndent())
@@ -277,8 +279,57 @@ fun MigrationManager.ensureV12(saveDb: SQLiteDatabase, campaignId: String) {
         """.trimIndent())
 
         saveDb.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('$PHASE12_MIGRATION_ID',strftime('%s','now'),'Generic temporal OwnershipRecord history with exact fixed-scale shares, campaign-scoped owner/asset reference registries, explicit ItemInstance target validation, DB temporal/share/reference guards, immutable-history close CAS, idempotent operation ledger and zero legacy possession/equipment synthesis')")
+        saveDb.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES('$PHASE12_OPTIONAL_SOURCE_EVENT_MIGRATION_ID',strftime('%s','now'),'Ownership transfer/close preserves UNKNOWN_NOT_RECORDED provenance by allowing absent source/closure Event UID while retaining legal temporal close/open invariants')")
         saveDb.setTransactionSuccessful()
     } finally {
         saveDb.endTransaction()
     }
+}
+
+private fun repairOwnershipOperationSourceEventNullability(db:SQLiteDatabase){
+    val sourceEventRequired=db.rawQuery("PRAGMA table_info(ownership_operations)",null).use{cursor->
+        var required=false
+        while(cursor.moveToNext()){
+            if(cursor.getString(1)=="source_event_uid"){
+                required=cursor.getInt(3)==1
+                break
+            }
+        }
+        required
+    }
+    if(!sourceEventRequired)return
+    val gameplayGuardsWereInstalled=db.rawQuery(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='rpgos_gameplay_mutation_context' LIMIT 1",null
+    ).use{it.moveToFirst()}
+    listOf("insert","update","delete").forEach{op->db.execSQL("DROP TRIGGER IF EXISTS rpgos_guard_ownership_operations_$op")}
+    db.execSQL("ALTER TABLE ownership_operations RENAME TO ownership_operations_pre_work023")
+    db.execSQL("""
+        CREATE TABLE ownership_operations(
+            campaign_id TEXT NOT NULL,
+            operation_uid TEXT NOT NULL,
+            operation_kind TEXT NOT NULL CHECK(operation_kind IN ('TRANSFER','CLOSE')),
+            asset_kind_uid TEXT NOT NULL,
+            asset_uid TEXT NOT NULL,
+            ownership_type_uid TEXT NOT NULL,
+            source_record_uid TEXT NOT NULL,
+            source_successor_uid TEXT,
+            destination_successor_uid TEXT,
+            effective_order INTEGER NOT NULL,
+            source_event_uid TEXT CHECK(source_event_uid IS NULL OR length(trim(source_event_uid)) > 0),
+            provenance TEXT NOT NULL CHECK(length(trim(provenance)) > 0),
+            PRIMARY KEY(campaign_id,operation_uid),
+            FOREIGN KEY(campaign_id,source_record_uid) REFERENCES ownership_records(campaign_id,ownership_record_uid),
+            FOREIGN KEY(campaign_id,source_successor_uid) REFERENCES ownership_records(campaign_id,ownership_record_uid),
+            FOREIGN KEY(campaign_id,destination_successor_uid) REFERENCES ownership_records(campaign_id,ownership_record_uid))
+    """.trimIndent())
+    db.execSQL("""
+        INSERT INTO ownership_operations(
+            campaign_id,operation_uid,operation_kind,asset_kind_uid,asset_uid,ownership_type_uid,
+            source_record_uid,source_successor_uid,destination_successor_uid,effective_order,source_event_uid,provenance)
+        SELECT campaign_id,operation_uid,operation_kind,asset_kind_uid,asset_uid,ownership_type_uid,
+            source_record_uid,source_successor_uid,destination_successor_uid,effective_order,source_event_uid,provenance
+        FROM ownership_operations_pre_work023
+    """.trimIndent())
+    db.execSQL("DROP TABLE ownership_operations_pre_work023")
+    if(gameplayGuardsWereInstalled)GameplayMutationDatabaseGuards.ensureInstalled(db)
 }
