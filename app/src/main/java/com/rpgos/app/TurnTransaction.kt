@@ -79,7 +79,22 @@ private object CanonicalPlayerChangeApplier{
                         throw UnsupportedCanonicalIntentException(intent.ledgerKindUid)
                     }
                 }
-                PlayerLedgerIntentKinds.PROGRESSION -> throw UnsupportedCanonicalIntentException(intent.ledgerKindUid)
+                PlayerLedgerIntentKinds.PROGRESSION -> {
+                    if(intent.payload !is ProgressionLedgerIntentPayload || intent.causalChangeUids.isEmpty()){
+                        throw UnsupportedCanonicalIntentException(intent.ledgerKindUid)
+                    }
+                    if(intent.causalChangeUids.any{uid->
+                        changeSet.changes.none{change->
+                            change.changeUid==uid && (
+                                change.payload is StatChange ||
+                                change.payload is SkillChange ||
+                                change.payload is TechniqueChange
+                            )
+                        }
+                    }){
+                        throw UnsupportedCanonicalIntentException(intent.ledgerKindUid)
+                    }
+                }
                 else -> throw UnsupportedCanonicalIntentException(intent.ledgerKindUid)
             }
         }
