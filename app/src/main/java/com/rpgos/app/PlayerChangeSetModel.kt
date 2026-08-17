@@ -102,6 +102,18 @@ data class OwnershipChange(
     val share: OwnershipShare
 ) : PlayerDomainChangePayload
 
+/** Typed truth mutation; CampaignTruthStore remains the sole truth authority. */
+data class CampaignTruthChange(
+    val truthUid: String,
+    val kind: TruthKind,
+    val subjectUid: String?,
+    val predicate: String,
+    val objectValue: String?,
+    val perspectiveUid: String?,
+    val narrativeText: String?,
+    val supersedesTruthUid: String?
+) : PlayerDomainChangePayload
+
 enum class ConditionOperation { ADD, REMOVE }
 
 data class ConditionChange(
@@ -153,6 +165,7 @@ object PlayerChangeKinds {
     const val FINANCIAL = "RPGOS-CHANGE:FINANCIAL_TRANSFER"
     const val ASSET = "RPGOS-CHANGE:ASSET_LIFECYCLE"
     const val OWNERSHIP = "RPGOS-CHANGE:OWNERSHIP_TRANSFER"
+    const val CAMPAIGN_TRUTH = "RPGOS-CHANGE:CAMPAIGN_TRUTH"
     const val CONDITION = "RPGOS-CHANGE:CONDITION"
     const val RUNTIME = "RPGOS-CHANGE:RUNTIME_COUNTER"
     const val DEVELOPMENT_PROJECT = "RPGOS-CHANGE:DEVELOPMENT_PROJECT_WORK"
