@@ -42,6 +42,7 @@ class Phase26MutationBoundaryTest{
      TurnTransactionIdentity("C1","TURN-FORGE","CMD-FORGE","TX-FORGE"),
      canonical,
      TurnFailureInjector.NONE,
+     emptyList<CanonicalCausalRelationIntent>(),
      Any()
     ) as TurnTransaction
     forged.commit()
