@@ -20,7 +20,7 @@ class Phase32TruthLayerDatabaseTest {
  private fun trigger(d:SQLiteDatabase,n:String)=d.rawQuery("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=?",arrayOf(n)).use{it.moveToFirst()}
 
  @Test fun financeBalanceProjectionDeletesAndRebuildsExactlyFromLedger(){db().use{d->
-  GroupATransactionTestFixtures.setupFinance(d)
+  Phase32ProductionReadyTestFixture.setup(d)
   val f=FinancialStore(d,"C1");val before=f.balance("A");val ledger=count(d,"financial_ledger_transactions");val events=count(d,"canonical_gameplay_events");val receipts=count(d,"turn_transaction_receipts")
   d.delete("financial_account_balances","campaign_id=? AND account_uid=?",arrayOf("C1","A"))
   assertTrue(runCatching{f.balance("A")}.isFailure)
@@ -28,7 +28,7 @@ class Phase32TruthLayerDatabaseTest {
  }}
 
  @Test fun receiptEventAndCausalHistoryHaveDatabaseImmutabilityGuards(){db().use{d->
-  GroupATransactionTestFixtures.setupFinance(d)
+  Phase32ProductionReadyTestFixture.setup(d)
   assertTrue(trigger(d,"rpgos_turn_receipts_no_update"));assertTrue(trigger(d,"rpgos_turn_receipts_no_delete"));assertTrue(trigger(d,"rpgos_event_store_no_update"));assertTrue(trigger(d,"rpgos_event_store_no_delete"));assertTrue(trigger(d,"rpgos_causal_graph_no_update"));assertTrue(trigger(d,"rpgos_causal_graph_no_delete"))
  }}
 
@@ -44,5 +44,5 @@ class Phase32TruthLayerDatabaseTest {
   listOf("CAMPAIGN_TRUTH","FINANCE_AUTHORITY","OWNERSHIP_HISTORY","INVENTORY","DEVELOPMENT_PROJECTS").forEach{assertTrue(RuntimeTruthLayerRegistry.requireFamily(it).isAuthoritative)}
  }
 
- @Test fun legacyProvenanceRuleRemainsUnknownNotRecorded(){db().use{d->GroupATransactionTestFixtures.setupFinance(d);val status=d.rawQuery("SELECT legacy_event_history_status FROM campaign_intelligence_activation WHERE campaign_uid='C1'",null).use{it.moveToFirst();it.getString(0)};assertEquals("UNKNOWN_NOT_RECORDED",status);assertEquals(0L,count(d,"canonical_gameplay_events"));assertEquals(0L,count(d,"canonical_causal_relations"))}}
+ @Test fun legacyProvenanceRuleRemainsUnknownNotRecorded(){db().use{d->Phase32ProductionReadyTestFixture.setup(d);val status=d.rawQuery("SELECT legacy_event_history_status FROM campaign_intelligence_activation WHERE campaign_uid='C1'",null).use{it.moveToFirst();it.getString(0)};assertEquals("UNKNOWN_NOT_RECORDED",status);assertEquals(0L,count(d,"canonical_gameplay_events"));assertEquals(0L,count(d,"canonical_causal_relations"))}}
 }

@@ -69,24 +69,14 @@ internal class LocalGameStore(private val context: Context) {
 
     /**
      * Production gameplay open boundary. Once this returns, current schema,
-     * transaction receipt schema and authoritative-table guards are all ready.
-     * Re-open is also fail-closed before any TurnTransaction is created.
+     * receipt schema, Phase30 Event Store, Phase31 Causal Graph and all G32
+     * mutation/append-only guards are verified ready. Re-open is fail-closed.
      */
     internal fun openGameplaySaveDb(): SQLiteDatabase {
         val db = openSave()
         val campaignUid = selection.activeCampaignRef().campaignId
         return try {
-            if (GameplayMutationDatabaseGuards.isInstalled(db)) {
-                withAdministrativeMutationAuthority(db, campaignUid) {
-                    ensureCurrentSchema(db)
-                    TurnTransactionReceiptSchema.ensureReady(db)
-                    GameplayMutationDatabaseGuards.ensureInstalled(db)
-                }
-            } else {
-                ensureCurrentSchema(db)
-                TurnTransactionReceiptSchema.ensureReady(db)
-                GameplayMutationDatabaseGuards.ensureInstalled(db)
-            }
+            GameplayRuntimeBootstrap.ensureReady(db, campaignUid)
             db
         } catch (failure: Throwable) {
             db.close()
@@ -142,7 +132,7 @@ internal class LocalGameStore(private val context: Context) {
     fun worldRegions(): List<WorldRegionItem> { openWorldDb().use { world -> openSaveDb().use { save -> return WorldReader(world, save).regions() } } }
     fun worldLocations(search: String = ""): List<WorldLocationItem> { openWorldDb().use { world -> openSaveDb().use { save -> return WorldReader(world, save).locations(search) } } }
     fun activeWorldEvents(): List<WorldEventItem> { openWorldDb().use { world -> openSaveDb().use { save -> return WorldReader(world, save).activeEvents() } } }
-    fun restoreBackup(path: String): String { val safety = RestoreManager(context).restoreBackup(selection.activeCampaignDirName(), path); openSaveDb().use { ensureCurrentSchema(it) }; return safety.absolutePath }
+    fun restoreBackup(path: String): String { val safety = RestoreManager(context).restoreBackup(selection.activeCampaignDirName(), path); openGameplaySaveDb().use { GameplayRuntimeBootstrap.requireReady(it, selection.activeCampaignRef().campaignId) }; return safety.absolutePath }
     fun techniqueBrowser(search: String = ""): List<TechniqueBrowserItem> { openWorldDb().use { world -> openSaveDb().use { save -> return TechniqueMissionReader(world, save).techniques(search) } } }
     fun missionBrowser(): List<MissionBrowserItem> { openWorldDb().use { world -> openSaveDb().use { save -> return TechniqueMissionReader(world, save).missions() } } }
     fun setActiveCampaign(dirName: String) { selection.setActiveCampaign(dirName); openSaveDb().use { ensureCurrentSchema(it) } }
