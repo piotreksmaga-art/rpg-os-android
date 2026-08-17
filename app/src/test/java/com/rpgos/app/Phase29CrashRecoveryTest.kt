@@ -17,7 +17,21 @@ class Phase29CrashRecoveryTest{
  @Before fun setUp(){file=File.createTempFile("p29-",".db").also{it.delete()}}
  @After fun tearDown(){file.delete()}
 
- @Test fun P29_01_crashBeforeAndAfterWritesLeavesNoCommittedReality(){listOf(TurnFailurePoint.BEFORE_FIRST_WRITE,TurnFailurePoint.AFTER_FIRST_WRITE,TurnFailurePoint.BEFORE_COMMIT,TurnFailurePoint.AFTER_RECEIPT_BEFORE_COMMIT).forEachIndexed{i,point->db().use{d->GroupATransactionTestFixtures.setupFinance(d);val cmd="CMD-$i";val p=GroupATransactionTestFixtures.admittedFinancialProposal(commandUid=cmd);val id=TurnTransactionIdentity("C1","TURN-$i",cmd,"TX-$i");assertTrue(runCatching{TurnTransactionBoundary.create(d,id,p,TurnFailureInjector{if(it==point)error("crash")}).commit()}.isFailure);assertEquals(100L,FinancialStore(d,"C1").balance("A"));assertNull(TurnRecoveryReader(d).lastValidCommit("C1"));assertEquals(TurnRecoveryState.NOT_RECORDED,TurnRecoveryReader(d).transaction("TX-$i").state)}}}
+ @Test fun P29_01_crashBeforeAndAfterWritesLeavesNoCommittedReality(){
+  listOf(TurnFailurePoint.BEFORE_FIRST_WRITE,TurnFailurePoint.AFTER_FIRST_WRITE,TurnFailurePoint.BEFORE_COMMIT,TurnFailurePoint.AFTER_RECEIPT_BEFORE_COMMIT).forEachIndexed{i,point->
+   val scenarioFile=File.createTempFile("p29-crash-$i-",".db").also{it.delete()}
+   try{
+    SQLiteDatabase.openOrCreateDatabase(scenarioFile,null).use{d->
+     GroupATransactionTestFixtures.setupFinance(d)
+     val cmd="CMD-$i";val p=GroupATransactionTestFixtures.admittedFinancialProposal(commandUid=cmd);val id=TurnTransactionIdentity("C1","TURN-$i",cmd,"TX-$i")
+     assertTrue(runCatching{TurnTransactionBoundary.create(d,id,p,TurnFailureInjector{if(it==point)error("crash")}).commit()}.isFailure)
+     assertEquals(100L,FinancialStore(d,"C1").balance("A"))
+     assertNull(TurnRecoveryReader(d).lastValidCommit("C1"))
+     assertEquals(TurnRecoveryState.NOT_RECORDED,TurnRecoveryReader(d).transaction("TX-$i").state)
+    }
+   }finally{scenarioFile.delete()}
+  }
+ }
 
  @Test fun P29_02_multiTurnLastValidCommitRollbackAndRetryOrdering(){db().use{d->GroupATransactionTestFixtures.setupFinance(d,openingBalance=200);val a=commit(d,"A",5);assertEquals(1L,a.commitOrder);val b=commit(d,"B",5);assertEquals(2L,b.commitOrder);assertEquals("TX-B",TurnRecoveryReader(d).lastValidCommit("C1")!!.transactionUid);val pc=GroupATransactionTestFixtures.admittedFinancialProposal(commandUid="CMD-C");val idc=TurnTransactionIdentity("C1","TURN-C","CMD-C","TX-C");assertTrue(runCatching{TurnTransactionBoundary.create(d,idc,pc,TurnFailureInjector{if(it==TurnFailurePoint.AFTER_FIRST_WRITE)error("rollback")}).commit()}.isFailure);assertEquals("TX-B",TurnRecoveryReader(d).lastValidCommit("C1")!!.transactionUid);val pb=GroupATransactionTestFixtures.admittedFinancialProposal(commandUid="CMD-B");val replay=TurnTransactionBoundary.create(d,TurnTransactionIdentity("C1","TURN-B","CMD-B","TX-B"),pb).commit() as TurnExecutionResult.AlreadyCommitted;assertEquals(2L,replay.receipt.commitOrder);assertEquals("TX-B",TurnRecoveryReader(d).lastValidCommit("C1")!!.transactionUid);val c=TurnTransactionBoundary.create(d,idc,pc).commit() as TurnExecutionResult.Committed;assertEquals(3L,c.receipt.commitOrder);assertEquals("TX-C",TurnRecoveryReader(d).lastValidCommit("C1")!!.transactionUid)}}
 
