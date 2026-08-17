@@ -30,8 +30,11 @@ Important limitation: this Markdown artifact was produced by TEST GM from conver
 - Birth year: 1173
 - Current age: 6
 - Universe / World Pack context: The Witcher (TEST GM architecture fallback for missing formal Witcher World Pack surfaces where required)
+- Current campaign date: 1179-08-17
+- Current campaign time: 18:20
+- Clock status: exact campaign clock explicitly established by user/GM decision; future time advances should follow played actions, travel, training, sleep, and events.
 - Current location: family home after return from Vengerberg
-- Current scene: Smagi is telling his family about Vengerberg and the magical evaluation.
+- Current scene: Smagi is telling his family about Vengerberg and the magical evaluation; mother is waiting to hear what the mages said about Smagi's abilities.
 - Physical condition: conscious; no established injury or lasting negative condition from the completed tests.
 
 ## 2. Temporary numeric baseline established by explicit user decision
@@ -61,8 +64,6 @@ Scale used for this TEST SESSION baseline: 0–100.
 
 ## 3. Skill-level TEST SESSION baseline
 
-The following levels were explicitly established as temporary numeric TEST SESSION values after the user requested skill levels as well.
-
 | Skill / competency | Level | Status |
 |---|---:|---|
 | Reading | 6/100 | beginner; actively trained |
@@ -85,34 +86,20 @@ Established observations from play:
 3. He attracted/moved a selected piece of parchment.
 4. He lifted a feather to approximately eye level and briefly maintained its position.
 5. He selectively moved one of several similar light targets without moving the others.
-6. He applied an instructed control model:
-   `START -> PATH -> TARGET`.
-7. He successfully performed a more complex path:
-   `A -> B -> C`, including a directional change.
+6. He applied an instructed control model: `START -> PATH -> TARGET`.
+7. He successfully performed a more complex path: `A -> B -> C`, including a directional change.
 8. During blind observation exercises he produced evidence consistent with sensitivity to another person's magical action, but this remains unconfirmed as a formal sensing capability.
 9. In a later controlled test, Smagi focused on an empty area and imagined a local vortex of air; multiple independent lightweight objects reacted and local air movement consistent with the intended effect was observed.
 
 Epistemic status:
-
 `PLAYER INTENT -> OBSERVATION -> HYPOTHESIS -> CONTROLLED TEST -> STRONGER EVIDENCE`
 
-but NOT automatically:
-
-`CONFIRMED ELEMENTAL SPECIALIZATION`
-
-or
-
-`MASTERED TECHNIQUE`.
+but NOT automatically `CONFIRMED ELEMENTAL SPECIALIZATION` or `MASTERED TECHNIQUE`.
 
 ## 5. Learned conceptual exercise
 
-Known exercise/model:
+Known exercise/model: `START -> PATH -> TARGET`
 
-`START -> PATH -> TARGET`
-
-Smagi has understood and applied this model in practice.
-
-Status:
 - learned concept: YES;
 - practical application: YES;
 - mastered named technique: NO.
@@ -120,9 +107,6 @@ Status:
 ## 6. Training evidence
 
 ### Reading
-
-Performed causal training includes:
-
 - learning letters with father Mirog;
 - identifying letters on signs in Vengerberg;
 - following text while Mirog read the Ban Ard material aloud;
@@ -131,21 +115,16 @@ Performed causal training includes:
 - additional practice during the return journey.
 
 ### Herbalism / plant observation
-
-Performed causal training includes:
-
 - asking mother about herbs, their uses, and mixtures;
 - observing differences in smell, shape, and color;
 - following mother's practical herbal work.
 
 ### Magic control
-
-Performed causal practice includes repeated intentional object movement, holding position, selectivity tests, planned trajectories, correction during movement, A-B-C routing, and controlled air-effect experiments.
+Repeated intentional object movement, holding position, selectivity tests, planned trajectories, correction during movement, A-B-C routing, and controlled air-effect experiments.
 
 ## 7. Education / Ban Ard process
 
 Committed TEST SESSION facts:
-
 - Elvar performed an early assessment and referred Smagi onward.
 - Odran and Celene conducted a more structured magical assessment.
 - Roderik participated in the later procedural discussion.
@@ -153,7 +132,6 @@ Committed TEST SESSION facts:
 - Mirog explicitly authorized forwarding Smagi's documentation/candidacy for further consideration.
 
 NOT committed:
-
 - admission to Ban Ard;
 - tuition amount;
 - financing;
@@ -163,16 +141,11 @@ NOT committed:
 - enrollment;
 - start of formal magical education.
 
-Current process status:
-
-`AUTHORIZED FOR FURTHER CONSIDERATION / PENDING RESPONSE`
-
-Do not reinterpret this as acceptance.
+Current process status: `AUTHORIZED FOR FURTHER CONSIDERATION / PENDING RESPONSE`.
 
 ## 8. Important NPCs / relationships
 
 Confirmed identity:
-
 - Mirog — father; supportive; taught Smagi reading and accompanied him to Vengerberg.
 - Elvar — early magical assessor/referral contact.
 - Odran — formal assessment participant.
@@ -180,23 +153,18 @@ Confirmed identity:
 - Roderik — participated in forwarding/education procedure discussion.
 
 Identity continuity warning:
-
-- Mother's previously supplied name `Alina` is NOT promoted here as authoritative because TEST GM later identified possible NPC identity drift and lacked sufficiently strong authoritative recovery at the time of the question.
+- Mother's previously supplied name `Alina` is NOT promoted here as authoritative because TEST GM later identified possible NPC identity drift.
 - Older sister's previously supplied name `Mira` is likewise NOT promoted here as authoritative for the same reason.
 
 Current safe references:
 - Mother — family member, herbal knowledge source.
 - Older sister — family member, awaiting stories about Vengerberg.
 
-These names may be restored only from stronger campaign evidence or explicit user confirmation.
-
 ## 9. Important items / documents
 
 - Ban Ard book/copy/material purchased by Mirog and used for reading practice; currently with the family.
 - Elvar referral letter existed and was used in the evaluation process.
 - Odran/Celene assessment documentation was prepared for the candidacy process.
-
-No unsupported ownership, money, equipment, or inventory values are added by this snapshot.
 
 ## 10. Current goals / active threads
 
@@ -209,21 +177,19 @@ No unsupported ownership, money, equipment, or inventory values are added by thi
 ## 11. Provenance classification
 
 ### FACT / committed TEST SESSION facts
-
 - Smagi is six years old and was born in 1173.
+- Exact campaign clock anchor is 1179-08-17 18:20 at the family home.
 - Smagi's magical potential exists as a character-creation premise.
 - The listed magical manifestations occurred in play.
 - The temporary numeric stat/skill baseline was explicitly authorized by the user on 2026-08-17 for TEST SESSION continuity.
 - Mirog authorized forwarding the magical-education candidacy.
 
 ### BELIEF / HYPOTHESIS
-
 - Smagi may have a particular affinity/capability involving air.
 - Smagi may possess some sensitivity to others' magic.
 - Exact magnitude of magical potential is unknown.
 
 ### NARRATIVE / presentation-only
-
 Narrative descriptions, emotional tone, scene prose, and GM framing do not independently create permanent truth beyond the explicit facts/evidence listed above.
 
 ## 12. Phase boundary note
