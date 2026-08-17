@@ -103,10 +103,10 @@ private object CanonicalPlayerChangeApplier{
         val applied=mutableListOf<String>()
         changeSet.changes.forEach{change->
             when(val payload=change.payload){
-                is StatChange->applyStat(db,identity,changeSet,change.changeUid,payload)
-                is ResourceChange->applyResource(db,identity,changeSet,change.changeUid,payload)
-                is SkillChange->applySkill(db,identity,changeSet,change.changeUid,payload)
-                is TechniqueChange->applyTechnique(db,identity,changeSet,change.changeUid,payload)
+                is StatChange->applyStat(db,identity,change.changeUid,payload)
+                is ResourceChange->applyResource(db,identity,change.changeUid,payload)
+                is SkillChange->applySkill(db,identity,change.changeUid,payload)
+                is TechniqueChange->applyTechnique(db,identity,change.changeUid,payload)
                 is InventoryChange->applyInventory(db,identity,change.changeUid,payload)
                 is EquipmentChange->applyEquipment(db,identity,change.changeUid,payload)
                 is FinancialChange->applyFinancial(db,identity,changeSet,change.changeUid,payload)
@@ -127,7 +127,7 @@ private object CanonicalPlayerChangeApplier{
 
     private fun provenance(identity:TurnTransactionIdentity,changeUid:String)="TURN:${identity.transactionUid}:$changeUid"
 
-    private fun applyStat(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,changeUid:String,p:StatChange){
+    private fun applyStat(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeUid:String,p:StatChange){
         val store=StatResourceStore(db,identity.campaignUid)
         val current=store.playerStats(p.subject.uid).singleOrNull{it.statUid==p.statUid}
             ?:error("RPGOS-TURN-APPLIER:MISSING_STAT:${p.statUid}")
@@ -136,7 +136,7 @@ private object CanonicalPlayerChangeApplier{
         store.savePlayerStat(current.copy(baseValue=next,version=Math.addExact(current.version,1L)))
     }
 
-    private fun applyResource(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,changeUid:String,p:ResourceChange){
+    private fun applyResource(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeUid:String,p:ResourceChange){
         val store=StatResourceStore(db,identity.campaignUid)
         val current=store.playerResources(p.subject.uid).singleOrNull{it.resourceUid==p.resourceUid}
             ?:error("RPGOS-TURN-APPLIER:MISSING_RESOURCE:${p.resourceUid}")
@@ -145,7 +145,7 @@ private object CanonicalPlayerChangeApplier{
         store.savePlayerResource(current.copy(currentValue=next,version=Math.addExact(current.version,1L)))
     }
 
-    private fun applySkill(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,changeUid:String,p:SkillChange){
+    private fun applySkill(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeUid:String,p:SkillChange){
         val store=SkillStore(db,identity.campaignUid)
         val current=store.playerSkills(p.subject.uid).singleOrNull{it.skillUid==p.skillUid}
             ?:error("RPGOS-TURN-APPLIER:MISSING_SKILL:${p.skillUid}")
@@ -154,7 +154,7 @@ private object CanonicalPlayerChangeApplier{
         store.savePlayerSkill(current.copy(progressValue=next,entryVersion=Math.addExact(current.entryVersion,1L),provenance=provenance(identity,changeUid)))
     }
 
-    private fun applyTechnique(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,changeUid:String,p:TechniqueChange){
+    private fun applyTechnique(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeUid:String,p:TechniqueChange){
         val store=TechniqueStore(db,identity.campaignUid)
         val current=store.playerTechniques(p.subject.uid).singleOrNull{it.techniqueUid==p.techniqueUid}
             ?:error("RPGOS-TURN-APPLIER:MISSING_TECHNIQUE:${p.techniqueUid}")
@@ -214,8 +214,10 @@ private object CanonicalPlayerChangeApplier{
         val store=OwnershipStore(db,identity.campaignUid)
         val source=store.currentOwnership(p.asset).singleOrNull{it.ownershipRecordUid==p.ownershipRecordUid&&it.owner==p.fromOwner}
             ?:error("RPGOS-TURN-APPLIER:MISSING_OWNERSHIP_SOURCE:${p.ownershipRecordUid}")
-        val eventUid=changeSet.provenance.sourceEventUid?:error("RPGOS-TURN-APPLIER:OWNERSHIP_SOURCE_EVENT_REQUIRED")
-        store.transferShare("${identity.transactionUid}:$changeUid",p.fromOwner,p.toOwner,p.asset,source.ownershipTypeUid,p.share,effectiveOrder(changeSet),eventUid,provenance(identity,changeUid))
+        store.transferShare(
+            "${identity.transactionUid}:$changeUid",p.fromOwner,p.toOwner,p.asset,source.ownershipTypeUid,p.share,
+            effectiveOrder(changeSet),changeSet.provenance.sourceEventUid,provenance(identity,changeUid)
+        )
     }
 
     private fun applyTruth(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,p:CampaignTruthChange){
