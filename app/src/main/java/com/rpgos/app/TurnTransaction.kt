@@ -322,10 +322,7 @@ object TurnTransactionBoundary{
         require(proposal.isCanonical()){"RPGOS-TURN-TRANSACTION:FORGED_PROPOSAL"}
         require(identity.campaignUid==proposal.campaignUid){CAMPAIGN_MISMATCH}
         require(identity.commandUid==proposal.playerChangeSet.sourceCommandUid){COMMAND_MISMATCH}
-        TurnTransactionReceiptSchema.ensureReady(db)
-        GameplayMutationDatabaseGuards.ensureInstalled(db)
-        CampaignIntelligencePhase30Schema.ensureActivated(db,identity.campaignUid)
-        CampaignCausalGraphSchema.ensureReady(db)
+        GameplayRuntimeBootstrap.ensureReady(db,identity.campaignUid)
         return TurnTransaction(db,identity,proposal,failureInjector,causalRelationIntents.toList(),TURN_TRANSACTION_SEAL)
     }
 }
