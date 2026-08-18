@@ -70,7 +70,7 @@ class Phase32RestoreAuthorityTest {
                     identity,
                     proposal,
                     failureInjector = TurnFailureInjector { point ->
-                        if (point == TurnFailurePoint.BEFORE_DOMAIN_APPLY) {
+                        if (point == TurnFailurePoint.AFTER_FIRST_WRITE) {
                             RestoreManager(context).restoreBackup(
                                 ActiveCampaignRef.DEFAULT_DIRECTORY,
                                 backupFile.absolutePath
@@ -84,6 +84,8 @@ class Phase32RestoreAuthorityTest {
             assertTrue(failure!!.message.orEmpty().contains("RPGOS-G32:GAMEPLAY_CANNOT_INVOKE_ADMIN_AUTHORITY"))
             assertEquals(100L, FinancialStore(db, campaignUid).balance("A"))
             assertEquals(0L, count(db, "turn_transaction_receipts"))
+            assertEquals(0L, count(db, "canonical_gameplay_events"))
+            assertEquals(0L, count(db, "canonical_causal_relations"))
         }
         val safetyAfterRejected = backupFile.parentFile!!.listFiles { f -> f.name.startsWith("pre_restore_") }?.size ?: 0
         assertEquals(safetyBefore, safetyAfterRejected)
