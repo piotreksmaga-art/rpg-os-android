@@ -19,7 +19,7 @@ data class VisualRecord(
 )
 
 class VisualLibrary(private val db: SQLiteDatabase) {
-
+    /** Explicit bootstrap-only schema initialization. Normal reads/writes only verify readiness. */
     fun ensureSchema() {
         db.execSQL(
             """
@@ -44,6 +44,15 @@ class VisualLibrary(private val db: SQLiteDatabase) {
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_visual_location ON campaign_visual_library(related_location_uid)")
     }
 
+    private fun requireSchema() {
+        require(
+            db.rawQuery(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='campaign_visual_library' LIMIT 1",
+                null
+            ).use { it.moveToFirst() }
+        ) { "RPGOS-G32:VISUAL_LIBRARY_SCHEMA_NOT_READY" }
+    }
+
     fun add(
         title: String,
         kind: String,
@@ -55,7 +64,7 @@ class VisualLibrary(private val db: SQLiteDatabase) {
         revisedPrompt: String?,
         sourceVisualUid: String? = null
     ): String {
-        ensureSchema()
+        requireSchema()
         val uid = "VIS-" + UUID.randomUUID().toString()
         val cv = ContentValues().apply {
             put("visual_uid", uid)
@@ -76,7 +85,7 @@ class VisualLibrary(private val db: SQLiteDatabase) {
     }
 
     fun list(limit: Int = 200): List<VisualRecord> {
-        ensureSchema()
+        requireSchema()
         val out = mutableListOf<VisualRecord>()
         db.rawQuery(
             """SELECT visual_uid,title,kind,uri,chapter,related_entity_uid,related_location_uid,
@@ -105,6 +114,5 @@ class VisualLibrary(private val db: SQLiteDatabase) {
         return out
     }
 
-    fun get(uid: String): VisualRecord? =
-        list(500).firstOrNull { it.visualUid == uid }
+    fun get(uid: String): VisualRecord? = list(500).firstOrNull { it.visualUid == uid }
 }
