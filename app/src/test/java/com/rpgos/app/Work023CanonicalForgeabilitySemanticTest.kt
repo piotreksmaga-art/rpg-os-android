@@ -20,6 +20,7 @@ class Work023CanonicalForgeabilitySemanticTest {
                 campaignUid = real.campaignUid,
                 playerChangeSet = real.playerChangeSet,
                 authorityClass = MutationAuthorityClass.GAMEPLAY_AUTHORITATIVE,
+                causalRelationIntents = emptyList(),
                 seal = Any()
             )
         }.exceptionOrNull()
@@ -44,7 +45,6 @@ class Work023CanonicalForgeabilitySemanticTest {
                         identity = TurnTransactionIdentity("C1", "TURN-FORGE-TX", "CMD-FORGE-TX", "TX-FORGE-TX"),
                         proposal = proposal,
                         failureInjector = TurnFailureInjector.NONE,
-                        causalRelationIntents = emptyList(),
                         seal = Any()
                     )
                 }.exceptionOrNull()

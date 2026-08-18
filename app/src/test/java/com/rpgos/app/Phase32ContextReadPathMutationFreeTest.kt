@@ -32,10 +32,7 @@ class Phase32ContextReadPathMutationFreeTest {
         assertFalse("player state read must not write SQL", playerState.contains("execSQL("))
 
         val inventory = File(sourceDir, "InventoryStore.kt").readText()
-        assertTrue(
-            "inventory compatibility migration must be skipped once gameplay guards prove readiness",
-            inventory.contains("if(!GameplayMutationDatabaseGuards.isInstalled(db))MigrationManager().ensureV10(db,campaignId)")
-        )
+        assertFalse("inventory construction and reads must not invoke compatibility migration", inventory.contains("MigrationManager"))
     }
 
     @Test

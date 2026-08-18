@@ -26,9 +26,15 @@ internal class LocalGameStore(private val context: Context) {
         if (!File(coreDir, "rpg_core.db").exists()) copyAsset("rpg_core.db", File(coreDir, "rpg_core.db"))
         val campaignUid = selection.activeCampaignRef().campaignId
         openSaveDb().use { save ->
-            ensureCurrentSchema(save)
-            runCatching { AutoRepairEngine().repair(save) }
-                .onFailure { DiagnosticLogger.log(context, "AUTO_REPAIR_BOOT_FAILED", it) }
+            val explicitBootstrap = {
+                ensureCurrentSchema(save)
+                AutoRepairEngine().repair(save)
+            }
+            runCatching {
+                if (GameplayMutationDatabaseGuards.isInstalled(save)) {
+                    withAdministrativeMutationAuthority(save, campaignUid, explicitBootstrap)
+                } else explicitBootstrap()
+            }.onFailure { DiagnosticLogger.log(context, "AUTO_REPAIR_BOOT_FAILED", it) }
             GameplayRuntimeBootstrap.initialize(save, campaignUid)
         }
     }

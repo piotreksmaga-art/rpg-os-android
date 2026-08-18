@@ -210,11 +210,12 @@ class StatResourceReconciliationTest {
     @Test fun aliasesApplyToActiveAndNonActivePlayersWithoutChangingActivePlayerRef() = open().use { db ->
         legacyStats(db, "PLAYER-A" to Pair("strength", 10.0), "PLAYER-B" to Pair("strength", 20.0))
         MigrationManager().ensureV4(db, "campaign-a")
-        ActivePlayerStore(db, "campaign-a").set("PLAYER-A")
         val store = StatResourceStore(db, "campaign-a")
         val def = stat("WORLD-A", "WORLD-A-STRENGTH", "strength")
         store.registerStatDefinitions("WORLD-A", listOf(def))
         store.registerLegacyStatAlias(statAlias("campaign-a", "strength", def))
+        GameplayRuntimeBootstrap.initialize(db, "campaign-a")
+        ActivePlayerStore(db, "campaign-a").set("PLAYER-A")
         assertEquals(10.0, store.playerStats("PLAYER-A").single().baseValue, 0.0)
         assertEquals(20.0, store.playerStats("PLAYER-B").single().baseValue, 0.0)
         assertEquals("PLAYER-A", ActivePlayerStore(db, "campaign-a").active()!!.playerUid)

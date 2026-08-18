@@ -38,8 +38,9 @@ class TurnTransaction internal constructor(
         check(!db.inTransaction()){"nested outer TurnTransaction is forbidden"}
 
         receiptStore.replay(identity,semanticFingerprint)?.let{receipt->
-            eventStore.assertCommittedSetMatches(identity,proposal.playerChangeSet,receipt)
-            causalGraph.assertCommittedSetMatches(identity,causalRelationIntents,receipt)
+            val committedIdentity=receipt.committedIdentity()
+            eventStore.assertCommittedSetMatches(committedIdentity,proposal.playerChangeSet,receipt)
+            causalGraph.assertCommittedSetMatches(committedIdentity,causalRelationIntents,receipt)
             state=TurnTransactionState.COMMITTED
             return TurnExecutionResult.AlreadyCommitted(receipt)
         }
@@ -53,8 +54,9 @@ class TurnTransaction internal constructor(
         state=TurnTransactionState.IN_PROGRESS
         return try{
             receiptStore.replay(identity,semanticFingerprint)?.let{existing->
-                eventStore.assertCommittedSetMatches(identity,proposal.playerChangeSet,existing)
-                causalGraph.assertCommittedSetMatches(identity,causalRelationIntents,existing)
+                val committedIdentity=existing.committedIdentity()
+                eventStore.assertCommittedSetMatches(committedIdentity,proposal.playerChangeSet,existing)
+                causalGraph.assertCommittedSetMatches(committedIdentity,causalRelationIntents,existing)
                 db.setTransactionSuccessful()
                 db.endTransaction()
                 state=TurnTransactionState.COMMITTED
@@ -91,6 +93,8 @@ class TurnTransaction internal constructor(
             throw failure
         }
     }
+
+    private fun TurnCommitReceipt.committedIdentity() = TurnTransactionIdentity(campaignUid,turnUid,commandUid,transactionUid)
 
     private fun transactionFingerprint():String{
         val proposalFingerprint=TurnSemanticFingerprint.forProposal(proposal)
