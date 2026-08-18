@@ -105,9 +105,6 @@ class Phase32WriterBypassInventoryTest {
         assertEquals(1, repositoryEntryPoints.values.count { it == WriterReachability.CANONICAL_TURN })
         assertEquals(WriterReachability.CANONICAL_TURN, repositoryEntryPoints.getValue("commitTurn"))
 
-        // StatePatch is intentionally not on the public repository surface. The only repository
-        // implementation adapter is internal and its production engine is independently tested
-        // fail-closed by Phase32StatePatchFailClosedTest.
         assertFalse(actual.contains("applyPatch"))
     }
 
@@ -150,7 +147,6 @@ class Phase32WriterBypassInventoryTest {
             ).use { c -> buildSet { while (c.moveToNext()) add(c.getString(0)) } }
             assertEquals(existingAuthority, actualGuardedTables)
 
-            // An important unknown persistent family never defaults to authority.
             assertTrue(runCatching { RuntimeTruthLayerRegistry.requireClassifiedTable("future_authoritative_writer_target") }.isFailure)
         }
     }
@@ -162,8 +158,6 @@ class Phase32WriterBypassInventoryTest {
             db.execSQL("CREATE TABLE IF NOT EXISTS character_stats(entity_uid TEXT,stat_key TEXT,current_value REAL)")
             db.execSQL("INSERT INTO character_stats(entity_uid,stat_key,current_value) VALUES('P2','focus',1.0)")
 
-            // Supported administrative identity selection uses ActivePlayerStore's explicit ADMIN
-            // capability once G32 guards exist.
             assertEquals("P2", ActivePlayerStore(db, "C1").set("P2").playerUid)
             assertEquals("P2", ActivePlayerStore(db, "C1").requireActive().playerUid)
 
@@ -183,7 +177,7 @@ class Phase32WriterBypassInventoryTest {
                     ),
                     proposal,
                     failureInjector = TurnFailureInjector { point ->
-                        if (point == TurnFailurePoint.BEFORE_DOMAIN_APPLY) {
+                        if (point == TurnFailurePoint.AFTER_FIRST_WRITE) {
                             ActivePlayerStore(db, "C1").set("P1")
                         }
                     }
@@ -195,6 +189,8 @@ class Phase32WriterBypassInventoryTest {
             assertEquals("P2", ActivePlayerStore(db, "C1").requireActive().playerUid)
             assertEquals(100L, FinancialStore(db, "C1").balance("A"))
             assertEquals(0L, count(db, "turn_transaction_receipts"))
+            assertEquals(0L, count(db, "canonical_gameplay_events"))
+            assertEquals(0L, count(db, "canonical_causal_relations"))
         }
     }
 
