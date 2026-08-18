@@ -88,8 +88,7 @@ internal class LocalGameStore(private val context: Context) {
     fun openCoreDb(): SQLiteDatabase = SQLiteDatabase.openDatabase(File(coreDir, "rpg_core.db").absolutePath, null, SQLiteDatabase.OPEN_READONLY)
 
     fun buildContext(playerInput: String, chapter: Int): ContextBundle {
-        openSaveDb().use { save ->
-            runCatching { ensureCurrentSchema(save); AutoRepairEngine().repair(save) }.onFailure { DiagnosticLogger.log(context, "AUTO_REPAIR_SEND_FAILED", it) }
+        openGameplaySaveDb().use { save ->
             openWorldDb().use { world ->
                 val base = ContextBuilder(save, world).build(playerInput, chapter)
                 val campaignId = selection.activeCampaignRef().campaignId
