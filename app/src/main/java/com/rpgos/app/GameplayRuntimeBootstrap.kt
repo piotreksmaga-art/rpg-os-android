@@ -2,6 +2,9 @@ package com.rpgos.app
 
 import android.database.sqlite.SQLiteDatabase
 
+private data class ActiveGameplayInitialization(val db: SQLiteDatabase, val campaignUid: String)
+private val activeGameplayInitialization = ThreadLocal<ActiveGameplayInitialization?>()
+
 /**
  * Single production readiness owner for a writable campaign DB.
  * INITIALIZE is administrative and may migrate; REQUIRE READY is strictly read-only verification.
@@ -16,19 +19,31 @@ internal object GameplayRuntimeBootstrap {
     /** Explicit bootstrap/migration/restore boundary. Never call from an ordinary read path. */
     fun initialize(db: SQLiteDatabase, campaignUid: String) {
         require(campaignUid.isNotBlank()) { "RPGOS-G32:BLANK_CAMPAIGN_UID" }
-        val install = {
-            CurrentSchema.ensure(db, campaignUid)
-            TurnTransactionReceiptSchema.ensureReady(db)
-            CampaignIntelligencePhase30Schema.ensureActivated(db, campaignUid)
-            CampaignCausalGraphSchema.ensureReady(db)
-            GameplayMutationDatabaseGuards.ensureInstalled(db)
+        val previous = activeGameplayInitialization.get()
+        require(previous == null) { "RPGOS-G32:NESTED_GAMEPLAY_INITIALIZATION" }
+        activeGameplayInitialization.set(ActiveGameplayInitialization(db, campaignUid))
+        try {
+            val install = {
+                CurrentSchema.ensure(db, campaignUid)
+                TurnTransactionReceiptSchema.ensureReady(db)
+                CampaignIntelligencePhase30Schema.ensureActivated(db, campaignUid)
+                CampaignCausalGraphSchema.ensureReady(db)
+                GameplayMutationDatabaseGuards.ensureInstalled(db)
+            }
+            if (GameplayMutationDatabaseGuards.isInstalled(db)) {
+                withAdministrativeMutationAuthority(db, campaignUid) { install() }
+            } else {
+                install()
+            }
+            requireReady(db, campaignUid)
+        } finally {
+            activeGameplayInitialization.set(previous)
         }
-        if (GameplayMutationDatabaseGuards.isInstalled(db)) {
-            withAdministrativeMutationAuthority(db, campaignUid) { install() }
-        } else {
-            install()
-        }
-        requireReady(db, campaignUid)
+    }
+
+    internal fun isInitializationActive(db: SQLiteDatabase, campaignUid: String): Boolean {
+        val active = activeGameplayInitialization.get()
+        return active != null && active.db === db && active.campaignUid == campaignUid
     }
 
     /** Compatibility name retained for explicit setup/tests; production reads use requireReady(). */
