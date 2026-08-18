@@ -20,7 +20,8 @@ data class VisualRecord(
 
 class VisualLibrary(private val db: SQLiteDatabase) {
 
-    fun ensureSchema() {
+    /** Explicit migration/bootstrap schema owner. Ordinary reads and presentation writes verify only. */
+    internal fun ensureSchema() {
         db.execSQL(
             """
             CREATE TABLE IF NOT EXISTS campaign_visual_library (
@@ -55,7 +56,7 @@ class VisualLibrary(private val db: SQLiteDatabase) {
         revisedPrompt: String?,
         sourceVisualUid: String? = null
     ): String {
-        ensureSchema()
+        requireSchemaReady()
         val uid = "VIS-" + UUID.randomUUID().toString()
         val cv = ContentValues().apply {
             put("visual_uid", uid)
@@ -76,7 +77,7 @@ class VisualLibrary(private val db: SQLiteDatabase) {
     }
 
     fun list(limit: Int = 200): List<VisualRecord> {
-        ensureSchema()
+        requireSchemaReady()
         val out = mutableListOf<VisualRecord>()
         db.rawQuery(
             """SELECT visual_uid,title,kind,uri,chapter,related_entity_uid,related_location_uid,
@@ -107,4 +108,11 @@ class VisualLibrary(private val db: SQLiteDatabase) {
 
     fun get(uid: String): VisualRecord? =
         list(500).firstOrNull { it.visualUid == uid }
+
+    private fun requireSchemaReady() {
+        require(db.rawQuery(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='campaign_visual_library' LIMIT 1",
+            null
+        ).use { it.moveToFirst() }) { "RPGOS-G32:VISUAL_LIBRARY_SCHEMA_NOT_READY" }
+    }
 }

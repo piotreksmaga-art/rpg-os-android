@@ -23,6 +23,7 @@ internal object RuntimePersistentTableInventory {
 enum class PersistentWriterCapability {
     CANONICAL_TURN,
     ADMINISTRATIVE,
+    PRESENTATION_ONLY,
     READ_ONLY_NON_AUTHORITATIVE,
     GAMEPLAY_UNREACHABLE
 }
@@ -89,7 +90,7 @@ object RuntimePersistentWriterRegistry {
         c("techniqueBrowser",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE),
         c("missionBrowser",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE),
         c("visualLibrary",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE,"UI_STATE"),
-        c("addVisual",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE,"UI_STATE"),
+        c("addVisual",PersistentWriterCapability.PRESENTATION_ONLY,"UI_STATE"),
         c("packageManager",PersistentWriterCapability.ADMINISTRATIVE),
         c("backups",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE,"BACKUP_PACKAGES"),
         c("restoreBackup",PersistentWriterCapability.ADMINISTRATIVE,"BACKUP_PACKAGES","SCHEMA_MIGRATION_REPAIR","GAMEPLAY_READINESS_METADATA"),

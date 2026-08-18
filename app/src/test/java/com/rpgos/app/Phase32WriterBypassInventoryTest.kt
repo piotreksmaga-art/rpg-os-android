@@ -22,6 +22,7 @@ class Phase32WriterBypassInventoryTest {
     private enum class WriterReachability {
         CANONICAL_TURN,
         ADMINISTRATIVE,
+        PRESENTATION_ONLY,
         READ_ONLY_NON_AUTHORITATIVE,
         GAMEPLAY_UNREACHABLE
     }
@@ -73,7 +74,7 @@ class Phase32WriterBypassInventoryTest {
         "techniqueBrowser" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "missionBrowser" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "visualLibrary" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "addVisual" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
+        "addVisual" to WriterReachability.PRESENTATION_ONLY,
         "packageManager" to WriterReachability.ADMINISTRATIVE,
         "backups" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "restoreBackup" to WriterReachability.ADMINISTRATIVE,
@@ -104,6 +105,7 @@ class Phase32WriterBypassInventoryTest {
         )
         assertEquals(1, repositoryEntryPoints.values.count { it == WriterReachability.CANONICAL_TURN })
         assertEquals(WriterReachability.CANONICAL_TURN, repositoryEntryPoints.getValue("commitTurn"))
+        assertEquals(WriterReachability.PRESENTATION_ONLY, repositoryEntryPoints.getValue("addVisual"))
 
         assertFalse(actual.contains("applyPatch"))
     }
