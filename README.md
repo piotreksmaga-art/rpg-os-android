@@ -6,14 +6,13 @@ RPG OS is an Android RPG runtime with local campaign persistence, canonical game
 
 Use these documents as the current source of architectural and planning truth:
 
-- `docs/Architektura projektu.md`
-- `docs/Roadmap.md`
+- `docs/Architektura projektu.md` — single canonical project architecture
+- `docs/Roadmap.md` — single canonical roadmap
+- `docs/Mapa plików faz 1-32.md` — technical navigation/recovery index for completed phases
 - `docs/GM_ENGINE_TARGET_ARCHITECTURE.md`
 - `docs/PROJECT_WORK_PROTOCOL.md`
 - `docs/PARALLEL_WORK_COORDINATION.md`
 - `docs/audits/` — implementation, validation, acceptance, and post-audit evidence
-
-`docs/Architektura projektu.md` is the single canonical project-architecture file. `docs/Roadmap.md` is the single canonical roadmap file.
 
 Historical early-alpha notes are retained under `docs/archive/legacy-alpha/` and are not current contracts. If archived material conflicts with current canonical architecture or an accepted runtime contract, the current canonical source wins.
 
