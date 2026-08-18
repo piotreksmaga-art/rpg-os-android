@@ -8,7 +8,10 @@ private val activeGameplayMutation = ThreadLocal<ActiveGameplayMutation?>()
 internal object GameplayMutationDatabaseGuards {
     internal const val CONTEXT_TABLE_NAME = "rpgos_gameplay_mutation_context"
     private val authoritativeTables: List<String> get() = RuntimeTruthLayerRegistry.authoritativePersistentTables().toList()
+    private val administrativeOnlyTables: List<String> get() = RuntimeTruthLayerRegistry.administrativeOnlyPersistentTables().toList()
+
     internal fun authoritativeTablesForCompatibility(): List<String> = authoritativeTables
+    internal fun administrativeOnlyTablesForCompatibility(): List<String> = administrativeOnlyTables
     internal fun campaignColumnForCompatibility(db: SQLiteDatabase, table: String): String = campaignColumn(db, table)
 
     fun ensureInstalled(db: SQLiteDatabase) {
@@ -16,17 +19,32 @@ internal object GameplayMutationDatabaseGuards {
         db.execSQL("CREATE TABLE IF NOT EXISTS $CONTEXT_TABLE_NAME(campaign_uid TEXT PRIMARY KEY,capability_kind TEXT NOT NULL CHECK(capability_kind IN ('TURN','ADMIN')))")
         authoritativeTables.filter { tableExists(db, it) }.forEach { table ->
             val column = campaignColumn(db, table)
-            createGuard(db, table, column, "INSERT", "NEW")
-            createGuard(db, table, column, "UPDATE", "NEW")
-            createGuard(db, table, column, "DELETE", "OLD")
+            createAuthorityGuard(db, table, column, "INSERT", "NEW")
+            createAuthorityGuard(db, table, column, "UPDATE", "NEW")
+            createAuthorityGuard(db, table, column, "DELETE", "OLD")
+        }
+        administrativeOnlyTables.filter { tableExists(db, it) }.forEach { table ->
+            createAdministrativeOnlyGuard(db, table, "INSERT")
+            createAdministrativeOnlyGuard(db, table, "UPDATE")
+            createAdministrativeOnlyGuard(db, table, "DELETE")
         }
         if (tableExists(db, "turn_transaction_receipts")) {
-            db.execSQL("CREATE TRIGGER IF NOT EXISTS rpgos_turn_receipts_no_update BEFORE UPDATE ON turn_transaction_receipts BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:APPEND_ONLY'); END")
-            db.execSQL("CREATE TRIGGER IF NOT EXISTS rpgos_turn_receipts_no_delete BEFORE DELETE ON turn_transaction_receipts BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:APPEND_ONLY'); END")
+            db.execSQL("DROP TRIGGER IF EXISTS rpgos_turn_receipts_no_update")
+            db.execSQL("DROP TRIGGER IF EXISTS rpgos_turn_receipts_no_delete")
+            db.execSQL("CREATE TRIGGER rpgos_turn_receipts_no_update BEFORE UPDATE ON turn_transaction_receipts BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:APPEND_ONLY'); END")
+            db.execSQL("CREATE TRIGGER rpgos_turn_receipts_no_delete BEFORE DELETE ON turn_transaction_receipts BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:APPEND_ONLY'); END")
         }
     }
 
     fun isInstalled(db: SQLiteDatabase) = tableExists(db, CONTEXT_TABLE_NAME)
+
+    fun isAdminActive(db: SQLiteDatabase, campaignUid: String): Boolean {
+        if (!isInstalled(db)) return false
+        return db.rawQuery(
+            "SELECT 1 FROM $CONTEXT_TABLE_NAME WHERE campaign_uid=? AND capability_kind='ADMIN' LIMIT 1",
+            arrayOf(campaignUid)
+        ).use { it.moveToFirst() }
+    }
 
     fun enterTurn(db: SQLiteDatabase, campaignUid: String) {
         require(db.inTransaction()) { "gameplay capability requires outer transaction" }
@@ -68,12 +86,23 @@ internal object GameplayMutationDatabaseGuards {
         db.delete(CONTEXT_TABLE_NAME, "campaign_uid=? AND capability_kind=?", arrayOf(campaignUid, kind))
     }
 
-    private fun createGuard(db: SQLiteDatabase, table: String, campaignColumn: String, op: String, row: String) {
+    private fun createAuthorityGuard(db: SQLiteDatabase, table: String, campaignColumn: String, op: String, row: String) {
         val name = "rpgos_guard_${table}_${op.lowercase()}"
+        db.execSQL("DROP TRIGGER IF EXISTS $name")
         db.execSQL(
-            """CREATE TRIGGER IF NOT EXISTS $name BEFORE $op ON $table
+            """CREATE TRIGGER $name BEFORE $op ON $table
 WHEN NOT EXISTS(SELECT 1 FROM $CONTEXT_TABLE_NAME WHERE campaign_uid=$row.$campaignColumn AND capability_kind IN ('TURN','ADMIN'))
 BEGIN SELECT RAISE(ABORT,'RPGOS-MUTATION-GATE:CANONICAL_TURN_TRANSACTION_REQUIRED'); END""".trimIndent()
+        )
+    }
+
+    private fun createAdministrativeOnlyGuard(db: SQLiteDatabase, table: String, op: String) {
+        val name = "rpgos_admin_guard_${table}_${op.lowercase()}"
+        db.execSQL("DROP TRIGGER IF EXISTS $name")
+        db.execSQL(
+            """CREATE TRIGGER $name BEFORE $op ON $table
+WHEN NOT EXISTS(SELECT 1 FROM $CONTEXT_TABLE_NAME WHERE capability_kind='ADMIN')
+BEGIN SELECT RAISE(ABORT,'RPGOS-G32:MECHANICS_DEFINITION_REQUIRES_ADMIN'); END""".trimIndent()
         )
     }
 
@@ -133,6 +162,7 @@ internal fun <T> withCanonicalGameplayMutationForTurn(
 internal fun <T> withAdministrativeMutationAuthority(db: SQLiteDatabase, campaignUid: String, block: () -> T): T {
     requireAdministrativeRecoveryEntryPoint()
     require(GameplayMutationDatabaseGuards.isInstalled(db)) { "RPGOS-MUTATION-GATE:ADMIN_GUARDS_NOT_INSTALLED" }
+    if (GameplayMutationDatabaseGuards.isAdminActive(db, campaignUid)) return block()
     val owns = !db.inTransaction()
     if (owns) db.beginTransaction()
     GameplayMutationDatabaseGuards.enterAdmin(db, campaignUid)
