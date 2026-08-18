@@ -42,7 +42,7 @@ Moved in this cleanup branch:
 - `UI_V0_4.md` → `docs/archive/legacy-alpha/UI_V0_4.md`
 - `V0_5_FEATURES.md` → `docs/archive/legacy-alpha/V0_5_FEATURES.md`
 
-An archive README explicitly marks this material non-canonical.
+An archive README explicitly marks this material non-canonical and explains that original paths/revisions remain recoverable from Git.
 
 Still to review/archive in a later cleanup pass:
 
@@ -109,6 +109,15 @@ Completed in this branch:
 4. Two clearly historical UI/feature docs moved out of repository root.
 5. Eight obsolete generated validation/audit outputs removed from HEAD after reference checks.
 6. Runtime assets, production code, schema/migrations, workflows, phase tests, and audit evidence left untouched.
+
+Current PR functional surface:
+
+- no production Kotlin changes;
+- no test changes;
+- no schema/migration changes;
+- no workflow changes;
+- no runtime asset changes;
+- documentation, repository hygiene rules, archive moves, and removal of obsolete generated snapshots only.
 
 Still pending before final cleanup acceptance:
 
