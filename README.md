@@ -13,7 +13,7 @@ Use these documents as the current source of architectural and planning truth:
 - `docs/PARALLEL_WORK_COORDINATION.md`
 - `docs/audits/` — implementation, validation, acceptance, and post-audit evidence
 
-Historical early-alpha notes are retained under `docs/archive/legacy-alpha/` and are not current contracts.
+Historical early-alpha notes are retained under `docs/archive/legacy-alpha/` and are not current contracts. If archived material conflicts with current canonical architecture or an accepted runtime contract, the current canonical source wins.
 
 ## Current development baseline
 
