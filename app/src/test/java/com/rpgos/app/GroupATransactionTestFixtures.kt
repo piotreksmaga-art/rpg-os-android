@@ -16,20 +16,11 @@ internal object GroupATransactionTestFixtures {
             CampaignScopedDomainRef(campaignUid,DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT,fromAccountUid)),
             CampaignScopedDomainRef(campaignUid,DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT,toAccountUid)),
             CampaignScopedDomainRef(campaignUid,DomainRef(PlayerResolutionReferenceKinds.CURRENCY,"CUR")))
-        if(changeCount==2){
-            refs+=CampaignScopedDomainRef(campaignUid,DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT,"C"))
-            refs+=CampaignScopedDomainRef(campaignUid,DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT,"D"))
-        }
-        if(includeUnsupportedResource){
-            refs+=CampaignScopedDomainRef(campaignUid,DomainRef("RESOURCE","ENERGY"))
-            refs+=CampaignScopedDomainRef(campaignUid,DomainRef("PLAYER","P1"))
-        }
+        if(changeCount==2){refs+=CampaignScopedDomainRef(campaignUid,DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT,"C"));refs+=CampaignScopedDomainRef(campaignUid,DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT,"D"))}
+        if(includeUnsupportedResource){refs+=CampaignScopedDomainRef(campaignUid,DomainRef("RESOURCE","ENERGY"));refs+=CampaignScopedDomainRef(campaignUid,DomainRef("PLAYER","P1"))}
         val context=PlayerResolutionContext.createUnboundGeneric(campaignUid,actor,refs)
         val engine=PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(FinancialComponent(changeCount,includeUnsupportedResource))))
-        return when(val admission=CampaignMutationBoundary.resolveAndAdmit(campaignUid,engine,command,context)){
-            is CampaignMutationAdmission.Accepted->admission.proposal
-            is CampaignMutationAdmission.Rejected->error("canonical admission rejected: ${admission.reasonUid}")
-        }
+        return when(val admission=CampaignMutationBoundary.resolveAndAdmit(campaignUid,engine,command,context)){is CampaignMutationAdmission.Accepted->admission.proposal;is CampaignMutationAdmission.Rejected->error("canonical admission rejected: ${admission.reasonUid}")}
     }
 
     fun setupFinance(db:SQLiteDatabase,campaignUid:String="C1",openingBalance:Long=100L){
@@ -38,26 +29,15 @@ internal object GroupATransactionTestFixtures {
         OwnershipReferenceRegistry(db,campaignUid).registerOwner(owner,"GROUP-A-TEST")
         val finance=FinancialStore(db,campaignUid)
         runCatching{finance.registerCurrency(CurrencyDefinition("CUR","coin","Coin",1L,"GROUP-A-TEST"))}
-        listOf("A","B","C","D").forEach { accountUid ->
-            finance.openAccount(FinancialAccount(campaignUid,accountUid,owner,FINANCIAL_ACCOUNT_TYPE_DEFAULT,"CUR",1L,"GROUP-A-TEST"))
-        }
+        listOf("A","B","C","D").forEach{accountUid->finance.openAccount(FinancialAccount(campaignUid,accountUid,owner,FINANCIAL_ACCOUNT_TYPE_DEFAULT,"CUR",1L,"GROUP-A-TEST"))}
         finance.creditExternal("OPEN-$campaignUid-A","A",openingBalance,2L,"opening","GROUP-A-TEST")
         finance.creditExternal("OPEN-$campaignUid-C","C",openingBalance,3L,"opening","GROUP-A-TEST")
+        GameplayRuntimeBootstrap.initialize(db,campaignUid)
     }
 
-    private class FinancialComponent(private val count:Int,private val unsupported:Boolean):PlayerResolutionComponent<TransferFundsCommandPayload>(
-        PlayerCommandKinds.TRANSFER_FUNDS,TransferFundsCommandPayload::class,"RPGOS-COMPONENT:GROUP-A-FINANCIAL","1"){
+    private class FinancialComponent(private val count:Int,private val unsupported:Boolean):PlayerResolutionComponent<TransferFundsCommandPayload>(PlayerCommandKinds.TRANSFER_FUNDS,TransferFundsCommandPayload::class,"RPGOS-COMPONENT:GROUP-A-FINANCIAL","1"){
         override fun resolve(command:PlayerCommand<TransferFundsCommandPayload>,context:PlayerResolutionContext):PlayerResolutionComponentOutcome{
-            val changes=mutableListOf<PlayerDomainChange>()
-            changes+=PlayerDomainChange.create(
-                "CHANGE-${command.commandUid}-1",PlayerChangeKinds.FINANCIAL,
-                FinancialChange(command.payload.fromAccountUid,command.payload.toAccountUid,command.payload.amountMinor,command.payload.currencyUid,"RPGOS-FIN-TYPE:TRANSFER"))
-            if(count==2) changes+=PlayerDomainChange.create(
-                "CHANGE-${command.commandUid}-2",PlayerChangeKinds.FINANCIAL,
-                FinancialChange("C","D",command.payload.amountMinor,command.payload.currencyUid,"RPGOS-FIN-TYPE:TRANSFER"))
-            if(unsupported)changes+=PlayerDomainChange.create("CHANGE-${command.commandUid}-RESOURCE",PlayerChangeKinds.RESOURCE,
-                ResourceChange(DomainRef("PLAYER","P1"),"ENERGY",ExactLongDelta.of(-1)))
-            return PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(changes=changes))
+            val changes=mutableListOf<PlayerDomainChange>();changes+=PlayerDomainChange.create("CHANGE-${command.commandUid}-1",PlayerChangeKinds.FINANCIAL,FinancialChange(command.payload.fromAccountUid,command.payload.toAccountUid,command.payload.amountMinor,command.payload.currencyUid,"RPGOS-FIN-TYPE:TRANSFER"));if(count==2)changes+=PlayerDomainChange.create("CHANGE-${command.commandUid}-2",PlayerChangeKinds.FINANCIAL,FinancialChange("C","D",command.payload.amountMinor,command.payload.currencyUid,"RPGOS-FIN-TYPE:TRANSFER"));if(unsupported)changes+=PlayerDomainChange.create("CHANGE-${command.commandUid}-RESOURCE",PlayerChangeKinds.RESOURCE,ResourceChange(DomainRef("PLAYER","P1"),"ENERGY",ExactLongDelta.of(-1)));return PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(changes=changes))
         }
     }
 }
