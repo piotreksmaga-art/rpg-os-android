@@ -20,7 +20,6 @@ class TurnTransaction internal constructor(
     val identity:TurnTransactionIdentity,
     private val proposal:CanonicalCampaignMutationProposal,
     private val failureInjector:TurnFailureInjector,
-    private val causalRelationIntents:List<CanonicalCausalRelationIntent>,
     private val seal:Any
 ){
     init{
@@ -30,48 +29,57 @@ class TurnTransaction internal constructor(
     private val receiptStore=TurnTransactionReceiptStore(db)
     private val eventStore=CampaignEventStore(db,identity.campaignUid)
     private val causalGraph=CampaignCausalGraph(db,identity.campaignUid)
+    private val causalRelationIntents get()=proposal.causalRelationIntents
     private val semanticFingerprint=transactionFingerprint()
     var state:TurnTransactionState=TurnTransactionState.VALIDATED;private set
 
     fun commit():TurnExecutionResult<TurnCommitAppliedResult>{
         check(state==TurnTransactionState.VALIDATED){"turn transaction can execute exactly once"}
         check(!db.inTransaction()){"nested outer TurnTransaction is forbidden"}
-        receiptStore.replay(identity,semanticFingerprint)?.let{
-            eventStore.assertCommittedSetMatches(identity,proposal.playerChangeSet)
-            causalGraph.assertCommittedSetMatches(identity,causalRelationIntents)
+
+        receiptStore.replay(identity,semanticFingerprint)?.let{receipt->
+            eventStore.assertCommittedSetMatches(identity,proposal.playerChangeSet,receipt)
+            causalGraph.assertCommittedSetMatches(identity,causalRelationIntents,receipt)
             state=TurnTransactionState.COMMITTED
-            return TurnExecutionResult.AlreadyCommitted(it)
+            return TurnExecutionResult.AlreadyCommitted(receipt)
         }
+
         CanonicalPlayerChangeApplier.preflight(proposal.playerChangeSet)
-        eventStore.validateRequiredEventIntents(proposal.playerChangeSet)
+        val requiredManifest=eventStore.resolveRequiredManifest(identity,proposal.playerChangeSet)
         causalGraph.validate(causalRelationIntents)
         failureInjector.failIfRequested(TurnFailurePoint.BEFORE_FIRST_WRITE)
+
         db.beginTransaction()
         state=TurnTransactionState.IN_PROGRESS
         return try{
             receiptStore.replay(identity,semanticFingerprint)?.let{existing->
-                eventStore.assertCommittedSetMatches(identity,proposal.playerChangeSet)
-                causalGraph.assertCommittedSetMatches(identity,causalRelationIntents)
+                eventStore.assertCommittedSetMatches(identity,proposal.playerChangeSet,existing)
+                causalGraph.assertCommittedSetMatches(identity,causalRelationIntents,existing)
                 db.setTransactionSuccessful()
                 db.endTransaction()
                 state=TurnTransactionState.COMMITTED
                 return TurnExecutionResult.AlreadyCommitted(existing)
             }
+
+            // The Phase29 receipt domain owns the one transaction chronology. The same value is
+            // reserved exactly once and reused by Event Store, Causal Graph and the final receipt.
+            val commitOrder=receiptStore.reserveNextCommitOrder(identity.campaignUid)
+
             val applied=withCanonicalGameplayMutationForTurn(db,identity.campaignUid,seal){
                 val result=CanonicalPlayerChangeApplier.applyAll(db,identity,proposal.playerChangeSet,failureInjector)
                 require(result.appliedChangeUids==proposal.playerChangeSet.changes.map{it.changeUid}){
                     "RPGOS-TURN-APPLIER:INCOMPLETE_CHANGESET_APPLICATION"
                 }
                 failureInjector.failIfRequested(TurnFailurePoint.BEFORE_EVENT_APPEND)
-                eventStore.appendRequired(identity,proposal.playerChangeSet)
+                eventStore.appendRequired(identity,proposal.playerChangeSet,commitOrder)
                 failureInjector.failIfRequested(TurnFailurePoint.AFTER_EVENT_APPEND)
                 failureInjector.failIfRequested(TurnFailurePoint.BEFORE_CAUSAL_APPEND)
-                causalGraph.appendRequired(identity,causalRelationIntents)
+                causalGraph.appendRequired(identity,causalRelationIntents,commitOrder)
                 failureInjector.failIfRequested(TurnFailurePoint.AFTER_CAUSAL_APPEND)
                 result
             }
             failureInjector.failIfRequested(TurnFailurePoint.BEFORE_COMMIT)
-            val receipt=receiptStore.appendCommitted(identity,semanticFingerprint)
+            val receipt=receiptStore.appendCommitted(identity,semanticFingerprint,commitOrder,requiredManifest.summary)
             failureInjector.failIfRequested(TurnFailurePoint.AFTER_RECEIPT_BEFORE_COMMIT)
             db.setTransactionSuccessful()
             db.endTransaction()
@@ -88,7 +96,7 @@ class TurnTransaction internal constructor(
         val proposalFingerprint=TurnSemanticFingerprint.forProposal(proposal)
         if(causalRelationIntents.isEmpty()) return proposalFingerprint
         val graphFingerprint=causalGraph.planFingerprint(identity,causalRelationIntents)
-        return sha256("RPGOS-TURN-WITH-CAUSAL-V1\u001f$proposalFingerprint\u001f$graphFingerprint")
+        return sha256("RPGOS-TURN-WITH-CAUSAL-V2\u001f$proposalFingerprint\u001f$graphFingerprint")
     }
     private fun sha256(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}
 }
@@ -312,6 +320,7 @@ object TurnTransactionBoundary{
     const val CAMPAIGN_MISMATCH="RPGOS-TURN-TRANSACTION:CAMPAIGN_MISMATCH"
     const val COMMAND_MISMATCH="RPGOS-TURN-TRANSACTION:COMMAND_MISMATCH"
     internal fun acceptsCanonicalSeal(value:Any)=value===TURN_TRANSACTION_SEAL
+
     fun create(
         db:SQLiteDatabase,
         identity:TurnTransactionIdentity,
@@ -322,7 +331,14 @@ object TurnTransactionBoundary{
         require(proposal.isCanonical()){"RPGOS-TURN-TRANSACTION:FORGED_PROPOSAL"}
         require(identity.campaignUid==proposal.campaignUid){CAMPAIGN_MISMATCH}
         require(identity.commandUid==proposal.playerChangeSet.sourceCommandUid){COMMAND_MISMATCH}
-        GameplayRuntimeBootstrap.ensureReady(db,identity.campaignUid)
-        return TurnTransaction(db,identity,proposal,failureInjector,causalRelationIntents.toList(),TURN_TRANSACTION_SEAL)
+        GameplayRuntimeBootstrap.requireReady(db,identity.campaignUid)
+
+        val normalizedProposal = when {
+            causalRelationIntents.isEmpty() -> proposal
+            proposal.causalRelationIntents.isEmpty() -> CampaignMutationBoundary.withValidatedCausalPlan(proposal, causalRelationIntents)
+            proposal.causalRelationIntents == causalRelationIntents -> proposal
+            else -> error("RPGOS-TURN-TRANSACTION:CAUSAL_PLAN_SIDE_CHANNEL_MISMATCH")
+        }
+        return TurnTransaction(db,identity,normalizedProposal,failureInjector,TURN_TRANSACTION_SEAL)
     }
 }
