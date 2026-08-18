@@ -12,49 +12,38 @@
 - **Current master at audit start:** `08e4c8fb3556a16c1c1f35db592c4339cf81086d`
 - **Current master immediately before report write:** `08e4c8fb3556a16c1c1f35db592c4339cf81086d`
 - **Report path:** `docs/audits/WORK-20260818-035_PHASE30_32_POST_AUDIT_SOURCE_OF_TRUTH_CROSS_BOUNDARY.md`
-- **Report commit SHA:** `PENDING_GITHUB_ASSIGNMENT` (the creation commit is recorded in the metadata-only follow-up revision and coordinator handoff; a Git commit cannot contain its own final SHA without self-reference)
-- **Independence:** CHAT-4 messages/draft/report/verdict were not read before freezing this verdict.
+- **Report creation commit SHA:** `e0c310f08f6ea8bbb4eaf105fdcb8b455bf1644f`
+- **Note on metadata revision:** the current branch-head SHA is necessarily external to the bytes it identifies; it is recorded in the coordinator handoff.
+- **Independence:** CHAT-4 messages/draft/report/verdict were not read before this verdict was frozen.
 
-## Final verdict
+# FINAL VERDICT
 
 # FAIL — FIX REQUIRED
 
-The exact runtime candidate `5db1c01f537a9d78b058c82cd4146efee57331a6` does **not** yet satisfy the Phase 30–32 cross-boundary/source-of-truth acceptance boundary.
+The exact candidate `5db1c01f537a9d78b058c82cd4146efee57331a6` does not yet satisfy the Phase30–32 cross-boundary/source-of-truth acceptance boundary.
 
-The candidate has strong transaction atomicity and good append-only separation for the semantics it actually includes, but independent inspection found multiple architectural gaps that are not documentation-only:
-
-1. canonical domain changes can commit without the Phase-30 Event evidence that WORK-029 made mandatory by default;
-2. production readiness is not established by `LocalGameStore.bootstrap()`, leaving a supported pre-enforcement administrative/authority-write window;
-3. ordinary read opens re-enter migration/schema authority, and several canonical domain store constructors also invoke migrations from inside a canonical turn;
-4. G32 classification/DB guard completeness excludes non-campaign-scoped mechanic-definition tables even though public repository administrative methods can persist them without an explicit administrative capability gate;
-5. Event Store and Causal Graph each invent their own campaign-wide `committed_order`, instead of deriving total order from the Phase-29 transaction `commitOrder` plus deterministic ordinal as frozen by WORK-029;
-6. Causal Graph is tested behind raw `TurnTransactionBoundary`, but the supported `CampaignRepository.commitTurn()` surface has no causal plan input, so G31 is not actually integrated into the normal repository commit facade.
-
-These findings are sufficient for FAIL independently of green CI.
+The runtime has strong atomic rollback/retry behavior for the semantics actually included in a TurnTransaction, and Event/Causal remain separate append-only evidence rather than domain state. However independent inspection found two blockers and multiple high-severity authority-boundary defects.
 
 ---
 
-## 1. Exact-SHA / drift / collision proof
+## 1. Exact-SHA, drift, collision and branch evidence
 
-The exact runtime audit target was not moved.
+Mechanically verified:
 
-`08e4c8fb3556a16c1c1f35db592c4339cf81086d` has exactly one parent:
+- docs SHA `08e4c8fb3556a16c1c1f35db592c4339cf81086d` has exact parent `5db1c01f537a9d78b058c82cd4146efee57331a6`;
+- the runtime→docs delta contains only `docs/audits/WORK-20260817-031_PHASE30_32_CAMPAIGN_INTELLIGENCE_INTEGRITY_IMPLEMENTATION.md`;
+- no runtime/test/schema/migration/workflow/roadmap drift exists in that delta;
+- WORK-035 report path was unused;
+- audit branch was unused and was created from exact docs SHA;
+- master remained `08e4c8fb3556a16c1c1f35db592c4339cf81086d` through the mandatory pre-write freshness check.
 
-`5db1c01f537a9d78b058c82cd4146efee57331a6`
-
-The docs closure commit changes exactly one file:
-
-`docs/audits/WORK-20260817-031_PHASE30_32_CAMPAIGN_INTELLIGENCE_INTEGRITY_IMPLEMENTATION.md`
-
-No runtime, test, schema, migration, workflow, roadmap or acceptance file exists in the runtime→docs delta. The WORK-035 report path and requested branch were unused before this audit. The isolated branch was created from the exact docs SHA.
-
-**Drift verdict:** CLEAN. No HOLD condition.
+**Drift/collision verdict:** CLEAN. No HOLD condition.
 
 ---
 
-## 2. Canonical sources read
+## 2. Required source reading
 
-Required current sources inspected before verdict:
+Read current relevant versions of:
 
 - `docs/RPG_OS_MASTER_ARCHITECTURE.md`
 - `docs/RPG_OS_IMPLEMENTATION_ROADMAP.md`
@@ -67,102 +56,69 @@ Required current sources inspected before verdict:
 - `docs/audits/WORK-20260817-030_PHASE30_32_INTEGRITY_MIGRATION_ADVERSARIAL_AUDIT.md`
 - `docs/audits/WORK-20260817-031_PHASE30_32_CAMPAIGN_INTELLIGENCE_INTEGRITY_IMPLEMENTATION.md`
 
-`WORK-031` was treated as a set of implementation claims, not as proof. `RPG_OS_1_0_ACCEPTANCE.md` is historical relative to the current MASTER/runtime where it conflicts with newer architecture.
-
-The current roadmap has **not** prematurely marked Phase 30–32 globally accepted; it still shows the Phase-30/31/32 campaign-intelligence block as incomplete/partial rather than coordinator-accepted.
+WORK-031 was treated only as claims to verify. `RPG_OS_1_0_ACCEPTANCE.md` is historical where it conflicts with current MASTER/runtime. The roadmap has not prematurely globally accepted Phase30–32.
 
 ---
 
-## 3. Runtime/subsystems inspected
+## 3. Main runtime/subsystems inspected
 
-Representative production runtime inspected directly at the exact SHA includes:
+Direct exact-SHA inspection included:
 
-- `CampaignMutationBoundary.kt`
-- `PlayerDomainEngine.kt`
-- `TurnTransaction.kt`
-- `TurnTransactionReceiptStore.kt`
-- `CampaignEventStore.kt`
-- `CampaignCausalGraph.kt`
-- `RuntimeTruthLayerRegistry.kt`
-- `GameplayMutationGate.kt`
-- `GameplayRuntimeBootstrap.kt`
-- `GameRepository.kt` / `CampaignRepository`
-- `UnifiedGameRepository.kt`
-- `LocalGameStore.kt`
-- `StatePatchEngine.kt`
-- `CampaignTruthStore.kt`
-- `ActivePlayerStore.kt`
-- `PlayerStateStore.kt`
-- `StatResourceStore.kt`
-- `SkillStore.kt`
-- `FinancialStore.kt`
-- `OwnershipStore.kt`
-- `InventoryStore.kt`
-- `EquipmentStore.kt`
-- `DevelopmentProjectStore.kt`
-- `RestoreManager.kt`
-- `ContextBuilder.kt`
-- `CharacterPanelSnapshotV2.kt`
-- `PlayerSnapshotBuilder.kt`
-- Phase-30/31/32 tests including registry, writer inventory, context purity, bootstrap/reopen, Event Store and Causal Graph suites.
-
-Repository-wide exact-tree inspection was also used to identify production writer-bearing files and new Group-B runtime/tests.
+`CampaignMutationBoundary`, `PlayerDomainEngine`, `TurnTransaction`, `TurnTransactionReceiptStore`, `CampaignEventStore`, `CampaignCausalGraph`, `RuntimeTruthLayerRegistry`, `GameplayMutationGate`, `GameplayRuntimeBootstrap`, `CampaignRepository`, `UnifiedGameRepository`, `LocalGameStore`, `StatePatchEngine`, `CampaignTruthStore`, `ActivePlayerStore`, `PlayerStateStore`, `StatResourceStore`, `SkillStore`, `FinancialStore`, `OwnershipStore`, `InventoryStore`, `EquipmentStore`, `DevelopmentProjectStore`, `RestoreManager`, `ContextBuilder`, `CharacterPanelSnapshotV2`, `PlayerSnapshotBuilder`, plus Phase30/31/32 tests and the exact runtime tree/writer-bearing files.
 
 ---
 
-## 4. Actual production legality / commit pipeline
+## 4. Actual canonical mutation pipeline
 
-For an admitted normal player change, the intended runtime path remains:
+The legality/proposal path is still one coherent Phase19–29 chain:
 
 `PlayerCommand`
-→ `CampaignMutationBoundary.resolveAndAdmit(...)`
-→ `PlayerDomainEngine.resolve(...)`
-→ reference checks
-→ Phase20/21 progression augmentation
+→ `CampaignMutationBoundary.resolveAndAdmit`
+→ `PlayerDomainEngine.resolve`
+→ reference closure
+→ Phase20/21 progression
 → one final Phase19 `DRAFT_EFFECT_CHECK`
 → `PlayerChangeSet`
 → structural validation
 → mandatory `PlayerInvariantValidator`
 → opaque `CanonicalCampaignMutationProposal`
-→ `CampaignRepository.commitTurn(...)`
-→ private gameplay DB open/readiness
+→ `CampaignRepository.commitTurn`
 → `TurnTransactionBoundary`
-→ preflight
 → one outer SQLite transaction
-→ canonical typed domain stores
-→ Phase30 Event append
-→ Phase31 Causal append
-→ receipt append
-→ SQLite COMMIT.
+→ typed domain stores
+→ Event append
+→ Causal append
+→ receipt
+→ COMMIT.
 
-The legality/proposal chain from Phase19–22 remains intact; no second Player Engine, WorldRuleProvider or ProgressionEngine was introduced.
+No second Player Engine, WorldRuleProvider or ProgressionEngine was introduced.
 
-However the semantics at the G30/G32 boundaries are not yet complete enough to claim a single trustworthy production truth path, for the findings below.
+The defects below occur at Event completeness, readiness/admin/source-layer boundaries rather than by adding a parallel mechanics engine.
 
 ---
 
-## 5. Persistent family / authority inventory
+## 5. Persistent-family / authority inventory
 
-### Authoritative domain state/history
+### AUTHORITATIVE DOMAIN STATE / HISTORY
 
-The runtime correctly keeps the following as domain authority rather than demoting them to generic Event/Causal evidence:
+Correctly preserved as domain authority:
 
-- Campaign truth (`campaign_truth_records`)
-- active player identity (`active_player_ref`)
-- player base stats/resources
-- talent/potential profiles
-- skills/techniques
-- innate/evolution state
-- inventory and equipment state
-- modifier inputs
-- ownership references and temporal ownership history
-- finance account + authoritative ledger history
-- asset/liability/obligation state/history
+- Campaign truth;
+- active player identity;
+- player stats/resources;
+- talent/potential;
+- skills/techniques;
+- innate/evolution;
+- inventory/equipment;
+- modifier inputs;
+- ownership reference state and temporal ownership history;
+- finance accounts and financial ledger history;
+- assets/liabilities/obligations;
 - DevelopmentProject state/history.
 
-Finance balance storage is classified as a rebuildable projection rather than the authoritative ledger. Ownership temporal history remains domain authority.
+Finance balance storage remains a rebuildable projection; the ledger remains financial authority. Ownership history remains ownership authority.
 
-### Append-only commit/historical evidence
+### APPEND_ONLY COMMIT / HISTORICAL EVIDENCE
 
 Correctly non-domain-authoritative:
 
@@ -170,309 +126,265 @@ Correctly non-domain-authoritative:
 - `canonical_gameplay_events`
 - `canonical_causal_relations`.
 
-### Derived / presentation
+### DERIVED / PRESENTATION / PROJECTION
 
 Correctly non-authoritative:
 
-- derived/effective values
-- financial balance projection
-- `CharacterPanelSnapshotV2` (`DERIVED_PRESENTATION`)
-- PlayerSnapshot profiles (`DERIVED_PROJECTION`)
-- ContextBundle / read projections
-- presentation/chapter/visual families.
+- effective/derived values;
+- financial balance projection;
+- `CharacterPanelSnapshotV2` = `DERIVED_PRESENTATION`;
+- PlayerSnapshot profiles = `DERIVED_PROJECTION`;
+- ContextBundle/read projections;
+- chapter/visual/presentation families.
 
-### Administrative / migration / recovery
+### ADMIN / MIGRATION / RECOVERY
 
-Correctly conceptually separate:
+Migration metadata, activation/readiness, legacy compatibility metadata, backup/restore/package/install infrastructure remain conceptually administrative.
 
-- schema/migration metadata
-- legacy compatibility metadata
-- activation/readiness metadata
-- backups/restore/package/install infrastructure.
+### G32 inventory defect
 
-### G32 inventory hole
+`RuntimeTruthLayerRegistry` and its database completeness test only mechanically close tables carrying `campaign_id` or `campaign_uid`. Persistent mechanics-definition tables such as `stat_definitions` and `resource_definitions` are therefore outside the supposedly exhaustive family inventory/guard set.
 
-`RuntimeTruthLayerRegistry` and the database completeness test only mechanically close **campaign-scoped** persistent tables (`campaign_id` / `campaign_uid`). Mechanic-definition tables such as `stat_definitions` and `resource_definitions` are persistent, mechanics-affecting, writable, and not represented in this exhaustive runtime registry/guard set.
+Those definitions affect deterministic mechanics and are writable through supported public `CampaignRepository.registerStatDefinitions()` / `registerResourceDefinitions()` methods. `StatResourceStore` writes the tables directly without requiring an explicit `ADMINISTRATIVE` runtime capability.
 
-This matters because `CampaignRepository.registerStatDefinitions()` / `registerResourceDefinitions()` are public supported endpoints and call `StatResourceStore` writers through a raw internal save DB. Those store methods directly write the definition tables and do not require an explicit `ADMINISTRATIVE` runtime mutation capability.
-
-Therefore the G32 statement “unknown gameplay-reachable persistent family fails closed” is not mechanically true for all persistent mechanics-bearing families.
+**Conclusion:** unknown gameplay/application-reachable persistent mechanics families do not universally fail closed.
 
 ---
 
-## 6. Writer inventory result
+## 6. Writer inventory assessment
 
-`Phase32RepositoryWideWriterSourceInventoryTest` is useful: it creates a closed list of production source files containing common durable write sinks and assigns broad classes (domain/evidence/presentation/admin/guard/UI).
+`Phase32RepositoryWideWriterSourceInventoryTest` genuinely enumerates production source files containing common durable-write markers and classifies repository entry points. It is useful evidence but not a complete authority proof because it is file-granular rather than method/table/capability-granular.
 
-It is **not sufficient proof of authority reachability**:
+A file classified `CANONICAL_DOMAIN` can contain mechanics-definition writers; an endpoint classified `ADMINISTRATIVE` by the test need not mechanically enter an administrative capability. The stat/resource definition path demonstrates both limitations.
 
-- it classifies at file granularity, not per method/table/capability;
-- a file classified `CANONICAL_DOMAIN` can contain both authority-state writers and mechanics-definition/admin writers;
-- it does not ensure every writable table belongs to `RuntimeTruthLayerRegistry`;
-- it does not prove every endpoint labelled `ADMINISTRATIVE` actually enters the explicit administrative capability before a persistent write.
-
-Concrete example: `StatResourceStore.kt` is classified as a canonical-domain writer file, while its public repository-reachable definition registration methods write unclassified non-campaign definition tables without `withAdministrativeMutationAuthority(...)`.
-
-**WORK-031 “40/40 writer inventory” claim:** the source-file inventory itself is real, but it does not close the requested cross-boundary writer/authority proof.
+Therefore the WORK-031 “40/40” source inventory claim is real as a test result but insufficient to prove no cross-boundary writer escape.
 
 ---
 
-## 7. G30 — Event Store cross-boundary verdict
+## 7. G30 Event Store verdict
 
-### What is correct
+### Correct properties
 
-- `canonical_gameplay_events` is append-only.
-- Event append requires the active outer transaction/writer contract.
-- Event rows are campaign/transaction/command scoped.
-- deterministic event UID/fingerprint semantics exist.
-- UPDATE/DELETE are rejected.
-- legacy `chapter_events` are not promoted.
-- Phase30 activation records legacy event history as `UNKNOWN_NOT_RECORDED` rather than synthesizing history.
-- Event append does not itself mutate finance, ownership, inventory, campaign truth, stats or projects.
-- included Event rows roll back atomically with domain writes/receipt.
+- canonical Event table is append-only;
+- Event append occurs inside the outer TurnTransaction;
+- Event UID/fingerprint is deterministic and campaign/transaction/command scoped;
+- UPDATE/DELETE fail;
+- Event append cannot directly mutate finance/ownership/inventory/truth/player/project authorities;
+- `chapter_events` are not promoted;
+- legacy activation is forward-only and records `UNKNOWN_NOT_RECORDED`;
+- included Events roll back/retry atomically with the turn.
 
-### BLOCKER P30-32-CB-01 — mandatory Event completeness is not enforced
+### BLOCKER — `P30-32-CB-01` — mandatory Event coverage is optional
 
-WORK-029 froze a default-event-bearing rule: every admitted gameplay `PlayerDomainChange` must map deterministically to at least one required Event unless a narrowly enumerated non-event-bearing change kind is explicitly registered. No such default/exception registry exists in the candidate.
+WORK-029 froze a default-event-bearing contract: every admitted gameplay `PlayerDomainChange` must map deterministically to a required Event unless a narrow explicit non-event-bearing registry says otherwise.
 
-Actual runtime:
+Runtime does not enforce that rule:
 
-- `PlayerDomainEngine.assembleProposal()` simply copies `draft.eventIntents` into the `PlayerChangeSet`.
-- progression keeps existing event intents unchanged.
-- `CampaignMutationBoundary` adds no Event completeness step.
-- `CampaignEventStore.validateRequiredEventIntents()` validates **only intents that are present**.
-- `appendRequired()` iterates the present intents.
-- `assertCommittedSetMatches()` compares committed Event rows against that same present-intent set.
+- `PlayerDomainEngine` copies `draft.eventIntents` as supplied;
+- progression does not synthesize missing Event intents;
+- `CampaignMutationBoundary` adds no completeness check;
+- `CampaignEventStore.validateRequiredEventIntents()` validates only intents that already exist;
+- `appendRequired()` iterates only supplied intents;
+- committed-set validation compares the DB only to that supplied list.
 
-Therefore a canonical proposal containing durable domain changes and `eventIntents = emptyList()` is structurally admissible and can commit authoritative state + receipt with **zero Phase30 Events**.
+A non-empty durable domain change set with `eventIntents = emptyList()` can therefore commit authoritative state + receipt with zero canonical Phase30 Events.
 
-This is not hypothetical: existing canonical components from the Phase29 baseline can produce domain changes without manually adding Event intents. The Phase30 tests cover manually eventful components but do not test the missing-required-event case.
+Phase30 tests use manually eventful components and do not test the missing-required-event case.
 
-This violates the WORK-029 G30 stop gate and the required receipt/Event/domain agreement.
-
-**G30 verdict:** FAIL.
+**G30 verdict: FAIL.**
 
 ---
 
-## 8. G30/G31 historical ordering authority
+## 8. Historical order authority
 
-### HIGH P30-32-CB-02 — independent `committed_order` sequences compete with Phase29 commit order
+### HIGH — `P30-32-CB-02` — independent Event/Causal committed-order sequences
 
-Phase29 already owns campaign transaction order through `turn_transaction_receipts.commit_order`. WORK-029 explicitly froze Event total order as:
+Phase29 already owns transaction order via `turn_transaction_receipts.commit_order`. WORK-029 explicitly froze canonical total Event order as `(receipt commitOrder, eventOrdinal)` and prohibited another global commit sequence.
 
-`(receipt commitOrder, eventOrdinal)`
+Candidate runtime instead allocates:
 
-and prohibited an independent second global order.
+- Event `committed_order = MAX(event.committed_order)+1`;
+- Causal `committed_order = MAX(causal.committed_order)+1`;
+- receipt `commit_order = MAX(receipt.commit_order)+1` per committed transaction.
 
-Candidate runtime instead gives:
+With multiple Events in one turn, Event order advances multiple times while receipt order advances once; Causal rows use a third counter. These are competing historical chronology axes rather than one transaction-order authority plus ordinal.
 
-- `canonical_gameplay_events.committed_order`, allocated as `MAX(event.committed_order)+1` per campaign;
-- `canonical_causal_relations.committed_order`, independently allocated as `MAX(causal.committed_order)+1` per campaign;
-- receipt `commit_order`, independently allocated per committed transaction.
-
-With multiple events in one transaction, Event `committed_order` advances once per Event while receipt `commitOrder` advances once per transaction. Causal rows advance on a third sequence.
-
-This produces multiple committed chronology axes that are not structurally the frozen `(transaction commitOrder, ordinal)` relation. Even if all rows remain evidence rather than domain state, chronology itself is part of committed history semantics and must have one transaction-order authority.
-
-**Severity:** HIGH.
+**Severity: HIGH.**
 
 ---
 
-## 9. G31 — Causal Graph cross-boundary verdict
+## 9. G31 Causal Graph verdict
 
-### What is correct
+### Correct properties
 
-- relation classes are structurally distinct: CAUSAL, PROVENANCE, EVIDENCE, TEMPORAL, NARRATIVE, DERIVED, RETRIEVAL;
-- relation kind → class mapping is closed/fail-closed;
-- TEMPORAL/NARRATIVE/RETRIEVAL are not automatically converted into CAUSAL;
-- CAUSAL requires at least evidence/provenance event references;
-- endpoints must resolve to campaign Events;
-- cross-campaign endpoint attempts fail;
-- corrections/supersession are append-only; no destructive UPDATE/DELETE;
-- `consequence_links` are not automatically promoted;
-- Causal append itself has no domain-authority writer path;
-- rollback/retry coupling is inside the outer TurnTransaction when a plan is supplied.
+- CAUSAL / PROVENANCE / EVIDENCE / TEMPORAL / NARRATIVE / DERIVED / RETRIEVAL are structurally distinct;
+- temporal/narrative/retrieval are not auto-promoted to cause;
+- CAUSAL requires evidence/provenance Event references;
+- endpoints must resolve in the same campaign;
+- dangling/cross-campaign endpoints fail;
+- corrections are append-only supersessions;
+- `consequence_links` are not promoted;
+- Causal append cannot mutate domain authority;
+- supplied causal plans participate in the same outer transaction and retry fingerprint.
 
-### MEDIUM P30-32-CB-03 — Causal Graph is not integrated into the supported repository commit facade
+### MEDIUM — `P30-32-CB-03` — no supported repository integration for non-empty causal plans
 
-`TurnTransactionBoundary.create(...)` can receive `causalRelationIntents`, and tests exercise G31 through direct DB + TurnTransactionBoundary calls.
+Tests populate G31 through direct `TurnTransactionBoundary.create(db, ..., causalRelationIntents=...)`.
 
-The normal production facade `CampaignRepository.commitTurn(...)` exposes only:
+The supported `CampaignRepository.commitTurn()` API accepts only identity, canonical proposal and failure injector. `UnifiedGameRepository.commitTurn()` therefore always commits the default empty causal plan.
 
-- transaction identity;
-- canonical proposal;
-- failure injector.
+G31 persistence exists, but normal repository gameplay integration cannot currently produce causal relations.
 
-`UnifiedGameRepository.commitTurn(...)` therefore always creates `TurnTransaction` with the default empty causal plan.
+### MEDIUM — `P30-32-CB-04` — strong-cause evidence is syntactically, not semantically, validated
 
-So the G31 storage/runtime exists and is transaction-capable, but the supported CampaignRepository mutation path cannot commit a non-empty causal plan. This is an integration gap, not a second source of truth.
+CAUSAL requires non-empty evidence/provenance Event UID collections, but runtime does not validate a typed proposition showing why the cited Event proves the asserted cause. A trusted internal caller can cite an unrelated same-campaign Event as evidence for CAUSES.
 
-### MEDIUM P30-32-CB-04 — strong-causality evidence requirement is presently syntactic
+Normal repository reachability is currently limited by the integration gap above, so this is MEDIUM rather than a current direct-authority blocker.
 
-For CAUSAL relations, runtime requires non-empty evidence/provenance Event UID collections and valid endpoints, but it does not validate a typed semantic statement showing why those evidence Events prove the asserted cause. A trusted internal caller can cite an arbitrary same-campaign Event as “evidence” for an unrelated CAUSES edge.
-
-Because the normal repository facade currently does not expose causal plan submission, current supported gameplay reachability is limited. This should nevertheless be closed before treating G31 as production-complete.
-
-**G31 verdict:** PARTIAL / FIX REQUIRED before acceptance.
+**G31 verdict: PARTIAL / FIX REQUIRED before acceptance.**
 
 ---
 
-## 10. Receipt / Event / Causal / domain transaction agreement
+## 10. Receipt / Event / Causal / domain agreement
 
-### What is structurally strong
+### Structural PASS for included semantics
 
-For semantics actually included in the transaction plan:
+For semantics actually present in the transaction plan:
 
-- one outer SQLite transaction owns domain writes, Event append, Causal append and receipt append;
-- failure after early domain writes rolls them back;
-- failure during/after Event append rolls back domain/Event/receipt;
-- failure during/after Causal append rolls back domain/Event/Causal/receipt;
-- failure after receipt insertion but before SQLite commit rolls back the whole bundle;
-- retry/replay is fingerprint-bound;
-- causal-plan semantics are folded into the transaction fingerprint when present;
-- canonical Event intents are included in the PlayerChangeSet fingerprint;
-- old V1 receipts retain `commitOrder = NULL`; no historical order is invented.
+- one outer SQLite transaction owns domain writes, Events, Causal rows and receipt;
+- injected failure rolls back earlier domain writes;
+- Event/Causal failures roll back all effects;
+- receipt-before-final-commit failure rolls back receipt and effects;
+- retry is semantic-fingerprint bound;
+- Causal-plan fingerprint contributes to transaction semantics;
+- supplied Event intents are inside the PlayerChangeSet fingerprint;
+- V1 receipts retain `commitOrder = NULL` rather than fabricated order.
 
-### Why overall agreement still fails
+### Overall FAIL for completeness
 
-Atomicity cannot prove a semantic bundle that was never required. Because the runtime lets an event-bearing domain change commit with no required Event intent at all, a valid receipt can prove the committed proposal while canonical Event history omits the domain transition.
+Atomicity cannot prove a required semantic item that admission never required. Because required Event mapping can be omitted, a committed receipt may coexist with complete domain state but incomplete canonical Event history.
 
-**Transaction atomicity verdict:** PASS for included operations; **cross-layer completeness verdict: FAIL**.
+**Atomicity:** PASS for included operations.
+**Cross-layer completeness:** FAIL.
 
 ---
 
-## 11. Production initialization / activation / reopen
+## 11. Production initialization / reopen
 
-### BLOCKER P30-32-CB-05 — supported pre-enforcement write window
+### BLOCKER — `P30-32-CB-05` — pre-enforcement supported write window
 
-`GameplayRuntimeBootstrap.ensureReady(...)` correctly knows how to initialize current schema, receipts, Event Store activation, Causal Graph and G32 guards, then verify readiness.
+`GameplayRuntimeBootstrap.ensureReady()` correctly installs/verifies current schema, receipt schema, Phase30 activation, Phase31 schema and G32 guards.
 
-But `LocalGameStore.bootstrap()` does **not** call it. Bootstrap performs package setup and then only:
+But `LocalGameStore.bootstrap()` does not call it. Bootstrap runs package setup and only `ensureCurrentSchema + AutoRepairEngine.repair`.
 
-`ensureCurrentSchema(...) + AutoRepairEngine.repair(...)`.
+G30/G31/G32 readiness is deferred until a later `openGameplaySaveDb()`.
 
-G30/G31/G32 activation/guards are deferred until a later `openGameplaySaveDb()`.
+Supported repository administrative methods are already callable after bootstrap. `setActivePlayer()` uses raw internal save DB. `ActivePlayerStore.set()` uses `withAdministrativeMutationAuthority` only when guards are already installed; if guards are absent it directly persists.
 
-Meanwhile supported `CampaignRepository` administrative endpoints are already callable after bootstrap. At least `setActivePlayer(...)` uses raw `openSaveDb()` and `ActivePlayerStore.set(...)`.
-
-`ActivePlayerStore.set(...)` has two paths:
-
-- if guards are installed: use `withAdministrativeMutationAuthority(...)`;
-- if guards are **not** installed: persist directly.
-
-Therefore the supported production sequence can be:
+Therefore a supported sequence exists:
 
 `bootstrap()`
-→ G30/G31/G32 guards still absent
-→ public administrative active-player mutation
-→ direct authoritative write succeeds
-→ only later first `openGameplaySaveDb()` installs enforcement.
+→ G30/G31/G32 enforcement absent
+→ public admin active-player mutation
+→ authoritative write commits
+→ first gameplay DB open later activates enforcement.
 
-The existing bootstrap/reopen test starts from `openGameplaySaveDb()` and therefore does not prove away this pre-first-gameplay-open window.
+The current reopen test starts at `openGameplaySaveDb()` and does not close this pre-first-open window.
 
-The user’s required invariant explicitly forbids `campaign opened -> direct mutation commits -> enforcement initialized later`.
+This directly violates the required “campaign opened -> direct mutation -> enforcement initialized later” prohibition.
 
-**Severity:** BLOCKER.
+**Severity: BLOCKER.**
 
 ---
 
-## 12. Context / ordinary read-path purity
+## 12. Read-path purity
 
-### HIGH P30-32-CB-06 — ordinary read opens invoke migration/schema authority
+### HIGH — `P30-32-CB-06` — production read opens re-enter migration/schema authority
 
-`ContextBuilder` itself is read-only and the direct context readers inspected do not perform canonical writes. However the production call chain is transitive:
+`ContextBuilder` itself is read-only, but the actual production chain is:
 
 `LocalGameStore.buildContext()`
 → `openGameplaySaveDb()`
 → `GameplayRuntimeBootstrap.ensureReady()`
 → `CurrentSchema.ensure()`
 → `MigrationManager.ensureV15Hardening(...)`
-plus receipt/Event/Causal schema readiness and guard installation calls.
+plus receipt/Event/Causal readiness and guard installation.
 
-There is no initial fast path that does only `requireReady()` when the DB is already ready. If guards are installed, `ensureReady()` explicitly enters `withAdministrativeMutationAuthority(...)` and re-runs those schema/migration routines.
+There is no already-ready fast path that only calls `requireReady()`. With guards installed, `ensureReady()` enters administrative authority and repeats schema/migration routines.
 
-`CurrentSchema.ensure()` is not a pure readiness predicate. Its migration chain performs DDL, trigger installation and `INSERT OR IGNORE` migration-marker writes.
+`CurrentSchema.ensure()` is not a read predicate; its migration chain performs DDL/trigger installation and migration-marker `INSERT OR IGNORE` operations.
 
-Thus an ordinary context read **does trigger MigrationManager/schema code**, contrary to the required read-path contract.
+The Phase32 context-purity test misses this because it inspects only the direct `buildContext` body and separately calls lower-level readers on an already-prepared DB rather than executing the full production read chain.
 
-The Phase32 context-purity test misses this because:
-
-- its static test checks only the direct textual body of `buildContext()` and treats `openGameplaySaveDb()` as proof of safety;
-- its mutation snapshot test calls lower-level readers directly on an already-prepared DB, not the production `LocalGameStore.buildContext()` chain.
-
-**Read-path purity verdict:** FAIL.
+**Read-path purity verdict: FAIL.**
 
 ---
 
-## 13. Canonical turn vs migration/admin boundary
+## 13. Canonical turn vs migration authority
 
-### HIGH P30-32-CB-07 — canonical domain store construction re-runs migrations inside CANONICAL_TURN
+### HIGH — `P30-32-CB-07` — domain-store constructors run migrations inside CANONICAL_TURN
 
-This is a cross-phase architecture issue that G32 does not close.
+Several typed stores used by the canonical applier invoke migrations in constructors:
 
-Examples:
+- `FinancialStore` → `ensureV13BalanceGuards`;
+- `EquipmentStore` → `ensureV11`;
+- `OwnershipStore` → `ensureV12`;
+- `DevelopmentProjectStore` → `ensureV15Hardening`.
 
-- `FinancialStore` constructor always calls `MigrationManager().ensureV13BalanceGuards(...)`.
-- `EquipmentStore` constructor calls `MigrationManager().ensureV11(...)`.
-- `OwnershipStore` constructor calls `MigrationManager().ensureV12(...)`.
-- `DevelopmentProjectStore` constructor calls `MigrationManager().ensureV15Hardening(...)`.
+These stores are created while TurnTransaction/CANONICAL_TURN is active. The finance path concretely re-enters migration logic that DROP/CREATEs finance triggers and writes migration metadata before applying the admitted financial change.
 
-The canonical applier constructs these typed stores after the outer `TurnTransaction` and CANONICAL_TURN capability are already active.
+The work is under the outer transaction, but it is administrative/schema mutation not represented by the PlayerChangeSet and violates the required no canonical-gameplay→migration/admin escalation boundary.
 
-The finance example is concrete: `ensureV13BalanceGuards()` re-enters migration code, drops/recreates finance triggers, and performs a migration-marker `INSERT OR IGNORE` before the requested financial domain write.
-
-That work is atomic under the outer SQLite transaction, but it is **administrative/schema mutation performed from a canonical gameplay turn** and is not a semantic effect in the admitted PlayerChangeSet.
-
-This violates the required separation “canonical gameplay must not nest/escalate into migration/admin”.
-
-**Severity:** HIGH.
+**Severity: HIGH.**
 
 ---
 
-## 14. G32 source-layer / capability enforcement verdict
+## 14. G32 source-layer capability verdict
 
 ### Mechanically good
 
-- writable campaign DB is not returned by `CampaignRepository`;
-- normal gameplay has one repository `commitTurn` endpoint;
-- generic StatePatch remains fail-closed;
-- canonical turn and administrative ThreadLocal capability scopes are distinct;
-- `withAdministrativeMutationAuthority` rejects entry while a canonical gameplay capability is active;
-- registered campaign authoritative tables receive DB guards;
-- DERIVED_REBUILD / CACHE_REBUILD / PRESENTATION_ONLY do not grant authority through the runtime registry API;
-- Event/Causal evidence tables receive append-only/writer-contract guards rather than domain-authority guards.
+- no writable campaign DB is returned by `CampaignRepository`;
+- `commitTurn` is the single normal gameplay commit endpoint;
+- StatePatch is fail-closed;
+- canonical and admin ThreadLocal scopes are distinct;
+- explicit admin entry rejects nesting inside canonical gameplay;
+- registered campaign authority tables receive DB guards;
+- derived/cache/presentation capabilities do not grant domain authority;
+- Event/Causal use append-only evidence guards, not domain-authority guards.
 
-### Not mechanically complete
+### Not complete
 
-The G32 enforcement claim is undermined by three independent gaps:
+G32 fails on:
 
-1. pre-enforcement bootstrap window (BLOCKER);
-2. non-campaign mechanics-definition tables absent from exhaustive classification/guards and writable by public “ADMINISTRATIVE” repository endpoints without explicit capability gating (HIGH);
-3. normal reads and canonical domain store constructors re-enter migration/schema authority (HIGH).
+1. the bootstrap/pre-enforcement window;
+2. non-campaign mechanics-definition tables outside exhaustive classification/guarding;
+3. public definition writers labelled administrative but not mechanically capability-gated;
+4. ordinary read opens that re-run migration/schema authority;
+5. canonical typed stores that re-enter migrations during a turn.
 
-**G32 verdict:** FAIL.
+**G32 verdict: FAIL.**
 
 ---
 
-## 15. Finance / ownership authority
+## 15. Finance / ownership authority verdict
 
 **PASS on source-of-truth ownership.**
 
-Finance ledger remains domain authority. `FinancialStore.balance()` reads the balance projection, while `reconcile()` recomputes from `financial_ledger_transactions` and requires projection equality; rebuild derives projection from ledger. Event/Causal layers do not replace this ledger.
+Financial ledger remains financial domain authority. Balance is a projection; `reconcile()` recomputes ledger truth and requires equality, and rebuild derives the balance projection from ledger entries.
 
-Ownership temporal records/operations remain domain history authority. Event/Causal references do not become ownership master state, and append-only causal corrections do not rewrite ownership.
+Ownership temporal history remains ownership authority. Event/Causal evidence does not replace or rewrite ownership state/history.
 
-The findings above concern transaction/readiness/admin boundaries; they do not demote finance/ownership to generic evidence.
+The FAIL is caused by transaction/source-layer boundaries, not finance/ownership demotion.
 
 ---
 
-## 16. Derived / snapshots / presentation
+## 16. Derived / snapshot / presentation nonauthority
 
 **PASS.**
 
-`CharacterPanelSnapshotV2` remains `DERIVED_PRESENTATION` with a read-only source contract and no write-back API. `PlayerSnapshotBuilder` remains `DERIVED_PROJECTION`; profile omission explicitly means projection omission, not absence from reality.
+`CharacterPanelSnapshotV2` remains `DERIVED_PRESENTATION` with read-only source interfaces and no write-back API. PlayerSnapshot remains `DERIVED_PROJECTION`; omission from a profile is explicitly projection omission, not absence from reality.
 
-No freshness/timestamp path was found that lets a stale or “newer” projection overwrite authority. Rebuild reads the source again. No new Phase33 snapshot/change-detection authority was introduced by the audited G30–G32 delta.
+No freshness/timestamp promotion or persistent projection write-back was found. Existing Phase24/25 snapshots remain disposable/rebuildable.
 
 ---
 
@@ -480,213 +392,185 @@ No freshness/timestamp path was found that lets a stale or “newer” projectio
 
 **PASS.**
 
-CampaignTruth remains the typed authority. PlayerSnapshot `GM_CONTEXT` preserves separate `FACT`, `BELIEF`, `NARRATIVE` classes. Event text/effect metadata does not write CampaignTruth; Causal relation class does not rewrite truth kind; retrieval/narrative relations are distinct from CAUSAL.
+CampaignTruth remains typed authority. GM_CONTEXT preserves FACT/BELIEF/NARRATIVE classes. Event text/effect metadata and Causal relations cannot write CampaignTruth or change truth class. RETRIEVAL/NARRATIVE relation kinds remain distinct from CAUSAL.
 
-No path was found where recency, Event occurrence, Causal reference, ContextBundle inclusion, snapshot inclusion or AI/narrator text automatically promotes NARRATIVE/BELIEF to FACT.
+No path was found where AI/narrator text, Event presence, Causal reference, recency or snapshot/context inclusion automatically promotes NARRATIVE/BELIEF to FACT.
 
 ---
 
-## 18. Legacy UNKNOWN_NOT_RECORDED
+## 18. Legacy `UNKNOWN_NOT_RECORDED`
 
 **PASS.**
 
-Phase30 activation records old non-canonical Event history as `UNKNOWN_NOT_RECORDED` and creates zero synthetic canonical Events/Causal relations. `chapter_events` and `consequence_links` are not promoted.
+Phase30 activation produces no synthetic canonical Events/Causal rows and records old canonical-history absence as `UNKNOWN_NOT_RECORDED`. `chapter_events` and `consequence_links` remain separate. Old V1 receipt order remains NULL/unknown.
 
-Old receipt history without real Phase29 ordering remains `commitOrder = NULL`; `LAST VALID COMMIT` ignores unknown-order receipts rather than inventing chronology.
-
-Legacy skill/technique/inventory read-through preserves unresolved status rather than fabricating typed historical authority.
-
-No synthetic Actor/Cause/Event/provenance backfill was found.
+No synthetic historical Event, Cause, Actor, provenance or transaction-order backfill was found.
 
 ---
 
-## 19. Cross-campaign isolation / stable identity
+## 19. Cross-campaign / stable UID
 
 **PASS with no blocking regression found.**
 
-- canonical proposal is campaign-bound;
-- PlayerDomainEngine reference closure is campaign-scoped;
-- Event rows and identity include campaign/transaction/command information;
-- Causal endpoints are resolved against Event rows in the same campaign and cross-campaign endpoints fail;
-- receipt command lookup is campaign-scoped and transaction identity detects campaign mismatch;
-- domain stores inspected carry campaign scopes for current/historical state.
-
-Canonical identity remains UID-based. Names remain display/retrieval metadata rather than authoritative identity keys in G30–G32.
+Canonical proposal, PlayerDomainEngine reference closure, Event identity, Causal endpoints, domain stores and receipt/retry checks remain campaign-scoped. Stable UID remains authority identity; names are display/retrieval metadata.
 
 ---
 
 ## 20. Admin / restore / recovery separation
 
-### Correct
+`RestoreManager` correctly calls `requireAdministrativeRecoveryEntryPoint()` before file mutation, so canonical-turn restore escalation fails early. Recovery LAST VALID COMMIT remains based on campaign-scoped non-null receipt `commitOrder`, not clock/filesystem/UUID/snapshot/narrative.
 
-`RestoreManager.restoreBackup(...)` calls `requireAdministrativeRecoveryEntryPoint()` before reading selection or touching files. A restore attempted from an active canonical gameplay capability therefore fails before file mutation. Backup path is constrained to the active campaign backup directory.
+However admin separation is not universally mechanical: definition-registration endpoints lack explicit capability gating and active-player identity gating is conditional on already-installed guards.
 
-Recovery reader semantics remain read-oriented; last valid commit comes from campaign-scoped committed receipt order, not timestamp/filesystem/UUID/snapshot/narrative.
-
-### Incomplete
-
-Administrative separation is not universally mechanical. Public definition-registration endpoints are labelled ADMINISTRATIVE by a test inventory, but their stores are not capability-gated. Active-player identity is capability-gated only **after** guards are installed, leaving the bootstrap window described above.
-
-**Admin separation verdict:** PARTIAL / FIX REQUIRED.
+**Verdict: PARTIAL / FIX REQUIRED.**
 
 ---
 
 ## 21. WORK-029 precondition closure matrix
 
-| WORK-029 precondition | Status | Runtime result |
+| Precondition | Status | Result |
 |---|---|---|
-| Event Store is append-only evidence, not domain-state replacement | CLOSED | Separate append-only Event table; no domain writers in Event API |
-| Event identity is campaign/transaction/command/intent deterministic | CLOSED | Deterministic UID/fingerprint present |
-| Phase29 `commitOrder` remains transaction-order authority; Event uses `(commitOrder, ordinal)` | **OPEN** | Event and Causal each allocate independent campaign-wide `committed_order` |
-| Every admitted event-bearing change has deterministic required Event mapping | **OPEN / BLOCKER** | Existing intents validated, but missing intents are not detected |
-| Authoritative effects + required Events + receipt atomic | PARTIAL | Atomic for included intents; required-event completeness itself is absent |
-| Receipt/equivalent proof binds complete Event set | PARTIAL | Fingerprint binds provided intents; cannot prove omitted mandatory intents |
-| Event rollback/retry/idempotency | CLOSED for included set | Outer SQLite transaction + replay checks |
-| No legacy Event synthesis | CLOSED | `UNKNOWN_NOT_RECORDED`; zero canonical backfill |
-| Causal relation taxonomy closed and non-causal classes distinct | CLOSED | typed relation classes/kinds |
-| Causal Graph requires semantic evidence/provenance | PARTIAL | non-empty Event references required, semantic evidentiary relation not validated |
-| No consequence-link promotion | CLOSED | legacy association remains unpromoted |
-| Causal correction append-only | CLOSED | supersession without destructive rewrite |
-| G32 exhaustive authority classification and fail-closed unknown gameplay-reachable family | **OPEN** | non-campaign mechanic-definition tables fall outside completeness test/guards |
-| Production readiness precedes gameplay/write access | **OPEN / BLOCKER** | bootstrap does not activate G30–G32; public admin writes can occur first |
-| Ordinary read path remains read-only after readiness | **OPEN** | production read open re-enters MigrationManager/schema authority |
+| Event Store = append-only evidence, not domain truth | CLOSED | separate evidence table |
+| Stable campaign/transaction Event identity | CLOSED | deterministic UID/fingerprint |
+| Phase29 `commitOrder` remains transaction-order authority | **OPEN** | Event/Causal independent counters |
+| Required Event mapping for admitted changes | **OPEN / BLOCKER** | missing intents are not rejected |
+| Effects + required Events + receipt atomic | PARTIAL | atomic for supplied intents only |
+| Receipt/equivalent proof binds complete required Event set | PARTIAL | binds supplied set, not omitted mandatory mapping |
+| Event rollback/retry/idempotency | CLOSED for supplied set | outer tx + replay |
+| No legacy Event synthesis | CLOSED | UNKNOWN_NOT_RECORDED |
+| Typed distinct causal taxonomy | CLOSED | class/kind registry |
+| Strong causality evidence/provenance | PARTIAL | reference existence, weak semantic linkage |
+| No `consequence_links` promotion | CLOSED | separate legacy association |
+| Append-only causal correction | CLOSED | supersession |
+| G32 exhaustive fail-closed family classification | **OPEN** | non-campaign definition families missing |
+| Production readiness before supported writes | **OPEN / BLOCKER** | bootstrap window |
+| Normal read path mutation-free | **OPEN** | read open enters MigrationManager/schema |
 
 ---
 
-## 22. WORK-030 HIGH/MEDIUM risk closure matrix
+## 22. WORK-030 HIGH/MEDIUM closure matrix
 
-| Risk | Status | Independent result |
-|---|---|---|
-| H01 Event Store becomes second domain truth | CLOSED | Event remains append-only evidence |
-| H02 Event append outside TurnTransaction / partial divergence | CLOSED for canonical append | canonical append is inside outer tx |
-| H03 fabricated legacy Event/Cause/Actor/Provenance | CLOSED | unknown remains unknown; no synthesis |
-| H04 `consequence_links` promoted to canonical causes | CLOSED | no automatic promotion |
-| H05 chronology/retrieval/narrative promoted to causality | PARTIALLY CLOSED | classes distinct; CAUSAL evidence relation remains syntactically weak |
-| H06 old writer/downgrade bypass after activation | PARTIALLY CLOSED | campaign authority tables guarded after readiness; non-campaign definition writers not covered; pre-activation window exists |
-| H07 G32 structural/exhaustive classification | **STILL OPEN** | registry DB completeness only campaign-scoped; definition families escape |
-| H08 cross-campaign Event/Causal/reference leak | CLOSED in inspected canonical paths | scoped references/endpoints and receipt checks |
-| H09 receipt/Event/domain-ledger agreement | **STILL OPEN / BLOCKER** | valid domain+receipt can exist with omitted required Event |
-| M01 `chapter_events` name collision/promotion | CLOSED | separate legacy table remains separate |
-| M02 chapter summaries become authority | CLOSED | presentation only |
-| M03 CharacterPanel/PlayerSnapshot authority ambiguity | CLOSED | derived-only builders, no write-back |
-| M04 causal corrections destructive | CLOSED | append-only supersession |
-| M05 administrative capability bypass | **PARTIALLY CLOSED** | nested canonical→admin blocked; bootstrap/definition-registration boundaries remain open |
-| M06 derived/cache rebuild cannot be demonstrated | CLOSED for audited player/finance projections | rebuildable projection behavior exists |
-
----
-
-## 23. WORK-031 claim verification
-
-| WORK-031 claim | Independent result |
+| Risk | Status |
 |---|---|
-| exact runtime candidate / docs-only closure | VERIFIED |
-| Event Store append-only and transaction-coupled | VERIFIED for supplied Event intents |
-| Event completeness | **NOT VERIFIED; runtime contradicts hard precondition** |
-| Causal relation taxonomy / append-only corrections | VERIFIED |
-| Causal Graph production integration | PARTIAL — raw TurnTransaction API/tests support it, CampaignRepository commit facade does not |
-| exhaustive RuntimeTruthLayerRegistry | **NOT VERIFIED** — campaign-scoped table inventory misses persistent definition families |
-| writer inventory 40/40 | SOURCE-FILE INVENTORY VERIFIED AS A TEST CONCEPT, but insufficient authority/reachability proof |
-| context/read paths mutation-free | **CONTRADICTED transitively** by `openGameplaySaveDb -> ensureReady -> CurrentSchema -> MigrationManager` |
-| bootstrap/reopen enforcement ready | PARTIAL — `openGameplaySaveDb` is ready; `bootstrap()` itself leaves pre-first-open window |
-| finance/ownership stay authority | VERIFIED |
+| H01 Event becomes second domain truth | CLOSED |
+| H02 Event outside TurnTransaction causes partial divergence | CLOSED for canonical supplied Event append |
+| H03 fabricated legacy Event/Cause/Actor/provenance | CLOSED |
+| H04 `consequence_links` promoted to causes | CLOSED |
+| H05 chronology/retrieval/narrative promoted to causality | PARTIALLY CLOSED |
+| H06 old writer/downgrade bypass | PARTIALLY CLOSED — campaign tables guarded after readiness; bootstrap/definition gaps remain |
+| H07 G32 structural/exhaustive classification | **STILL OPEN** |
+| H08 cross-campaign Event/Causal/reference leak | CLOSED in inspected canonical paths |
+| H09 receipt/Event/domain-ledger agreement | **STILL OPEN / BLOCKER** |
+| M01 `chapter_events` collision/promotion | CLOSED |
+| M02 chapter summary as authority | CLOSED |
+| M03 CharacterPanel/PlayerSnapshot authority ambiguity | CLOSED |
+| M04 destructive causal correction | CLOSED |
+| M05 admin capability danger | PARTIALLY CLOSED |
+| M06 derived/cache rebuild evidence | CLOSED for inspected player/finance projections |
+
+---
+
+## 23. WORK-031 claim alignment
+
+| Claim | Independent result |
+|---|---|
+| exact runtime/docs-only closure | VERIFIED |
+| Event append-only + transaction-coupled | VERIFIED for supplied intents |
+| Event completeness | **CONTRADICTED by runtime** |
+| Causal typed taxonomy/corrections | VERIFIED |
+| G31 production integration | PARTIAL — direct TurnTransaction path, not repository commit facade |
+| exhaustive RuntimeTruthLayerRegistry | **NOT VERIFIED** |
+| “40/40” writer inventory | source-file inventory exists, but not sufficient authority/reachability proof |
+| context/read path mutation-free | **CONTRADICTED transitively** |
+| bootstrap/reopen enforcement | PARTIAL — gameplay open ready, bootstrap window remains |
+| finance/ownership authority preserved | VERIFIED |
 | FACT/BELIEF/NARRATIVE preserved | VERIFIED |
-| no fabricated legacy history | VERIFIED |
-| no Phase33 implementation | VERIFIED for audited G30–G32 delta |
+| legacy history not fabricated | VERIFIED |
+| no Phase33 implementation | VERIFIED for G30–G32 delta |
 | CI/artifact | VERIFIED independently |
 
 ---
 
-## 24. Findings
+## 24. Findings by severity
 
-### BLOCKER — P30-32-CB-01 — Required Event mapping/completeness is optional
+### BLOCKER
 
-Canonical domain changes can commit with no Event intent; Event validation checks only existing intents. This allows committed authoritative reality + receipt with missing canonical Phase30 history.
+**P30-32-CB-01 — Required Event mapping/completeness is optional.**
+Committed authority + receipt can exist without required canonical Event history.
 
-### BLOCKER — P30-32-CB-05 — Production bootstrap leaves a pre-enforcement authoritative-write window
+**P30-32-CB-05 — Production bootstrap leaves a supported pre-enforcement authoritative-write window.**
+Public admin identity mutation can occur before G30/G31/G32 activation/guards.
 
-`LocalGameStore.bootstrap()` does not activate/verify G30/G31/G32. Public administrative writers can run first; `ActivePlayerStore.set()` explicitly persists directly when guards are not installed.
+### HIGH
 
-### HIGH — P30-32-CB-02 — Event/Causal create competing global committed-order sequences
+**P30-32-CB-02 — Event/Causal use competing global committed-order sequences.**
 
-Independent Event/Causal `MAX(committed_order)+1` sequences violate the frozen Phase29 `(commitOrder, ordinal)` historical-order authority.
+**P30-32-CB-06 — Production context/read opens re-enter migration/schema authority.**
 
-### HIGH — P30-32-CB-06 — Production context/read opens re-enter migration/schema authority
+**P30-32-CB-07 — Canonical domain store construction executes migration routines during CANONICAL_TURN.**
 
-`buildContext -> openGameplaySaveDb -> GameplayRuntimeBootstrap.ensureReady -> CurrentSchema.ensure -> MigrationManager` means ordinary read construction is not strictly read-only.
+**P30-32-CB-08 — G32 exhaustive family enforcement excludes persistent mechanics-definition tables; public admin definition writers are not capability-gated.**
 
-### HIGH — P30-32-CB-07 — Canonical domain store constructors perform migrations inside CANONICAL_TURN
+### MEDIUM
 
-Finance/ownership/equipment/project stores re-run migration routines while the canonical transaction is active; finance concretely DROP/CREATEs triggers and touches migration metadata.
+**P30-32-CB-03 — Causal Graph cannot be populated through normal `CampaignRepository.commitTurn`.**
 
-### HIGH — P30-32-CB-08 — G32 exhaustive family enforcement excludes mechanics-definition persistence
+**P30-32-CB-04 — CAUSAL evidence requirement is structurally typed but semantically weak.**
 
-Non-campaign persistent definition tables are absent from registry completeness/guarding; public repository definition writers mutate them without explicit admin capability enforcement.
-
-### MEDIUM — P30-32-CB-03 — Causal Graph cannot be populated through normal CampaignRepository.commitTurn
-
-G31 is transaction-capable through direct TurnTransactionBoundary use but not integrated into the supported repository commit API.
-
-### MEDIUM — P30-32-CB-04 — Strong CAUSAL evidence is structurally present but semantically weak
-
-Any valid same-campaign Event reference can satisfy the current “evidence/provenance exists” requirement; the causal assertion itself is not tied to a validated typed causal proposition.
-
-No LOW/INFO item changes the acceptance verdict.
+No documentation wording issue was inflated into a runtime blocker.
 
 ---
 
 ## 25. Phase33-not-started verification
 
-No G30–G32 runtime change was found that introduces a writable Snapshot System authority, snapshot freshness takeover, automatic retention implementation, or change-detection subsystem owned by Phase33. Existing `CharacterPanelSnapshotV2` / PlayerSnapshot are the already-accepted Phase24/25 derived read models.
+No G30–G32 runtime delta was found that introduces a writable Snapshot System authority, freshness takeover, automatic Phase33 retention/change-detection owner or derived snapshot write-back. Existing CharacterPanel/PlayerSnapshot objects are the accepted Phase24/25 derived read models.
 
-**Phase33 accidental start:** NOT FOUND.
+**Phase33 accidental start: NOT FOUND.**
 
 ---
 
 ## 26. CI / artifact evidence
 
-Independently verified exact-SHA CI:
+Independently verified:
 
 - workflow: `Validate RPG OS ALPHA`
 - run number: `#774`
 - run id: `32122827957`
 - job id: `95666823341`
-- head SHA: `5db1c01f537a9d78b058c82cd4146efee57331a6`
-- run status: `completed`
-- run conclusion: `success`
-- job status/conclusion: `completed / success`
+- exact head SHA: `5db1c01f537a9d78b058c82cd4146efee57331a6`
+- run: `completed / success`
+- build job: `completed / success`
 
-Immutable artifact independently verified:
+Immutable artifact:
 
-- artifact id: `9319377513`
+- id: `9319377513`
 - name: `RPG-OS-VALIDATION-1.2.0-alpha5-hybrid145-5db1c01f537a9d78b058c82cd4146efee57331a6`
 - digest: `sha256:84f4be470977fa93cc2f6426aebcddebc0c40a71a7bcf07292ebacfcb53cbb53`
-- artifact workflow head SHA: exact audited runtime.
+- artifact head SHA: exact audited runtime.
 
-Green CI does not override the architectural findings above.
+Green CI is evidence, not a substitute for the architecture audit.
 
 ---
 
-## 27. Coordinator handoff
+## 27. Coordinator handoff / minimum repair themes
 
-The candidate must not be globally accepted as Phase30–32 complete on this evidence.
+Without implementing fixes, the audit shows acceptance requires at least:
 
-Minimum repair themes, without prescribing implementation details:
+1. canonical required-Event coverage with explicit event-bearing/non-event-bearing policy;
+2. Event/Causal ordering tied to Phase29 receipt commit order plus deterministic ordinal;
+3. readiness before any supported post-bootstrap authority/admin write;
+4. verification-only path for already-ready normal reads;
+5. migration removal from active canonical domain-store construction;
+6. G32 family classification and capability enforcement extended to persistent mechanics definitions/admin writers;
+7. explicit G31 integration through the supported repository boundary or narrowed phase claim;
+8. stronger semantic validation for CAUSAL evidence before G31 production acceptance.
 
-1. make required Event coverage a canonical admission/transaction invariant with a closed event-bearing/non-event-bearing policy;
-2. bind Event/Causal history ordering to Phase29 transaction commit order plus deterministic ordinal, not independent global counters;
-3. establish production readiness before any supported post-bootstrap authoritative/admin write is possible;
-4. make already-ready normal read paths use verification-only readiness rather than migration/schema installation;
-5. remove migration execution from canonical domain store construction / active CANONICAL_TURN paths;
-6. extend G32 persistent-family classification/capability enforcement to mechanics-bearing definition persistence and mechanically gate supported administrative writers;
-7. integrate G31 through the supported repository boundary or explicitly narrow its phase claim;
-8. strengthen CAUSAL evidence semantics if G31 is to be considered authoritative historical intelligence rather than a typed association store.
+No runtime/test/schema/migration/workflow/roadmap/acceptance file was modified by CHAT-5.
 
-No runtime/test/schema/migration/roadmap/acceptance changes were made by CHAT-5.
+# FAIL — FIX REQUIRED
 
-# FINAL: FAIL — FIX REQUIRED
-
-This verdict applies only to runtime SHA:
+This verdict applies **only** to:
 
 `5db1c01f537a9d78b058c82cd4146efee57331a6`
 
-CHAT-5 does **not** declare Phase30–32 ACCEPTED and does **not** start Phase33.
+CHAT-5 does not declare Phase30–32 ACCEPTED and does not start Phase33.
