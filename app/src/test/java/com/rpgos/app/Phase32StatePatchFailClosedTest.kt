@@ -54,4 +54,23 @@ class Phase32StatePatchFailClosedTest {
             }
         }
     }
+
+    @Test
+    fun legacySourceOfTruthRegistryCannotOverrideAnyG32PersistentClassification() {
+        SQLiteDatabase.create(null).use { core ->
+            val registry = SourceOfTruthRegistry(core)
+            RuntimeTruthLayerRegistry.validateCanonicalInventory()
+
+            RuntimeTruthLayerRegistry.classifiedPersistentTables().forEach { table ->
+                assertFalse(
+                    "legacy StatePatch registry regained write authority over G32-owned table: $table",
+                    registry.canWrite(table)
+                )
+            }
+
+            // Non-G32 legacy runtime policy remains a compatibility concern of the old registry;
+            // G32 precedence does not silently rewrite unrelated legacy routing semantics.
+            assertTrue(registry.canWrite("story_threads"))
+        }
+    }
 }
