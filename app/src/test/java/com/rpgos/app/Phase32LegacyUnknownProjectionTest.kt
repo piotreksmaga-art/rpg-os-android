@@ -14,19 +14,22 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class Phase32LegacyUnknownProjectionTest {
+    private lateinit var root: File
     private lateinit var saveFile: File
     private lateinit var worldFile: File
 
     @Before
     fun setUp() {
-        saveFile = File.createTempFile("g32-legacy-unknown-", ".db").also { it.delete() }
-        worldFile = File.createTempFile("g32-legacy-world-", ".db").also { it.delete() }
+        root = File(System.getProperty("java.io.tmpdir"), "rpgos-g32-legacy-unknown-${System.nanoTime()}")
+        val campaignDir = File(root, "saves/C1.campaign").apply { mkdirs() }
+        File(campaignDir, "campaign.json").writeText("{\"id\":\"C1\"}")
+        saveFile = File(campaignDir, "campaign.db")
+        worldFile = File(root, "world.db")
     }
 
     @After
     fun tearDown() {
-        saveFile.delete()
-        worldFile.delete()
+        root.deleteRecursively()
     }
 
     @Test
