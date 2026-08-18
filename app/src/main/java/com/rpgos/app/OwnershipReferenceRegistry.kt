@@ -6,15 +6,10 @@ enum class OwnershipReferenceStatus { ACTIVE, RETIRED }
 
 /**
  * Minimal generic authority for Ownership reference namespaces and campaign-scoped targets.
- * Future entity/asset domains register their namespace and stable identities here; Ownership
- * never accepts arbitrary free-text kinds/targets. ITEM_INSTANCE target existence remains
- * authoritative in the Phase-10 item_instances table.
+ * Construction is side-effect-free: explicit bootstrap owns schema/migrations.
  */
 class OwnershipReferenceRegistry(private val db: SQLiteDatabase, private val campaignId: String) {
-    init {
-        require(campaignId.isNotBlank()) { "campaignId must not be blank" }
-        MigrationManager().ensureV12(db, campaignId)
-    }
+    init { require(campaignId.isNotBlank()) { "campaignId must not be blank" } }
 
     fun registerOwnerKind(ownerKindUid: String, provenance: String) {
         require(ownerKindUid.isNotBlank()) { "ownerKindUid must not be blank" }
