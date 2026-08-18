@@ -270,21 +270,35 @@ internal class CampaignCausalGraph(private val db: SQLiteDatabase, private val c
         }
     }
 
-    fun relationsForTransaction(transactionUid: String): List<CanonicalCausalRelationRecord> =
-        if (!tableExists()) emptyList() else db.rawQuery("""SELECT relation_uid,transaction_uid,relation_intent_uid,relation_class_uid,relation_kind_uid,
-            source_event_uid,target_event_uid,supersedes_relation_uid,committed_order,relation_ordinal,semantic_fingerprint
-            FROM ${CampaignCausalGraphSchema.TABLE}
-            WHERE campaign_uid=? AND transaction_uid=? ORDER BY relation_ordinal,relation_intent_uid""", arrayOf(campaignUid, transactionUid)).use { c ->
-            buildList {
-                while (c.moveToNext()) add(
-                    CanonicalCausalRelationRecord(
-                        campaignUid,c.getString(0),c.getString(1),c.getString(2),CausalRelationClass.valueOf(c.getString(3)),c.getString(4),
-                        c.getString(5),c.getString(6),if(c.isNull(7))null else c.getString(7),if(c.isNull(8))null else c.getLong(8),
-                        if(c.isNull(9))null else c.getInt(9),c.getString(10)
-                    )
-                }
+    fun relationsForTransaction(transactionUid: String): List<CanonicalCausalRelationRecord> {
+        if (!tableExists()) return emptyList()
+        return db.rawQuery(
+            """SELECT relation_uid,transaction_uid,relation_intent_uid,relation_class_uid,relation_kind_uid,
+                source_event_uid,target_event_uid,supersedes_relation_uid,committed_order,relation_ordinal,semantic_fingerprint
+                FROM ${CampaignCausalGraphSchema.TABLE}
+                WHERE campaign_uid=? AND transaction_uid=? ORDER BY relation_ordinal,relation_intent_uid""".trimIndent(),
+            arrayOf(campaignUid, transactionUid)
+        ).use { c ->
+            val rows = mutableListOf<CanonicalCausalRelationRecord>()
+            while (c.moveToNext()) {
+                rows += CanonicalCausalRelationRecord(
+                    campaignUid,
+                    c.getString(0),
+                    c.getString(1),
+                    c.getString(2),
+                    CausalRelationClass.valueOf(c.getString(3)),
+                    c.getString(4),
+                    c.getString(5),
+                    c.getString(6),
+                    if (c.isNull(7)) null else c.getString(7),
+                    if (c.isNull(8)) null else c.getLong(8),
+                    if (c.isNull(9)) null else c.getInt(9),
+                    c.getString(10)
+                )
             }
+            rows
         }
+    }
 
     fun relationUid(identity: TurnTransactionIdentity, relationIntentUid: String): String =
         "RPGOS-RELATION:" + sha256("$campaignUid|${identity.transactionUid}|${identity.commandUid}|$relationIntentUid")
@@ -366,5 +380,8 @@ internal class CampaignCausalGraph(private val db: SQLiteDatabase, private val c
     private fun find(tx: String, intent: String): CanonicalCausalRelationRecord? = relationsForTransaction(tx).singleOrNull { it.relationIntentUid == intent }
     private fun encodeStrings(values: List<String>) = values.sorted().joinToString(";") { "${it.length}:$it" }
     private fun sha256(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}
-    private fun tableExists()=db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", arrayOf(CampaignCausalGraphSchema.TABLE)).use{it.moveToFirst()}
+    private fun tableExists(): Boolean = db.rawQuery(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+        arrayOf(CampaignCausalGraphSchema.TABLE)
+    ).use { cursor -> cursor.moveToFirst() }
 }
