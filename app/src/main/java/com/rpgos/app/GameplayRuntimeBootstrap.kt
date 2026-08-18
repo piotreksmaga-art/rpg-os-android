@@ -5,10 +5,6 @@ import android.database.sqlite.SQLiteDatabase
 private data class ActiveGameplayInitialization(val db: SQLiteDatabase, val campaignUid: String)
 private val activeGameplayInitialization = ThreadLocal<ActiveGameplayInitialization?>()
 
-/**
- * Single production readiness owner for a writable campaign DB.
- * INITIALIZE is administrative and may migrate; REQUIRE READY is strictly read-only verification.
- */
 internal object GameplayRuntimeBootstrap {
     private val requiredEvidenceTriggers = setOf(
         "rpgos_turn_receipts_no_update", "rpgos_turn_receipts_no_delete",
@@ -16,7 +12,6 @@ internal object GameplayRuntimeBootstrap {
         "rpgos_causal_graph_no_update", "rpgos_causal_graph_no_delete"
     )
 
-    /** Explicit bootstrap/migration/restore boundary. Never call from an ordinary read path. */
     fun initialize(db: SQLiteDatabase, campaignUid: String) {
         require(campaignUid.isNotBlank()) { "RPGOS-G32:BLANK_CAMPAIGN_UID" }
         val previous = activeGameplayInitialization.get()
@@ -25,6 +20,7 @@ internal object GameplayRuntimeBootstrap {
         try {
             val install = {
                 CurrentSchema.ensure(db, campaignUid)
+                VisualLibrary(db).ensureSchema()
                 TurnTransactionReceiptSchema.ensureReady(db)
                 CampaignIntelligencePhase30Schema.ensureActivated(db, campaignUid)
                 CampaignCausalGraphSchema.ensureReady(db)
@@ -46,7 +42,6 @@ internal object GameplayRuntimeBootstrap {
         return active != null && active.db === db && active.campaignUid == campaignUid
     }
 
-    /** Compatibility name retained for explicit setup/tests; production reads use requireReady(). */
     @Deprecated("Use initialize() only at explicit administrative setup boundaries; reads must use requireReady()")
     fun ensureReady(db: SQLiteDatabase, campaignUid: String) = initialize(db, campaignUid)
 
@@ -77,7 +72,6 @@ internal object GameplayRuntimeBootstrap {
     private fun tableExists(db: SQLiteDatabase, name: String): Boolean = db.rawQuery(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", arrayOf(name)
     ).use { it.moveToFirst() }
-
     private fun triggerExists(db: SQLiteDatabase, name: String): Boolean = db.rawQuery(
         "SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=? LIMIT 1", arrayOf(name)
     ).use { it.moveToFirst() }
