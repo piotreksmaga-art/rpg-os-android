@@ -202,15 +202,18 @@ internal object CampaignIntelligencePhase30Schema {
         GameplayMutationDatabaseGuards.authoritativeTablesForCompatibility().filter { tableExists(db, it) }.forEach { table ->
             val campaignColumn = GameplayMutationDatabaseGuards.campaignColumnForCompatibility(db, table)
             listOf("INSERT" to "NEW", "UPDATE" to "NEW", "DELETE" to "OLD").forEach { (op, row) ->
+                val activationCampaign = campaignColumn?.let { "$row.$it" }
+                val activationPredicate = activationCampaign?.let { "campaign_uid=$it" } ?: "1=1"
+                val writerPredicate = activationCampaign?.let { "campaign_uid=$it AND " }.orEmpty()
                 val trigger = "rpgos_phase30_${table}_${op.lowercase()}"
                 db.execSQL("DROP TRIGGER IF EXISTS $trigger")
                 db.execSQL(
                     """CREATE TRIGGER $trigger BEFORE $op ON $table
                        WHEN EXISTS(
-                         SELECT 1 FROM $ACTIVATION_TABLE WHERE campaign_uid=$row.$campaignColumn
+                         SELECT 1 FROM $ACTIVATION_TABLE WHERE $activationPredicate
                        ) AND NOT EXISTS(
                          SELECT 1 FROM $WRITER_CONTEXT_TABLE
-                         WHERE campaign_uid=$row.$campaignColumn AND writer_contract_version >= $PHASE30_WRITER_CONTRACT_VERSION
+                         WHERE ${writerPredicate}writer_contract_version >= $PHASE30_WRITER_CONTRACT_VERSION
                        )
                        BEGIN
                          SELECT RAISE(ABORT,'RPGOS-PHASE30:INCOMPATIBLE_WRITER');

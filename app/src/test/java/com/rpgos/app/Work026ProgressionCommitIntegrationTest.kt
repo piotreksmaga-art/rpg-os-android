@@ -58,7 +58,30 @@ class Work026ProgressionCommitIntegrationTest {
     private fun setupStat(db:SQLiteDatabase){CurrentSchema.ensure(db,"C1");val store=StatResourceStore(db,"C1");store.registerStatDefinitions("WP",listOf(StatDefinition("STR","str","CORE",minValue=0.0,maxValue=200.0,worldPackUid="WP")));store.savePlayerStat(PlayerStat("C1","P1","STR",10.0));GameplayRuntimeBootstrap.initialize(db,"C1")}
     private fun command(uid:String)=PlayerCommand(commandUid=uid,campaignUid="C1",actor=actor,commandKindUid=PlayerCommandKinds.TRAIN,payload=TrainCommandPayload(DomainRef("STAT","STR"),10L,"METHOD"),provenance=CommandProvenance("WORK-026"))
     private fun admit(command:PlayerCommand<TrainCommandPayload>):CanonicalCampaignMutationProposal{val engine=PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(ProgressionComponent())),worldRuleRegistry=WorldRuleProviderRegistry.of(listOf(AllowingProbeProvider())),worldPackAuthority=WorldPackAuthoritySnapshot.single("C1",binding),invariantSnapshotResolver=PlayerInvariantSnapshotResolver{campaignUid,_->invariantSnapshotCalls++;PlayerInvariantSnapshot.create(campaignUid)});val context=PlayerResolutionContext.create(campaignUid="C1",actor=actor,knownReferences=setOf(CampaignScopedDomainRef("C1",DomainRef("PLAYER","P1")),CampaignScopedDomainRef("C1",DomainRef("STAT","STR"))),worldRuleMode=WorldRuleMode.Bound(binding));return when(val admission=CampaignMutationBoundary.resolveAndAdmit("C1",engine,command,context)){is CampaignMutationAdmission.Accepted->admission.proposal;is CampaignMutationAdmission.Rejected->error("progression admission rejected: ${admission.reasonUid}")}}
-    private class ProgressionComponent:PlayerResolutionComponent<TrainCommandPayload>(PlayerCommandKinds.TRAIN,TrainCommandPayload::class,"RPGOS-COMPONENT:WORK-026-PROGRESSION","1"){override fun resolve(command:PlayerCommand<TrainCommandPayload>,context:PlayerResolutionContext)=PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(progressionStimuli=listOf(ProgressionStimulus.create(stimulusUid="RPGOS-STIMULUS:${command.commandUid}:TRAIN",sourceTypeUid="RPGOS-SOURCE:TRAIN_COMMAND",sourceChannelUid=ProgressionSourceChannels.TRAINING,subject=DomainRef("PLAYER",command.actor.actorUid),targetKindUid=ProgressionTargetKinds.STAT,targetUid="STR",targetValueEvidence=ProgressionTargetValueEvidence("RPGOS-CURRENT:${command.actor.actorUid}:STR","10","RPGOS-VALUE:EXACT","1"),progressSemanticsUid="RPGOS-PROGRESS:EXACT_UNITS",progressSemanticsVersion="1",effortUnits=command.payload.effortUnits,methodUid=command.payload.methodUid,progressionPolicyUid="RPGOS-PROGRESSION-POLICY:WORK-026",progressionPolicyVersion="1"))))) }
+    private class ProgressionComponent:PlayerResolutionComponent<TrainCommandPayload>(PlayerCommandKinds.TRAIN,TrainCommandPayload::class,"RPGOS-COMPONENT:WORK-026-PROGRESSION","1") {
+        override fun resolve(command:PlayerCommand<TrainCommandPayload>,context:PlayerResolutionContext) =
+            PlayerResolutionComponentOutcome.Resolved(
+                PlayerResolutionDraft.create(
+                    progressionStimuli=listOf(
+                        ProgressionStimulus.create(
+                            stimulusUid="RPGOS-STIMULUS:${command.commandUid}:TRAIN",
+                            sourceTypeUid="RPGOS-SOURCE:TRAIN_COMMAND",
+                            sourceChannelUid=ProgressionSourceChannels.TRAINING,
+                            subject=DomainRef("PLAYER",command.actor.actorUid),
+                            targetKindUid=ProgressionTargetKinds.STAT,
+                            targetUid="STR",
+                            targetValueEvidence=ProgressionTargetValueEvidence("RPGOS-CURRENT:${command.actor.actorUid}:STR","10","RPGOS-VALUE:EXACT","1"),
+                            progressSemanticsUid="RPGOS-PROGRESS:EXACT_UNITS",
+                            progressSemanticsVersion="1",
+                            effortUnits=command.payload.effortUnits,
+                            methodUid=command.payload.methodUid,
+                            progressionPolicyUid="RPGOS-PROGRESSION-POLICY:WORK-026",
+                            progressionPolicyVersion="1"
+                        )
+                    )
+                )
+            )
+    }
     private class AllowingProbeProvider:WorldRuleProvider("WORK-026-ALLOW","1","WORLD-P20","1"){override fun evaluate(request:WorldRuleRequest):WorldRuleDecision{when(request.stage){WorldRuleEvaluationStage.COMMAND_PRECHECK->precheckCalls++;WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK->{effectCheckCalls++;assertNotNull(request.effects);assertTrue(request.effects!!.ledgerIntents.any{it.ledgerKindUid==PlayerLedgerIntentKinds.PROGRESSION});assertTrue(request.effects!!.changes.any{it.payload is StatChange})}};return WorldRuleDecision.Allowed.create("WORK-026-ALLOW-RULE")}}
     private fun receiptCount(db:SQLiteDatabase)=db.rawQuery("SELECT COUNT(*) FROM turn_transaction_receipts WHERE campaign_uid='C1'",null).use{it.moveToFirst();it.getLong(0)}
     private fun eventCount(db:SQLiteDatabase,tx:String)=db.rawQuery("SELECT COUNT(*) FROM canonical_gameplay_events WHERE campaign_uid='C1' AND transaction_uid=?",arrayOf(tx)).use{it.moveToFirst();it.getLong(0)}

@@ -35,6 +35,7 @@ class PlayerStatePersistenceTest {
             createActivePlayerTable(db)
             createSkillsTable(db)
             insertSkill(db, "PLAYER-A", "s1", 10)
+            GameplayRuntimeBootstrap.initialize(db, "campaign-a")
             ActivePlayerStore(db, "campaign-a").set("PLAYER-A")
         }
 
@@ -97,6 +98,7 @@ class PlayerStatePersistenceTest {
             createActivePlayerTable(db)
             createSkillsTable(db)
             for (i in 1..125) insertSkill(db, "PLAYER-A", "skill-$i", i)
+            GameplayRuntimeBootstrap.initialize(db, "campaign-a")
             ActivePlayerStore(db, "campaign-a").set("PLAYER-A")
 
             val state = PlayerStateStore(db, "campaign-a").load()
@@ -112,6 +114,7 @@ class PlayerStatePersistenceTest {
             createSkillsTable(db)
             insertSkill(db, "PLAYER-A", "a-only", 10)
             insertSkill(db, "PLAYER-B", "b-only", 20)
+            GameplayRuntimeBootstrap.initialize(db, "campaign-a")
             ActivePlayerStore(db, "campaign-a").set("PLAYER-A")
 
             val state = PlayerStateStore(db, "campaign-a").load()
