@@ -157,6 +157,7 @@ class Phase32WriterBypassInventoryTest {
             Phase32ProductionReadyTestFixture.setup(db, "C1")
             db.execSQL("CREATE TABLE IF NOT EXISTS character_stats(entity_uid TEXT,stat_key TEXT,current_value REAL)")
             db.execSQL("INSERT INTO character_stats(entity_uid,stat_key,current_value) VALUES('P2','focus',1.0)")
+            db.execSQL("INSERT INTO character_stats(entity_uid,stat_key,current_value) VALUES('P1','focus',1.0)")
 
             assertEquals("P2", ActivePlayerStore(db, "C1").set("P2").playerUid)
             assertEquals("P2", ActivePlayerStore(db, "C1").requireActive().playerUid)
