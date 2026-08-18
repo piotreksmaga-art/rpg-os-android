@@ -1,0 +1,39 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+
+# Generated packages / binaries
+*.apk
+*.aab
+
+# Python cache (backend/tools)
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local logs/temp
+*.log
+.tmp/
+tmp/
