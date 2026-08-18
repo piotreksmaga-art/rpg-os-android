@@ -2,6 +2,7 @@
 
 Date: 2026-08-18
 Scope: `master` after merge of PR #46
+Cleanup PR: #47
 Mode: conservative / recovery-first
 
 ## Goal
@@ -101,7 +102,7 @@ These are confirmed historical snapshots. They reference early root documents su
 
 ## Current execution status
 
-Completed in this branch:
+Completed in PR #47:
 
 1. `.gitignore` added and hardened.
 2. Root README refreshed.
@@ -119,7 +120,7 @@ Current PR functional surface:
 - no runtime asset changes;
 - documentation, repository hygiene rules, archive moves, and removal of obsolete generated snapshots only.
 
-First cleanup batch is complete. Remaining archive/manifest work is intentionally deferred to a second pass so this PR stays easy to audit and rollback.
+The first cleanup batch is complete. Remaining archive/manifest work is intentionally deferred to a second pass so PR #47 stays easy to audit and rollback.
 
 ## Current conclusion
 
