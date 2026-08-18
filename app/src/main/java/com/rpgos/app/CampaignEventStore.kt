@@ -4,15 +4,15 @@ import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
 import java.security.MessageDigest
 
-const val PHASE30_EVENT_SCHEMA_VERSION = 1
-const val PHASE30_WRITER_CONTRACT_VERSION = 30
+const val PHASE30_EVENT_SCHEMA_VERSION = 2
+const val PHASE30_WRITER_CONTRACT_VERSION = 32
 
 class EventStoreIntegrityException(code: String) : IllegalStateException("RPGOS-EVENT-STORE:$code")
 class EventStoreIdentityConflictException : IllegalStateException("RPGOS-EVENT-STORE:IDENTITY_CONFLICT")
 
 /**
  * Prospective Phase-30 activation. Pre-activation history is intentionally not reconstructed.
- * The event store is authoritative only for the fact that these semantic event records committed.
+ * Event Store is authoritative only for immutable committed event evidence, never current domain state.
  */
 internal object CampaignIntelligencePhase30Schema {
     const val ACTIVATION_TABLE = "campaign_intelligence_activation"
@@ -35,8 +35,79 @@ internal object CampaignIntelligencePhase30Schema {
                 writer_contract_version INTEGER NOT NULL
             )""".trimIndent()
         )
+        migrateEventTableIfNeeded(db)
+        installEventTriggers(db)
+
+        val existing = db.rawQuery(
+            "SELECT legacy_event_history_status FROM $ACTIVATION_TABLE WHERE campaign_uid=?",
+            arrayOf(campaignUid)
+        ).use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        if (existing == null) {
+            val activation = ContentValues().apply {
+                put("campaign_uid", campaignUid)
+                put("event_schema_version", PHASE30_EVENT_SCHEMA_VERSION)
+                put("min_writer_contract_version", PHASE30_WRITER_CONTRACT_VERSION)
+                put("legacy_event_history_status", "UNKNOWN_NOT_RECORDED")
+            }
+            check(db.insert(ACTIVATION_TABLE, null, activation) != -1L) { "RPGOS-PHASE30:ACTIVATION_FAILED" }
+        } else {
+            db.execSQL(
+                "UPDATE $ACTIVATION_TABLE SET event_schema_version=?,min_writer_contract_version=? WHERE campaign_uid=?",
+                arrayOf(PHASE30_EVENT_SCHEMA_VERSION, PHASE30_WRITER_CONTRACT_VERSION, campaignUid)
+            )
+        }
+        installOldWriterGuards(db)
+    }
+
+    private fun migrateEventTableIfNeeded(db: SQLiteDatabase) {
+        if (!tableExists(db, EVENT_TABLE)) {
+            createCurrentEventTable(db, EVENT_TABLE)
+            createEventIndexes(db)
+            return
+        }
+        if (hasColumn(db, EVENT_TABLE, "event_ordinal") && !eventTableHasLegacyUniqueCommittedOrder(db)) {
+            createEventIndexes(db)
+            return
+        }
+
+        listOf("rpgos_event_store_no_update", "rpgos_event_store_no_delete", "rpgos_event_store_turn_insert").forEach {
+            db.execSQL("DROP TRIGGER IF EXISTS $it")
+        }
+        db.execSQL("DROP TABLE IF EXISTS canonical_gameplay_events_v2_new")
+        createCurrentEventTable(db, "canonical_gameplay_events_v2_new")
+
+        val legacyHasCommittedOrder = hasColumn(db, EVENT_TABLE, "committed_order")
+        val legacyOrderExpr = if (legacyHasCommittedOrder) "e.committed_order" else "NULL"
         db.execSQL(
-            """CREATE TABLE IF NOT EXISTS $EVENT_TABLE(
+            """INSERT INTO canonical_gameplay_events_v2_new(
+                campaign_uid,event_uid,transaction_uid,turn_uid,command_uid,event_intent_uid,event_kind_uid,
+                committed_order,event_ordinal,source_actor_kind_uid,source_actor_uid,actor_ref_kind_uid,actor_ref_uid,
+                subject_ref_kind_uid,subject_ref_uid,target_refs_canonical,causal_change_uids_canonical,effect_kind_uid,
+                source_event_uid,resolver_kind_uid,resolver_version,semantic_fingerprint,schema_version)
+            SELECT e.campaign_uid,e.event_uid,e.transaction_uid,e.turn_uid,e.command_uid,e.event_intent_uid,e.event_kind_uid,
+                CASE WHEN r.commit_order IS NOT NULL THEN r.commit_order ELSE NULL END,
+                CASE WHEN r.commit_order IS NOT NULL THEN (
+                    SELECT COUNT(*) FROM $EVENT_TABLE e2
+                    WHERE e2.campaign_uid=e.campaign_uid AND e2.transaction_uid=e.transaction_uid
+                      AND e2.event_intent_uid < e.event_intent_uid
+                ) ELSE NULL END,
+                e.source_actor_kind_uid,e.source_actor_uid,e.actor_ref_kind_uid,e.actor_ref_uid,
+                e.subject_ref_kind_uid,e.subject_ref_uid,e.target_refs_canonical,e.causal_change_uids_canonical,e.effect_kind_uid,
+                e.source_event_uid,e.resolver_kind_uid,e.resolver_version,e.semantic_fingerprint,e.schema_version
+            FROM $EVENT_TABLE e
+            LEFT JOIN turn_transaction_receipts r
+              ON r.campaign_uid=e.campaign_uid AND r.transaction_uid=e.transaction_uid AND r.commit_state='COMMITTED'""".trimIndent()
+        )
+        // legacyOrderExpr is deliberately not used as a fallback: an Event-local sequence is not proof of Phase29 order.
+        @Suppress("UNUSED_VARIABLE") val ignoredLegacyOrder = legacyOrderExpr
+        db.execSQL("DROP TABLE $EVENT_TABLE")
+        db.execSQL("ALTER TABLE canonical_gameplay_events_v2_new RENAME TO $EVENT_TABLE")
+        createEventIndexes(db)
+    }
+
+    private fun createCurrentEventTable(db: SQLiteDatabase, table: String) {
+        db.execSQL(
+            """CREATE TABLE $table(
                 campaign_uid TEXT NOT NULL,
                 event_uid TEXT NOT NULL,
                 transaction_uid TEXT NOT NULL,
@@ -44,7 +115,8 @@ internal object CampaignIntelligencePhase30Schema {
                 command_uid TEXT NOT NULL,
                 event_intent_uid TEXT NOT NULL,
                 event_kind_uid TEXT NOT NULL,
-                committed_order INTEGER NOT NULL,
+                committed_order INTEGER NULL CHECK(committed_order IS NULL OR committed_order > 0),
+                event_ordinal INTEGER NULL CHECK(event_ordinal IS NULL OR event_ordinal >= 0),
                 source_actor_kind_uid TEXT NOT NULL,
                 source_actor_uid TEXT NOT NULL,
                 actor_ref_kind_uid TEXT,
@@ -61,24 +133,35 @@ internal object CampaignIntelligencePhase30Schema {
                 schema_version INTEGER NOT NULL,
                 PRIMARY KEY(campaign_uid,event_uid),
                 UNIQUE(campaign_uid,transaction_uid,event_intent_uid),
-                UNIQUE(campaign_uid,committed_order)
+                UNIQUE(campaign_uid,transaction_uid,event_ordinal),
+                CHECK((committed_order IS NULL AND event_ordinal IS NULL) OR (committed_order IS NOT NULL AND event_ordinal IS NOT NULL))
             )""".trimIndent()
         )
-        db.execSQL("CREATE INDEX IF NOT EXISTS idx_canonical_gameplay_events_tx ON $EVENT_TABLE(campaign_uid,transaction_uid,committed_order)")
+    }
+
+    private fun createEventIndexes(db: SQLiteDatabase) {
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_canonical_gameplay_events_tx ON $EVENT_TABLE(campaign_uid,transaction_uid,event_ordinal)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_canonical_gameplay_events_order ON $EVENT_TABLE(campaign_uid,committed_order,event_ordinal) WHERE committed_order IS NOT NULL")
+    }
+
+    private fun installEventTriggers(db: SQLiteDatabase) {
+        listOf("rpgos_event_store_no_update", "rpgos_event_store_no_delete", "rpgos_event_store_turn_insert").forEach {
+            db.execSQL("DROP TRIGGER IF EXISTS $it")
+        }
         db.execSQL(
-            """CREATE TRIGGER IF NOT EXISTS rpgos_event_store_no_update
+            """CREATE TRIGGER rpgos_event_store_no_update
                BEFORE UPDATE ON $EVENT_TABLE BEGIN
                  SELECT RAISE(ABORT,'RPGOS-EVENT-STORE:APPEND_ONLY');
                END""".trimIndent()
         )
         db.execSQL(
-            """CREATE TRIGGER IF NOT EXISTS rpgos_event_store_no_delete
+            """CREATE TRIGGER rpgos_event_store_no_delete
                BEFORE DELETE ON $EVENT_TABLE BEGIN
                  SELECT RAISE(ABORT,'RPGOS-EVENT-STORE:APPEND_ONLY');
                END""".trimIndent()
         )
         db.execSQL(
-            """CREATE TRIGGER IF NOT EXISTS rpgos_event_store_turn_insert
+            """CREATE TRIGGER rpgos_event_store_turn_insert
                BEFORE INSERT ON $EVENT_TABLE
                WHEN NOT EXISTS(
                  SELECT 1 FROM ${GameplayMutationDatabaseGuards.CONTEXT_TABLE_NAME}
@@ -91,14 +174,6 @@ internal object CampaignIntelligencePhase30Schema {
                  SELECT RAISE(ABORT,'RPGOS-EVENT-STORE:CANONICAL_TURN_REQUIRED');
                END""".trimIndent()
         )
-        val activation = ContentValues().apply {
-            put("campaign_uid", campaignUid)
-            put("event_schema_version", PHASE30_EVENT_SCHEMA_VERSION)
-            put("min_writer_contract_version", PHASE30_WRITER_CONTRACT_VERSION)
-            put("legacy_event_history_status", "UNKNOWN_NOT_RECORDED")
-        }
-        db.insertWithOnConflict(ACTIVATION_TABLE, null, activation, SQLiteDatabase.CONFLICT_IGNORE)
-        installOldWriterGuards(db)
     }
 
     fun enterWriter(db: SQLiteDatabase, campaignUid: String) {
@@ -117,7 +192,10 @@ internal object CampaignIntelligencePhase30Schema {
 
     fun isActivated(db: SQLiteDatabase, campaignUid: String): Boolean {
         if (!tableExists(db, ACTIVATION_TABLE)) return false
-        return db.rawQuery("SELECT 1 FROM $ACTIVATION_TABLE WHERE campaign_uid=? LIMIT 1", arrayOf(campaignUid)).use { it.moveToFirst() }
+        return db.rawQuery(
+            "SELECT 1 FROM $ACTIVATION_TABLE WHERE campaign_uid=? AND event_schema_version>=? AND min_writer_contract_version>=? LIMIT 1",
+            arrayOf(campaignUid, PHASE30_EVENT_SCHEMA_VERSION.toString(), PHASE30_WRITER_CONTRACT_VERSION.toString())
+        ).use { it.moveToFirst() }
     }
 
     private fun installOldWriterGuards(db: SQLiteDatabase) {
@@ -125,8 +203,9 @@ internal object CampaignIntelligencePhase30Schema {
             val campaignColumn = GameplayMutationDatabaseGuards.campaignColumnForCompatibility(db, table)
             listOf("INSERT" to "NEW", "UPDATE" to "NEW", "DELETE" to "OLD").forEach { (op, row) ->
                 val trigger = "rpgos_phase30_${table}_${op.lowercase()}"
+                db.execSQL("DROP TRIGGER IF EXISTS $trigger")
                 db.execSQL(
-                    """CREATE TRIGGER IF NOT EXISTS $trigger BEFORE $op ON $table
+                    """CREATE TRIGGER $trigger BEFORE $op ON $table
                        WHEN EXISTS(
                          SELECT 1 FROM $ACTIVATION_TABLE WHERE campaign_uid=$row.$campaignColumn
                        ) AND NOT EXISTS(
@@ -141,6 +220,21 @@ internal object CampaignIntelligencePhase30Schema {
         }
     }
 
+    private fun eventTableHasLegacyUniqueCommittedOrder(db: SQLiteDatabase): Boolean = db.rawQuery(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+        arrayOf(EVENT_TABLE)
+    ).use { c ->
+        if (!c.moveToFirst() || c.isNull(0)) false
+        else c.getString(0).replace(" ", "").lowercase().contains("unique(campaign_uid,committed_order)")
+    }
+
+    private fun hasColumn(db: SQLiteDatabase, table: String, column: String): Boolean =
+        db.rawQuery("PRAGMA table_info($table)", null).use { c ->
+            val name = c.getColumnIndex("name")
+            while (c.moveToNext()) if (name >= 0 && c.getString(name) == column) return@use true
+            false
+        }
+
     private fun tableExists(db: SQLiteDatabase, name: String): Boolean =
         db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", arrayOf(name)).use { it.moveToFirst() }
 }
@@ -153,46 +247,151 @@ data class CanonicalGameplayEventRecord(
     val commandUid: String,
     val eventIntentUid: String,
     val eventKindUid: String,
-    val committedOrder: Long,
+    val committedOrder: Long?,
+    val eventOrdinal: Int?,
     val semanticFingerprint: String,
     val schemaVersion: Int
+)
+
+data class RequiredEventManifestSummary(
+    val requiredEventCount: Int,
+    val orderedManifestFingerprint: String
+)
+
+internal data class ResolvedRequiredEventManifest(
+    val intents: List<PlayerEventIntent>,
+    val summary: RequiredEventManifestSummary
 )
 
 internal class CampaignEventStore(private val db: SQLiteDatabase, private val campaignUid: String) {
     init { require(campaignUid.isNotBlank()) }
 
+    fun resolveRequiredManifest(identity: TurnTransactionIdentity, changeSet: PlayerChangeSet): ResolvedRequiredEventManifest {
+        require(identity.campaignUid == campaignUid && changeSet.campaignUid == campaignUid) { "RPGOS-EVENT-STORE:CROSS_CAMPAIGN" }
+        val resolvedIntents = resolveRequiredEventIntents(changeSet)
+        val planned = resolvedIntents.sortedBy { it.eventIntentUid }.mapIndexed { ordinal, intent -> planned(identity, changeSet, intent, ordinal) }
+        val summary = RequiredEventManifestSummary(
+            requiredEventCount = planned.size,
+            orderedManifestFingerprint = sha256(
+                planned.joinToString("\u001f") { "${it.eventOrdinal}:${it.eventUid}:${it.semanticFingerprint}" }
+            )
+        )
+        return ResolvedRequiredEventManifest(resolvedIntents.sortedBy { it.eventIntentUid }, summary)
+    }
+
     fun validateRequiredEventIntents(changeSet: PlayerChangeSet) {
+        resolveRequiredEventIntents(changeSet)
+    }
+
+    private fun resolveRequiredEventIntents(changeSet: PlayerChangeSet): List<PlayerEventIntent> {
         require(changeSet.campaignUid == campaignUid) { "RPGOS-EVENT-STORE:CROSS_CAMPAIGN_CHANGESET" }
-        val changeUids = changeSet.changes.map { it.changeUid }.toSet()
-        changeSet.eventIntents.forEach { intent ->
-            if (intent.causalChangeUids.isEmpty()) throw UnsupportedCanonicalIntentException("EVENT_INTENT_WITHOUT_CHANGE_PROVENANCE")
-            if (intent.causalChangeUids.any { it !in changeUids }) throw UnsupportedCanonicalIntentException("EVENT_INTENT_UNKNOWN_CHANGE")
-            val payload = intent.payload as? DomainEffectEventIntentPayload
-                ?: throw UnsupportedCanonicalIntentException("EVENT_INTENT_PAYLOAD")
-            if (payload.subject !in intent.targetRefs) throw UnsupportedCanonicalIntentException("EVENT_INTENT_SUBJECT_NOT_TARGET")
-            if (intent.eventKindUid.isBlank() || payload.effectKindUid.isBlank()) throw UnsupportedCanonicalIntentException("EVENT_INTENT_KIND")
+        val changeByUid = changeSet.changes.associateBy { it.changeUid }
+        if (changeByUid.size != changeSet.changes.size) throw EventStoreIntegrityException("DUPLICATE_CHANGE_UID")
+
+        changeSet.changes.forEach(::requireClassifiedEventBearingChange)
+        val explicit = changeSet.eventIntents.toList()
+        val intentIds = explicit.map { it.eventIntentUid }
+        if (intentIds.distinct().size != intentIds.size) throw EventStoreIntegrityException("DUPLICATE_EVENT_INTENT_UID")
+        explicit.forEach { intent -> validateExplicitIntent(intent, changeByUid) }
+        val semanticKeys = explicit.map(::explicitSemanticKey)
+        if (semanticKeys.distinct().size != semanticKeys.size) throw EventStoreIntegrityException("DUPLICATE_SEMANTIC_EVENT")
+
+        val out = ArrayList<PlayerEventIntent>(explicit)
+        changeSet.changes.sortedBy { it.changeUid }.forEach { change ->
+            if (explicit.none { change.changeUid in it.causalChangeUids }) {
+                val generated = requiredIntentFor(changeSet, change)
+                if (out.any { it.eventIntentUid == generated.eventIntentUid }) {
+                    throw EventStoreIntegrityException("REQUIRED_EVENT_ID_CONFLICT")
+                }
+                out += generated
+            }
+        }
+        return out.sortedBy { it.eventIntentUid }
+    }
+
+    private fun validateExplicitIntent(intent: PlayerEventIntent, changes: Map<String, PlayerDomainChange>) {
+        if (intent.causalChangeUids.isEmpty()) throw UnsupportedCanonicalIntentException("EVENT_INTENT_WITHOUT_CHANGE_PROVENANCE")
+        if (intent.causalChangeUids.any { it !in changes }) throw UnsupportedCanonicalIntentException("EVENT_INTENT_UNKNOWN_CHANGE")
+        val payload = intent.payload as? DomainEffectEventIntentPayload
+            ?: throw UnsupportedCanonicalIntentException("EVENT_INTENT_PAYLOAD")
+        if (payload.subject !in intent.targetRefs) throw UnsupportedCanonicalIntentException("EVENT_INTENT_SUBJECT_NOT_TARGET")
+        if (intent.eventKindUid != PlayerEventIntentKinds.DOMAIN_EFFECT || payload.effectKindUid.isBlank()) {
+            throw UnsupportedCanonicalIntentException("EVENT_INTENT_KIND")
         }
     }
 
-    fun appendRequired(identity: TurnTransactionIdentity, changeSet: PlayerChangeSet) {
+    private fun requireClassifiedEventBearingChange(change: PlayerDomainChange) {
+        val expectedKind = when (change.payload) {
+            is StatChange -> PlayerChangeKinds.STAT
+            is ResourceChange -> PlayerChangeKinds.RESOURCE
+            is SkillChange -> PlayerChangeKinds.SKILL
+            is TechniqueChange -> PlayerChangeKinds.TECHNIQUE
+            is InnateChange -> PlayerChangeKinds.INNATE
+            is InventoryChange -> PlayerChangeKinds.INVENTORY
+            is EquipmentChange -> PlayerChangeKinds.EQUIPMENT
+            is FinancialChange -> PlayerChangeKinds.FINANCIAL
+            is AssetChange -> PlayerChangeKinds.ASSET
+            is OwnershipChange -> PlayerChangeKinds.OWNERSHIP
+            is CampaignTruthChange -> PlayerChangeKinds.CAMPAIGN_TRUTH
+            is ConditionChange -> PlayerChangeKinds.CONDITION
+            is RuntimeChange -> PlayerChangeKinds.RUNTIME
+            is DevelopmentProjectChange -> PlayerChangeKinds.DEVELOPMENT_PROJECT
+            else -> throw EventStoreIntegrityException("UNCLASSIFIED_CHANGE_KIND")
+        }
+        if (change.changeKindUid != expectedKind) throw EventStoreIntegrityException("CHANGE_KIND_PAYLOAD_MISMATCH")
+        // All currently modeled PlayerDomainChange families are explicitly EVENT_BEARING.
+    }
+
+    private fun requiredIntentFor(changeSet: PlayerChangeSet, change: PlayerDomainChange): PlayerEventIntent {
+        val subject = requiredSubject(change)
+        return PlayerEventIntent.create(
+            eventIntentUid = "RPGOS-REQUIRED-EVENT:${change.changeUid}",
+            eventKindUid = PlayerEventIntentKinds.DOMAIN_EFFECT,
+            actorRef = DomainRef(changeSet.actor.actorKindUid, changeSet.actor.actorUid),
+            targetRefs = listOf(subject),
+            causalChangeUids = listOf(change.changeUid),
+            payload = DomainEffectEventIntentPayload(subject, change.changeKindUid)
+        )
+    }
+
+    private fun requiredSubject(change: PlayerDomainChange): DomainRef = when (val payload = change.payload) {
+        is StatChange -> payload.subject
+        is ResourceChange -> payload.subject
+        is SkillChange -> payload.subject
+        is TechniqueChange -> payload.subject
+        is InnateChange -> payload.subject
+        is InventoryChange -> payload.subject
+        is EquipmentChange -> payload.subject
+        is FinancialChange -> DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, payload.fromAccountUid)
+        is AssetChange -> DomainRef("ASSET", payload.asset.assetUid)
+        is OwnershipChange -> DomainRef("OWNERSHIP_RECORD", payload.ownershipRecordUid)
+        is CampaignTruthChange -> DomainRef("CAMPAIGN_TRUTH", payload.truthUid)
+        is ConditionChange -> payload.subject
+        is RuntimeChange -> payload.subject
+        is DevelopmentProjectChange -> DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid)
+        else -> throw EventStoreIntegrityException("UNCLASSIFIED_CHANGE_KIND")
+    }
+
+    fun appendRequired(identity: TurnTransactionIdentity, changeSet: PlayerChangeSet, commitOrder: Long) {
         check(db.inTransaction()) { "RPGOS-EVENT-STORE:OUTSIDE_TURN_TRANSACTION" }
-        require(identity.campaignUid == campaignUid && changeSet.campaignUid == campaignUid) { "RPGOS-EVENT-STORE:CROSS_CAMPAIGN" }
-        validateRequiredEventIntents(changeSet)
-        changeSet.eventIntents.sortedBy { it.eventIntentUid }.forEach { intent ->
-            val planned = planned(identity, changeSet, intent)
+        require(commitOrder > 0L) { "RPGOS-EVENT-STORE:INVALID_COMMIT_ORDER" }
+        val manifest = resolveRequiredManifest(identity, changeSet)
+        manifest.intents.forEachIndexed { ordinal, intent ->
+            val planned = planned(identity, changeSet, intent, ordinal)
             val existing = find(identity.transactionUid, intent.eventIntentUid)
             if (existing != null) {
-                if (existing.eventUid != planned.eventUid || existing.semanticFingerprint != planned.semanticFingerprint) {
+                if (existing.eventUid != planned.eventUid || existing.semanticFingerprint != planned.semanticFingerprint ||
+                    existing.committedOrder != commitOrder || existing.eventOrdinal != ordinal) {
                     throw EventStoreIdentityConflictException()
                 }
-                return@forEach
+                return@forEachIndexed
             }
             val payload = intent.payload as DomainEffectEventIntentPayload
-            val order = nextCommittedOrder()
             val values = ContentValues().apply {
                 put("campaign_uid", campaignUid); put("event_uid", planned.eventUid)
                 put("transaction_uid", identity.transactionUid); put("turn_uid", identity.turnUid); put("command_uid", identity.commandUid)
-                put("event_intent_uid", intent.eventIntentUid); put("event_kind_uid", intent.eventKindUid); put("committed_order", order)
+                put("event_intent_uid", intent.eventIntentUid); put("event_kind_uid", intent.eventKindUid)
+                put("committed_order", commitOrder); put("event_ordinal", ordinal)
                 put("source_actor_kind_uid", changeSet.actor.actorKindUid); put("source_actor_uid", changeSet.actor.actorUid)
                 if (intent.actorRef == null) { putNull("actor_ref_kind_uid"); putNull("actor_ref_uid") }
                 else { put("actor_ref_kind_uid", intent.actorRef.kindUid); put("actor_ref_uid", intent.actorRef.uid) }
@@ -207,15 +406,33 @@ internal class CampaignEventStore(private val db: SQLiteDatabase, private val ca
         }
     }
 
-    fun assertCommittedSetMatches(identity: TurnTransactionIdentity, changeSet: PlayerChangeSet) {
-        validateRequiredEventIntents(changeSet)
+    @Deprecated("Phase32 post-audit: Event append must receive the single Phase29 commitOrder reserved by TurnTransaction")
+    fun appendRequired(identity: TurnTransactionIdentity, changeSet: PlayerChangeSet): Nothing =
+        throw EventStoreIntegrityException("COMMIT_ORDER_REQUIRED")
+
+    fun assertCommittedSetMatches(identity: TurnTransactionIdentity, changeSet: PlayerChangeSet, receipt: TurnCommitReceipt? = null) {
+        val expectedIntents = if (receipt != null && receipt.receiptVersion < 3) {
+            changeSet.eventIntents.sortedBy { it.eventIntentUid }
+        } else {
+            resolveRequiredManifest(identity, changeSet).intents
+        }
         val rows = eventsForTransaction(identity.transactionUid)
-        val expected = changeSet.eventIntents.sortedBy { it.eventIntentUid }.map { planned(identity, changeSet, it) }
+        val expected = expectedIntents.mapIndexed { ordinal, intent -> planned(identity, changeSet, intent, ordinal) }
         if (rows.size != expected.size) throw EventStoreIntegrityException("COMMITTED_SET_MISSING_OR_EXTRA")
         expected.forEachIndexed { index, event ->
             val row = rows[index]
             if (row.eventUid != event.eventUid || row.semanticFingerprint != event.semanticFingerprint) {
                 throw EventStoreIdentityConflictException()
+            }
+            if (receipt != null && receipt.receiptVersion >= 3) {
+                if (row.committedOrder != receipt.commitOrder || row.eventOrdinal != index) throw EventStoreIntegrityException("ORDER_BINDING_MISMATCH")
+            }
+        }
+        if (receipt != null && receipt.receiptVersion >= 3) {
+            val summary = resolveRequiredManifest(identity, changeSet).summary
+            if (receipt.requiredEventCount != summary.requiredEventCount ||
+                receipt.requiredEventManifestFingerprint != summary.orderedManifestFingerprint) {
+                throw EventStoreIntegrityException("RECEIPT_MANIFEST_BINDING_MISMATCH")
             }
         }
     }
@@ -223,39 +440,65 @@ internal class CampaignEventStore(private val db: SQLiteDatabase, private val ca
     fun eventsForTransaction(transactionUid: String): List<CanonicalGameplayEventRecord> {
         if (!CampaignIntelligencePhase30Schema.isActivated(db, campaignUid)) return emptyList()
         return db.rawQuery(
-            "SELECT event_uid,transaction_uid,turn_uid,command_uid,event_intent_uid,event_kind_uid,committed_order,semantic_fingerprint,schema_version FROM ${CampaignIntelligencePhase30Schema.EVENT_TABLE} WHERE campaign_uid=? AND transaction_uid=? ORDER BY event_intent_uid",
+            """SELECT event_uid,transaction_uid,turn_uid,command_uid,event_intent_uid,event_kind_uid,
+                committed_order,event_ordinal,semantic_fingerprint,schema_version
+                FROM ${CampaignIntelligencePhase30Schema.EVENT_TABLE}
+                WHERE campaign_uid=? AND transaction_uid=? ORDER BY event_ordinal,event_intent_uid""".trimIndent(),
             arrayOf(campaignUid, transactionUid)
         ).use { c ->
             buildList {
-                while (c.moveToNext()) add(CanonicalGameplayEventRecord(campaignUid,c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getLong(6),c.getString(7),c.getInt(8)))
+                while (c.moveToNext()) add(
+                    CanonicalGameplayEventRecord(
+                        campaignUid,c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),
+                        if(c.isNull(6)) null else c.getLong(6), if(c.isNull(7)) null else c.getInt(7),c.getString(8),c.getInt(9)
+                    )
+                )
             }
         }
     }
 
-    private data class Planned(val eventUid: String, val semanticFingerprint: String)
-    private fun planned(identity: TurnTransactionIdentity, changeSet: PlayerChangeSet, intent: PlayerEventIntent): Planned {
+    internal fun eventUid(identity: TurnTransactionIdentity, changeSet: PlayerChangeSet, intent: PlayerEventIntent): String =
+        planned(identity, changeSet, intent, 0).eventUid
+
+    private data class Planned(val eventUid: String, val semanticFingerprint: String, val eventOrdinal: Int)
+
+    private fun planned(identity: TurnTransactionIdentity, changeSet: PlayerChangeSet, intent: PlayerEventIntent, ordinal: Int): Planned {
         val payload = intent.payload as DomainEffectEventIntentPayload
         val semantic = listOf(
             "v=$PHASE30_EVENT_SCHEMA_VERSION", "campaign=$campaignUid", "tx=${identity.transactionUid}", "turn=${identity.turnUid}", "command=${identity.commandUid}",
-            "intent=${intent.eventIntentUid}", "kind=${intent.eventKindUid}", "sourceActor=${changeSet.actor.actorKindUid}:${changeSet.actor.actorUid}",
+            "intent=${intent.eventIntentUid}", "ordinal=$ordinal", "kind=${intent.eventKindUid}", "sourceActor=${changeSet.actor.actorKindUid}:${changeSet.actor.actorUid}",
             "actor=${intent.actorRef?.let { "${it.kindUid}:${it.uid}" } ?: "UNKNOWN"}", "subject=${payload.subject.kindUid}:${payload.subject.uid}",
             "targets=${encodeRefs(intent.targetRefs)}", "changes=${encodeStrings(intent.causalChangeUids)}", "effect=${payload.effectKindUid}",
             "sourceEvent=${changeSet.provenance.sourceEventUid ?: "UNKNOWN"}", "resolver=${changeSet.provenance.resolverKindUid}:${changeSet.provenance.resolverVersion}"
         ).joinToString("|")
         val eventUid = "RPGOS-EVENT:" + sha256("$campaignUid|${identity.transactionUid}|${identity.commandUid}|${intent.eventIntentUid}")
-        return Planned(eventUid, sha256(semantic))
+        return Planned(eventUid, sha256(semantic), ordinal)
+    }
+
+    private fun explicitSemanticKey(intent: PlayerEventIntent): String {
+        val payload = intent.payload as? DomainEffectEventIntentPayload ?: return "UNSUPPORTED:${intent.eventIntentUid}"
+        return listOf(
+            intent.eventKindUid,
+            intent.actorRef?.let { "${it.kindUid}:${it.uid}" } ?: "UNKNOWN",
+            "${payload.subject.kindUid}:${payload.subject.uid}",
+            encodeRefs(intent.targetRefs),
+            encodeStrings(intent.causalChangeUids),
+            payload.effectKindUid,
+            intent.proposedEffectiveOrder?.toString() ?: "UNKNOWN"
+        ).joinToString("|")
     }
 
     private fun find(transactionUid: String, eventIntentUid: String): CanonicalGameplayEventRecord? =
         db.rawQuery(
-            "SELECT event_uid,transaction_uid,turn_uid,command_uid,event_intent_uid,event_kind_uid,committed_order,semantic_fingerprint,schema_version FROM ${CampaignIntelligencePhase30Schema.EVENT_TABLE} WHERE campaign_uid=? AND transaction_uid=? AND event_intent_uid=? LIMIT 1",
+            """SELECT event_uid,transaction_uid,turn_uid,command_uid,event_intent_uid,event_kind_uid,
+                committed_order,event_ordinal,semantic_fingerprint,schema_version
+                FROM ${CampaignIntelligencePhase30Schema.EVENT_TABLE}
+                WHERE campaign_uid=? AND transaction_uid=? AND event_intent_uid=? LIMIT 1""".trimIndent(),
             arrayOf(campaignUid, transactionUid, eventIntentUid)
-        ).use { c -> if (!c.moveToFirst()) null else CanonicalGameplayEventRecord(campaignUid,c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),c.getLong(6),c.getString(7),c.getInt(8)) }
-
-    private fun nextCommittedOrder(): Long = db.rawQuery(
-        "SELECT COALESCE(MAX(committed_order),0)+1 FROM ${CampaignIntelligencePhase30Schema.EVENT_TABLE} WHERE campaign_uid=?",
-        arrayOf(campaignUid)
-    ).use { c -> c.moveToFirst(); c.getLong(0) }
+        ).use { c -> if (!c.moveToFirst()) null else CanonicalGameplayEventRecord(
+            campaignUid,c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getString(4),c.getString(5),
+            if(c.isNull(6))null else c.getLong(6),if(c.isNull(7))null else c.getInt(7),c.getString(8),c.getInt(9)
+        ) }
 
     private fun encodeRefs(refs: List<DomainRef>): String = refs.sortedWith(compareBy<DomainRef> { it.kindUid }.thenBy { it.uid }).joinToString(";") { encode(it.kindUid) + encode(it.uid) }
     private fun encodeStrings(values: List<String>): String = values.sorted().joinToString(";") { encode(it) }
