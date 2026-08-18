@@ -119,12 +119,7 @@ Current PR functional surface:
 - no runtime asset changes;
 - documentation, repository hygiene rules, archive moves, and removal of obsolete generated snapshots only.
 
-Still pending before final cleanup acceptance:
-
-1. Review/archive the remaining early-alpha human-readable root documents.
-2. Regenerate or archive `PROJECT_MANIFEST.json` and `FINAL_MANIFEST_SHA256.json`.
-3. Review the final PR diff for any accidental functional change.
-4. Run/observe CI on the cleanup branch or after integration as required by repository workflow policy.
+First cleanup batch is complete. Remaining archive/manifest work is intentionally deferred to a second pass so this PR stays easy to audit and rollback.
 
 ## Current conclusion
 
