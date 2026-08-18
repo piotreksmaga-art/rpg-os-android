@@ -6,6 +6,13 @@ const val PHASE14_HARDENING_MIGRATION_ID = "RPGOS-14.1-ASSETS-LIABILITIES-GUARDS
 
 /** Release-gate guards derived from WORK-062/063/065. */
 fun MigrationManager.ensureV14Hardening(db:SQLiteDatabase,campaignId:String){
+ if(GameplayMutationDatabaseGuards.isInstalled(db)&&!GameplayRuntimeBootstrap.isInitializationActive(db,campaignId)){
+  require(db.rawQuery("SELECT 1 FROM rpgos_schema_migrations WHERE migration_id=? LIMIT 1",arrayOf(PHASE14_HARDENING_MIGRATION_ID)).use{it.moveToFirst()}){"RPGOS-G32:PHASE14_SCHEMA_NOT_READY"}
+  listOf("trg_p14_valuation_order_guard","trg_p14_settlement_order_guard","trg_p14_encumbrance_obligation_guard","trg_p14_settled_encumbrance_guard","trg_p14_asset_terminal_relation_guard","trg_p14_ownership_asset_lifecycle_guard","trg_p14_asset_kind_immutable","trg_p14_obligation_type_immutable").forEach{trigger->
+   require(db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=? LIMIT 1",arrayOf(trigger)).use{it.moveToFirst()}){"RPGOS-G32:PHASE14_SCHEMA_NOT_READY:$trigger"}
+  }
+  return
+ }
  ensureV14ContractGuards(db,campaignId)
  db.beginTransaction();try{
   listOf(Triple(ASSET_KIND_INFRASTRUCTURE,"ASSET","Infrastructure"),Triple(ASSET_KIND_RECEIVABLE,"OTHER","Receivable")).forEach{(uid,klass,name)->db.execSQL("INSERT OR IGNORE INTO ownership_asset_kinds(asset_kind_uid,kind_status,provenance) VALUES(?,'ACTIVE','RPGOS-14.1 generic asset namespace')",arrayOf(uid));db.execSQL("INSERT OR IGNORE INTO asset_kind_definitions(asset_kind_uid,asset_class,display_name,definition_status,definition_version,provenance) VALUES(?,?,?,'ACTIVE',1,'RPGOS-14.1 core asset kind')",arrayOf(uid,klass,name))}
