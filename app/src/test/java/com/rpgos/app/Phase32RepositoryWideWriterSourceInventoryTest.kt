@@ -147,6 +147,41 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         assertTrue(evidence.intersect(admin).isEmpty())
     }
 
+    @Test
+    fun repositoryReadEntriesUseReadinessBoundaryAndCannotDirectlyInvokeMigrationOrRepairWriters() {
+        val source = File(productionSourceDir(), "LocalGameStore.kt").readText()
+        val readEntries = listOf(
+            "buildContext",
+            "activePlayerRef",
+            "playerState",
+            "statDefinitions",
+            "resourceDefinitions",
+            "playerStats",
+            "playerResources",
+            "fullCharacterPanel",
+            "syncCheck",
+            "status"
+        )
+        readEntries.forEach { method ->
+            val body = functionSource(source, method)
+            assertTrue("READ_ONLY repository entry lost production readiness boundary: $method", body.contains("openGameplaySaveDb()"))
+            assertTrue("READ_ONLY repository entry directly invokes migration: $method", !body.contains("ensureCurrentSchema"))
+            assertTrue("READ_ONLY repository entry directly invokes repair: $method", !body.contains("AutoRepairEngine"))
+        }
+
+        val bootstrap = functionSource(source, "bootstrap")
+        assertTrue("administrative bootstrap lost explicit schema setup", bootstrap.contains("ensureCurrentSchema"))
+        assertTrue("administrative bootstrap lost explicit repair ownership", bootstrap.contains("AutoRepairEngine"))
+    }
+
+    private fun functionSource(source: String, method: String): String {
+        val start = source.indexOf("fun $method")
+        require(start >= 0) { "RPGOS-G32:WRITER_INVENTORY_METHOD_NOT_FOUND:$method" }
+        val nextPublic = source.indexOf("\n    fun ", start + 1).takeIf { it >= 0 } ?: source.length
+        val nextPrivate = source.indexOf("\n    private fun ", start + 1).takeIf { it >= 0 } ?: source.length
+        return source.substring(start, minOf(nextPublic, nextPrivate))
+    }
+
     private fun containsDurableWriteSink(source: String): Boolean = durableWriteMarkers.any(source::contains)
 
     private fun productionSourceDir(): File {
