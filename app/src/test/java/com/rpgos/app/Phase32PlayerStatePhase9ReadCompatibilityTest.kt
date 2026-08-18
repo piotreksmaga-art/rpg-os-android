@@ -15,29 +15,41 @@ class Phase32PlayerStatePhase9ReadCompatibilityTest {
     fun mutationFreePlayerStatePhase9ProjectionMatchesCanonicalPhase9SnapshotShape() {
         SQLiteDatabase.create(null).use { db ->
             CurrentSchema.ensure(db, "C1")
+            val store = Phase9Store(db, "C1")
+            store.registerOrigins(
+                "G32-WP",
+                listOf(OriginDefinition("ORIGIN-G32", "G32-WP", "origin", "Origin", "generic", provenance = "G32"))
+            )
+            store.registerInnateFeatures(
+                "G32-WP",
+                listOf(InnateFeatureDefinition("FEATURE-G32", "G32-WP", "feature", "Feature", "generic", provenance = "G32"))
+            )
+            store.registerEvolutionPaths(
+                "G32-WP",
+                listOf(EvolutionPathDefinition("PATH-G32", "G32-WP", "path", "Path", provenance = "G32"))
+            )
+            store.registerEvolutionStages(
+                "G32-WP",
+                listOf(EvolutionStageDefinition("STAGE-G32", "PATH-G32", "G32-WP", "stage", "Stage", provenance = "G32"))
+            )
+            store.registerEvolutionTransitions(
+                "G32-WP",
+                listOf(EvolutionTransitionDefinition("ENTRY-G32", "G32-WP", null, "STAGE-G32", provenance = "G32"))
+            )
+            store.registerForms(
+                "G32-WP",
+                listOf(FormDefinition("FORM-G32", "G32-WP", "form", "Form", sourceStageUid = "STAGE-G32", provenance = "G32"))
+            )
+            store.saveOrigin(PlayerOrigin("C1", "P1", "ORIGIN-G32", "PRIMARY", provenance = "G32"))
+            store.grantInnateFeature(PlayerInnateFeature("C1", "P1", "FEATURE-G32", acquiredChapter = 7L, provenance = "G32"))
+            store.transitionEvolution("P1", "ENTRY-G32", "G32", attainedChapter = 8L)
+            store.unlockForm(PlayerFormUnlock("C1", "P1", "FORM-G32", provenance = "G32"))
+            store.activateForm(PlayerActiveForm("C1", "P1", "FORM-G32", activatedAt = 9L, provenance = "G32"))
             db.execSQL(
                 "INSERT OR REPLACE INTO active_player_ref(campaign_id,player_uid,updated_at) VALUES('C1','P1',1)"
             )
-            db.execSQL(
-                "INSERT INTO player_origins_v2(campaign_id,character_uid,origin_uid,relationship_kind,entry_version,provenance) VALUES('C1','P1','ORIGIN-G32','PRIMARY',1,'G32')"
-            )
-            db.execSQL(
-                "INSERT INTO player_innate_features(campaign_id,character_uid,feature_uid,acquired_chapter,entry_version,provenance) VALUES('C1','P1','FEATURE-G32',7,1,'G32')"
-            )
-            db.execSQL(
-                "INSERT INTO player_evolution_states(campaign_id,character_uid,path_uid,current_stage_uid,state_version,provenance) VALUES('C1','P1','PATH-G32','STAGE-G32',1,'G32')"
-            )
-            db.execSQL(
-                "INSERT INTO player_evolution_stages(campaign_id,character_uid,stage_uid,attained_via_transition_uid,attained_chapter,entry_version,provenance) VALUES('C1','P1','STAGE-G32','TRANSITION-G32',8,1,'G32')"
-            )
-            db.execSQL(
-                "INSERT INTO player_form_unlocks(campaign_id,character_uid,form_uid,entry_version,provenance) VALUES('C1','P1','FORM-G32',1,'G32')"
-            )
-            db.execSQL(
-                "INSERT INTO player_active_forms(campaign_id,character_uid,form_uid,activated_at,state_version,provenance) VALUES('C1','P1','FORM-G32',9,1,'G32')"
-            )
 
-            val expected = Phase9Store(db, "C1").snapshot("P1").toContextMap()
+            val expected = store.snapshot("P1").toContextMap()
             GameplayRuntimeBootstrap.ensureReady(db, "C1")
             GameplayRuntimeBootstrap.requireReady(db, "C1")
 
