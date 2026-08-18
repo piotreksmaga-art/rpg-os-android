@@ -78,6 +78,9 @@ class Phase32WriterBypassInventoryTest {
         "packageManager" to WriterReachability.ADMINISTRATIVE,
         "backups" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "restoreBackup" to WriterReachability.ADMINISTRATIVE,
+        "createSnapshot" to WriterReachability.ADMINISTRATIVE,
+        "snapshots" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
+        "restoreLatestSnapshot" to WriterReachability.ADMINISTRATIVE,
         "finalizeChapter" to WriterReachability.ADMINISTRATIVE
     )
 

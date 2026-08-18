@@ -81,6 +81,11 @@ class TurnTransaction internal constructor(
                 result
             }
             failureInjector.failIfRequested(TurnFailurePoint.BEFORE_COMMIT)
+            val eventBoundaryUid=eventStore.eventsForTransaction(identity.transactionUid).lastOrNull()?.eventUid
+            CommittedReplayPayloadStore(db).append(
+                identity,commitOrder,semanticFingerprint,requiredManifest.summary,proposal.playerChangeSet,
+                causalRelationIntents,eventBoundaryUid
+            )
             val receipt=receiptStore.appendCommitted(identity,semanticFingerprint,commitOrder,requiredManifest.summary)
             failureInjector.failIfRequested(TurnFailurePoint.AFTER_RECEIPT_BEFORE_COMMIT)
             db.setTransactionSuccessful()
@@ -105,7 +110,7 @@ class TurnTransaction internal constructor(
     private fun sha256(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}
 }
 
-private object CanonicalPlayerChangeApplier{
+internal object CanonicalPlayerChangeApplier{
     fun preflight(changeSet:PlayerChangeSet){
         changeSet.ledgerIntents.forEach{intent->
             when(intent.ledgerKindUid){
@@ -318,6 +323,33 @@ private object CanonicalPlayerChangeApplier{
             )
         )
     }
+}
+
+/** Recovery-only deterministic reapplication of material that was committed by TurnTransaction. */
+internal fun replayCommittedTransaction(db:SQLiteDatabase,payload:CommittedReplayPayload){
+    requireAdministrativeRecoveryEntryPoint()
+    check(!db.inTransaction()){"RPGOS-SNAPSHOT:NESTED_REPLAY"}
+    check(TurnTransactionReceiptStore(db).committedTransaction(payload.identity.transactionUid)==null){"RPGOS-SNAPSHOT:DUPLICATE_REPLAY"}
+    val eventStore=CampaignEventStore(db,payload.identity.campaignUid)
+    val causalGraph=CampaignCausalGraph(db,payload.identity.campaignUid)
+    val resolved=eventStore.resolveRequiredManifest(payload.identity,payload.changeSet)
+    require(resolved.summary==payload.eventManifest){"RPGOS-SNAPSHOT:REPLAY_EVENT_MANIFEST_MISMATCH"}
+    causalGraph.validate(payload.causalPlan)
+    db.beginTransaction()
+    try{
+        val applied=withCanonicalGameplayMutationForTurn(db,payload.identity.campaignUid,TURN_TRANSACTION_SEAL){
+            val result=CanonicalPlayerChangeApplier.applyAll(db,payload.identity,payload.changeSet,TurnFailureInjector.NONE)
+            eventStore.appendRequired(payload.identity,payload.changeSet,payload.commitOrder)
+            causalGraph.appendRequired(payload.identity,payload.causalPlan,payload.commitOrder)
+            result
+        }
+        require(applied.appliedChangeUids==payload.changeSet.changes.map{it.changeUid})
+        val boundary=eventStore.eventsForTransaction(payload.identity.transactionUid).lastOrNull()?.eventUid
+        require(boundary==payload.eventBoundaryUid){"RPGOS-SNAPSHOT:REPLAY_EVENT_BOUNDARY_MISMATCH"}
+        CommittedReplayPayloadStore(db).append(payload.identity,payload.commitOrder,payload.semanticFingerprint,payload.eventManifest,payload.changeSet,payload.causalPlan,boundary)
+        TurnTransactionReceiptStore(db).appendCommitted(payload.identity,payload.semanticFingerprint,payload.commitOrder,payload.eventManifest)
+        db.setTransactionSuccessful()
+    }finally{db.endTransaction()}
 }
 
 object TurnTransactionBoundary{

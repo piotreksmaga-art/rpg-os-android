@@ -58,6 +58,8 @@ object RuntimeTruthLayerRegistry {
         f("TURN_RECEIPTS",RuntimeTruthLayer.APPEND_ONLY_COMMIT_EVIDENCE,"turn_transaction_receipts"),
         RuntimeStateFamily("EVENT_STORE",setOf(RuntimeTruthLayer.APPEND_ONLY_COMMIT_EVIDENCE,RuntimeTruthLayer.APPEND_ONLY_HISTORICAL_EVIDENCE),setOf("canonical_gameplay_events")),
         RuntimeStateFamily("CAUSAL_GRAPH",setOf(RuntimeTruthLayer.APPEND_ONLY_COMMIT_EVIDENCE,RuntimeTruthLayer.APPEND_ONLY_HISTORICAL_EVIDENCE),setOf("canonical_causal_relations")),
+        RuntimeStateFamily("CAMPAIGN_SNAPSHOTS",setOf(RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY),setOf("campaign_snapshots")),
+        RuntimeStateFamily("COMMITTED_REPLAY_MATERIAL",setOf(RuntimeTruthLayer.APPEND_ONLY_COMMIT_EVIDENCE),setOf("canonical_turn_replay_payloads")),
         f("CHARACTER_PANEL_SNAPSHOT_V2",RuntimeTruthLayer.DERIVED_PRESENTATION),
         f("PLAYER_SNAPSHOT_PROFILES",RuntimeTruthLayer.DERIVED_PROJECTION),
         RuntimeStateFamily("CONTEXT_BUNDLE",setOf(RuntimeTruthLayer.DERIVED,RuntimeTruthLayer.PRESENTATION)),
