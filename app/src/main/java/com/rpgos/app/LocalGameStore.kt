@@ -36,8 +36,7 @@ internal class LocalGameStore(private val context: Context) {
     private fun ensureBootstrapPackage(assetName: String, target: File, isCampaign: Boolean) {
         val validator = PackageValidator()
         val validPackage: (File) -> Boolean = { candidate ->
-            runCatching { if (isCampaign) validator.validateCampaign(candidate).ok else validator.validateWorldPack(candidate).ok }.getOrDefault(false)
-        }
+            runCatching { if (isCampaign) validator.validateCampaign(candidate).ok else validator.validateWorldPack(candidate).ok }.getOrDefault(false) }
         CanonicalPackageReplacement.reconcile(target, validPackage)
         if (validPackage(target)) return
         val staging = File(baseDir, ".bootstrap-staging/${target.name}-${System.nanoTime()}")
@@ -99,22 +98,22 @@ internal class LocalGameStore(private val context: Context) {
         }
     }
 
-    fun activePlayerRef(): ActivePlayerRef? { openSaveDb().use { db -> ensureCurrentSchema(db); return ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active() } }
+    fun activePlayerRef(): ActivePlayerRef? { openGameplaySaveDb().use { db -> return ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active() } }
     fun setActivePlayer(playerUid: String): ActivePlayerRef { openSaveDb().use { db -> ensureCurrentSchema(db); return ActivePlayerStore(db, selection.activeCampaignRef().campaignId).set(playerUid) } }
-    fun playerState(): PlayerStateSnapshot? { openSaveDb().use { db -> ensureCurrentSchema(db); return PlayerStateStore(db, selection.activeCampaignRef().campaignId).load() } }
-    fun statDefinitions(): List<StatDefinition> { openSaveDb().use { db -> ensureCurrentSchema(db); return StatResourceStore(db, selection.activeCampaignRef().campaignId).statDefinitions() } }
-    fun resourceDefinitions(): List<ResourceDefinition> { openSaveDb().use { db -> ensureCurrentSchema(db); return StatResourceStore(db, selection.activeCampaignRef().campaignId).resourceDefinitions() } }
+    fun playerState(): PlayerStateSnapshot? { openGameplaySaveDb().use { db -> return PlayerStateStore(db, selection.activeCampaignRef().campaignId).load() } }
+    fun statDefinitions(): List<StatDefinition> { openGameplaySaveDb().use { db -> return StatResourceStore(db, selection.activeCampaignRef().campaignId).statDefinitions() } }
+    fun resourceDefinitions(): List<ResourceDefinition> { openGameplaySaveDb().use { db -> return StatResourceStore(db, selection.activeCampaignRef().campaignId).resourceDefinitions() } }
     fun registerStatDefinitions(worldPackUid: String, definitions: List<StatDefinition>) { openSaveDb().use { db -> ensureCurrentSchema(db); StatResourceStore(db, selection.activeCampaignRef().campaignId).registerStatDefinitions(worldPackUid, definitions) } }
     fun registerResourceDefinitions(worldPackUid: String, definitions: List<ResourceDefinition>) { openSaveDb().use { db -> ensureCurrentSchema(db); StatResourceStore(db, selection.activeCampaignRef().campaignId).registerResourceDefinitions(worldPackUid, definitions) } }
-    fun playerStats(): List<PlayerStat> { openSaveDb().use { db -> ensureCurrentSchema(db); val campaignId = selection.activeCampaignRef().campaignId; val playerUid = ActivePlayerStore(db, campaignId).active()?.playerUid ?: return emptyList(); return StatResourceStore(db, campaignId).playerStats(playerUid) } }
-    fun playerResources(): List<PlayerResource> { openSaveDb().use { db -> ensureCurrentSchema(db); val campaignId = selection.activeCampaignRef().campaignId; val playerUid = ActivePlayerStore(db, campaignId).active()?.playerUid ?: return emptyList(); return StatResourceStore(db, campaignId).playerResources(playerUid) } }
-    fun fullCharacterPanel(): CharacterPanelSnapshot { openSaveDb().use { db -> ensureCurrentSchema(db); val playerUid = ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active()?.playerUid; return CharacterPanelReader(db, playerUid).load() } }
+    fun playerStats(): List<PlayerStat> { openGameplaySaveDb().use { db -> val campaignId = selection.activeCampaignRef().campaignId; val playerUid = ActivePlayerStore(db, campaignId).active()?.playerUid ?: return emptyList(); return StatResourceStore(db, campaignId).playerStats(playerUid) } }
+    fun playerResources(): List<PlayerResource> { openGameplaySaveDb().use { db -> val campaignId = selection.activeCampaignRef().campaignId; val playerUid = ActivePlayerStore(db, campaignId).active()?.playerUid ?: return emptyList(); return StatResourceStore(db, campaignId).playerResources(playerUid) } }
+    fun fullCharacterPanel(): CharacterPanelSnapshot { openGameplaySaveDb().use { db -> val playerUid = ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active()?.playerUid; return CharacterPanelReader(db, playerUid).load() } }
     fun npcs(search:String=""):List<NpcListItem>{ openWorldDb().use{world->openSaveDb().use{save->return NpcWorldDashboardReader(world,save).npcs(search)}} }
     fun npcDetail(uid:String):NpcDetail{ openWorldDb().use{world->openSaveDb().use{save->return NpcWorldDashboardReader(world,save).npcDetail(uid)}} }
     fun relationEdges():List<RelationEdge>{ openWorldDb().use{world->openSaveDb().use{save->return NpcWorldDashboardReader(world,save).relationEdges()}} }
     fun economies():List<EconomySummary>{ openWorldDb().use{world->openSaveDb().use{save->return NpcWorldDashboardReader(world,save).economies()}} }
     fun wars():List<WarSummary>{ openWorldDb().use{world->openSaveDb().use{save->return NpcWorldDashboardReader(world,save).wars()}} }
-    fun syncCheck():SyncCheckResult{ openCoreDb().use{core->openWorldDb().use{world->openSaveDb().use{save-> ensureCurrentSchema(save); return SyncManager().check(core,world,save) }}} }
+    fun syncCheck():SyncCheckResult{ openCoreDb().use{core->openWorldDb().use{world->openGameplaySaveDb().use{save-> return SyncManager().check(core,world,save) }}} }
     fun dbTables():List<DbTableInfo>{ openCoreDb().use{core->openSaveDb().use{save->return DatabaseExplorer(core,save).tables()}} }
     fun visualLibrary(): List<VisualRecord> { openSaveDb().use { return VisualLibrary(it).list() } }
     fun addVisual(title: String, kind: String, uri: String, chapter: Int?, relatedEntityUid: String?, relatedLocationUid: String?, prompt: String?, revisedPrompt: String?, sourceVisualUid: String? = null): String { openSaveDb().use { return VisualLibrary(it).add(title, kind, uri, chapter, relatedEntityUid, relatedLocationUid, prompt, revisedPrompt, sourceVisualUid) } }
@@ -148,8 +147,8 @@ internal class LocalGameStore(private val context: Context) {
 
     fun status(): StatusSnapshot {
         if (!File(saveDir, "campaign.db").exists()) return StatusSnapshot()
-        return openSave().use { db ->
-            val playerUid = runCatching { ensureCurrentSchema(db); ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active()?.playerUid }.getOrNull()
+        return openGameplaySaveDb().use { db ->
+            val playerUid = ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active()?.playerUid
             var location = "—"
             try { if (playerUid != null) db.rawQuery("SELECT location_uid FROM entity_positions WHERE entity_uid=? LIMIT 1", arrayOf(playerUid)).use { if (it.moveToFirst()) location = it.getString(0) ?: "—" } } catch (_: Exception) {}
             StatusSnapshot(location = location)
