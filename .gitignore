@@ -33,6 +33,11 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
+# Generated local validation outputs
+STATIC_AUDIT.json
+LONG_CAMPAIGN_STRESS_REPORT.json
+RPG_OS_STRESS_REPORT.json
+
 # Local logs/temp
 *.log
 .tmp/
