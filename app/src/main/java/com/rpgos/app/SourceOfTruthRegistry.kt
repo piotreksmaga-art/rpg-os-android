@@ -30,7 +30,18 @@ class SourceOfTruthRegistry(private val coreDb: SQLiteDatabase) {
     }
 
     fun canWrite(table: String): Boolean {
-        // Typed authorities cannot be bypassed by generic AI StatePatch writes.
+        /*
+         * G32 owns semantic classification for every table registered in the runtime truth-layer
+         * registry. Generic AI StatePatch is not a capability for any G32-owned persistent family:
+         * authority must use canonical/admin capabilities; evidence is append-only; derived/cache
+         * rebuilds use their dedicated paths; presentation/admin metadata never becomes authority.
+         *
+         * This precedence prevents this legacy registry from becoming a second semantic truth
+         * authority while preserving its compatibility policy for tables not yet owned by G32.
+         */
+        if (RuntimeTruthLayerRegistry.classificationForTable(table) != null) return false
+
+        // Pre-G32 typed authorities remain non-writable by generic AI StatePatch.
         if (table == "campaign_truth_records") return false
         if (table in TYPED_ONLY_TABLES) return false
         if (table in readOnlyTables) return false
