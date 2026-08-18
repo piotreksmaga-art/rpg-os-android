@@ -24,15 +24,16 @@ internal object GroupATransactionTestFixtures {
     }
 
     fun setupFinance(db:SQLiteDatabase,campaignUid:String="C1",openingBalance:Long=100L){
-        CurrentSchema.ensure(db,campaignUid)
-        val owner=OwnershipOwnerRef("CHARACTER","P1")
-        OwnershipReferenceRegistry(db,campaignUid).registerOwner(owner,"GROUP-A-TEST")
-        val finance=FinancialStore(db,campaignUid)
-        runCatching{finance.registerCurrency(CurrencyDefinition("CUR","coin","Coin",1L,"GROUP-A-TEST"))}
-        listOf("A","B","C","D").forEach{accountUid->finance.openAccount(FinancialAccount(campaignUid,accountUid,owner,FINANCIAL_ACCOUNT_TYPE_DEFAULT,"CUR",1L,"GROUP-A-TEST"))}
-        finance.creditExternal("OPEN-$campaignUid-A","A",openingBalance,2L,"opening","GROUP-A-TEST")
-        finance.creditExternal("OPEN-$campaignUid-C","C",openingBalance,3L,"opening","GROUP-A-TEST")
         GameplayRuntimeBootstrap.initialize(db,campaignUid)
+        withAdministrativeMutationAuthority(db,campaignUid) {
+            val owner=OwnershipOwnerRef("CHARACTER","P1")
+            OwnershipReferenceRegistry(db,campaignUid).registerOwner(owner,"GROUP-A-TEST")
+            val finance=FinancialStore(db,campaignUid)
+            runCatching{finance.registerCurrency(CurrencyDefinition("CUR","coin","Coin",1L,"GROUP-A-TEST"))}
+            listOf("A","B","C","D").forEach{accountUid->finance.openAccount(FinancialAccount(campaignUid,accountUid,owner,FINANCIAL_ACCOUNT_TYPE_DEFAULT,"CUR",1L,"GROUP-A-TEST"))}
+            finance.creditExternal("OPEN-$campaignUid-A","A",openingBalance,2L,"opening","GROUP-A-TEST")
+            finance.creditExternal("OPEN-$campaignUid-C","C",openingBalance,3L,"opening","GROUP-A-TEST")
+        }
     }
 
     private class FinancialComponent(private val count:Int,private val unsupported:Boolean):PlayerResolutionComponent<TransferFundsCommandPayload>(PlayerCommandKinds.TRANSFER_FUNDS,TransferFundsCommandPayload::class,"RPGOS-COMPONENT:GROUP-A-FINANCIAL","1"){

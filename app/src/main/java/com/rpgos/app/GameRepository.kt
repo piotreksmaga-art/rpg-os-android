@@ -93,5 +93,8 @@ interface CampaignRepository {
     fun packageManager(): RpgPackageManager
     fun backups(): List<String>
     fun restoreBackup(path: String): String
+    fun createSnapshot(kind: SnapshotKind = SnapshotKind.AUTOMATIC, pinned: Boolean = false): CampaignSnapshotDescriptor
+    fun snapshots(): List<CampaignSnapshotDescriptor>
+    fun restoreLatestSnapshot(): String
     fun finalizeChapter(chapter: Int, title: String): Pair<String, String>
 }

@@ -36,7 +36,7 @@ class Phase32LegacyUnknownProjectionTest {
     fun absentLegacyHistoricalProvenanceRemainsUnknownThroughFinalContextProjection() {
         SQLiteDatabase.openOrCreateDatabase(saveFile, null).use { db ->
             // Representative pre-Phase30 state exists before campaign-intelligence activation.
-            GroupATransactionTestFixtures.setupFinance(db, "C1")
+            CurrentSchema.ensure(db, "C1")
             db.execSQL(
                 "CREATE TABLE IF NOT EXISTS chapter_events(id INTEGER PRIMARY KEY,campaign_id TEXT,event_type TEXT,description TEXT)"
             )
@@ -61,7 +61,7 @@ class Phase32LegacyUnknownProjectionTest {
                 truthUid = "TRUTH-G32-LEGACY-UNKNOWN"
             )
 
-            GameplayRuntimeBootstrap.ensureReady(db, "C1")
+            GameplayRuntimeBootstrap.initialize(db, "C1")
             GameplayRuntimeBootstrap.requireReady(db, "C1")
 
             assertEquals("UNKNOWN_NOT_RECORDED", legacyHistoryStatus(db))

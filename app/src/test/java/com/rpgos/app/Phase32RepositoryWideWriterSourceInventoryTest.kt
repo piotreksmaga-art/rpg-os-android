@@ -55,6 +55,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         listOf(
             "AutoRepairEngine.kt",
             "BackupManager.kt",
+            "CampaignSnapshotSystem.kt",
             "CampaignSelectionManager.kt",
             "CanonicalPackageReplacement.kt",
             "ContentUpdateManager.kt",

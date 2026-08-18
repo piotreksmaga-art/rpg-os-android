@@ -28,6 +28,7 @@ internal object GameplayRuntimeBootstrap {
                 TurnTransactionReceiptSchema.ensureReady(db)
                 CampaignIntelligencePhase30Schema.ensureActivated(db, campaignUid)
                 CampaignCausalGraphSchema.ensureReady(db)
+                CampaignSnapshotSchema.ensureReady(db)
                 GameplayMutationDatabaseGuards.ensureInstalled(db)
             }
             if (GameplayMutationDatabaseGuards.isInstalled(db)) {
@@ -35,6 +36,7 @@ internal object GameplayRuntimeBootstrap {
             } else {
                 install()
             }
+            CampaignReplayAuthorityMatrix.validateComplete()
             requireReady(db, campaignUid)
         } finally {
             activeGameplayInitialization.set(previous)
@@ -57,6 +59,7 @@ internal object GameplayRuntimeBootstrap {
         check(CampaignIntelligencePhase30Schema.isActivated(db, campaignUid)) { "RPGOS-G32:PHASE30_NOT_ACTIVATED" }
         check(tableExists(db, CampaignIntelligencePhase30Schema.EVENT_TABLE)) { "RPGOS-G32:EVENT_STORE_NOT_READY" }
         check(CampaignCausalGraphSchema.isReady(db)) { "RPGOS-G32:CAUSAL_GRAPH_NOT_READY" }
+        check(CampaignSnapshotSchema.isReady(db)) { "RPGOS-G34:SNAPSHOT_SCHEMA_NOT_READY" }
         check(GameplayMutationDatabaseGuards.isInstalled(db)) { "RPGOS-G32:GAMEPLAY_GUARDS_NOT_READY" }
         RuntimePersistentTableInventory.requireComplete(db)
         requiredEvidenceTriggers.forEach { trigger -> check(triggerExists(db, trigger)) { "RPGOS-G32:MISSING_EVIDENCE_GUARD:$trigger" } }

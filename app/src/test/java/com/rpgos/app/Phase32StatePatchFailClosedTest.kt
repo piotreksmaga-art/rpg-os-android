@@ -68,9 +68,8 @@ class Phase32StatePatchFailClosedTest {
                 )
             }
 
-            // Non-G32 legacy runtime policy remains a compatibility concern of the old registry;
-            // G32 precedence does not silently rewrite unrelated legacy routing semantics.
-            assertTrue(registry.canWrite("story_threads"))
+            // Bundled narrative planning is now explicitly G32-owned and cannot fall back to StatePatch.
+            assertFalse(registry.canWrite("story_threads"))
         }
     }
 }
