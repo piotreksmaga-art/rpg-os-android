@@ -9,3 +9,5 @@ Canonical project references live under `docs/`, especially the master architect
 Moving a file into this archive changes only its current repository location. Its original path and every earlier revision remain recoverable through Git history.
 
 When a legacy file conflicts with a current canonical document or accepted runtime contract, the current canonical document/accepted contract wins. The archive exists to preserve history, not to override it.
+
+The first cleanup batch archives only the clearly superseded UI v0.4 and v0.5 notes. Additional early-alpha documents should be moved only after the same reference check.
