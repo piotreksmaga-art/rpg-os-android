@@ -4,8 +4,6 @@ import android.database.sqlite.SQLiteDatabase
 
 /** Bounded GM-context projection. The ledger remains unbounded authority. */
 class FinancialContextReader(private val db: SQLiteDatabase, private val campaignId: String) {
-    init { MigrationManager().ensureV13BalanceGuards(db, campaignId) }
-
     fun forPlayerUid(playerUid: String): Map<String, Any?> {
         require(playerUid.isNotBlank()) { "playerUid must not be blank" }
         val accounts = mutableListOf<Map<String, Any?>>()
