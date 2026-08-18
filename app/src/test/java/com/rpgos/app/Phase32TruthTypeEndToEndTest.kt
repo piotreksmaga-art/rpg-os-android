@@ -221,7 +221,9 @@ class Phase32TruthTypeEndToEndTest {
         truthUids.forEach { refs += CampaignScopedDomainRef("C1", DomainRef("CAMPAIGN_TRUTH", it)) }
         val context = PlayerResolutionContext.createUnboundGeneric("C1", actor, refs)
         val engine = PlayerDomainEngine(
-            PlayerResolutionComponentRegistry.of(listOf(TruthReferencingFinancialComponent(truthUids)))
+            PlayerResolutionComponentRegistry.of(
+                listOf(TruthReferencingFinancialComponent(truthUids.joinToString("\u001f")))
+            )
         )
         return when (val admission = CampaignMutationBoundary.resolveAndAdmit("C1", engine, command, context)) {
             is CampaignMutationAdmission.Accepted -> admission.proposal
@@ -230,7 +232,7 @@ class Phase32TruthTypeEndToEndTest {
     }
 
     private class TruthReferencingFinancialComponent(
-        private val truthUids: List<String>
+        private val truthUidPayload: String
     ) : PlayerResolutionComponent<TransferFundsCommandPayload>(
         PlayerCommandKinds.TRANSFER_FUNDS,
         TransferFundsCommandPayload::class,
@@ -253,7 +255,7 @@ class Phase32TruthTypeEndToEndTest {
                     "RPGOS-FIN-TYPE:TRANSFER"
                 )
             )
-            val events = truthUids.map { truthUid ->
+            val events = truthUidPayload.split('\u001f').filter { it.isNotBlank() }.map { truthUid ->
                 val truthRef = DomainRef("CAMPAIGN_TRUTH", truthUid)
                 PlayerEventIntent.create(
                     eventIntentUid = "EVENT-$truthUid",
