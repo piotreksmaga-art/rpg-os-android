@@ -72,6 +72,9 @@ class TechniqueContextBuilderTest {
             assertEquals(1001, store.reconciled("P").techniques.size)
             assertEquals(1, store.reconciled("P").unresolvedLegacy.size)
 
+            GameplayRuntimeBootstrap.ensureReady(db, campaignId)
+            GameplayRuntimeBootstrap.requireReady(db, campaignId)
+
             val context = ContextBuilder(db, db).build("status", 1)
             assertEquals(1002, context.playerTechniques.size)
             assertEquals(1001, context.playerTechniques.count { it["canonical"] == true })
