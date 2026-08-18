@@ -66,7 +66,7 @@ object RuntimePersistentWriterRegistry {
         c("createCampaign",PersistentWriterCapability.ADMINISTRATIVE,"SCHEMA_MIGRATION_REPAIR","GAMEPLAY_READINESS_METADATA"),
         c("openWorldDb",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE),
         c("openCoreDb",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE),
-        c("commitTurn",PersistentWriterCapability.CANONICAL_TURN,"TURN_RECEIPTS","EVENT_STORE","CAUSAL_GRAPH"),
+        c("commitTurn",PersistentWriterCapability.CANONICAL_TURN,"TURN_RECEIPTS","EVENT_STORE","CAUSAL_GRAPH","COMMITTED_REPLAY_MATERIAL"),
         c("buildContext",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE,"CONTEXT_BUNDLE"),
         c("fullCharacterPanel",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE,"CHARACTER_PANEL_SNAPSHOT_V2"),
         c("status",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE),
@@ -94,6 +94,9 @@ object RuntimePersistentWriterRegistry {
         c("packageManager",PersistentWriterCapability.ADMINISTRATIVE),
         c("backups",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE,"BACKUP_PACKAGES"),
         c("restoreBackup",PersistentWriterCapability.ADMINISTRATIVE,"BACKUP_PACKAGES","SCHEMA_MIGRATION_REPAIR","GAMEPLAY_READINESS_METADATA"),
+        c("createSnapshot",PersistentWriterCapability.ADMINISTRATIVE,"CAMPAIGN_SNAPSHOTS"),
+        c("snapshots",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE,"CAMPAIGN_SNAPSHOTS"),
+        c("restoreLatestSnapshot",PersistentWriterCapability.ADMINISTRATIVE,"CAMPAIGN_SNAPSHOTS","COMMITTED_REPLAY_MATERIAL","SCHEMA_MIGRATION_REPAIR","GAMEPLAY_READINESS_METADATA"),
         c("finalizeChapter",PersistentWriterCapability.ADMINISTRATIVE,"CHAPTER_MANIFESTS_SUMMARIES","BACKUP_PACKAGES")
     ).associateBy { it.methodUid }
 

@@ -101,6 +101,7 @@ class StatResourcePersistenceTest {
 
             val activeStore = ActivePlayerStore(db, "campaign-a")
             assertNull(activeStore.active())
+            GameplayRuntimeBootstrap.initialize(db, "campaign-a")
             activeStore.set("PLAYER-A")
             var activeUid = activeStore.requireActive().playerUid
             assertEquals(mapOf("focus" to 10.0), statValuesByKey(StatResourceStore(db, "campaign-a"), activeUid))
@@ -193,6 +194,7 @@ class StatResourcePersistenceTest {
             assertTrue(store.playerResources("PLAYER-A").isEmpty())
             assertTrue(store.playerResources("PLAYER-B").isEmpty())
 
+            GameplayRuntimeBootstrap.initialize(db, "campaign-a")
             ActivePlayerStore(db, "campaign-a").set("PLAYER-B")
             assertTrue(store.playerResources("PLAYER-A").isEmpty())
             assertEquals(mapOf("flux" to 17.0), resourceValuesByKey(store, "PLAYER-B"))

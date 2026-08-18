@@ -28,7 +28,7 @@ class Phase26MutationBoundaryTest{
   val canonical=GroupATransactionTestFixtures.admittedFinancialProposal(commandUid="CMD-FORGE")
   val proposalCtor=CanonicalCampaignMutationProposal::class.java.declaredConstructors.single()
   val proposalFailure=runCatching{
-   proposalCtor.newInstance("C1",canonical.playerChangeSet,MutationAuthorityClass.GAMEPLAY_AUTHORITATIVE,Any())
+   proposalCtor.newInstance("C1",canonical.playerChangeSet,MutationAuthorityClass.GAMEPLAY_AUTHORITATIVE,emptyList<CanonicalCausalRelationIntent>(),Any())
   }.exceptionOrNull()
   assertNotNull(proposalFailure)
   assertEquals("RPGOS-MUTATION-GATE:FORGED_CANONICAL_PROPOSAL",rootCause(proposalFailure!!).message)
@@ -42,7 +42,6 @@ class Phase26MutationBoundaryTest{
      TurnTransactionIdentity("C1","TURN-FORGE","CMD-FORGE","TX-FORGE"),
      canonical,
      TurnFailureInjector.NONE,
-     emptyList<CanonicalCausalRelationIntent>(),
      Any()
     ) as TurnTransaction
     forged.commit()

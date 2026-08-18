@@ -22,6 +22,7 @@ class OwnershipPersistenceTest {
         OwnershipRecord(c,uid,owner(who),what,type,share,from,sourceEventUid="seed-$uid",provenance="seed")
     private fun fail(block:()->Unit){var failed=false;try{block()}catch(_:Throwable){failed=true};assertTrue(failed)}
     private fun refs(d:SQLiteDatabase,c:String,owners:List<OwnershipOwnerRef>,assets:List<OwnedAssetRef>){
+        CurrentSchema.ensure(d,c)
         val r=OwnershipReferenceRegistry(d,c)
         assets.map{it.assetKindUid}.filter{it!=OWNERSHIP_ASSET_KIND_ITEM_INSTANCE}.distinct().forEach{r.registerAssetKind(it,"test-kind")}
         owners.distinct().forEach{r.registerOwner(it,"test-owner")}

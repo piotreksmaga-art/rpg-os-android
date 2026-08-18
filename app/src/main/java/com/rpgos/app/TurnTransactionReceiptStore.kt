@@ -23,6 +23,7 @@ data class TurnRecoveryStatus(val state: TurnRecoveryState, val receipt: TurnCom
 
 sealed interface TurnExecutionResult<out T> {
     data class Committed<T>(val value: T, val receipt: TurnCommitReceipt) : TurnExecutionResult<T>
+    /** Identifies the original canonical commit; its transaction UID may differ from a later retry attempt. */
     data class AlreadyCommitted(val receipt: TurnCommitReceipt) : TurnExecutionResult<Nothing>
 }
 

@@ -114,6 +114,7 @@ class Work023OwnershipCanonicalIntegrationTest {
         OwnershipStore(d,"C1").acquire(
             OwnershipRecord("C1","OWN-1",ownerRef("P1"),assetRef(),"OWNER",OwnershipShare.full(),1,provenance="WORK-023")
         )
+        GameplayRuntimeBootstrap.initialize(d,"C1")
     }
 
     private fun ownerRef(uid:String)=OwnershipOwnerRef("CHARACTER",uid)

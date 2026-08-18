@@ -78,5 +78,8 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun packageManager(): RpgPackageManager = store.packageManager()
     override fun backups(): List<String> = store.backups()
     override fun restoreBackup(path: String): String = store.restoreBackup(path)
+    override fun createSnapshot(kind:SnapshotKind,pinned:Boolean):CampaignSnapshotDescriptor = store.createSnapshot(kind,pinned)
+    override fun snapshots():List<CampaignSnapshotDescriptor> = store.snapshots()
+    override fun restoreLatestSnapshot():String = store.restoreLatestSnapshot()
     override fun finalizeChapter(chapter: Int, title: String): Pair<String, String> = store.finalizeChapter(chapter, title)
 }
