@@ -30,7 +30,6 @@ object RuntimeTruthLayerRegistry {
         f("FINANCE_BALANCE_PROJECTION",RuntimeTruthLayer.DERIVED,"financial_account_balances"),
         RuntimeStateFamily("ASSET_LIABILITY_AUTHORITY",setOf(RuntimeTruthLayer.AUTHORITATIVE,RuntimeTruthLayer.AUTHORITATIVE_DOMAIN_HISTORY),setOf("asset_records","asset_valuations","obligation_records","obligation_status_history","obligation_settlements","asset_encumbrances")),
         RuntimeStateFamily("DEVELOPMENT_PROJECTS",setOf(RuntimeTruthLayer.AUTHORITATIVE,RuntimeTruthLayer.AUTHORITATIVE_DOMAIN_HISTORY),setOf("development_projects","project_status_history","project_requirements","project_requirement_satisfactions","project_milestone_definitions","project_milestone_achievements","project_work_records","project_dependencies","project_outcomes")),
-
         RuntimeStateFamily("STAT_RESOURCE_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("stat_definitions","resource_definitions")),
         RuntimeStateFamily("PROGRESSION_DOMAIN_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("progression_domain_definitions")),
         RuntimeStateFamily("SKILL_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("skill_definitions_v2","skill_definition_domains")),
@@ -42,7 +41,6 @@ object RuntimeTruthLayerRegistry {
         RuntimeStateFamily("FINANCE_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("currency_definitions","financial_transaction_type_definitions")),
         RuntimeStateFamily("ASSET_LIABILITY_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("asset_kind_definitions","obligation_type_definitions")),
         RuntimeStateFamily("PROJECT_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("project_type_definitions")),
-
         f("RESOLVED_EFFECTIVE_VALUES",RuntimeTruthLayer.DERIVED),
         f("TURN_RECEIPTS",RuntimeTruthLayer.APPEND_ONLY_COMMIT_EVIDENCE,"turn_transaction_receipts"),
         RuntimeStateFamily("EVENT_STORE",setOf(RuntimeTruthLayer.APPEND_ONLY_COMMIT_EVIDENCE,RuntimeTruthLayer.APPEND_ONLY_HISTORICAL_EVIDENCE),setOf("canonical_gameplay_events")),
@@ -54,7 +52,7 @@ object RuntimeTruthLayerRegistry {
         RuntimeStateFamily("GAMEPLAY_READINESS_METADATA",setOf(RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY,RuntimeTruthLayer.OPERATIONAL_INFRASTRUCTURE),setOf("campaign_intelligence_activation","rpgos_writer_contract_context","rpgos_gameplay_mutation_context")),
         RuntimeStateFamily("CHAPTER_MANIFESTS_SUMMARIES",setOf(RuntimeTruthLayer.PRESENTATION,RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY),setOf("chapter_manifests_v2")),
         f("REBUILDABLE_INDEXES_MATERIALIZATIONS",RuntimeTruthLayer.CACHE,"narrative_memory_index"),
-        f("UI_STATE",RuntimeTruthLayer.PRESENTATION),
+        f("UI_STATE",RuntimeTruthLayer.PRESENTATION,"campaign_visual_library"),
         f("BACKUP_PACKAGES",RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY),
         f("SCHEMA_MIGRATION_REPAIR",RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY,"rpgos_schema_migrations")
     )
