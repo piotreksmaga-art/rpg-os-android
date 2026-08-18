@@ -6,8 +6,9 @@ RPG OS is an Android RPG runtime with local campaign persistence, canonical game
 
 Use these documents as the current source of architectural and planning truth:
 
-- `docs/RPG_OS_MASTER_ARCHITECTURE.md`
-- `docs/RPG_OS_IMPLEMENTATION_ROADMAP.md`
+- `docs/Architektura projektu.md` — single canonical project architecture
+- `docs/Roadmap.md` — single canonical roadmap
+- `docs/Mapa plików faz 1-32.md` — technical navigation/recovery index for completed phases
 - `docs/GM_ENGINE_TARGET_ARCHITECTURE.md`
 - `docs/PROJECT_WORK_PROTOCOL.md`
 - `docs/PARALLEL_WORK_COORDINATION.md`
