@@ -21,9 +21,15 @@ The repository history contains the implementation and recovery chain for Phase 
 
 Runtime assets under `app/src/main/assets/` must not be treated as disposable legacy files merely because they originated in earlier phases; several remain part of production/bootstrap and compatibility paths.
 
+## Repository hygiene and recovery
+
+Point-in-time generated validation snapshots are not current project truth. Obsolete generated outputs may be removed from the current HEAD after reference verification because their original bytes remain recoverable from Git history. Historical human-readable design/release notes are archived rather than destroyed.
+
+The current cleanup classification and evidence are recorded in `docs/audits/REPO_HYGIENE_AUDIT_2026-08-18.md`.
+
 ## Validation
 
-The project uses GitHub Actions for Android/JVM validation and immutable validation artifacts. Point-in-time generated validation JSON files are not canonical architecture documents and should not be used as current project status.
+The project uses GitHub Actions for Android/JVM validation and immutable validation artifacts. Point-in-time generated validation JSON files should not be used as a substitute for exact-SHA CI evidence or the canonical architecture/roadmap.
 
 ## Security
 
