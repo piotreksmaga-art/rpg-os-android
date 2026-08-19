@@ -31,33 +31,24 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
-      - name: Apply Phase35 repair
-        run: |
-          python3 tools/chat1_p35_core_patch.py
-          python3 tools/chat1_p35_integration_patch.py
-          python3 tools/chat1_p35_test_patch.py
-          rm tools/chat1_p35_core_patch.py tools/chat1_p35_integration_patch.py tools/chat1_p35_test_patch.py
-      - name: Publish repair candidate
-        run: |
-          git config user.name "chat1-rpgos-repair"
-          git config user.email "actions@users.noreply.github.com"
-          git add app/src/main/java/com/rpgos/app/Phase35CanonDivergence.kt app/src/main/java/com/rpgos/app/WorldRuleProvider.kt app/src/main/java/com/rpgos/app/PlayerDomainEngine.kt app/src/main/java/com/rpgos/app/TurnTransaction.kt app/src/test/java/com/rpgos/app/Phase35CanonDivergenceTest.kt app/src/test/java/com/rpgos/app/Phase30To36PostAuditHardeningTest.kt tools
-          git commit -m "fix: harden Phase 35 canon divergence authority [skip ci]"
-          git push origin HEAD:chat1-phase35-36-post-audit-repair
       - name: Targeted Phase35 tests
         id: targeted
         continue-on-error: true
-        run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase35CanonDivergenceTest' --tests 'com.rpgos.app.Phase30To36PostAuditHardeningTest' --stacktrace
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase35CanonDivergenceTest' --tests 'com.rpgos.app.Phase30To36PostAuditHardeningTest' --stacktrace 2>&1 | tee /tmp/chat1_phase35_gradle.log
       - name: Publish targeted test evidence
         if: always()
         run: |
+          git config user.name "chat1-rpgos-repair"
+          git config user.email "actions@users.noreply.github.com"
           mkdir -p tools
           echo "PHASE35_TARGETED_OUTCOME=${{ steps.targeted.outcome }}" > tools/chat1_phase35_ci_result.txt
-          if [ -d app/build/test-results/testDebugUnitTest ]; then
-            grep -R -n -E '<failure|<error' app/build/test-results/testDebugUnitTest >> tools/chat1_phase35_ci_result.txt || true
-          fi
+          echo "--- GRADLE TAIL ---" >> tools/chat1_phase35_ci_result.txt
+          tail -n 260 /tmp/chat1_phase35_gradle.log >> tools/chat1_phase35_ci_result.txt || true
           git add tools/chat1_phase35_ci_result.txt
-          git commit -m "test: record Phase 35 targeted result [skip ci]"
+          git diff --cached --quiet || git commit -m "test: record Phase 35 diagnostic result [skip ci]"
           git push origin HEAD:chat1-phase35-36-post-audit-repair
       - name: Fail if targeted tests failed
         if: steps.targeted.outcome != 'success'
