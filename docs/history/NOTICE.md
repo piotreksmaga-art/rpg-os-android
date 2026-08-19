@@ -1,0 +1,1 @@
+Snapshot blobs for the pre-normalization canonical documents are preserved byte-for-byte in this directory. See `../Historia projektu.md`.
