@@ -308,21 +308,26 @@ Exact-SHA JVM tests, signed APK and immutable artifact are GREEN. Superseded PR 
 
 Post-audit re-acceptance: Phase 35 findings P35-AUD-001..003 and Phase 36 findings P36-AUD-001..006 were repaired, independently reviewed/validated, merged to `master`, and canonical master validation passed at `4d5a114fc9f08141d75ae79f998a3400866b52ba` (`Validate RPG OS ALPHA` run #801 / run ID `32309493128`). This supersedes the earlier runtime as the current accepted Phase-36 baseline without erasing historical acceptance evidence.
 
+# FUTURE SCOPE LOCK — PHASE 37+
+Poniższe doprecyzowania dotyczą wyłącznie niezaakceptowanych jeszcze Phase 37+ i rozszerzeń post-roadmap. Nie zmieniają żadnego accepted scope, statusu ani evidence Phase 1–36.
+
+Docelowy produkt jest **HYBRID LOCAL-FIRST**: lokalny GM wystarcza do kontynuowania kampanii, opcjonalny cloud zwiększa jakość wybranych workloadów, a campaign authority zawsze pozostaje w RPG OS Core. NPC mają być trwałymi indywidualnymi aktorami z osobowością/relacjami/wiedzą/pamięcią, a świat ma rozwijać się autonomicznie także bez aktywnej obecności gracza.
+
 # FAZA C — CZAS, WIEDZA I RETRIEVAL
 - [-] 37. NPC Knowledge model + acquisition provenance
-- [-] 38. GM/NPC/PC/player-visible knowledge separation
+- [-] 38. GM/NPC/PC/player-visible knowledge separation + belief/reputation visibility boundaries
 - [-] 39. Temporal Engine historical truth
-- [-] 40. Scheduler
+- [-] 40. Scheduler — **evaluation points/deadlines, never precommitted outcomes without deterministic cause**
 - [-] 41. Structured SQL Retriever
 - [-] 42. Knowledge Graph / causal retrieval
 - [ ] 43. Intent Parser
 - [ ] 44. Turn Planner
-- [-] 45. Context Builder
-- [ ] 46. Context Budget Manager — **future requirement: ModelProfile/AiCapability-aware; no fixed CTX/output budget**
+- [-] 45. Context Builder — **holder isolation + separate local/cloud task context boundaries; no whole-save cloud context**
+- [ ] 46. Context Budget Manager — **ModelProfile/AiCapability/workload-aware; no fixed CTX/output budget**
 - [ ] 47. Iterative Retrieval + missing-context loop
 
-# FAZA D — GM ENGINE
-- [ ] 48. AI Provider & Local Inference Architecture
+# FAZA D — GM ENGINE / HYBRID AI FOUNDATION
+- [ ] 48. AI Provider & Hybrid Local-First Inference Architecture
 - [-] 49. Structured GM Output contract — **provider-independent; turn/capability-dependent required outputs**
 - [ ] 50. Mechanics Resolution integration
 - [-] 51. Consistency Validator
@@ -331,26 +336,31 @@ Post-audit re-acceptance: Phase 35 findings P35-AUD-001..003 and Phase 36 findin
 - [ ] 54. Committed narrative delivery only after valid transaction
 
 ## FUTURE REQUIREMENTS — PHASE 48 (NOT STARTED)
-
-Phase 48 ma objąć kontrakty architektoniczne potrzebne dla wymiennego lokalnego/cloud AI, ale **nie jest obecnie autoryzowana do implementacji**. Repo-first audit w momencie rozpoczęcia fazy ma rozstrzygnąć minimalny rzeczywisty delta.
+Phase 48 ma dostarczyć provider/execution foundation, **nie pełną semantykę Directora**. Repo-first audit w momencie rozpoczęcia fazy ma ustalić minimalny rzeczywisty delta.
 
 Docelowy scope/acceptance powinien uwzględnić:
 - `AiProvider` canonical provider-independent semantic contract;
 - `AiCapabilityContract`;
 - data-driven `ModelProfile`;
 - `LocalInferenceRuntime` poniżej AiProvider;
+- optional cloud provider execution boundary pod tym samym semantic contractem;
 - `RuntimeBackend` CPU/GPU/NPU/AUTO oraz oddzielny `RuntimeBackendSelector`;
 - minimalny `ModelLifecycleController` dla load/unload/cancel/error/OOM/process restart i artifact verification;
 - allowlisted `GmToolGateway`, bez raw DB i mutation authority;
+- workload identity/capability requirements niezależne od konkretnego providera;
 - provider-independent semantic/structured output contract;
 - **VOLITIONAL PLAYER ACTION SOURCE = USER / VALIDATED PLAYER COMMAND ONLY**;
 - strukturalne **ACTOR/ACTION/TARGET preservation**;
+- local execution jako guaranteed campaign-continuation path po instalacji kompatybilnego modelu;
+- cloud failure/disable/no-network/quota/429/credential removal -> local continuation zamiast blokady kampanii;
+- minimalny cloud-context/privacy boundary: cloud nie otrzymuje automatycznie whole Save/Chronicle/DB;
+- credential/auth state oddzielone od Campaign State/Save/World Pack;
 - provider/model conformance suite: player agency, direction, NPC knowledge isolation, FACT/BELIEF, stop point, invented abilities/dialogue, internal-context leak, structured output i canonical mutation boundary;
 - provider crash/cancel/process death nie może tworzyć partial committed turn;
-- model/runtime/backend replacement nie może wymagać migracji kampanii;
-- real Android integration/validation jako acceptance evidence.
+- model/provider/runtime/backend replacement nie może wymagać migracji kampanii;
+- real Android local integration/validation jako acceptance evidence.
 
-Nie hardcodować jako canonical wymogu konkretnego modelu (Bielik/PLLuM/Gemma), formatu (GGUF) ani runtime (LiteRT-LM/ExecuTorch/llama.cpp). Wynik R&D ma być evidence, nie architecture lock-in.
+Nie hardcodować jako canonical wymogu konkretnego modelu, cloud vendora, formatu ani runtime. Bielik/PLLuM/Gemma, LiteRT-LM/ExecuTorch/llama.cpp, OpenRouter/Groq/Gemini i inne konkretne technologie pozostają evidence/adapter candidates, nie campaign architecture.
 
 # FAZA E — PAMIĘĆ I DŁUGOTERMINOWA SYMULACJA
 - [-] 55. Working Memory — **AI provider/model nie jest durable owner**
@@ -358,19 +368,64 @@ Nie hardcodować jako canonical wymogu konkretnego modelu (Bielik/PLLuM/Gemma), 
 - [-] 57. Semantic Campaign Memory — **AI provider/model nie jest durable owner**
 - [ ] 58. Memory Consolidation without recursive summary degradation — **provider-independent durable memory invariant**
 - [ ] 59. Vector/Semantic Retrieval engine/index integration — **retrieval reconstructs context after model/runtime replacement**
-- [ ] 60. Time Skip Processor
-- [-] 61. NPC Brain
-- [-] 62. NPC Decision Engine
-- [ ] 63. World Simulation LOD 0–3 engine
-- [ ] 64. Background-world causal simulation / controlled randomness engine
+- [ ] 60. Time Skip Processor + Scheduler/WorldProcess orchestration
+- [-] 61. NPC Brain + persistent individuality/personality/values/goals/fears/emotional state/relationships
+- [-] 62. NPC Decision Engine + knowledge/memory/social-role constrained autonomy
+- [ ] 63. World Simulation LOD 0–3 + multi-rate WorldProcess engine
+- [ ] 64. Background-world causal simulation: organizations/economy/projects/demography/wars/knowledge propagation + controlled randomness
 
-# FAZA F — JAKOŚĆ NARRACJI
-- [ ] 65. Director Engine
+## FUTURE REQUIREMENTS — PHASE 61–64
+Phase 61–64 mają zrobić z NPC i świata trwałe autonomiczne systemy, a nie promptowe dekoracje.
+
+### Phase 61 — NPC individuality / Brain
+Wymagane co najmniej:
+- persistent lub deterministically reproducible personality traits przy tworzeniu NPC;
+- indywidualizacja z archetype/culture/organization/background + controlled stable RNG, bez losowania nowej persony co spotkanie;
+- rozdzielenie `PERSONALITY`, `VALUES/GOALS/FEARS`, `RELATIONSHIP`, `EMOTIONAL STATE`, `KNOWLEDGE/BELIEFS`, `MEMORY`, social role/organization i resources/capabilities;
+- ten sam bodziec może prowadzić różnych NPC do różnych reakcji z powodu ich trwałego stanu;
+- long-term personality adaptation tylko z legalnym event/provenance, bez retroactive plot-driven rewrite;
+- reputacja gracza jako per-holder knowledge/belief acquired legalnie, nie magiczny globalny omniscient score;
+- player-visible output nie ujawnia ukrytych numeric traits bez legalnego visibility/mechanics path;
+- LOD/tier dla crowd/minor/persistent/major NPC bez wymogu pełnej psychologii dla każdego bytu.
+
+### Phase 62 — NPC decisions
+Decision proposal bierze pod uwagę personality + values/goals/fears + emotions + relationships + knowledge/beliefs + memory + social/organization constraints + resources/capabilities + current situation + World Pack rules + controlled randomness where legal.
+
+`KNOWLEDGE != DECISION`, `PERSONALITY != DECISION`, `AI PROPOSAL != COMMIT`. Decyzje muszą być explainable w debug/replay przez input factors/evidence i nie mogą omijać canonical mutation path.
+
+### Phase 63–64 — living world
+Globalny invariant: **THE WORLD DOES NOT WAIT FOR THE PLAYER.**
+
+Wymagane co najmniej:
+- `WorldActor`/równoważne abstrakcje dla NPC, rodzin, organizacji, państw, armii, firm/gildii i world-specific podmiotów;
+- długotrwałe `WorldProcess`/równoważne procesy: wojny, handel, polityka, migracja, research, budowa, epidemie, crime, economy, demografia, dyplomacja, espionage itd.;
+- Scheduler planuje evaluation points/deadlines, nie z góry outcome;
+- multi-rate simulation: scena/nearby per action/turn, region per hour/day, strategic systems per day/week, slow systems per month/season/year według potrzeb;
+- dynamiczne LOD0–3 i bezpieczna materializacja szczegółu zgodna z już committed aggregate/history;
+- agregacja tłumu/populacji zamiast symulowania każdego NPC co turę;
+- materializacja nie może fabrykować szczegółowej historycznej provenance; brak danych pozostaje UNKNOWN/UNKNOWN_NOT_RECORDED;
+- world-state/domain conservation tam, gdzie dotyczy: population, resources, money, goods, armies, projects itd.;
+- istotne background changes -> Event/Causal history; mikroaktywność może pozostać agregowana;
+- FACT background world != PLAYER/NPC KNOWLEDGE; informacja propaguje się legalnymi kanałami i z world-specific szybkością komunikacji;
+- quest/opportunity może wynikać z realnego world state/process zamiast być arbitralnym random questem;
+- brak cloud providera nie może zatrzymywać lokalnej world simulation.
+
+# FAZA F — DIRECTOR / JAKOŚĆ NARRACJI
+- [ ] 65. Director Engine + optional Cloud Director / candidate bundles
 - [-] 66. Narrative Promise Ledger
 - [ ] 67. Pacing Metrics
 - [ ] 68. Anti-Repetition
 - [ ] 69. Narrative Style Profile
 - [-] 70. Chronicle generated from committed structured reality
+
+## FUTURE REQUIREMENTS — PHASE 65
+Director steruje uwagą i strategicznym planowaniem, **nie prawami świata**.
+
+Local Director path pozostaje dostępny. Optional Cloud Director może generować bounded `DirectorBundle`/równoważne candidate sets: arc seeds, quest seeds, NPC agenda candidates, faction conflicts, world-event candidates, foreshadowing i pacing suggestions.
+
+`DIRECTOR OUTPUT = CANDIDATE`, nigdy FACT/COMMIT. Cloud Director nie może retroaktywnie zmieniać osobowości NPC, tworzyć przeszłych eventów ani wymuszać wojny/kryzysu bez causal/domain basis. Może wskazywać, co z istniejącego świata zasługuje na uwagę, oraz proponować przyszły content do późniejszej validation/promotion path.
+
+Cloud enrichment może być deferred/asynchronous i nie powinien blokować bieżącej turn transaction. Spóźniony wynik nie może przepisać przeszłego COMMIT.
 
 # FAZA G — SAVE / DEBUG / SKALA
 - [-] 71. Save/Load integration
@@ -379,9 +434,22 @@ Nie hardcodować jako canonical wymogu konkretnego modelu (Bielik/PLLuM/Gemma), 
 - [-] 74. Observability metrics
 - [ ] 75. Replay Debugger
 - [-] 76. Integrity Test Suite
-- [-] 77. Long Campaign Stress Tests
-- [-] 78. Android performance profiling/optimization — **local inference: storage/load/TTFT/prefill/decode/RAM/KV/battery/thermal/OOM/cancel/process-death/sustained turns**
-- [-] 79. AI Provider / Model / Runtime routing — **separate ModelRouter from RuntimeBackendSelector; do not change roadmap position**
+- [-] 77. Long Campaign Stress Tests — **include WORLD_WITHOUT_PLAYER + SAME_WORLD_TWO_CAMPAIGNS + hybrid-failure scenarios**
+- [-] 78. Android performance profiling/optimization — **local inference + world-simulation budgets + cloud-latency/failure isolation where enabled**
+- [-] 79. AI workload / provider / model / runtime routing — **separate workload policy, provider choice, ModelRouter and RuntimeBackendSelector**
+
+## FUTURE REQUIREMENTS — PHASE 77–79
+Stress/scale acceptance ma obejmować:
+- `WORLD_WITHOUT_PLAYER`: wieloletnia symulacja bez ingerencji gracza; legalne aging/death/birth gdzie wspierane, projekty, organizacje, economy/politics/wars i knowledge propagation; replayable causal history;
+- `SAME_WORLD_TWO_CAMPAIGNS`: ten sam World Pack/initial seed, różne committed player actions -> wyjaśnialnie różne historie;
+- save/load/replay equality po background simulation;
+- world simulation budget/backlog nie może powodować liniowego skanowania pełnego świata ani blokować UI;
+- cloud disabled/timeout/429/quota exhausted/provider removed -> campaign continues locally;
+- cloud malformed/late candidate -> no mutation / cannot rewrite past commit;
+- provider switch i credential removal -> no campaign migration/data loss;
+- privacy mode/failover policy respected.
+
+Phase 79 rozdziela co najmniej cztery decyzje: **workload policy**, **provider execution choice**, **ModelRouter**, **RuntimeBackendSelector**. Deterministic work nadal powinien omijać AI całkowicie.
 
 # FAZA H — WORLD PACK HARDENING
 - [ ] 80. Naruto WorldRuleProvider integration test pack
@@ -390,18 +458,40 @@ Nie hardcodować jako canonical wymogu konkretnego modelu (Bielik/PLLuM/Gemma), 
 - [ ] 83. World-specific progression/evolution automated tests
 - [ ] 84. World Pack update compatibility automated tests
 
-# TEMP LOCAL AI-GM / R&D — NONCANONICAL IMPLEMENTATION TRACK
+# POST-ROADMAP EXTENSION — WORLD PACK CREATOR
 
+**STATUS: DEFERRED UNTIL GLOBAL PHASE 1–84 ACCEPTED**
+
+Produkcyjna implementacja World Pack Creatora rozpoczyna się dopiero po globalnym zaakceptowaniu całej obecnej roadmapy 1–84, chyba że użytkownik jawnie zmieni kolejność w przyszłości. Nie rezerwujemy teraz numeru `Phase 85`.
+
+WPC jest authoring/compiler layer nad finalnym Core. Nie implementuje drugiego Event Store, Memory, Retriever, NPC Brain, World Simulation, Transaction Engine, Save/Load ani raw-DB gameplay path. Generated, AI-assisted, imported i hand-authored pack mają po kompilacji korzystać z jednego finalnego runtime World Pack contractu.
+
+Robocza post-roadmap sekwencja, bez numerów kanonicznych faz:
+- `WPC-A` — POST-ROADMAP AUDIT FIRST przeciwko exact final repo/API/schema;
+- `WPC-B` — Authoring Contract: Build Workspace, WorldCreationIntent, claims/provenance, compiler/build trace, activation boundary;
+- `WPC-C` — ORIGINAL WORLD vertical slice: one sentence -> few questions -> compile -> validate -> activate -> campaign -> save/load;
+- `WPC-D` — Historical Research: sources, extraction, disputes, temporal facts, provenance;
+- `WPC-E` — Rule Compilation / Impact Analysis z fail-closed unsupported rules;
+- `WPC-F` — Scenario Templates + canonical campaign bootstrap;
+- `WPC-G` — Progressive/JIT expansion przez candidate revision poza otwartą turn transaction;
+- `WPC-H` — UX QUICK/STANDARD/DEEP, World Brief, explainability/repair;
+- `WPC-I` — Scale/security/offline/process-death/update/Android hardening;
+- `WPC-J` — Final acceptance przez final Core, World Pack compatibility, long-campaign stress i independent audit jeśli wymagany.
+
+WPC po roadmapie korzysta z tego samego finalnego AiProvider/workload routing/Model Router. Local creation pozostaje możliwe; optional cloud research/design wymaga user consent, minimalnego kontekstu i nie nadaje AI output authority. World Pack build workspace != Campaign Repository, draft != active canon, a activation/update musi być validated, compatible i atomiczne.
+
+# TEMP LOCAL / HYBRID AI-GM R&D — NONCANONICAL IMPLEMENTATION TRACK
 TEMP-GM pozostaje dozwolonym laboratorium semantycznym i device/model benchmark harness. Termux, localhost bridge, llama.cpp/Vulkan i Bielik reference model nie są production architecture.
 
-Dozwolone równoległe R&D bez rozpoczęcia Phase 48 może obejmować feasibility/benchmarking Bielik/PLLuM/Gemma/LiteRT-LM/ExecuTorch/przyszłych odpowiedników, pod warunkiem:
+Dozwolone równoległe R&D bez rozpoczęcia Phase 48 może obejmować feasibility/benchmarking lokalnych modeli/runtime i cloud-provider capabilities, pod warunkiem:
 - osobny scope/branch;
 - brak canonical runtime integration;
 - brak statusu COMPLETE/ACCEPTED dla Phase 48;
 - brak production provider;
 - brak AI-owned durable memory;
 - brak mutation authority;
-- wynik tylko jako evidence dla przyszłego Phase-48 audit.
+- brak ukrytego wysyłania campaign data do cloud;
+- wynik tylko jako evidence dla przyszłego repo-first Phase-48 audit.
 
 # FRONTEND
 - [x] ACTIVE DEVELOPMENT / STYLE PRESERVATION BY PROJECT DECISION
@@ -426,9 +516,18 @@ Frontend może być rozwijany wraz z funkcjonalnością, ale należy zachować z
 - [ ] AI provider/model replacement -> no campaign migration/data loss
 - [ ] local AI player-agency + actor/action/target conformance
 - [ ] provider crash/cancel/process death -> no partial committed turn
+- [ ] cloud disabled/timeout/429/quota exhausted -> local continuation
+- [ ] cloud privacy/failover policy respected; no silent broader disclosure
+- [ ] cloud/Director candidate cannot mutate authority or rewrite past COMMIT
+- [ ] two NPCs with same stimulus but different persisted traits/relationships can make different legal decisions
+- [ ] NPC personality adaptation requires committed cause/provenance
+- [ ] reputation/rumor remains holder-scoped belief, not universal knowledge
+- [ ] WORLD_WITHOUT_PLAYER long-run causal evolution + save/load/replay equality
+- [ ] SAME_WORLD_TWO_CAMPAIGNS divergence explainable by player actions + world processes + controlled randomness
+- [ ] background FACT does not automatically become player/NPC knowledge
+- [ ] world-process/domain conservation invariants for supported economy/population/resources/projects
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
-
 Runtime through Phase 36 jest globalnie **ACCEPTED / COMPLETE** na canonical post-audit master SHA `4d5a114fc9f08141d75ae79f998a3400866b52ba` (`Validate RPG OS ALPHA` run #801 / `32309493128` — SUCCESS).
 
 Następny blok:
@@ -440,8 +539,7 @@ Obowiązkowa sekwencja:
 Do czasu zakończenia tego procesu:
 **PHASE 37 = NOT GLOBALLY ACCEPTED; AUDIT FIRST.**
 
-Future local-AI requirements nie zmieniają tej kolejności. **Phase 48 pozostaje NOT STARTED**; dopuszczone jest wyłącznie odseparowane R&D/evidence gathering zgodne z MASTER.
+Future Hybrid Local-First AI, NPC individuality/living-world requirements i post-roadmap WPC nie zmieniają tej kolejności. **Phase 48 pozostaje NOT STARTED**, a WPC pozostaje **DEFERRED UNTIL GLOBAL PHASE 1–84 ACCEPTED**.
 
 # ZASADA AKTUALIZACJI ROADMAPY
-
 Po każdym etapie zmieniaj globalny status wyłącznie z dowodem obejmującym właściwy dla etapu runtime/schema/migration/integration/test/build/CI oraz niezależne audyty, jeżeli zostały wymagane. Raport workera `PASS` lub `COMPLETE` nie jest sam w sobie globalnym `ACCEPTED`.
