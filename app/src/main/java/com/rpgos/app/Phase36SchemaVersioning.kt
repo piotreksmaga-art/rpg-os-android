@@ -53,14 +53,17 @@ internal object Phase36SchemaVersioning {
 
     fun ensureReady(db: SQLiteDatabase, campaignUid: String, safetySnapshotUid: String? = null) {
         require(!db.inTransaction()) { "RPGOS-SCHEMA:TOP_LEVEL_MIGRATION_REQUIRED" }
-        inspectFutureBeforeMutation(db)
+        inspectCompatibilityBeforeMutation(db)
         ensureMetadataTables(db)
-        val missing = contracts.filter { current(db, it.family) == null }
-        if (missing.isEmpty()) {
+        val pending = contracts.filter { contract ->
+            val found = current(db, contract.family)
+            found == null || found < contract.currentVersion
+        }
+        if (pending.isEmpty()) {
             recoverInterrupted(db, campaignUid, currentPlanFingerprint = null)
             return
         }
-        val ordered = MigrationPlanRegistry.order(missing)
+        val ordered = MigrationPlanRegistry.order(pending)
         val plan = MigrationPlanRegistry.fingerprint(ordered)
         recoverInterrupted(db, campaignUid, currentPlanFingerprint = plan)
         MigrationSafetyPolicy.requireProtectedSnapshot(db, campaignUid, ordered, safetySnapshotUid)
@@ -99,14 +102,14 @@ internal object Phase36SchemaVersioning {
     }
 
     /** Must run before any bootstrap migration writes. */
-    fun requireNoUnsupportedFuture(db: SQLiteDatabase) = inspectFutureBeforeMutation(db)
+    fun requireNoUnsupportedFuture(db: SQLiteDatabase) = inspectCompatibilityBeforeMutation(db)
 
     fun requireReady(db: SQLiteDatabase) {
         check(table(db, VERSIONS) && table(db, ATTEMPTS) && Phase35CanonDivergenceSchema.isReady(db)) { "RPGOS-SCHEMA:NOT_READY" }
         contracts.forEach { c ->
             val found = current(db, c.family) ?: error("RPGOS-SCHEMA:MISSING_FAMILY:${c.family}")
             if (found > c.currentVersion) throw UnsupportedFutureSchemaException(c.family, found, c.currentVersion)
-            check(found >= c.minimumSupportedVersion) { "RPGOS-SCHEMA:UNSUPPORTED_OLD:${c.family}:$found" }
+            check(found == c.currentVersion) { "RPGOS-SCHEMA:FAMILY_NOT_CURRENT:${c.family}:$found:${c.currentVersion}" }
         }
         check(db.rawQuery("SELECT 1 FROM $ATTEMPTS WHERE state IN (?,?) LIMIT 1", arrayOf(MigrationAttemptState.PREPARED.name, MigrationAttemptState.RUNNING.name)).use { !it.moveToFirst() }) {
             "RPGOS-SCHEMA:INCOMPLETE_MIGRATION"
@@ -134,10 +137,13 @@ internal object Phase36SchemaVersioning {
             failure_code TEXT)""")
     }
 
-    private fun inspectFutureBeforeMutation(db: SQLiteDatabase) {
+    private fun inspectCompatibilityBeforeMutation(db: SQLiteDatabase) {
         if (!table(db, VERSIONS)) return
         contracts.forEach { c ->
-            current(db, c.family)?.let { if (it > c.currentVersion) throw UnsupportedFutureSchemaException(c.family, it, c.currentVersion) }
+            current(db, c.family)?.let { found ->
+                if (found > c.currentVersion) throw UnsupportedFutureSchemaException(c.family, found, c.currentVersion)
+                require(found >= c.minimumSupportedVersion) { "RPGOS-SCHEMA:UNSUPPORTED_OLD:${c.family}:$found:${c.minimumSupportedVersion}" }
+            }
         }
     }
 
