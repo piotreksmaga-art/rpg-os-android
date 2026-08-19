@@ -42,16 +42,20 @@ class Phase35RawSqlAuthorityClosureTest {
         }
     }
 
-    @Test fun adminOnlySqlCannotForgeRecordedDivergenceEvenWithForgedEvent() {
+    @Test fun adminOnlySqlCannotForgeCanonicalEventOrRecordedDivergence() {
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
             GameplayRuntimeBootstrap.initialize(db, "C1")
             forgeSqlContext(db, "C1", "ADMIN")
             forgeSqlWriterContext(db, "C1")
-            rawEventInsert(db, "C1", "EVENT-ADMIN", "TX-ADMIN", "TURN-ADMIN", "CMD-ADMIN")
+
+            // ADMIN is not a gameplay turn. Event Store fails closed before divergence storage.
+            assertTrue(runCatching {
+                rawEventInsert(db, "C1", "EVENT-ADMIN", "TX-ADMIN", "TURN-ADMIN", "CMD-ADMIN")
+            }.isFailure)
             assertTrue(runCatching {
                 rawRecordedDivergenceInsert(db, "DIV-ADMIN", "C1", "TX-ADMIN", "TURN-ADMIN", "EVENT-ADMIN")
             }.isFailure)
-            assertEquals(1L, count(db, CampaignIntelligencePhase30Schema.EVENT_TABLE))
+            assertEquals(0L, count(db, CampaignIntelligencePhase30Schema.EVENT_TABLE))
             assertEquals(0L, count(db, Phase35CanonDivergenceSchema.TABLE))
         }
     }
