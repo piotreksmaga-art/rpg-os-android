@@ -57,6 +57,7 @@ class Phase32WriterBypassInventoryTest {
         "time" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "chronicle" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "truthRecords" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
+        "canonDivergences" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "npcs" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "npcDetail" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "relationEdges" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,

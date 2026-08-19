@@ -421,6 +421,20 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
                 nullableField("PERSPECTIVE_UID", payload.perspectiveUid)
                 nullableField("NARRATIVE_TEXT", payload.narrativeText)
                 nullableField("SUPERSEDES_TRUTH_UID", payload.supersedesTruthUid)
+                section("CANON_DIVERGENCE") {
+                    val d = payload.canonDivergence
+                    field("PRESENCE", if (d == null) "NULL" else "VALUE")
+                    if (d != null) {
+                        field("UID", d.divergenceUid); field("SUBJECT_KIND", d.canonicalReference.subjectKindUid)
+                        field("SUBJECT_UID", d.canonicalReference.subjectUid); field("EXPECTATION_UID", d.canonicalReference.expectationUid)
+                        field("WORLD_PACK_UID", d.worldPackUid); field("WORLD_PACK_VERSION", d.worldPackVersion)
+                        field("KIND", d.kind.name); field("EXPECTED", d.expectedCanonicalValue); field("ACTUAL", d.actualCampaignValue)
+                        field("STATUS", d.status.name); nullableLongField("EFFECTIVE_FROM", d.effectiveFrom)
+                        nullableLongField("EFFECTIVE_UNTIL", d.effectiveUntil); nullableField("SUPERSEDES", d.supersedesDivergenceUid)
+                        nullableField("RESOLVES", d.resolvesDivergenceUid); field("PROVENANCE", d.provenanceStatus.name)
+                        longField("SCHEMA_VERSION", d.schemaVersion.toLong())
+                    }
+                }
             }
             is ConditionChange -> {
                 domainRef("SUBJECT", payload.subject); field("CONDITION_UID", payload.conditionUid); field("OPERATION", payload.operation.name)

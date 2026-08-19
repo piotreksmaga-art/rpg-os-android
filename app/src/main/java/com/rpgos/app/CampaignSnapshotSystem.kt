@@ -15,7 +15,7 @@ enum class ReplayAuthorityCoverage { REPLAYABLE, NON_REPLAYABLE_FAIL_CLOSED }
 /** Closed Phase33 inventory of authority reachable through the current typed TurnTransaction applier. */
 object CampaignReplayAuthorityMatrix {
     val replayableFamilyUids:Set<String> = setOf(
-        "CAMPAIGN_TRUTH","BASE_STATS_RESOURCES","SKILLS_TECHNIQUES","INVENTORY","EQUIPMENT_LOADOUT",
+        "CAMPAIGN_TRUTH","CANON_DIVERGENCE","BASE_STATS_RESOURCES","SKILLS_TECHNIQUES","INVENTORY","EQUIPMENT_LOADOUT",
         "OWNERSHIP_HISTORY","FINANCE_AUTHORITY","DEVELOPMENT_PROJECTS"
     )
     val nonReplayableFamilyUids:Set<String> = RuntimeTruthLayerRegistry.families.filter{it.isAuthoritative}.map{it.uid}.toSet()-replayableFamilyUids
@@ -77,6 +77,7 @@ internal data class CommittedReplayPayload(
     val semanticFingerprint: String,
     val eventManifest: RequiredEventManifestSummary,
     val eventBoundaryUid: String?,
+    val replaySchemaVersion: Int,
     val changeSet: PlayerChangeSet,
     val causalPlan: List<CanonicalCausalRelationIntent>,
     val payloadSha256: String
@@ -110,7 +111,7 @@ internal class CommittedReplayPayloadStore(private val db: SQLiteDatabase) {
 
     fun after(campaignUid: String, commitOrder: Long): List<CommittedReplayPayload> = db.rawQuery(
         """SELECT transaction_uid,turn_uid,command_uid,commit_order,semantic_fingerprint,required_event_count,
-            required_event_manifest_fingerprint,event_boundary_uid,player_change_set_json,causal_plan_json,payload_sha256
+            required_event_manifest_fingerprint,event_boundary_uid,replay_schema_version,player_change_set_json,causal_plan_json,payload_sha256
             FROM ${CampaignSnapshotSchema.REPLAY} WHERE campaign_uid=? AND commit_order>? ORDER BY commit_order""",
         arrayOf(campaignUid,commitOrder.toString())
     ).use { c -> buildList { while(c.moveToNext()) { val payload=decode(campaignUid,c);require(valid(payload)){"RPGOS-SNAPSHOT:REPLAY_PAYLOAD_DIGEST_MISMATCH"};add(payload) } } }
@@ -119,10 +120,15 @@ internal class CommittedReplayPayloadStore(private val db: SQLiteDatabase) {
         "SELECT payload_sha256 FROM ${CampaignSnapshotSchema.REPLAY} WHERE transaction_uid=?", arrayOf(transactionUid)
     ).use { c -> if(!c.moveToFirst()) null else c.getString(0) }
 
-    private fun decode(campaignUid:String,c:android.database.Cursor)=CommittedReplayPayload(
-        TurnTransactionIdentity(campaignUid,c.getString(1),c.getString(2),c.getString(0)),c.getLong(3),c.getString(4),
-        RequiredEventManifestSummary(c.getInt(5),c.getString(6)),if(c.isNull(7))null else c.getString(7),
-        PlayerChangeSetCodec.decode(c.getString(8)),decodeCausalPlan(c.getString(9)),c.getString(10))
+    private fun decode(campaignUid:String,c:android.database.Cursor):CommittedReplayPayload {
+        val version=c.getInt(8)
+        require(version==1){"RPGOS-SNAPSHOT:UNSUPPORTED_REPLAY_SCHEMA:$version"}
+        return CommittedReplayPayload(
+            TurnTransactionIdentity(campaignUid,c.getString(1),c.getString(2),c.getString(0)),c.getLong(3),c.getString(4),
+            RequiredEventManifestSummary(c.getInt(5),c.getString(6)),if(c.isNull(7))null else c.getString(7),
+            version,PlayerChangeSetCodec.decode(c.getString(9)),decodeCausalPlan(c.getString(10)),c.getString(11)
+        )
+    }
     private fun valid(p:CommittedReplayPayload):Boolean { val change=PlayerChangeSetCodec.encode(p.changeSet);val causal=encodeCausalPlan(p.causalPlan);return p.payloadSha256==sha256(replayCanonical(p.identity,p.commitOrder,p.semanticFingerprint,p.eventManifest,p.eventBoundaryUid,change,causal)) }
     companion object {
         fun encodeCausalPlan(plan:List<CanonicalCausalRelationIntent>):String = JSONArray().apply { plan.forEach { p -> put(JSONObject().apply {
@@ -145,15 +151,19 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
     init { require(campaignUid.isNotBlank()) }
 
     fun create(kind:SnapshotKind=SnapshotKind.AUTOMATIC,pinned:Boolean=kind==SnapshotKind.USER_PINNED):CampaignSnapshotDescriptor {
-        requireAdministrativeRecoveryEntryPoint();check(CampaignSnapshotSchema.isReady(db)) { "RPGOS-SNAPSHOT:SCHEMA_NOT_READY" }
+        requireAdministrativeRecoveryEntryPoint()
+        return CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { createLocked(kind,pinned) }
+    }
+
+    private fun createLocked(kind:SnapshotKind,pinned:Boolean):CampaignSnapshotDescriptor {
+        check(CampaignSnapshotSchema.isReady(db)) { "RPGOS-SNAPSHOT:SCHEMA_NOT_READY" }
         snapshotDir.mkdirs(); reconcileOrphans();val effectivePinned=pinned||kind==SnapshotKind.USER_PINNED
         val order=db.rawQuery("SELECT COALESCE(MAX(created_order),0)+1 FROM ${CampaignSnapshotSchema.CATALOG} WHERE campaign_uid=?",arrayOf(campaignUid)).use{it.moveToFirst();it.getLong(0)}
         val uid="SNAP-$campaignUid-$order-${UUID.randomUUID()}";val staged=File(snapshotDir,".$uid.staged.db");val published=File(snapshotDir,"$uid.db")
         db.execSQL("""INSERT INTO ${CampaignSnapshotSchema.CATALOG}(snapshot_uid,campaign_uid,snapshot_kind,snapshot_schema_version,created_order,
             created_at_epoch_ms,anchor_commit_order,anchor_transaction_uid,anchor_turn_uid,anchor_event_uid,payload_path,payload_sha256,publication_state,pinned)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",arrayOf(uid,campaignUid,kind.name,CampaignSnapshotSchema.VERSION,order,System.currentTimeMillis(),
-            0L,null,null,null,
-            published.absolutePath,null,SnapshotPublicationState.STAGED.name,if(effectivePinned)1 else 0))
+            0L,null,null,null,published.absolutePath,null,SnapshotPublicationState.STAGED.name,if(effectivePinned)1 else 0))
         try {
             if(staged.exists())staged.delete(); db.execSQL("VACUUM INTO ?",arrayOf(staged.absolutePath));check(staged.isFile)
             val capturedAnchor=SQLiteDatabase.openDatabase(staged.absolutePath,null,SQLiteDatabase.OPEN_READONLY).use{capturedDb->
@@ -173,15 +183,25 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
                 capturedAnchor.eventUid,digest,SnapshotPublicationState.VALID.name,uid))
             if(kind==SnapshotKind.AUTOMATIC&&!effectivePinned)pruneAutomatic()
             return requireNotNull(find(uid))
-        } catch(t:Throwable) { staged.delete();published.delete();db.execSQL("UPDATE ${CampaignSnapshotSchema.CATALOG} SET publication_state=? WHERE snapshot_uid=?",arrayOf(SnapshotPublicationState.INVALID.name,uid));throw t }
+        } catch(t:Throwable) {
+            staged.delete();published.delete();db.execSQL("UPDATE ${CampaignSnapshotSchema.CATALOG} SET publication_state=? WHERE snapshot_uid=?",arrayOf(SnapshotPublicationState.INVALID.name,uid));throw t
+        }
     }
 
     fun list():List<CampaignSnapshotDescriptor> { check(CampaignSnapshotSchema.isReady(db));return db.rawQuery("""SELECT snapshot_uid,snapshot_kind,snapshot_schema_version,created_order,created_at_epoch_ms,
         anchor_commit_order,anchor_transaction_uid,anchor_turn_uid,anchor_event_uid,payload_path,payload_sha256,publication_state,pinned
         FROM ${CampaignSnapshotSchema.CATALOG} WHERE campaign_uid=? ORDER BY created_order DESC,snapshot_uid DESC""",arrayOf(campaignUid)).use{c->buildList{while(c.moveToNext())add(row(c))}} }
     fun latestValidCompatible():CampaignSnapshotDescriptor?=list().firstOrNull{it.kind!=SnapshotKind.LEGACY_BACKUP&&it.kind!=SnapshotKind.MANUAL_EXPORT&&it.state==SnapshotPublicationState.VALID&&it.schemaVersion==CampaignSnapshotSchema.VERSION&&File(it.payloadPath).isFile&&fileSha256(File(it.payloadPath))==it.payloadSha256}
-    fun delete(uid:String):Boolean { val s=find(uid)?:return false;val file=File(s.payloadPath);if(file.exists()&&!file.delete())return false;db.delete(CampaignSnapshotSchema.CATALOG,"snapshot_uid=? AND campaign_uid=?",arrayOf(uid,campaignUid));return true }
-    fun pruneAutomatic(){ val eligible=list().filter{it.kind==SnapshotKind.AUTOMATIC&&!it.pinned&&it.state==SnapshotPublicationState.VALID};eligible.drop(AUTOMATIC_RETENTION).forEach{delete(it.snapshotUid)} }
+    fun delete(uid:String):Boolean {
+        if(uid in Phase36SchemaVersioning.activeSafetySnapshotUids(db,campaignUid)) return false
+        val s=find(uid)?:return false;val file=File(s.payloadPath);if(file.exists()&&!file.delete())return false
+        db.delete(CampaignSnapshotSchema.CATALOG,"snapshot_uid=? AND campaign_uid=?",arrayOf(uid,campaignUid));return true
+    }
+    fun pruneAutomatic(){
+        val protected=Phase36SchemaVersioning.activeSafetySnapshotUids(db,campaignUid)
+        val eligible=list().filter{it.kind==SnapshotKind.AUTOMATIC&&!it.pinned&&it.state==SnapshotPublicationState.VALID&&it.snapshotUid !in protected}
+        eligible.drop(AUTOMATIC_RETENTION).forEach{delete(it.snapshotUid)}
+    }
     fun reconcileOrphans(){
         if(!CampaignSnapshotSchema.isReady(db))return
         val catalog=list()
@@ -214,12 +234,13 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
         })};target.setTransactionSuccessful()}finally{target.endTransaction()}
     }
 
-    /**
-     * Builds and verifies a separate database while the current durable replay source stays intact.
-     * The caller may activate only the returned file, never an unverified intermediate.
-     */
     fun reconstructToVerifiedStaging():File {
-        requireAdministrativeRecoveryEntryPoint();reconcileOrphans()
+        requireAdministrativeRecoveryEntryPoint()
+        return CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { reconstructLocked() }
+    }
+
+    private fun reconstructLocked():File {
+        reconcileOrphans()
         val snapshot=list().firstOrNull { it.kind!=SnapshotKind.LEGACY_BACKUP&&it.kind!=SnapshotKind.MANUAL_EXPORT&&it.state==SnapshotPublicationState.VALID&&it.schemaVersion==CampaignSnapshotSchema.VERSION&&
             File(it.payloadPath).isFile&&fileSha256(File(it.payloadPath))==it.payloadSha256 }
             ?:error("RPGOS-SNAPSHOT:NO_VALID_COMPATIBLE_SNAPSHOT")
@@ -232,7 +253,8 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
         try {
             SQLiteDatabase.openDatabase(staging.absolutePath,null,SQLiteDatabase.OPEN_READWRITE).use { target ->
                 check(target.isDatabaseIntegrityOk){"RPGOS-SNAPSHOT:STAGING_INTEGRITY_FAILED"}
-                GameplayRuntimeBootstrap.requireReady(target,campaignUid)
+                Phase36SchemaVersioning.ensureReady(target,campaignUid)
+                GameplayRuntimeBootstrap.initialize(target,campaignUid)
                 payloads.forEach { replayCommittedTransaction(target,it) }
                 GameplayRuntimeBootstrap.requireReady(target,campaignUid)
                 require(AuthoritativeStateDigest.compute(target)==AuthoritativeStateDigest.compute(db)){"RPGOS-SNAPSHOT:AUTHORITATIVE_DIGEST_MISMATCH"}
@@ -246,13 +268,33 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
     }
 
     fun activateVerifiedStaging(activeDbFile:File,verifiedStaging:File):File {
-        requireAdministrativeRecoveryEntryPoint();require(verifiedStaging.isFile&&verifiedStaging.parentFile?.canonicalFile==snapshotDir.canonicalFile)
-        SQLiteDatabase.openDatabase(verifiedStaging.absolutePath,null,SQLiteDatabase.OPEN_READONLY).use{check(it.isDatabaseIntegrityOk)}
-        val rollback=File(activeDbFile.parentFile,".${activeDbFile.name}.before_snapshot_activation")
-        if(rollback.exists())rollback.delete();db.close()
-        check(activeDbFile.renameTo(rollback)){"RPGOS-SNAPSHOT:ACTIVE_STAGE_RENAME_FAILED"}
-        return try{check(verifiedStaging.renameTo(activeDbFile)){"RPGOS-SNAPSHOT:STAGING_ACTIVATION_FAILED"};rollback.delete();activeDbFile}
-        catch(t:Throwable){activeDbFile.delete();rollback.renameTo(activeDbFile);throw t}
+        requireAdministrativeRecoveryEntryPoint()
+        return CampaignRuntimeLifecycleLock.withRecovery(campaignUid) {
+            require(verifiedStaging.isFile&&verifiedStaging.parentFile?.canonicalFile==snapshotDir.canonicalFile)
+            check(db.isOpen){"RPGOS-SNAPSHOT:ACTIVE_DB_NOT_OPEN_FOR_FRESHNESS_CHECK"}
+            SQLiteDatabase.openDatabase(verifiedStaging.absolutePath,null,SQLiteDatabase.OPEN_READONLY).use{stagedDb->
+                check(stagedDb.isDatabaseIntegrityOk)
+                require(AuthoritativeStateDigest.compute(stagedDb)==AuthoritativeStateDigest.compute(db)){"RPGOS-SNAPSHOT:STALE_VERIFIED_STAGING:AUTHORITY"}
+                require(Phase36SchemaCompatibilityFingerprint.compute(stagedDb)==Phase36SchemaCompatibilityFingerprint.compute(db)){
+                    "RPGOS-SNAPSHOT:STALE_VERIFIED_STAGING:SCHEMA_VECTOR"
+                }
+                listOf(
+                    "turn_transaction_receipts","canonical_gameplay_events","canonical_causal_relations","canonical_turn_replay_payloads",
+                    CampaignSnapshotSchema.CATALOG
+                ).forEach { table ->
+                    require(TableDigest.compute(stagedDb,table)==TableDigest.compute(db,table)){"RPGOS-SNAPSHOT:STALE_VERIFIED_STAGING:$table"}
+                }
+            }
+            val rollback=File(activeDbFile.parentFile,".${activeDbFile.name}.before_snapshot_activation")
+            if(rollback.exists())rollback.delete();db.close()
+            check(activeDbFile.renameTo(rollback)){"RPGOS-SNAPSHOT:ACTIVE_STAGE_RENAME_FAILED"}
+            try {
+                check(verifiedStaging.renameTo(activeDbFile)){"RPGOS-SNAPSHOT:STAGING_ACTIVATION_FAILED"}
+                rollback.delete();activeDbFile
+            } catch(t:Throwable) {
+                activeDbFile.delete();rollback.renameTo(activeDbFile);throw t
+            }
+        }
     }
 }
 

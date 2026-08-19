@@ -109,9 +109,14 @@ internal class LocalGameStore(private val context: Context) {
                 val campaignId = selection.activeCampaignRef().campaignId
                 val truth = CampaignTruthStore(save, campaignId).activeForContext(limit = 80)
                 val state = PlayerStateStore(save, campaignId).load()
-                return base.copy(campaignTruth = truth, playerState = state?.toContextMap() ?: emptyMap(), contextMeta = base.contextMeta + mapOf("campaign_truth_records" to truth.size, "player_state_contract" to (state != null), "active_player_uid" to state?.activePlayer?.playerUid))
+                val divergences = CanonDivergenceStore(save, campaignId).list()
+                return base.copy(campaignTruth = truth, canonDivergences = divergences, playerState = state?.toContextMap() ?: emptyMap(), contextMeta = base.contextMeta + mapOf("campaign_truth_records" to truth.size, "canon_divergences" to divergences.size, "player_state_contract" to (state != null), "active_player_uid" to state?.activePlayer?.playerUid))
             }
         }
+    }
+
+    fun canonDivergences(): List<CanonDivergenceRecord> = openGameplaySaveDb().use { db ->
+        CanonDivergenceStore(db, selection.activeCampaignRef().campaignId).list()
     }
 
     fun activePlayerRef(): ActivePlayerRef? { openGameplaySaveDb().use { db -> return ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active() } }

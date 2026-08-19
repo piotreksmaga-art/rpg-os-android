@@ -53,6 +53,7 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun truthRecords(kind:TruthKind?,subjectUid:String?,perspectiveUid:String?,limit:Int):List<CampaignTruthRecord> = openGameplaySaveDb().use { db ->
         CampaignTruthStore(db,activeCampaignRef().campaignId).active(kind,subjectUid,perspectiveUid,limit)
     }
+    override fun canonDivergences(): List<CanonDivergenceRecord> = store.canonDivergences()
 
     override fun npcs(search: String): List<NpcListItem> = store.npcs(search)
     override fun npcDetail(uid: String): NpcDetail = store.npcDetail(uid)

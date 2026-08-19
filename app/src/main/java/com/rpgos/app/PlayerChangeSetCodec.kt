@@ -418,9 +418,9 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
     ),
     PlayerChangeKinds.CAMPAIGN_TRUTH to simpleCodec(
         CampaignTruthChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
-        setOf("truthUid", "kind", "subjectUid", "predicate", "objectValue", "perspectiveUid", "narrativeText", "supersedesTruthUid"),
-        encode = { pcsObj("truthUid" to pcsJ(it.truthUid), "kind" to pcsJ(it.kind.name), "subjectUid" to pcsJn(it.subjectUid), "predicate" to pcsJ(it.predicate), "objectValue" to pcsJn(it.objectValue), "perspectiveUid" to pcsJn(it.perspectiveUid), "narrativeText" to pcsJn(it.narrativeText), "supersedesTruthUid" to pcsJn(it.supersedesTruthUid)) },
-        decode = { CampaignTruthChange(it.pcsReqString("truthUid"), enumValue(it.pcsReqString("kind"), "INVALID_TRUTH_KIND"), it.pcsOptString("subjectUid"), it.pcsReqString("predicate"), it.pcsOptString("objectValue"), it.pcsOptString("perspectiveUid"), it.pcsOptString("narrativeText"), it.pcsOptString("supersedesTruthUid")) },
+        setOf("truthUid", "kind", "subjectUid", "predicate", "objectValue", "perspectiveUid", "narrativeText", "supersedesTruthUid", "canonDivergence"),
+        encode = { pcsObj("truthUid" to pcsJ(it.truthUid), "kind" to pcsJ(it.kind.name), "subjectUid" to pcsJn(it.subjectUid), "predicate" to pcsJ(it.predicate), "objectValue" to pcsJn(it.objectValue), "perspectiveUid" to pcsJn(it.perspectiveUid), "narrativeText" to pcsJn(it.narrativeText), "supersedesTruthUid" to pcsJn(it.supersedesTruthUid), "canonDivergence" to (it.canonDivergence?.let(::encodeCanonDivergence) ?: JsonNull)) },
+        decode = { CampaignTruthChange(it.pcsReqString("truthUid"), enumValue(it.pcsReqString("kind"), "INVALID_TRUTH_KIND"), it.pcsOptString("subjectUid"), it.pcsReqString("predicate"), it.pcsOptString("objectValue"), it.pcsOptString("perspectiveUid"), it.pcsOptString("narrativeText"), it.pcsOptString("supersedesTruthUid"), it.pcsOptObject("canonDivergence")?.let(::decodeCanonDivergence)) },
         validate = {
             buildList {
                 if (it.truthUid.isBlank() || it.predicate.isBlank()) add("INVALID_CAMPAIGN_TRUTH_CHANGE")
@@ -428,6 +428,7 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
                 if (it.kind == TruthKind.BELIEF && it.perspectiveUid.isNullOrBlank()) add("INVALID_CAMPAIGN_TRUTH_CHANGE")
                 if (it.kind == TruthKind.NARRATIVE && it.narrativeText.isNullOrBlank()) add("INVALID_CAMPAIGN_TRUTH_CHANGE")
                 if (it.kind != TruthKind.NARRATIVE && !it.narrativeText.isNullOrBlank()) add("INVALID_CAMPAIGN_TRUTH_CHANGE")
+                if (it.canonDivergence != null && (it.kind != TruthKind.FACT || it.objectValue != it.canonDivergence.actualCampaignValue)) add("INVALID_CANON_DIVERGENCE_BINDING")
             }
         },
         conflicts = { setOf("CAMPAIGN_TRUTH:${it.truthUid}") }
@@ -457,6 +458,32 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
         conflicts = { setOf("PROJECT:${it.projectUid}") }
     )
 )
+
+private fun encodeCanonDivergence(d: CanonDivergenceSpec): JsonObject = pcsObj(
+    "divergenceUid" to pcsJ(d.divergenceUid),
+    "subjectKindUid" to pcsJ(d.canonicalReference.subjectKindUid),
+    "subjectUid" to pcsJ(d.canonicalReference.subjectUid),
+    "expectationUid" to pcsJ(d.canonicalReference.expectationUid),
+    "worldPackUid" to pcsJ(d.worldPackUid), "worldPackVersion" to pcsJ(d.worldPackVersion),
+    "kind" to pcsJ(d.kind.name), "expected" to pcsJ(d.expectedCanonicalValue),
+    "actual" to pcsJ(d.actualCampaignValue), "status" to pcsJ(d.status.name),
+    "effectiveFrom" to (d.effectiveFrom?.let(::JsonPrimitive) ?: JsonNull),
+    "effectiveUntil" to (d.effectiveUntil?.let(::JsonPrimitive) ?: JsonNull),
+    "supersedes" to pcsJn(d.supersedesDivergenceUid), "resolves" to pcsJn(d.resolvesDivergenceUid),
+    "provenanceStatus" to pcsJ(d.provenanceStatus.name), "schemaVersion" to JsonPrimitive(d.schemaVersion)
+)
+
+private fun decodeCanonDivergence(o: JsonObject): CanonDivergenceSpec {
+    o.pcsOnlyKeys(setOf("divergenceUid","subjectKindUid","subjectUid","expectationUid","worldPackUid","worldPackVersion",
+        "kind","expected","actual","status","effectiveFrom","effectiveUntil","supersedes","resolves","provenanceStatus","schemaVersion"))
+    return CanonDivergenceSpec(
+        o.pcsReqString("divergenceUid"), CanonReference(o.pcsReqString("subjectKindUid"), o.pcsReqString("subjectUid"), o.pcsReqString("expectationUid")),
+        o.pcsReqString("worldPackUid"), o.pcsReqString("worldPackVersion"), enumValue(o.pcsReqString("kind"), "INVALID_DIVERGENCE_KIND"),
+        o.pcsReqString("expected"), o.pcsReqString("actual"), enumValue(o.pcsReqString("status"), "INVALID_DIVERGENCE_STATUS"),
+        o.pcsOptLong("effectiveFrom"), o.pcsOptLong("effectiveUntil"), o.pcsOptString("supersedes"), o.pcsOptString("resolves"),
+        enumValue(o.pcsReqString("provenanceStatus"), "INVALID_DIVERGENCE_PROVENANCE"), o.pcsReqInt("schemaVersion")
+    )
+}
 
 private fun <P : PlayerDomainChangePayload> simpleCodec(
     type: KClass<P>,
