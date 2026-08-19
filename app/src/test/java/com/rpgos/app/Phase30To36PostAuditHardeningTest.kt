@@ -12,7 +12,6 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 @RunWith(RobolectricTestRunner::class)
@@ -23,6 +22,7 @@ class Phase30To36PostAuditHardeningTest {
     private lateinit var snapshots: File
 
     @Before fun setUp() {
+        divergenceSpecs.clear()
         root = kotlin.io.path.createTempDirectory("p30-36-hardening-").toFile()
         dbFile = File(root, "campaign.db")
         snapshots = File(root, "snapshots")
@@ -285,6 +285,7 @@ class Phase30To36PostAuditHardeningTest {
     }
 
     private fun divergenceProposal(commandUid: String, spec: CanonDivergenceSpec): CanonicalCampaignMutationProposal {
+        divergenceSpecs[commandUid] = spec
         val actor=CommandActorRef("PLAYER","P1")
         val command=PlayerCommand(commandUid=commandUid,campaignUid="C1",actor=actor,commandKindUid=PlayerCommandKinds.TRANSFER_FUNDS,
             payload=TransferFundsCommandPayload("A","B",1,"CUR"),provenance=CommandProvenance("WORLD-PACK-TEST"),requestedEffectiveOrder=20)
@@ -295,7 +296,7 @@ class Phase30To36PostAuditHardeningTest {
             CampaignScopedDomainRef("C1",DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT,"B")),
             CampaignScopedDomainRef("C1",DomainRef(PlayerResolutionReferenceKinds.CURRENCY,"CUR"))
         )
-        val engine=PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(DivergenceTruthComponent(spec))))
+        val engine=PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(DivergenceTruthComponent())))
         val context=PlayerResolutionContext.createUnboundGeneric("C1",actor,refs)
         return when(val admission=CampaignMutationBoundary.resolveAndAdmit("C1",engine,command,context)){
             is CampaignMutationAdmission.Accepted->admission.proposal
@@ -303,9 +304,10 @@ class Phase30To36PostAuditHardeningTest {
         }
     }
 
-    private class DivergenceTruthComponent(private val spec: CanonDivergenceSpec) :
+    private class DivergenceTruthComponent :
         PlayerResolutionComponent<TransferFundsCommandPayload>(PlayerCommandKinds.TRANSFER_FUNDS,TransferFundsCommandPayload::class,"POST-AUDIT-DIVERGENCE","1") {
         override fun resolve(command: PlayerCommand<TransferFundsCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome {
+            val spec = requireNotNull(divergenceSpecs[command.commandUid]) { "missing divergence spec for ${command.commandUid}" }
             val changeUid="CHANGE-${command.commandUid}"
             val truth=CampaignTruthChange("TRUTH-${command.commandUid}",TruthKind.FACT,"P1","canon.outcome",spec.actualCampaignValue,null,null,null,spec)
             val subject=DomainRef("PLAYER","P1")
@@ -322,4 +324,8 @@ class Phase30To36PostAuditHardeningTest {
     private fun count(db:SQLiteDatabase,table:String)=db.rawQuery("SELECT COUNT(*) FROM $table",null).use{it.moveToFirst();it.getLong(0)}
     private fun countWhere(db:SQLiteDatabase,table:String,where:String)=db.rawQuery("SELECT COUNT(*) FROM $table WHERE $where",null).use{it.moveToFirst();it.getLong(0)}
     private fun sha256(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString(""){"%02x".format(it)}
+
+    companion object {
+        private val divergenceSpecs = mutableMapOf<String, CanonDivergenceSpec>()
+    }
 }
