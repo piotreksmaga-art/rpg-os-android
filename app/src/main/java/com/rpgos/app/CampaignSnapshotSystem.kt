@@ -275,9 +275,12 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
             SQLiteDatabase.openDatabase(verifiedStaging.absolutePath,null,SQLiteDatabase.OPEN_READONLY).use{stagedDb->
                 check(stagedDb.isDatabaseIntegrityOk)
                 require(AuthoritativeStateDigest.compute(stagedDb)==AuthoritativeStateDigest.compute(db)){"RPGOS-SNAPSHOT:STALE_VERIFIED_STAGING:AUTHORITY"}
+                require(Phase36SchemaCompatibilityFingerprint.compute(stagedDb)==Phase36SchemaCompatibilityFingerprint.compute(db)){
+                    "RPGOS-SNAPSHOT:STALE_VERIFIED_STAGING:SCHEMA_VECTOR"
+                }
                 listOf(
                     "turn_transaction_receipts","canonical_gameplay_events","canonical_causal_relations","canonical_turn_replay_payloads",
-                    CampaignSnapshotSchema.CATALOG,Phase36SchemaVersioning.VERSIONS,Phase36SchemaVersioning.ATTEMPTS
+                    CampaignSnapshotSchema.CATALOG
                 ).forEach { table ->
                     require(TableDigest.compute(stagedDb,table)==TableDigest.compute(db,table)){"RPGOS-SNAPSHOT:STALE_VERIFIED_STAGING:$table"}
                 }
