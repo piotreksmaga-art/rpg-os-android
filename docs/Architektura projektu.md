@@ -2,7 +2,7 @@
 
 Status: MASTER / CANONICAL
 
-Ten dokument jest jedyną kanoniczną architekturą projektu RPG OS. Szczegółowy indeks plików Phase 1–32 znajduje się w `docs/Mapa plików faz 1-32.md`, a jedyna kanoniczna roadmapa w `docs/Roadmap.md`.
+Ten dokument jest jedyną kanoniczną architekturą projektu RPG OS. Szczegółowy indeks plików znajduje się w `docs/Mapa plików.md`, a jedyna kanoniczna roadmapa w `docs/Roadmap.md`.
 
 ## 0. Priorytet źródeł
 Jeżeli wcześniejszy plan, TODO, komentarz lub rozmowa jest sprzeczna z tym dokumentem, obowiązuje kolejno:
@@ -303,7 +303,7 @@ PLAYER INPUT -> Input Normalizer -> Intent Parser -> Turn Planner -> Initial Ret
 Deferred/background operacje nie mogą poza kontrolowaną transakcją zmieniać authoritative state.
 
 ## 42. Repository-first development protocol
-Przed kodem: przeczytaj ten dokument, `docs/Roadmap.md` i `docs/Mapa plików faz 1-32.md`, sprawdź master, recent commits, istniejące klasy/interfejsy/tabele/migracje/testy/build/CI. Oznacz funkcję jako COMPLETE/PARTIAL/MISSING/BLOCKED. Nie twórz równoległego systemu tylko dlatego, że istniejący ma inną nazwę.
+Przed kodem: przeczytaj ten dokument, `docs/Roadmap.md` i `docs/Mapa plików.md`, sprawdź master, recent commits, istniejące klasy/interfejsy/tabele/migracje/testy/build/CI. Oznacz funkcję jako COMPLETE/PARTIAL/MISSING/BLOCKED. Nie twórz równoległego systemu tylko dlatego, że istniejący ma inną nazwę.
 
 Wybieraj najwcześniejszą brakującą zależność, nie kolejny numer na ślepo. Integracja przed refactorem.
 
@@ -357,7 +357,7 @@ Nie raportuj funkcji, której faktycznie nie zaimplementowano.
 ## 48. Protokół nowej sesji
 1. Przeczytaj `docs/Architektura projektu.md`.
 2. Przeczytaj `docs/Roadmap.md`.
-3. Przeczytaj `docs/Mapa plików faz 1-32.md` i użyj go jako indeksu do aktualnego kodu.
+3. Przeczytaj `docs/Mapa plików.md` i użyj go jako indeksu do aktualnego kodu.
 4. Przeczytaj `docs/PARALLEL_WORK_COORDINATION.md` i sprawdź ACTIVE WORK REGISTER.
 5. Sprawdź master/recent commits/build/CI/migrations/tests.
 6. Audytuj istniejącą implementację.
