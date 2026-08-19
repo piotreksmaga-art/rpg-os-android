@@ -22,12 +22,12 @@ internal object GameplayRuntimeBootstrap {
     )
 
     /** Explicit bootstrap/migration/restore boundary. Never call from an ordinary read path. */
-    fun initialize(db: SQLiteDatabase, campaignUid: String) {
+    fun initialize(db: SQLiteDatabase, campaignUid: String, safetySnapshotUid: String? = null) {
         require(campaignUid.isNotBlank()) { "RPGOS-G32:BLANK_CAMPAIGN_UID" }
-        CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { initializeLocked(db, campaignUid) }
+        CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { initializeLocked(db, campaignUid, safetySnapshotUid) }
     }
 
-    private fun initializeLocked(db: SQLiteDatabase, campaignUid: String) {
+    private fun initializeLocked(db: SQLiteDatabase, campaignUid: String, safetySnapshotUid: String?) {
         val previous = activeGameplayInitialization.get()
         require(previous == null) { "RPGOS-G32:NESTED_GAMEPLAY_INITIALIZATION" }
         activeGameplayInitialization.set(ActiveGameplayInitialization(db, campaignUid))
@@ -53,8 +53,9 @@ internal object GameplayRuntimeBootstrap {
             }
 
             // Phase36 owns durable PREPARED/RUNNING/APPLIED evidence and all material migration.
+            // The optional safety snapshot is passed only through this explicit administrative owner.
             check(!db.inTransaction()) { "RPGOS-SCHEMA:PHASE36_REQUIRES_TOP_LEVEL_MIGRATION_BOUNDARY" }
-            Phase36SchemaVersioning.ensureReady(db, campaignUid)
+            Phase36SchemaVersioning.ensureReady(db, campaignUid, safetySnapshotUid)
 
             // Close/reinstall guards only after every table exists; lifecycle WRITE lock prevents
             // gameplay from observing the short administrative installation window.
