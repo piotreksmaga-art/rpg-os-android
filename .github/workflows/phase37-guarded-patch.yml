@@ -3,13 +3,20 @@ name: Phase37 Guarded Patch
 on:
   push:
     branches: [ "agent/phase37-npc-knowledge-audit" ]
+  pull_request:
+    branches: [ "master" ]
+    types: [ opened, synchronize, reopened ]
 
 permissions:
   contents: write
 
+concurrency:
+  group: phase37-guarded-patch
+  cancel-in-progress: true
+
 jobs:
   patch-test-commit:
-    if: ${{ !contains(github.event.head_commit.message, '[phase37-generated]') }}
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[phase37-generated]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
