@@ -28,21 +28,32 @@ internal object GameplayRuntimeBootstrap {
         require(previous == null) { "RPGOS-G32:NESTED_GAMEPLAY_INITIALIZATION" }
         activeGameplayInitialization.set(ActiveGameplayInitialization(db, campaignUid))
         try {
-            val install = {
-                Phase36SchemaVersioning.requireNoUnsupportedFuture(db)
+            Phase36SchemaVersioning.requireNoUnsupportedFuture(db)
+
+            // Upgrade the previously accepted Phase1-34 schemas first. Existing guarded databases
+            // receive the ordinary ADMIN capability only for these legacy/current-schema writes.
+            val ensureAcceptedSchemas = {
                 CurrentSchema.ensure(db, campaignUid)
                 TurnTransactionReceiptSchema.ensureReady(db)
                 CampaignIntelligencePhase30Schema.ensureActivated(db, campaignUid)
                 CampaignCausalGraphSchema.ensureReady(db)
                 CampaignSnapshotSchema.ensureReady(db)
-                Phase36SchemaVersioning.ensureReady(db, campaignUid)
-                GameplayMutationDatabaseGuards.ensureInstalled(db)
             }
             if (GameplayMutationDatabaseGuards.isInstalled(db)) {
-                withAdministrativeMutationAuthority(db, campaignUid) { install() }
+                withAdministrativeMutationAuthority(db, campaignUid) { ensureAcceptedSchemas() }
             } else {
-                install()
+                ensureAcceptedSchemas()
             }
+
+            // Phase36 owns its own durable PREPARED/RUNNING/APPLIED transaction. Do not nest it
+            // inside the broad ADMIN transaction above or an interrupted attempt would be erased.
+            check(!db.inTransaction()) { "RPGOS-SCHEMA:PHASE36_REQUIRES_TOP_LEVEL_MIGRATION_BOUNDARY" }
+            Phase36SchemaVersioning.ensureReady(db, campaignUid)
+
+            // Close/reinstall guards only after every table exists; lifecycle WRITE lock prevents
+            // gameplay from observing the short administrative installation window.
+            GameplayMutationDatabaseGuards.ensureInstalled(db)
+
             CampaignReplayAuthorityMatrix.validateComplete()
             requireReady(db, campaignUid)
         } finally {
