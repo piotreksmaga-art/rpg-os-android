@@ -350,8 +350,14 @@ class Phase36SchemaVersioningTest {
         db.execSQL("ALTER TABLE turn_transaction_receipts_v2_test RENAME TO turn_transaction_receipts")
     }
 
-    private fun receiptHistory(db:SQLiteDatabase,campaign:String)=db.rawQuery("""SELECT transaction_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,COALESCE(CAST(commit_order AS TEXT),'NULL')
-        FROM turn_transaction_receipts WHERE campaign_uid=? ORDER BY transaction_uid""",arrayOf(campaign)).use{c->buildList{while(c.moveToNext())add((0 until c.columnCount).joinToString("|"){i->c.getString(i)})}}}
+    private fun receiptHistory(db:SQLiteDatabase,campaign:String):List<String> = db.rawQuery(
+        """SELECT transaction_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,COALESCE(CAST(commit_order AS TEXT),'NULL')
+            FROM turn_transaction_receipts WHERE campaign_uid=? ORDER BY transaction_uid""",arrayOf(campaign)
+    ).use { c ->
+        buildList {
+            while(c.moveToNext()) add((0 until c.columnCount).joinToString("|") { i -> c.getString(i) })
+        }
+    }
 
     private fun rebuildEventAsV1(db:SQLiteDatabase){
         listOf("rpgos_event_store_no_update","rpgos_event_store_no_delete","rpgos_event_store_turn_insert").forEach{db.execSQL("DROP TRIGGER IF EXISTS $it")}
