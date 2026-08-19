@@ -32,15 +32,42 @@ jobs:
         with:
           gradle-version: '9.5.0'
       - name: Apply repair integration helpers
+        id: apply
+        continue-on-error: true
+        shell: bash
         run: |
-          python3 tools/chat1_p35_compile_fix.py
-          python3 tools/chat1_p36_event_patch.py
-          python3 tools/chat1_p36_schema_followup_patch.py
-          python3 tools/chat1_p36_snapshot_patch.py
-          python3 tools/chat1_p36_bootstrap_patch.py
-          rm tools/chat1_p35_compile_fix.py tools/chat1_p36_event_patch.py tools/chat1_p36_schema_followup_patch.py tools/chat1_p36_snapshot_patch.py tools/chat1_p36_bootstrap_patch.py
-      - name: Publish integration candidate
+          set -o pipefail
+          {
+            echo '=== P35 compile fix ==='
+            python3 tools/chat1_p35_compile_fix.py
+            echo '=== P35 semantic fix ==='
+            python3 tools/chat1_p35_semantic_test_fix.py
+            echo '=== P36 event ==='
+            python3 tools/chat1_p36_event_patch.py
+            echo '=== P36 schema followup ==='
+            python3 tools/chat1_p36_schema_followup_patch.py
+            echo '=== P36 snapshot ==='
+            python3 tools/chat1_p36_snapshot_patch.py
+            echo '=== P36 bootstrap ==='
+            python3 tools/chat1_p36_bootstrap_patch.py
+          } 2>&1 | tee /tmp/chat1_phase36_apply.log
+      - name: Publish apply diagnostics on failure
+        if: steps.apply.outcome != 'success'
         run: |
+          git config user.name "chat1-rpgos-repair"
+          git config user.email "actions@users.noreply.github.com"
+          echo "PHASE36_APPLY_OUTCOME=${{ steps.apply.outcome }}" > tools/chat1_phase36_ci_result.txt
+          cat /tmp/chat1_phase36_apply.log >> tools/chat1_phase36_ci_result.txt
+          git add tools/chat1_phase36_ci_result.txt
+          git commit -m "test: record Phase 36 apply diagnostic [skip ci]"
+          git push origin HEAD:chat1-phase35-36-post-audit-repair
+      - name: Stop after apply failure
+        if: steps.apply.outcome != 'success'
+        run: exit 1
+      - name: Remove helpers and publish integration candidate
+        if: steps.apply.outcome == 'success'
+        run: |
+          rm tools/chat1_p35_compile_fix.py tools/chat1_p35_semantic_test_fix.py tools/chat1_p36_event_patch.py tools/chat1_p36_schema_followup_patch.py tools/chat1_p36_snapshot_patch.py tools/chat1_p36_bootstrap_patch.py
           git config user.name "chat1-rpgos-repair"
           git config user.email "actions@users.noreply.github.com"
           git add app/src/main app/src/test tools
@@ -58,7 +85,7 @@ jobs:
             --tests 'com.rpgos.app.Phase30To36PostAuditHardeningTest' \
             --stacktrace 2>&1 | tee /tmp/chat1_phase36_gradle.log
       - name: Publish checkpoint evidence
-        if: always()
+        if: always() && steps.apply.outcome == 'success'
         run: |
           git config user.name "chat1-rpgos-repair"
           git config user.email "actions@users.noreply.github.com"
@@ -69,5 +96,5 @@ jobs:
           git commit -m "test: record Phase 36 checkpoint result [skip ci]"
           git push origin HEAD:chat1-phase35-36-post-audit-repair
       - name: Fail on checkpoint failure
-        if: steps.targeted.outcome != 'success'
+        if: steps.apply.outcome == 'success' && steps.targeted.outcome != 'success'
         run: exit 1
