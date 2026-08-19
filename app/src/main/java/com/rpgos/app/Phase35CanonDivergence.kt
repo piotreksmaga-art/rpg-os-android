@@ -2,6 +2,7 @@ package com.rpgos.app
 
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
+import java.security.MessageDigest
 
 const val CANON_DIVERGENCE_SCHEMA_VERSION = 1
 
@@ -51,8 +52,65 @@ data class CanonDivergenceRecord(
     val createdAtEpochMs: Long
 )
 
+/** Provider-issued evidence binding one canonical expectation identity to the exact expected value. */
+internal object CanonExpectationEvidence {
+    fun uid(reference: CanonReference, expectedValue: String): String {
+        require(expectedValue.isNotBlank())
+        val canonical = listOf(
+            "RPGOS-CANON-EXPECTATION-V1",
+            reference.subjectKindUid,
+            reference.subjectUid,
+            reference.expectationUid,
+            expectedValue
+        ).joinToString("\u001f")
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(canonical.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return "RPGOS-CANON-EXPECTATION:$digest"
+    }
+}
+
+/**
+ * Final admission check for RECORDED divergences. World Pack provenance comes from the trusted
+ * final WorldRuleDecisionRecord, expected value from provider-issued expectation evidence, and
+ * actual value from the concrete CampaignTruthChange that will be committed.
+ */
+internal object CanonDivergenceAdmissionValidator {
+    const val UNBOUND_WORLD_RULE = "RPGOS-CANON:RECORDED_REQUIRES_BOUND_WORLD_RULE"
+    const val WORLD_PACK_MISMATCH = "RPGOS-CANON:WORLD_PACK_AUTHORITY_MISMATCH"
+    const val EXPECTATION_NOT_AUTHENTICATED = "RPGOS-CANON:EXPECTATION_NOT_AUTHENTICATED"
+    const val ACTUAL_NOT_AUTHENTICATED = "RPGOS-CANON:ACTUAL_NOT_AUTHENTICATED"
+    const val INVALID_GAMEPLAY_PROVENANCE = "RPGOS-CANON:INVALID_GAMEPLAY_PROVENANCE"
+
+    fun rejectionReason(changeSet: PlayerChangeSet, evidence: PlayerResolutionEvidence): String? {
+        val entries = changeSet.changes.mapNotNull { change ->
+            val truth = change.payload as? CampaignTruthChange ?: return@mapNotNull null
+            truth.canonDivergence?.let { Triple(change.changeUid, truth, it) }
+        }
+        if (entries.isEmpty()) return null
+
+        val finalDecision = evidence.worldRuleDecisions.lastOrNull {
+            it.stage == WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK && it.allowed
+        } ?: return UNBOUND_WORLD_RULE
+
+        entries.forEach { (_, truth, spec) ->
+            if (spec.provenanceStatus != HistoricalProvenanceStatus.RECORDED) return INVALID_GAMEPLAY_PROVENANCE
+            if (spec.worldPackUid != finalDecision.worldPackUid || spec.worldPackVersion != finalDecision.worldPackVersion) {
+                return WORLD_PACK_MISMATCH
+            }
+            val expectationEvidence = CanonExpectationEvidence.uid(spec.canonicalReference, spec.expectedCanonicalValue)
+            if (expectationEvidence !in finalDecision.evidenceUids) return EXPECTATION_NOT_AUTHENTICATED
+            if (truth.kind != TruthKind.FACT || truth.objectValue != spec.actualCampaignValue) return ACTUAL_NOT_AUTHENTICATED
+        }
+        return null
+    }
+}
+
 internal object Phase35CanonDivergenceSchema {
     const val TABLE = "campaign_canon_divergences"
+    const val RECORDED_INSERT_GUARD = "rpgos_canon_divergence_recorded_insert_guard"
+    const val IMPORT_INSERT_GUARD = "rpgos_canon_divergence_import_insert_guard"
+    const val LIFECYCLE_INSERT_GUARD = "rpgos_canon_divergence_lifecycle_insert_guard"
 
     fun ensureReady(db: SQLiteDatabase) {
         db.execSQL("""CREATE TABLE IF NOT EXISTS $TABLE(
@@ -68,11 +126,118 @@ internal object Phase35CanonDivergenceSchema {
             CHECK(divergence_schema_version=$CANON_DIVERGENCE_SCHEMA_VERSION),
             UNIQUE(campaign_uid,canonical_expectation_uid,created_transaction_uid))""")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_canon_divergence_campaign ON $TABLE(campaign_uid,lifecycle_status,created_at_epoch_ms,divergence_uid)")
+        installGuards(db)
+    }
+
+    private fun installGuards(db: SQLiteDatabase) {
+        db.execSQL("DROP TRIGGER IF EXISTS $RECORDED_INSERT_GUARD")
+        db.execSQL("""CREATE TRIGGER $RECORDED_INSERT_GUARD BEFORE INSERT ON $TABLE
+            WHEN NEW.provenance_status='RECORDED'
+            BEGIN
+                SELECT CASE WHEN NEW.created_transaction_uid IS NULL OR NEW.created_turn_uid IS NULL OR NEW.created_event_uid IS NULL
+                    THEN RAISE(ABORT,'RPGOS-CANON:RECORDED_PROVENANCE_REQUIRED') END;
+                SELECT CASE WHEN NOT EXISTS(
+                    SELECT 1 FROM rpgos_gameplay_mutation_context c
+                    WHERE c.campaign_uid=NEW.campaign_uid AND c.capability_kind='TURN'
+                ) THEN RAISE(ABORT,'RPGOS-CANON:RECORDED_REQUIRES_CANONICAL_TURN') END;
+                SELECT CASE WHEN NOT EXISTS(
+                    SELECT 1 FROM canonical_gameplay_events e
+                    WHERE e.campaign_uid=NEW.campaign_uid
+                      AND e.event_uid=NEW.created_event_uid
+                      AND e.transaction_uid=NEW.created_transaction_uid
+                      AND e.turn_uid=NEW.created_turn_uid
+                ) THEN RAISE(ABORT,'RPGOS-CANON:RECORDED_EVENT_PROVENANCE_INVALID') END;
+            END""")
+
+        db.execSQL("DROP TRIGGER IF EXISTS $IMPORT_INSERT_GUARD")
+        db.execSQL("""CREATE TRIGGER $IMPORT_INSERT_GUARD BEFORE INSERT ON $TABLE
+            WHEN NEW.provenance_status<>'RECORDED'
+            BEGIN
+                SELECT CASE WHEN NEW.created_transaction_uid IS NOT NULL OR NEW.created_turn_uid IS NOT NULL OR NEW.created_event_uid IS NOT NULL
+                    THEN RAISE(ABORT,'RPGOS-CANON:IMPORT_CANNOT_FABRICATE_COMMITTED_PROVENANCE') END;
+                SELECT CASE WHEN NOT EXISTS(
+                    SELECT 1 FROM rpgos_gameplay_mutation_context c
+                    WHERE c.campaign_uid=NEW.campaign_uid AND c.capability_kind='ADMIN'
+                ) THEN RAISE(ABORT,'RPGOS-CANON:IMPORT_REQUIRES_ADMIN') END;
+            END""")
+
+        db.execSQL("DROP TRIGGER IF EXISTS $LIFECYCLE_INSERT_GUARD")
+        db.execSQL("""CREATE TRIGGER $LIFECYCLE_INSERT_GUARD BEFORE INSERT ON $TABLE
+            BEGIN
+                SELECT CASE WHEN NEW.supersedes_divergence_uid=NEW.divergence_uid OR NEW.resolves_divergence_uid=NEW.divergence_uid
+                    THEN RAISE(ABORT,'RPGOS-CANON:LIFECYCLE_SELF_REFERENCE') END;
+                SELECT CASE WHEN NEW.supersedes_divergence_uid IS NOT NULL AND NEW.resolves_divergence_uid IS NOT NULL
+                    THEN RAISE(ABORT,'RPGOS-CANON:LIFECYCLE_AMBIGUOUS_LINK') END;
+                SELECT CASE WHEN NEW.lifecycle_status='ACTIVE' AND (NEW.supersedes_divergence_uid IS NOT NULL OR NEW.resolves_divergence_uid IS NOT NULL)
+                    THEN RAISE(ABORT,'RPGOS-CANON:LIFECYCLE_STATUS_LINK_MISMATCH') END;
+                SELECT CASE WHEN NEW.lifecycle_status='SUPERSEDED' AND (NEW.supersedes_divergence_uid IS NULL OR NEW.resolves_divergence_uid IS NOT NULL)
+                    THEN RAISE(ABORT,'RPGOS-CANON:LIFECYCLE_STATUS_LINK_MISMATCH') END;
+                SELECT CASE WHEN NEW.lifecycle_status='RESOLVED' AND (NEW.resolves_divergence_uid IS NULL OR NEW.supersedes_divergence_uid IS NOT NULL)
+                    THEN RAISE(ABORT,'RPGOS-CANON:LIFECYCLE_STATUS_LINK_MISMATCH') END;
+                SELECT CASE WHEN NEW.supersedes_divergence_uid IS NOT NULL AND NOT EXISTS(
+                    SELECT 1 FROM $TABLE d WHERE d.campaign_uid=NEW.campaign_uid AND d.divergence_uid=NEW.supersedes_divergence_uid
+                ) THEN RAISE(ABORT,'RPGOS-CANON:SUPERSEDES_TARGET_INVALID') END;
+                SELECT CASE WHEN NEW.resolves_divergence_uid IS NOT NULL AND NOT EXISTS(
+                    SELECT 1 FROM $TABLE d WHERE d.campaign_uid=NEW.campaign_uid AND d.divergence_uid=NEW.resolves_divergence_uid
+                ) THEN RAISE(ABORT,'RPGOS-CANON:RESOLVES_TARGET_INVALID') END;
+            END""")
     }
 
     fun isReady(db: SQLiteDatabase): Boolean = db.rawQuery(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", arrayOf(TABLE)
     ).use { it.moveToFirst() }
+}
+
+internal data class PendingCanonDivergence(
+    val campaignUid: String,
+    val spec: CanonDivergenceSpec,
+    val identity: TurnTransactionIdentity,
+    val eventUid: String,
+    val createdAt: Long
+)
+
+/** In-memory capability buffer. SQL cannot manufacture entries in this buffer. */
+internal object CanonDivergenceTurnBuffer {
+    private data class Active(
+        val db: SQLiteDatabase,
+        val campaignUid: String,
+        val entries: MutableList<PendingCanonDivergence>
+    )
+
+    private val local = ThreadLocal<Active?>()
+
+    fun begin(db: SQLiteDatabase, campaignUid: String) {
+        check(local.get() == null) { "RPGOS-CANON:NESTED_TURN_BUFFER" }
+        local.set(Active(db, campaignUid, mutableListOf()))
+    }
+
+    fun stage(
+        db: SQLiteDatabase,
+        campaignUid: String,
+        spec: CanonDivergenceSpec,
+        identity: TurnTransactionIdentity,
+        eventUid: String
+    ): CanonDivergenceRecord {
+        val active = local.get() ?: error("RPGOS-CANON:NO_CANONICAL_TURN_BUFFER")
+        check(active.db === db && active.campaignUid == campaignUid) { "RPGOS-CANON:TURN_BUFFER_SCOPE_MISMATCH" }
+        val createdAt = spec.effectiveFrom ?: 0L
+        val pending = PendingCanonDivergence(campaignUid, spec, identity, eventUid, createdAt)
+        active.entries.firstOrNull { it.spec.divergenceUid == spec.divergenceUid }?.let { existing ->
+            require(existing == pending) { "RPGOS-CANON:DIVERGENCE_IDENTITY_CONFLICT" }
+            return CanonDivergenceRecord(campaignUid, spec, identity.transactionUid, identity.turnUid, eventUid, createdAt)
+        }
+        active.entries += pending
+        return CanonDivergenceRecord(campaignUid, spec, identity.transactionUid, identity.turnUid, eventUid, createdAt)
+    }
+
+    fun flush(db: SQLiteDatabase, campaignUid: String) {
+        val active = local.get() ?: return
+        check(active.db === db && active.campaignUid == campaignUid) { "RPGOS-CANON:TURN_BUFFER_SCOPE_MISMATCH" }
+        active.entries.forEach { pending -> CanonDivergenceStore(db, campaignUid).finalizeCommitted(pending) }
+        active.entries.clear()
+    }
+
+    fun clear() { local.remove() }
 }
 
 class CanonDivergenceStore(private val db: SQLiteDatabase, private val campaignUid: String) {
@@ -94,25 +259,74 @@ class CanonDivergenceStore(private val db: SQLiteDatabase, private val campaignU
     fun importVerified(spec: CanonDivergenceSpec): CanonDivergenceRecord {
         requireAdministrativeRecoveryEntryPoint()
         require(spec.provenanceStatus != HistoricalProvenanceStatus.RECORDED)
+        validateLifecycle(spec)
         return insert(spec, null, null, null, System.currentTimeMillis())
     }
 
+    /**
+     * Stages RECORDED evidence only inside the sealed canonical gameplay capability. Durable
+     * insertion is deferred until the same turn has appended the matching canonical Event.
+     */
     internal fun recordCommitted(
         spec: CanonDivergenceSpec,
         identity: TurnTransactionIdentity,
         eventUid: String
     ): CanonDivergenceRecord {
+        require(identity.campaignUid == campaignUid) { "RPGOS-CANON:CAMPAIGN_MISMATCH" }
         check(db.inTransaction()) { "RPGOS-CANON:OUTSIDE_TURN" }
+        require(TurnTransactionReceiptSchema.isReady(db)) { "RPGOS-CANON:TURN_SCHEMA_NOT_READY" }
+        requireCanonicalGameplayMutation(db, campaignUid)
         require(spec.provenanceStatus == HistoricalProvenanceStatus.RECORDED)
-        return insert(spec, identity.transactionUid, identity.turnUid, eventUid, spec.effectiveFrom ?: 0L)
+        require(eventUid.isNotBlank())
+        validateLifecycle(spec)
+        return CanonDivergenceTurnBuffer.stage(db, campaignUid, spec, identity, eventUid)
+    }
+
+    internal fun finalizeCommitted(pending: PendingCanonDivergence): CanonDivergenceRecord {
+        require(pending.campaignUid == campaignUid && pending.identity.campaignUid == campaignUid) { "RPGOS-CANON:CAMPAIGN_MISMATCH" }
+        check(db.inTransaction()) { "RPGOS-CANON:OUTSIDE_TURN" }
+        requireCanonicalGameplayMutation(db, campaignUid)
+        require(pending.spec.provenanceStatus == HistoricalProvenanceStatus.RECORDED)
+        validateEventProvenance(pending.identity, pending.eventUid)
+        validateLifecycle(pending.spec)
+        return insert(pending.spec, pending.identity.transactionUid, pending.identity.turnUid, pending.eventUid, pending.createdAt)
+    }
+
+    private fun validateEventProvenance(identity: TurnTransactionIdentity, eventUid: String) {
+        val valid = db.rawQuery(
+            """SELECT 1 FROM canonical_gameplay_events
+                WHERE campaign_uid=? AND event_uid=? AND transaction_uid=? AND turn_uid=? AND command_uid=? LIMIT 1""",
+            arrayOf(campaignUid, eventUid, identity.transactionUid, identity.turnUid, identity.commandUid)
+        ).use { it.moveToFirst() }
+        require(valid) { "RPGOS-CANON:INVALID_COMMITTED_EVENT_PROVENANCE" }
+    }
+
+    private fun validateLifecycle(spec: CanonDivergenceSpec) {
+        require(spec.supersedesDivergenceUid != spec.divergenceUid && spec.resolvesDivergenceUid != spec.divergenceUid) {
+            "RPGOS-CANON:LIFECYCLE_SELF_REFERENCE"
+        }
+        require(spec.supersedesDivergenceUid == null || spec.resolvesDivergenceUid == null) { "RPGOS-CANON:LIFECYCLE_AMBIGUOUS_LINK" }
+        when (spec.status) {
+            CanonDivergenceStatus.ACTIVE -> require(spec.supersedesDivergenceUid == null && spec.resolvesDivergenceUid == null) {
+                "RPGOS-CANON:LIFECYCLE_STATUS_LINK_MISMATCH"
+            }
+            CanonDivergenceStatus.SUPERSEDED -> {
+                val target = requireNotNull(spec.supersedesDivergenceUid) { "RPGOS-CANON:LIFECYCLE_STATUS_LINK_MISMATCH" }
+                require(spec.resolvesDivergenceUid == null) { "RPGOS-CANON:LIFECYCLE_STATUS_LINK_MISMATCH" }
+                require(existing(target) != null) { "RPGOS-CANON:SUPERSEDES_TARGET_INVALID" }
+            }
+            CanonDivergenceStatus.RESOLVED -> {
+                val target = requireNotNull(spec.resolvesDivergenceUid) { "RPGOS-CANON:LIFECYCLE_STATUS_LINK_MISMATCH" }
+                require(spec.supersedesDivergenceUid == null) { "RPGOS-CANON:LIFECYCLE_STATUS_LINK_MISMATCH" }
+                require(existing(target) != null) { "RPGOS-CANON:RESOLVES_TARGET_INVALID" }
+            }
+        }
     }
 
     private fun insert(spec: CanonDivergenceSpec, transactionUid: String?, turnUid: String?, eventUid: String?, createdAt: Long): CanonDivergenceRecord {
         existing(spec.divergenceUid)?.let { existing ->
             require(existing.spec == spec && existing.createdTransactionUid == transactionUid &&
-                existing.createdTurnUid == turnUid && existing.createdEventUid == eventUid) {
-                "RPGOS-CANON:DIVERGENCE_IDENTITY_CONFLICT"
-            }
+                existing.createdTurnUid == turnUid && existing.createdEventUid == eventUid) { "RPGOS-CANON:DIVERGENCE_IDENTITY_CONFLICT" }
             return existing
         }
         db.insertOrThrow(Phase35CanonDivergenceSchema.TABLE, null, ContentValues().apply {

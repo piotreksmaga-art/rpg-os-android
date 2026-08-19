@@ -100,15 +100,23 @@ object CampaignMutationBoundary {
                 if (resolution.proposal.campaignUid != expectedCampaignUid) {
                     CampaignMutationAdmission.Rejected(CAMPAIGN_MISMATCH)
                 } else {
-                    CampaignMutationAdmission.Accepted(
-                        CanonicalCampaignMutationProposal(
-                            expectedCampaignUid,
-                            resolution.proposal,
-                            MutationAuthorityClass.GAMEPLAY_AUTHORITATIVE,
-                            emptyList(),
-                            CANONICAL_PROPOSAL_SEAL
-                        )
+                    val canonRejection = CanonDivergenceAdmissionValidator.rejectionReason(
+                        resolution.proposal,
+                        resolution.evidence
                     )
+                    if (canonRejection != null) {
+                        CampaignMutationAdmission.Rejected(canonRejection)
+                    } else {
+                        CampaignMutationAdmission.Accepted(
+                            CanonicalCampaignMutationProposal(
+                                expectedCampaignUid,
+                                resolution.proposal,
+                                MutationAuthorityClass.GAMEPLAY_AUTHORITATIVE,
+                                emptyList(),
+                                CANONICAL_PROPOSAL_SEAL
+                            )
+                        )
+                    }
                 }
             }
         }

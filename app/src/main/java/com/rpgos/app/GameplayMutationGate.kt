@@ -1,12 +1,16 @@
 package com.rpgos.app
 
+import android.os.Build
 import android.database.sqlite.SQLiteDatabase
+import java.util.function.UnaryOperator
 
 private data class ActiveGameplayMutation(val db: SQLiteDatabase, val campaignUid: String)
 private val activeGameplayMutation = ThreadLocal<ActiveGameplayMutation?>()
 
 internal object GameplayMutationDatabaseGuards {
     internal const val CONTEXT_TABLE_NAME = "rpgos_gameplay_mutation_context"
+    internal const val RUNTIME_TURN_FUNCTION = "rpgos_runtime_turn_authority"
+    internal const val CANON_DIVERGENCE_RUNTIME_TURN_GUARD = "rpgos_canon_divergence_runtime_turn_insert"
     private val authoritativeTables: List<String> get() = RuntimeTruthLayerRegistry.authoritativePersistentTables().toList()
     private val administrativeOnlyTables: List<String> get() = RuntimeTruthLayerRegistry.administrativeOnlyPersistentTables().toList()
 
@@ -27,6 +31,9 @@ internal object GameplayMutationDatabaseGuards {
         } else {
             db.execSQL("CREATE TABLE IF NOT EXISTS $CONTEXT_TABLE_NAME(campaign_uid TEXT PRIMARY KEY,capability_kind TEXT NOT NULL CHECK(capability_kind IN ('TURN','ADMIN','COMMIT_EVIDENCE')))")
         }
+        // Phase 35 guards are reinstalled here as well as at schema creation so already-current
+        // databases receive post-audit protection without a Phase 36 schema-version change.
+        Phase35CanonDivergenceSchema.ensureReady(db)
         authoritativeTables.filter { tableExists(db, it) }.forEach { table ->
             val column = campaignColumn(db, table)
             createAuthorityGuard(db, table, column, "INSERT", "NEW")
@@ -40,6 +47,7 @@ internal object GameplayMutationDatabaseGuards {
         }
         installReceiptEvidenceGuards(db)
         installReplayEvidenceGuards(db)
+        installRuntimeTurnAuthorityGuards(db)
     }
 
     private fun installReceiptEvidenceGuards(db: SQLiteDatabase) {
@@ -70,6 +78,76 @@ WHEN NOT EXISTS(
 BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_COMMIT_EVIDENCE_REQUIRED'); END""".trimIndent())
         db.execSQL("CREATE TRIGGER rpgos_replay_no_update BEFORE UPDATE ON canonical_turn_replay_payloads BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_APPEND_ONLY'); END")
         db.execSQL("CREATE TRIGGER rpgos_replay_no_delete BEFORE DELETE ON canonical_turn_replay_payloads BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_APPEND_ONLY'); END")
+    }
+
+    /**
+     * Persistent TURN/writer rows remain defense-in-depth and can be manufactured by a raw SQL
+     * caller. The decisive Phase 35 RECORDED-divergence guard therefore consults connection/runtime
+     * state that SQL cannot create. Upstream Event Store semantics are intentionally unchanged:
+     * even a forged SQL Event is insufficient to authorize a durable RECORDED divergence.
+     *
+     * API 30+ uses a connection-local scalar function backed by the exact SQLiteDatabase +
+     * ThreadLocal canonical turn capability. API 28-29 installs a default-deny divergence trigger;
+     * that trigger is suspended only while a sealed canonical turn owns the outer transaction.
+     */
+    private fun installRuntimeTurnAuthorityGuards(db: SQLiteDatabase) {
+        if (Build.VERSION.SDK_INT >= 30) {
+            db.setCustomScalarFunction(RUNTIME_TURN_FUNCTION, UnaryOperator { campaignUid ->
+                if (isCanonicalGameplayMutationActive(db, campaignUid)) "1" else "0"
+            })
+        }
+        installRuntimeTurnAuthorityTrigger(
+            db,
+            CANON_DIVERGENCE_RUNTIME_TURN_GUARD,
+            Phase35CanonDivergenceSchema.TABLE,
+            "NEW.provenance_status='RECORDED'"
+        )
+    }
+
+    private fun installRuntimeTurnAuthorityTrigger(
+        db: SQLiteDatabase,
+        triggerName: String,
+        table: String,
+        extraWhen: String?
+    ) {
+        if (!tableExists(db, table)) return
+        db.execSQL("DROP TRIGGER IF EXISTS $triggerName")
+        val authorityMissing = if (Build.VERSION.SDK_INT >= 30) {
+            "$RUNTIME_TURN_FUNCTION(NEW.campaign_uid)<>'1'"
+        } else {
+            "1=1"
+        }
+        val whenClause = listOfNotNull(extraWhen, authorityMissing).joinToString(" AND ")
+        db.execSQL(
+            """CREATE TRIGGER $triggerName BEFORE INSERT ON $table
+WHEN $whenClause
+BEGIN SELECT RAISE(ABORT,'RPGOS-MUTATION-GATE:IN_MEMORY_TURN_AUTHORITY_REQUIRED'); END""".trimIndent()
+        )
+    }
+
+    private fun suspendLegacyRuntimeTurnAuthorityGuards(db: SQLiteDatabase) {
+        if (Build.VERSION.SDK_INT >= 30) return
+        requireCanonicalGameplayMutation(db, activeGameplayMutation.get()?.campaignUid ?: error("RPGOS-MUTATION-GATE:NO_ACTIVE_TURN"))
+        db.execSQL("DROP TRIGGER IF EXISTS $CANON_DIVERGENCE_RUNTIME_TURN_GUARD")
+    }
+
+    private fun restoreLegacyRuntimeTurnAuthorityGuards(db: SQLiteDatabase) {
+        if (Build.VERSION.SDK_INT >= 30) return
+        installRuntimeTurnAuthorityTrigger(
+            db,
+            CANON_DIVERGENCE_RUNTIME_TURN_GUARD,
+            Phase35CanonDivergenceSchema.TABLE,
+            "NEW.provenance_status='RECORDED'"
+        )
+    }
+
+    internal fun enterRuntimeTurnAuthority(db: SQLiteDatabase, campaignUid: String) {
+        requireCanonicalGameplayMutation(db, campaignUid)
+        suspendLegacyRuntimeTurnAuthorityGuards(db)
+    }
+
+    internal fun leaveRuntimeTurnAuthority(db: SQLiteDatabase) {
+        restoreLegacyRuntimeTurnAuthorityGuards(db)
     }
 
     fun isInstalled(db: SQLiteDatabase) = tableExists(db, CONTEXT_TABLE_NAME)
@@ -217,9 +295,19 @@ internal fun <T> withCanonicalGameplayMutationForTurn(
     require(previous == null) { "RPGOS-MUTATION-GATE:NESTED_GAMEPLAY_CAPABILITY" }
     GameplayMutationDatabaseGuards.enterTurn(db, campaignUid)
     activeGameplayMutation.set(ActiveGameplayMutation(db, campaignUid))
+    var bufferStarted = false
+    var runtimeAuthorityEntered = false
     return try {
-        block()
+        CanonDivergenceTurnBuffer.begin(db, campaignUid)
+        bufferStarted = true
+        GameplayMutationDatabaseGuards.enterRuntimeTurnAuthority(db, campaignUid)
+        runtimeAuthorityEntered = true
+        val result = block()
+        CanonDivergenceTurnBuffer.flush(db, campaignUid)
+        result
     } finally {
+        if (runtimeAuthorityEntered) GameplayMutationDatabaseGuards.leaveRuntimeTurnAuthority(db)
+        if (bufferStarted) CanonDivergenceTurnBuffer.clear()
         activeGameplayMutation.set(previous)
         GameplayMutationDatabaseGuards.leaveTurn(db, campaignUid)
     }
