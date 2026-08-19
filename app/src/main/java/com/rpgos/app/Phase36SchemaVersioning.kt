@@ -220,7 +220,8 @@ internal object Phase36SchemaVersioning {
 
     fun requireNoUnsupportedFuture(db:SQLiteDatabase)=inspectCompatibilityBeforeMutation(db)
 
-    fun requireReady(db:SQLiteDatabase){
+    fun requireReady(db:SQLiteDatabase,campaignUid:String){
+        require(campaignUid.isNotBlank())
         check(table(db,VERSIONS)&&table(db,ATTEMPTS)&&Phase35CanonDivergenceSchema.isReady(db)){"RPGOS-SCHEMA:NOT_READY"}
         validateAttemptStateVocabulary(db)
         val vector=currentVector(db)
@@ -229,7 +230,7 @@ internal object Phase36SchemaVersioning {
             if(found>c.currentVersion)throw UnsupportedFutureSchemaException(c.family,found,c.currentVersion)
             check(found==c.currentVersion){"RPGOS-SCHEMA:FAMILY_NOT_CURRENT:${c.family}:$found:${c.currentVersion}"}
         }
-        check(db.rawQuery("SELECT 1 FROM $ATTEMPTS WHERE state IN (?,?) LIMIT 1",arrayOf(MigrationAttemptState.PREPARED.name,MigrationAttemptState.RUNNING.name)).use{!it.moveToFirst()}){"RPGOS-SCHEMA:INCOMPLETE_MIGRATION"}
+        check(db.rawQuery("SELECT 1 FROM $ATTEMPTS WHERE campaign_uid=? AND state IN (?,?) LIMIT 1",arrayOf(campaignUid,MigrationAttemptState.PREPARED.name,MigrationAttemptState.RUNNING.name)).use{!it.moveToFirst()}){"RPGOS-SCHEMA:INCOMPLETE_MIGRATION"}
     }
 
     fun activeSafetySnapshotUids(db:SQLiteDatabase,campaignUid:String):Set<String>{
@@ -245,7 +246,26 @@ internal object Phase36SchemaVersioning {
             state TEXT NOT NULL CHECK(state IN ('PREPARED','RUNNING','APPLIED','FAILED')),started_at_epoch_ms INTEGER NOT NULL,completed_at_epoch_ms INTEGER,failure_code TEXT)""")
         ensureColumn(db,ATTEMPTS,"source_vector_canonical","TEXT")
         ensureColumn(db,ATTEMPTS,"target_vector_canonical","TEXT")
+        if(!attemptTableHasStateCheck(db)){
+            validateAttemptStateVocabulary(db)
+            db.beginTransaction();try{
+                db.execSQL("DROP TABLE IF EXISTS ${ATTEMPTS}_p36_checked")
+                db.execSQL("""CREATE TABLE ${ATTEMPTS}_p36_checked(
+                    migration_attempt_uid TEXT PRIMARY KEY,campaign_uid TEXT NOT NULL,source_vector_fingerprint TEXT NOT NULL,target_vector_fingerprint TEXT NOT NULL,
+                    source_vector_canonical TEXT,target_vector_canonical TEXT,plan_fingerprint TEXT NOT NULL,plan_version INTEGER NOT NULL,safety_snapshot_uid TEXT,
+                    state TEXT NOT NULL CHECK(state IN ('PREPARED','RUNNING','APPLIED','FAILED')),started_at_epoch_ms INTEGER NOT NULL,completed_at_epoch_ms INTEGER,failure_code TEXT)""")
+                db.execSQL("""INSERT INTO ${ATTEMPTS}_p36_checked(migration_attempt_uid,campaign_uid,source_vector_fingerprint,target_vector_fingerprint,source_vector_canonical,target_vector_canonical,plan_fingerprint,plan_version,safety_snapshot_uid,state,started_at_epoch_ms,completed_at_epoch_ms,failure_code)
+                    SELECT migration_attempt_uid,campaign_uid,source_vector_fingerprint,target_vector_fingerprint,source_vector_canonical,target_vector_canonical,plan_fingerprint,plan_version,safety_snapshot_uid,state,started_at_epoch_ms,completed_at_epoch_ms,failure_code FROM $ATTEMPTS""")
+                db.execSQL("DROP TABLE $ATTEMPTS")
+                db.execSQL("ALTER TABLE ${ATTEMPTS}_p36_checked RENAME TO $ATTEMPTS")
+                db.setTransactionSuccessful()
+            }finally{db.endTransaction()}
+        }
     }
+
+    private fun attemptTableHasStateCheck(db:SQLiteDatabase):Boolean = db.rawQuery(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",arrayOf(ATTEMPTS)
+    ).use{c->c.moveToFirst()&&!c.isNull(0)&&c.getString(0).replace(" ","").contains("CHECK(stateIN('PREPARED','RUNNING','APPLIED','FAILED'))",ignoreCase=true)}
 
     private fun adoptMissingFamilyVersions(db:SQLiteDatabase,campaignUid:String){
         val missing=contracts.filter{currentMetadata(db,it.family)==null}

@@ -180,6 +180,18 @@ class Phase36SchemaVersioningTest {
         }
     }
 
+    @Test fun activeAttemptForAnotherCampaignDoesNotPoisonReadyCampaign() {
+        val file=File(root,"attempt-campaign-scope.db")
+        SQLiteDatabase.openOrCreateDatabase(file,null).use { db ->
+            GameplayRuntimeBootstrap.initialize(db,"C1")
+            val current=targetVector();val plan=MigrationPlanRegistry.fingerprint(MigrationPlan(current,emptyList()))
+            insertAttempt(db,"FOREIGN-C2","C2",MigrationAttemptState.PREPARED,current,current,plan,Phase36SchemaVersioning.PLAN_VERSION,null)
+            GameplayRuntimeBootstrap.requireReady(db,"C1")
+            Phase36SchemaVersioning.ensureReady(db,"C1")
+            assertEquals(1L,countWhere(db,Phase36SchemaVersioning.ATTEMPTS,"migration_attempt_uid='FOREIGN-C2' AND state='PREPARED'"))
+        }
+    }
+
     @Test fun malformedMigrationStateIsRejectedByDatabaseCheck() {
         val file=File(root,"state-check.db")
         SQLiteDatabase.openOrCreateDatabase(file,null).use { db ->

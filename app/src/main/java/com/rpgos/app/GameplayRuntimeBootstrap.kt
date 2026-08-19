@@ -79,7 +79,7 @@ internal object GameplayRuntimeBootstrap {
         check(CampaignIntelligencePhase30Schema.physicalEventSchemaVersion(db)==PHASE30_EVENT_SCHEMA_VERSION){"RPGOS-G32:EVENT_STORE_PHYSICAL_VERSION_NOT_READY"}
         check(CampaignCausalGraphSchema.isReady(db)) { "RPGOS-G32:CAUSAL_GRAPH_NOT_READY" }
         check(CampaignSnapshotSchema.isReady(db)) { "RPGOS-G34:SNAPSHOT_SCHEMA_NOT_READY" }
-        Phase36SchemaVersioning.requireReady(db)
+        Phase36SchemaVersioning.requireReady(db,campaignUid)
         check(GameplayMutationDatabaseGuards.isInstalled(db)) { "RPGOS-G32:GAMEPLAY_GUARDS_NOT_READY" }
         RuntimePersistentTableInventory.requireComplete(db)
         requiredEvidenceTriggers.forEach { trigger ->

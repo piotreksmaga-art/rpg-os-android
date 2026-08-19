@@ -359,7 +359,7 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
     }
 }
 
-private data class CapturedSnapshotAnchor(
+internal data class CapturedSnapshotAnchor(
     val commitOrder:Long,
     val transactionUid:String?,
     val turnUid:String?,
