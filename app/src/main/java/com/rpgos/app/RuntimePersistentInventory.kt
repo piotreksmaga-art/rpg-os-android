@@ -39,13 +39,25 @@ data class PersistentWriterContract(
     }
 }
 
-/**
- * Method -> persistent family -> capability contract for every application-facing repository entry.
- * Store-level/internal writers remain additionally covered by table guards and the source-sink inventory.
- */
 object RuntimePersistentWriterRegistry {
     private fun c(method:String, capability:PersistentWriterCapability, vararg families:String)=
         PersistentWriterContract(method, Collections.unmodifiableSet(families.toSet()), capability)
+
+    val canonicalTurnTargetFamilies: Set<String> = setOf(
+        "BASE_STATS_RESOURCES",
+        "SKILLS_TECHNIQUES",
+        "INVENTORY",
+        "EQUIPMENT_LOADOUT",
+        "OWNERSHIP_HISTORY",
+        "FINANCE_AUTHORITY",
+        "CAMPAIGN_TRUTH",
+        "CANON_DIVERGENCE",
+        "DEVELOPMENT_PROJECTS",
+        "TURN_RECEIPTS",
+        "EVENT_STORE",
+        "CAUSAL_GRAPH",
+        "COMMITTED_REPLAY_MATERIAL"
+    )
 
     val campaignRepositoryContracts: Map<String, PersistentWriterContract> = listOf(
         c("bootstrap",PersistentWriterCapability.ADMINISTRATIVE,"SCHEMA_MIGRATION_REPAIR","GAMEPLAY_READINESS_METADATA"),
@@ -66,7 +78,7 @@ object RuntimePersistentWriterRegistry {
         c("createCampaign",PersistentWriterCapability.ADMINISTRATIVE,"SCHEMA_MIGRATION_REPAIR","GAMEPLAY_READINESS_METADATA"),
         c("openWorldDb",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE),
         c("openCoreDb",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE),
-        c("commitTurn",PersistentWriterCapability.CANONICAL_TURN,"TURN_RECEIPTS","EVENT_STORE","CAUSAL_GRAPH","COMMITTED_REPLAY_MATERIAL"),
+        PersistentWriterContract("commitTurn", Collections.unmodifiableSet(canonicalTurnTargetFamilies), PersistentWriterCapability.CANONICAL_TURN),
         c("buildContext",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE,"CONTEXT_BUNDLE"),
         c("fullCharacterPanel",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE,"CHARACTER_PANEL_SNAPSHOT_V2"),
         c("status",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE),
