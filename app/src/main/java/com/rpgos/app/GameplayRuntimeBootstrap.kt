@@ -1,6 +1,7 @@
 package com.rpgos.app
 
 import android.database.sqlite.SQLiteDatabase
+import java.io.File
 
 private data class ActiveGameplayInitialization(val db: SQLiteDatabase, val campaignUid: String)
 private val activeGameplayInitialization = ThreadLocal<ActiveGameplayInitialization?>()
@@ -42,7 +43,12 @@ internal object GameplayRuntimeBootstrap {
             if (GameplayMutationDatabaseGuards.isInstalled(db)) withAdministrativeMutationAuthority(db,campaignUid){ensurePrePhase36Schemas()} else ensurePrePhase36Schemas()
 
             check(!db.inTransaction()) { "RPGOS-SCHEMA:PHASE36_REQUIRES_TOP_LEVEL_MIGRATION_BOUNDARY" }
-            Phase36SchemaVersioning.ensureReady(db, campaignUid, safetySnapshotUid)
+            val effectiveSafetyUid = safetySnapshotUid ?: if(Phase36SchemaVersioning.requiresMaterialPhysicalMigration(db)) {
+                val dbFile=File(db.path)
+                val parent=dbFile.parentFile ?: File(System.getProperty("java.io.tmpdir") ?: ".")
+                CampaignSnapshotManager(db,campaignUid,File(parent,"snapshots")).create(SnapshotKind.PRE_RESTORE).snapshotUid
+            } else null
+            Phase36SchemaVersioning.ensureReady(db, campaignUid, effectiveSafetyUid)
 
             // Only after Phase36 has established current Event physical schema may activation install
             // Event/causal triggers and writer-contract evidence.

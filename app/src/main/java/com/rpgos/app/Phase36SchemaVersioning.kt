@@ -177,6 +177,7 @@ internal object Phase36SchemaVersioning {
         ensureMetadataTables(db)
         validateAttemptStateVocabulary(db)
         adoptMissingFamilyVersions(db,campaignUid)
+        if(!hasActiveAttempt(db,campaignUid)) reconcilePhysicalSourceVersions(db,campaignUid)
         recoverInterrupted(db,campaignUid)
         val source=currentVector(db)
         val plan=MigrationPlanRegistry.buildPlan(contracts,source,migrationManifest)
@@ -217,6 +218,10 @@ internal object Phase36SchemaVersioning {
             throw t
         }
     }
+
+    fun requiresMaterialPhysicalMigration(db:SQLiteDatabase):Boolean =
+        (TurnTransactionReceiptSchema.physicalSchemaVersion(db)?.let{it<TURN_TRANSACTION_RECEIPT_VERSION}==true) ||
+        (CampaignIntelligencePhase30Schema.physicalEventSchemaVersion(db)?.let{it<PHASE30_EVENT_SCHEMA_VERSION}==true)
 
     fun requireNoUnsupportedFuture(db:SQLiteDatabase)=inspectCompatibilityBeforeMutation(db)
 
@@ -283,6 +288,31 @@ internal object Phase36SchemaVersioning {
             }
         }
         validatePhysicalMetadataConsistency(db)
+    }
+
+    private fun hasActiveAttempt(db:SQLiteDatabase,campaignUid:String):Boolean = table(db,ATTEMPTS) && db.rawQuery(
+        "SELECT 1 FROM $ATTEMPTS WHERE campaign_uid=? AND state IN (?,?) LIMIT 1",
+        arrayOf(campaignUid,MigrationAttemptState.PREPARED.name,MigrationAttemptState.RUNNING.name)
+    ).use{it.moveToFirst()}
+
+    private fun reconcilePhysicalSourceVersions(db:SQLiteDatabase,campaignUid:String){
+        val physical=mapOf(
+            SchemaFamilyUid.EVENT to CampaignIntelligencePhase30Schema.physicalEventSchemaVersion(db),
+            SchemaFamilyUid.RECEIPT to TurnTransactionReceiptSchema.physicalSchemaVersion(db)
+        )
+        val corrections=physical.mapNotNull{(family,found)->
+            val metadata=currentMetadata(db,family)
+            if(found!=null&&metadata!=null&&found<metadata){
+                val contract=contracts.single{it.family==family}
+                require(found>=contract.minimumSupportedVersion){"RPGOS-SCHEMA:UNSUPPORTED_OLD:$family:$found:${contract.minimumSupportedVersion}"}
+                family to found
+            }else null
+        }
+        if(corrections.isEmpty())return
+        administrativeWrite(db,campaignUid){corrections.forEach{(family,found)->
+            db.execSQL("UPDATE $VERSIONS SET schema_version=?,migration_owner=?,updated_at_epoch_ms=? WHERE schema_family_uid=?",
+                arrayOf(found,"RPGOS-P36-PHYSICAL-SOURCE-RECONCILIATION",System.currentTimeMillis(),family.name))
+        }}
     }
 
     private fun validatePhysicalMetadataConsistency(db:SQLiteDatabase){
