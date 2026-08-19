@@ -8,7 +8,7 @@ Use these documents as the current source of architectural and planning truth:
 
 - `docs/Architektura projektu.md` — single canonical project architecture
 - `docs/Roadmap.md` — single canonical roadmap
-- `docs/Mapa plików faz 1-32.md` — technical navigation/recovery index for completed phases
+- `docs/Mapa plików.md` — technical navigation/recovery index for completed phases
 - `docs/GM_ENGINE_TARGET_ARCHITECTURE.md`
 - `docs/PROJECT_WORK_PROTOCOL.md`
 - `docs/PARALLEL_WORK_COORDINATION.md`
@@ -18,7 +18,7 @@ Historical early-alpha notes are retained under `docs/archive/legacy-alpha/` and
 
 ## Current development baseline
 
-The repository history contains the implementation and recovery chain for Phase 1–32. Later phases may evolve those files, but earlier states remain recoverable through Git commits and audit records.
+The repository history contains the implementation and recovery chain for Phase 1–34. Later phases may evolve those files, but earlier states remain recoverable through Git commits and audit records.
 
 Runtime assets under `app/src/main/assets/` must not be treated as disposable legacy files merely because they originated in earlier phases; several remain part of production/bootstrap and compatibility paths.
 
