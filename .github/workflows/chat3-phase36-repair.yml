@@ -3,6 +3,8 @@ name: CHAT3 Phase36 Repair Validation
 on:
   push:
     branches: [ "chat3-phase36-post-audit-repair" ]
+  pull_request:
+    branches: [ "master" ]
   workflow_dispatch:
 
 permissions:
