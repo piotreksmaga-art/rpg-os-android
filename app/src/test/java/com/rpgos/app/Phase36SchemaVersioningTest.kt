@@ -13,9 +13,16 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class Phase36SchemaVersioningTest {
+    private lateinit var root: File
     private lateinit var file: File
-    @Before fun setUp() { file = File.createTempFile("p36-", ".db").also { it.delete() } }
-    @After fun tearDown() { file.delete() }
+    private lateinit var snapshots: File
+
+    @Before fun setUp() {
+        root = kotlin.io.path.createTempDirectory("p36-").toFile()
+        file = File(root, "campaign.db")
+        snapshots = File(root, "snapshots")
+    }
+    @After fun tearDown() { root.deleteRecursively() }
 
     @Test fun oldCampaignMigratesAdditivelyWithoutInventingDivergenceAndRerunIsIdempotent() {
         SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
@@ -31,15 +38,23 @@ class Phase36SchemaVersioningTest {
         }
     }
 
-    @Test fun unsupportedFutureFamilyFailsBeforeMigrationMutation() {
+    @Test fun everyUnsupportedFutureFamilyFailsBeforeMigrationMutation() {
         SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
             GameplayRuntimeBootstrap.initialize(db, "C1")
-            db.execSQL("UPDATE ${Phase36SchemaVersioning.VERSIONS} SET schema_version=99 WHERE schema_family_uid='EVENT'")
             val attempts = count(db, Phase36SchemaVersioning.ATTEMPTS)
-            val failure = runCatching { GameplayRuntimeBootstrap.initialize(db, "C1") }.exceptionOrNull()
-            assertTrue(failure is UnsupportedFutureSchemaException)
-            assertEquals(SchemaFamilyUid.EVENT, (failure as UnsupportedFutureSchemaException).family)
-            assertEquals(attempts, count(db, Phase36SchemaVersioning.ATTEMPTS))
+            Phase36SchemaVersioning.contracts.forEach { contract ->
+                db.execSQL("UPDATE ${Phase36SchemaVersioning.VERSIONS} SET schema_version=? WHERE schema_family_uid=?",
+                    arrayOf(contract.currentVersion + 1, contract.family.name))
+                val failure = runCatching { GameplayRuntimeBootstrap.initialize(db, "C1") }.exceptionOrNull()
+                assertTrue("future ${contract.family} must fail closed", failure is UnsupportedFutureSchemaException)
+                failure as UnsupportedFutureSchemaException
+                assertEquals(contract.family, failure.family)
+                assertEquals(contract.currentVersion + 1, failure.found)
+                assertEquals(contract.currentVersion, failure.maximum)
+                assertEquals(attempts, count(db, Phase36SchemaVersioning.ATTEMPTS))
+                db.execSQL("UPDATE ${Phase36SchemaVersioning.VERSIONS} SET schema_version=? WHERE schema_family_uid=?",
+                    arrayOf(contract.currentVersion, contract.family.name))
+            }
         }
     }
 
@@ -53,18 +68,54 @@ class Phase36SchemaVersioningTest {
         }
     }
 
-    @Test fun migrationPlanIsDeterministicAndCyclesFailClosed() {
+    @Test fun interruptedAttemptWithDifferentCurrentPlanFailsClosedWithoutMutation() {
+        SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
+            GameplayRuntimeBootstrap.initialize(db, "C1")
+            db.execSQL("DELETE FROM ${Phase36SchemaVersioning.VERSIONS} WHERE schema_family_uid=?", arrayOf(SchemaFamilyUid.CANON_DIVERGENCE.name))
+            db.execSQL("INSERT INTO ${Phase36SchemaVersioning.ATTEMPTS}(migration_attempt_uid,campaign_uid,source_vector_fingerprint,target_vector_fingerprint,plan_fingerprint,plan_version,state,started_at_epoch_ms) VALUES('PLAN-MISMATCH','C1','a','b','OLD-PLAN',1,'PREPARED',1)")
+            val failure = runCatching { Phase36SchemaVersioning.ensureReady(db, "C1") }.exceptionOrNull()
+            assertTrue(failure is MigrationPlanMismatchException)
+            assertEquals(1L, countWhere(db, Phase36SchemaVersioning.ATTEMPTS, "migration_attempt_uid='PLAN-MISMATCH' AND state='PREPARED'"))
+            assertEquals(0L, countWhere(db, Phase36SchemaVersioning.VERSIONS, "schema_family_uid='CANON_DIVERGENCE'"))
+            assertTrue(runCatching { GameplayRuntimeBootstrap.requireReady(db, "C1") }.isFailure)
+        }
+    }
+
+    @Test fun migrationPlanIsDeterministicAmbiguityAndCyclesFailClosed() {
         val input = listOf(
             SchemaFamilyContract(SchemaFamilyUid.CAMPAIGN,1,1,setOf(SchemaFamilyUid.ENGINE)),
             SchemaFamilyContract(SchemaFamilyUid.ENGINE,1,1)
         )
         assertEquals(listOf(SchemaFamilyUid.ENGINE,SchemaFamilyUid.CAMPAIGN), MigrationPlanRegistry.order(input).map { it.family })
         assertEquals(MigrationPlanRegistry.fingerprint(MigrationPlanRegistry.order(input)), MigrationPlanRegistry.fingerprint(MigrationPlanRegistry.order(input.reversed())))
+
+        val ambiguous = listOf(
+            SchemaFamilyContract(SchemaFamilyUid.ENGINE,1,1),
+            SchemaFamilyContract(SchemaFamilyUid.ENGINE,2,1)
+        )
+        assertTrue(runCatching { MigrationPlanRegistry.order(ambiguous) }.exceptionOrNull()!!.message!!.contains("AMBIGUOUS_MIGRATION_PATH"))
+
         val cycle = listOf(
             SchemaFamilyContract(SchemaFamilyUid.ENGINE,1,1,setOf(SchemaFamilyUid.CAMPAIGN)),
             SchemaFamilyContract(SchemaFamilyUid.CAMPAIGN,1,1,setOf(SchemaFamilyUid.ENGINE))
         )
         assertTrue(runCatching { MigrationPlanRegistry.order(cycle) }.exceptionOrNull()!!.message!!.contains("DEPENDENCY_CYCLE"))
+    }
+
+    @Test fun materialMigrationRequiresVerifiedProtectedPhase33Snapshot() {
+        SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
+            GameplayRuntimeBootstrap.initialize(db, "C1")
+            val material = listOf(SchemaFamilyContract(
+                SchemaFamilyUid.CAMPAIGN, 2, 1, emptySet(), MigrationMateriality.MATERIAL_DATA_MUTATION
+            ))
+            assertTrue(runCatching { MigrationSafetyPolicy.requireProtectedSnapshot(db, "C1", material, null) }.isFailure)
+
+            val automatic = CampaignSnapshotManager(db, "C1", snapshots).create(SnapshotKind.AUTOMATIC, pinned = false)
+            assertTrue(runCatching { MigrationSafetyPolicy.requireProtectedSnapshot(db, "C1", material, automatic.snapshotUid) }.isFailure)
+
+            val safety = CampaignSnapshotManager(db, "C1", snapshots).create(SnapshotKind.PRE_RESTORE, pinned = true)
+            MigrationSafetyPolicy.requireProtectedSnapshot(db, "C1", material, safety.snapshotUid)
+        }
     }
 
     @Test fun constructorsAndReadsDoNotInstallSchema() {
