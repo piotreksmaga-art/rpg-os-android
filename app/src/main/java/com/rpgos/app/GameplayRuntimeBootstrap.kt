@@ -20,6 +20,10 @@ internal object GameplayRuntimeBootstrap {
     /** Explicit bootstrap/migration/restore boundary. Never call from an ordinary read path. */
     fun initialize(db: SQLiteDatabase, campaignUid: String) {
         require(campaignUid.isNotBlank()) { "RPGOS-G32:BLANK_CAMPAIGN_UID" }
+        CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { initializeLocked(db, campaignUid) }
+    }
+
+    private fun initializeLocked(db: SQLiteDatabase, campaignUid: String) {
         val previous = activeGameplayInitialization.get()
         require(previous == null) { "RPGOS-G32:NESTED_GAMEPLAY_INITIALIZATION" }
         activeGameplayInitialization.set(ActiveGameplayInitialization(db, campaignUid))
