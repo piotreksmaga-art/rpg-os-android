@@ -1,5 +1,6 @@
 name: CHAT3 Phase36 Repair Validation
 
+# TEMPORARY branch-only validation runner. Remove before handoff.
 on:
   push:
     branches: [ "chat3-phase36-post-audit-repair" ]
