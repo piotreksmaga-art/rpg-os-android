@@ -27,6 +27,9 @@ internal object GameplayMutationDatabaseGuards {
         } else {
             db.execSQL("CREATE TABLE IF NOT EXISTS $CONTEXT_TABLE_NAME(campaign_uid TEXT PRIMARY KEY,capability_kind TEXT NOT NULL CHECK(capability_kind IN ('TURN','ADMIN','COMMIT_EVIDENCE')))")
         }
+        // Phase 35 guards are reinstalled here as well as at schema creation so already-current
+        // databases receive post-audit protection without a Phase 36 schema-version change.
+        Phase35CanonDivergenceSchema.ensureReady(db)
         authoritativeTables.filter { tableExists(db, it) }.forEach { table ->
             val column = campaignColumn(db, table)
             createAuthorityGuard(db, table, column, "INSERT", "NEW")
@@ -220,8 +223,6 @@ internal fun <T> withCanonicalGameplayMutationForTurn(
     CanonDivergenceTurnBuffer.begin(db, campaignUid)
     return try {
         val result = block()
-        // The canonical turn block appends required Events after domain changes. Flush only here,
-        // while the sealed in-memory capability and exact DB/campaign binding are still active.
         CanonDivergenceTurnBuffer.flush(db, campaignUid)
         result
     } finally {
