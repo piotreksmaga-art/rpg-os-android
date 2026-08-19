@@ -28,12 +28,52 @@ internal object GameplayMutationDatabaseGuards {
             createAdministrativeOnlyGuard(db, table, "UPDATE")
             createAdministrativeOnlyGuard(db, table, "DELETE")
         }
-        if (tableExists(db, "turn_transaction_receipts")) {
-            db.execSQL("DROP TRIGGER IF EXISTS rpgos_turn_receipts_no_update")
-            db.execSQL("DROP TRIGGER IF EXISTS rpgos_turn_receipts_no_delete")
-            db.execSQL("CREATE TRIGGER rpgos_turn_receipts_no_update BEFORE UPDATE ON turn_transaction_receipts BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:APPEND_ONLY'); END")
-            db.execSQL("CREATE TRIGGER rpgos_turn_receipts_no_delete BEFORE DELETE ON turn_transaction_receipts BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:APPEND_ONLY'); END")
-        }
+        installReceiptEvidenceGuards(db)
+        installReplayEvidenceGuards(db)
+    }
+
+    private fun installReceiptEvidenceGuards(db: SQLiteDatabase) {
+        if (!tableExists(db, "turn_transaction_receipts")) return
+        db.execSQL("DROP TRIGGER IF EXISTS rpgos_turn_receipts_commit_insert")
+        db.execSQL("DROP TRIGGER IF EXISTS rpgos_turn_receipts_no_update")
+        db.execSQL("DROP TRIGGER IF EXISTS rpgos_turn_receipts_no_delete")
+        db.execSQL("""CREATE TRIGGER rpgos_turn_receipts_commit_insert BEFORE INSERT ON turn_transaction_receipts
+WHEN NOT EXISTS(
+    SELECT 1 FROM $CONTEXT_TABLE_NAME
+    WHERE campaign_uid=NEW.campaign_uid AND capability_kind IN ('TURN','ADMIN')
+) AND NOT EXISTS(
+    SELECT 1 FROM canonical_turn_replay_payloads r
+    WHERE r.transaction_uid=NEW.transaction_uid
+      AND r.campaign_uid=NEW.campaign_uid
+      AND r.turn_uid=NEW.turn_uid
+      AND r.command_uid=NEW.command_uid
+      AND r.commit_order=NEW.commit_order
+      AND r.semantic_fingerprint=NEW.semantic_fingerprint
+      AND r.required_event_count=NEW.required_event_count
+      AND r.required_event_manifest_fingerprint=NEW.required_event_manifest_fingerprint
+)
+BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:COMMIT_EVIDENCE_REQUIRED'); END""".trimIndent())
+        db.execSQL("CREATE TRIGGER rpgos_turn_receipts_no_update BEFORE UPDATE ON turn_transaction_receipts BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:APPEND_ONLY'); END")
+        db.execSQL("CREATE TRIGGER rpgos_turn_receipts_no_delete BEFORE DELETE ON turn_transaction_receipts BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:APPEND_ONLY'); END")
+    }
+
+    private fun installReplayEvidenceGuards(db: SQLiteDatabase) {
+        if (!tableExists(db, "canonical_turn_replay_payloads")) return
+        db.execSQL("DROP TRIGGER IF EXISTS rpgos_replay_commit_insert")
+        db.execSQL("DROP TRIGGER IF EXISTS rpgos_replay_no_update")
+        db.execSQL("DROP TRIGGER IF EXISTS rpgos_replay_no_delete")
+        db.execSQL("""CREATE TRIGGER rpgos_replay_commit_insert BEFORE INSERT ON canonical_turn_replay_payloads
+WHEN NOT EXISTS(
+    SELECT 1 FROM $CONTEXT_TABLE_NAME
+    WHERE campaign_uid=NEW.campaign_uid AND capability_kind IN ('TURN','ADMIN')
+) AND (
+    NEW.required_event_count <= 0 OR
+    (SELECT COUNT(*) FROM canonical_gameplay_events e
+      WHERE e.campaign_uid=NEW.campaign_uid AND e.transaction_uid=NEW.transaction_uid) <> NEW.required_event_count
+)
+BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_COMMIT_EVIDENCE_REQUIRED'); END""".trimIndent())
+        db.execSQL("CREATE TRIGGER rpgos_replay_no_update BEFORE UPDATE ON canonical_turn_replay_payloads BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_APPEND_ONLY'); END")
+        db.execSQL("CREATE TRIGGER rpgos_replay_no_delete BEFORE DELETE ON canonical_turn_replay_payloads BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_APPEND_ONLY'); END")
     }
 
     fun isInstalled(db: SQLiteDatabase) = tableExists(db, CONTEXT_TABLE_NAME)
@@ -42,6 +82,14 @@ internal object GameplayMutationDatabaseGuards {
         if (!isInstalled(db)) return false
         return db.rawQuery(
             "SELECT 1 FROM $CONTEXT_TABLE_NAME WHERE campaign_uid=? AND capability_kind='ADMIN' LIMIT 1",
+            arrayOf(campaignUid)
+        ).use { it.moveToFirst() }
+    }
+
+    fun isTurnOrAdminActive(db: SQLiteDatabase, campaignUid: String): Boolean {
+        if (!isInstalled(db)) return false
+        return db.rawQuery(
+            "SELECT 1 FROM $CONTEXT_TABLE_NAME WHERE campaign_uid=? AND capability_kind IN ('TURN','ADMIN') LIMIT 1",
             arrayOf(campaignUid)
         ).use { it.moveToFirst() }
     }
@@ -113,7 +161,7 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-G32:MECHANICS_DEFINITION_REQUIRES_ADMIN'); END""
         return when {
             "campaign_id" in columns -> "campaign_id"
             "campaign_uid" in columns -> "campaign_uid"
-            else -> null // Bundled campaign databases are themselves single-campaign authority containers.
+            else -> null
         }
     }
 
@@ -134,7 +182,6 @@ internal fun isCanonicalGameplayMutationActive(db: SQLiteDatabase, campaignUid: 
     return a != null && a.db === db && a.campaignUid == campaignUid
 }
 
-/** File-level restore/repair entry points have no SQLite handle, but must still never nest under gameplay. */
 internal fun requireAdministrativeRecoveryEntryPoint() {
     require(activeGameplayMutation.get() == null) { "RPGOS-G32:GAMEPLAY_CANNOT_INVOKE_ADMIN_AUTHORITY" }
 }
@@ -159,7 +206,6 @@ internal fun <T> withCanonicalGameplayMutationForTurn(
     }
 }
 
-/** Explicit non-gameplay authority for migration/install/recovery infrastructure. */
 internal fun <T> withAdministrativeMutationAuthority(db: SQLiteDatabase, campaignUid: String, block: () -> T): T {
     requireAdministrativeRecoveryEntryPoint()
     require(GameplayMutationDatabaseGuards.isInstalled(db)) { "RPGOS-MUTATION-GATE:ADMIN_GUARDS_NOT_INSTALLED" }
