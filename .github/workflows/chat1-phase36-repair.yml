@@ -1,0 +1,73 @@
+name: Chat1 Phase36 Repair
+
+on:
+  push:
+    branches: [ "chat1-phase35-36-post-audit-repair" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: chat1-phase36-repair
+  cancel-in-progress: true
+
+jobs:
+  repair-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chat1-phase35-36-post-audit-repair
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Apply repair integration helpers
+        run: |
+          python3 tools/chat1_p35_compile_fix.py
+          python3 tools/chat1_p36_event_patch.py
+          python3 tools/chat1_p36_schema_followup_patch.py
+          python3 tools/chat1_p36_snapshot_patch.py
+          python3 tools/chat1_p36_bootstrap_patch.py
+          rm tools/chat1_p35_compile_fix.py tools/chat1_p36_event_patch.py tools/chat1_p36_schema_followup_patch.py tools/chat1_p36_snapshot_patch.py tools/chat1_p36_bootstrap_patch.py
+      - name: Publish integration candidate
+        run: |
+          git config user.name "chat1-rpgos-repair"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/src/main app/src/test tools
+          git commit -m "fix: integrate Phase 36 migration and recovery lifecycle [skip ci]"
+          git push origin HEAD:chat1-phase35-36-post-audit-repair
+      - name: Compile and targeted checkpoint
+        id: targeted
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon :app:testDebugUnitTest \
+            --tests 'com.rpgos.app.Phase35CanonDivergenceTest' \
+            --tests 'com.rpgos.app.Phase36SchemaVersioningTest' \
+            --tests 'com.rpgos.app.Phase30To36PostAuditHardeningTest' \
+            --stacktrace 2>&1 | tee /tmp/chat1_phase36_gradle.log
+      - name: Publish checkpoint evidence
+        if: always()
+        run: |
+          git config user.name "chat1-rpgos-repair"
+          git config user.email "actions@users.noreply.github.com"
+          echo "PHASE36_CHECKPOINT_OUTCOME=${{ steps.targeted.outcome }}" > tools/chat1_phase36_ci_result.txt
+          echo "--- GRADLE TAIL ---" >> tools/chat1_phase36_ci_result.txt
+          tail -n 320 /tmp/chat1_phase36_gradle.log >> tools/chat1_phase36_ci_result.txt || true
+          git add tools/chat1_phase36_ci_result.txt
+          git commit -m "test: record Phase 36 checkpoint result [skip ci]"
+          git push origin HEAD:chat1-phase35-36-post-audit-repair
+      - name: Fail on checkpoint failure
+        if: steps.targeted.outcome != 'success'
+        run: exit 1
