@@ -18,7 +18,6 @@ internal object GameplayRuntimeBootstrap {
         Phase35CanonDivergenceSchema.RECORDED_INSERT_GUARD,
         Phase35CanonDivergenceSchema.IMPORT_INSERT_GUARD,
         Phase35CanonDivergenceSchema.LIFECYCLE_INSERT_GUARD,
-        GameplayMutationDatabaseGuards.EVENT_RUNTIME_TURN_GUARD,
         GameplayMutationDatabaseGuards.CANON_DIVERGENCE_RUNTIME_TURN_GUARD
     )
 
