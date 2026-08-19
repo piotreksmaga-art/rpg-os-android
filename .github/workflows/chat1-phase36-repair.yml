@@ -1,4 +1,4 @@
-name: Chat1 Phase35-36 Repair Checkpoint
+name: Chat1 Phase35-36 Final Validation
 
 on:
   push:
@@ -9,13 +9,13 @@ permissions:
   contents: write
 
 concurrency:
-  group: chat1-phase35-36-checkpoint
+  group: chat1-phase35-36-validation
   cancel-in-progress: true
 
 jobs:
-  targeted:
+  validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,7 +31,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
-      - name: Targeted Phase35-36 checkpoint
+
+      - name: Targeted post-audit matrix
         id: targeted
         continue-on-error: true
         shell: bash
@@ -41,19 +42,42 @@ jobs:
             --tests 'com.rpgos.app.Phase35CanonDivergenceTest' \
             --tests 'com.rpgos.app.Phase36SchemaVersioningTest' \
             --tests 'com.rpgos.app.Phase30To36PostAuditHardeningTest' \
-            --stacktrace 2>&1 | tee /tmp/chat1_phase36_gradle.log
-      - name: Publish checkpoint evidence
+            --tests 'com.rpgos.app.Phase33SnapshotSystemTest' \
+            --tests 'com.rpgos.app.Phase34SnapshotRetentionTest' \
+            --tests 'com.rpgos.app.Phase26To29PostAuditBlockerRepairTest' \
+            --tests 'com.rpgos.app.Phase32EvidenceNonAuthorityTest' \
+            --tests 'com.rpgos.app.Work036Phase30To32PostAuditRepairTest' \
+            --stacktrace 2>&1 | tee /tmp/chat1_targeted.log
+
+      - name: Full JVM suite
+        id: full
+        if: steps.targeted.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon :app:testDebugUnitTest --stacktrace 2>&1 | tee /tmp/chat1_full.log
+
+      - name: Publish validation evidence
         if: always()
         run: |
           git config user.name "chat1-rpgos-repair"
           git config user.email "actions@users.noreply.github.com"
-          echo "PHASE36_CHECKPOINT_OUTCOME=${{ steps.targeted.outcome }}" > tools/chat1_phase36_ci_result.txt
-          echo "HEAD=$(git rev-parse HEAD)" >> tools/chat1_phase36_ci_result.txt
-          echo "--- GRADLE TAIL ---" >> tools/chat1_phase36_ci_result.txt
-          tail -n 500 /tmp/chat1_phase36_gradle.log >> tools/chat1_phase36_ci_result.txt || true
-          git add tools/chat1_phase36_ci_result.txt
-          git diff --cached --quiet || git commit -m "test: record Phase 35-36 checkpoint result [skip ci]"
+          {
+            echo "VALIDATED_HEAD=$(git rev-parse HEAD)"
+            echo "TARGETED_OUTCOME=${{ steps.targeted.outcome }}"
+            echo "FULL_OUTCOME=${{ steps.full.outcome }}"
+            echo "--- TARGETED SUMMARY ---"
+            grep -E 'tests completed|BUILD SUCCESSFUL|BUILD FAILED|FAILED$' /tmp/chat1_targeted.log | tail -n 80 || true
+            echo "--- FULL SUMMARY ---"
+            if [ -f /tmp/chat1_full.log ]; then grep -E 'tests completed|BUILD SUCCESSFUL|BUILD FAILED|FAILED$' /tmp/chat1_full.log | tail -n 120 || true; fi
+            echo "--- TARGETED FAILURES ---"
+            if [ -d app/build/test-results/testDebugUnitTest ]; then grep -R -n -E '<failure|<error' app/build/test-results/testDebugUnitTest | head -n 120 || true; fi
+          } > tools/chat1_phase35_36_final_validation.txt
+          git add tools/chat1_phase35_36_final_validation.txt
+          git diff --cached --quiet || git commit -m "test: record Phase 35-36 final validation [skip ci]"
           git push origin HEAD:chat1-phase35-36-post-audit-repair
-      - name: Fail on checkpoint failure
-        if: steps.targeted.outcome != 'success'
+
+      - name: Enforce green validation
+        if: steps.targeted.outcome != 'success' || steps.full.outcome != 'success'
         run: exit 1
