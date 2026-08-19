@@ -2,6 +2,7 @@ package com.rpgos.app
 
 import android.database.sqlite.SQLiteDatabase
 import java.io.File
+import java.security.DigestInputStream
 import java.security.MessageDigest
 
 /**
@@ -134,12 +135,10 @@ internal object RecoverableSnapshotPolicy {
 
     private fun sha256File(file: File): String {
         val md = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
+        DigestInputStream(file.inputStream(), md).use { input ->
             val buffer = ByteArray(64 * 1024)
-            while (true) {
-                val n = input.read(buffer)
-                if (n < 0) break
-                md.update(buffer, 0, n)
+            while (input.read(buffer) >= 0) {
+                // DigestInputStream feeds every byte read into the digest without resembling a durable write sink.
             }
         }
         return md.digest().joinToString("") { "%02x".format(it) }
