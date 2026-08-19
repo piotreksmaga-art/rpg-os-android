@@ -1,0 +1,62 @@
+name: Phase37 Guarded Patch
+
+on:
+  push:
+    branches: [ "agent/phase37-npc-knowledge-audit" ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    if: ${{ !contains(github.event.head_commit.message, '[phase37-generated]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/phase37-npc-knowledge-audit
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Install Android SDK 36
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Apply guarded Phase37 patch
+        run: python3 .github/phase37_patch.py
+
+      - name: Targeted Phase37 tests
+        run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase37NpcKnowledgeTest' --stacktrace
+
+      - name: Full JVM unit suite
+        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+
+      - name: Remove temporary patch machinery
+        run: rm .github/phase37_patch.py .github/workflows/phase37-guarded-patch.yml
+
+      - name: Commit validated implementation
+        shell: bash
+        run: |
+          git config user.name "rpg-os-phase37-bot"
+          git config user.email "actions@github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Implement Phase 37 NPC knowledge authority [phase37-generated]"
+          git push origin HEAD:agent/phase37-npc-knowledge-audit
