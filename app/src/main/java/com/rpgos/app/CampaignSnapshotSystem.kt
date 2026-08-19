@@ -92,19 +92,30 @@ internal object CampaignSnapshotRecoveryPolicy {
         require(file.isFile&&expectedSha!=null&&fileSha256(file)==expectedSha){"RPGOS-SNAPSHOT:PAYLOAD_INTEGRITY_FAILED"}
         SQLiteDatabase.openDatabase(file.absolutePath,null,SQLiteDatabase.OPEN_READONLY).use{captured->
             check(captured.isDatabaseIntegrityOk){"RPGOS-SNAPSHOT:PAYLOAD_DB_INTEGRITY_FAILED"}
-            val anchor=TurnTransactionReceiptStore(captured).lastValidCommit(campaignUid)
-            val order=anchor?.commitOrder?:0L
-            require(order==snapshot.anchorCommitOrder){"RPGOS-SNAPSHOT:ANCHOR_ORDER_MISMATCH"}
-            require(anchor?.transactionUid==snapshot.anchorTransactionUid&&anchor?.turnUid==snapshot.anchorTurnUid){"RPGOS-SNAPSHOT:ANCHOR_IDENTITY_MISMATCH"}
-            val eventUid=anchor?.transactionUid?.let{tx->anchorEventUid(captured,campaignUid,tx)}
-            require(eventUid==snapshot.anchorEventUid){"RPGOS-SNAPSHOT:ANCHOR_EVENT_MISMATCH"}
+            val anchor=lastCommittedAnchor(captured,campaignUid)
+            require(anchor.commitOrder==snapshot.anchorCommitOrder){"RPGOS-SNAPSHOT:ANCHOR_ORDER_MISMATCH"}
+            require(anchor.transactionUid==snapshot.anchorTransactionUid&&anchor.turnUid==snapshot.anchorTurnUid){"RPGOS-SNAPSHOT:ANCHOR_IDENTITY_MISMATCH"}
+            require(anchor.eventUid==snapshot.anchorEventUid){"RPGOS-SNAPSHOT:ANCHOR_EVENT_MISMATCH"}
         }
-        val last=TurnTransactionReceiptStore(db).lastValidCommit(campaignUid)?.commitOrder?:0L
+        val last=lastCommittedAnchor(db,campaignUid).commitOrder
         require(snapshot.anchorCommitOrder<=last){"RPGOS-SNAPSHOT:STALE_SNAPSHOT_ANCHOR"}
         val payloads=CommittedReplayPayloadStore(db).after(campaignUid,snapshot.anchorCommitOrder)
         val expected=if(snapshot.anchorCommitOrder==last)emptyList() else (snapshot.anchorCommitOrder+1..last).toList()
         require(payloads.map{it.commitOrder}==expected){"RPGOS-SNAPSHOT:NON_REPLAYABLE_INTERVAL"}
         return payloads
+    }
+
+    internal fun lastCommittedAnchor(db:SQLiteDatabase,campaignUid:String):CapturedSnapshotAnchor {
+        val receiptTable="turn_transaction_receipts"
+        val exists=db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",arrayOf(receiptTable)).use{it.moveToFirst()}
+        if(!exists)return CapturedSnapshotAnchor(0L,null,null,null)
+        val hasOrder=db.rawQuery("PRAGMA table_info($receiptTable)",null).use{c->var found=false;while(c.moveToNext())if(c.getString(1)=="commit_order")found=true;found}
+        if(!hasOrder)return CapturedSnapshotAnchor(0L,null,null,null)
+        return db.rawQuery("""SELECT transaction_uid,turn_uid,commit_order FROM $receiptTable
+            WHERE campaign_uid=? AND commit_state='COMMITTED' AND commit_order IS NOT NULL ORDER BY commit_order DESC LIMIT 1""",arrayOf(campaignUid)).use{c->
+            if(!c.moveToFirst())CapturedSnapshotAnchor(0L,null,null,null)
+            else { val tx=c.getString(0);CapturedSnapshotAnchor(c.getLong(2),tx,c.getString(1),anchorEventUid(db,campaignUid,tx)) }
+        }
     }
 
     private fun find(db:SQLiteDatabase,campaignUid:String,uid:String):CampaignSnapshotDescriptor? {
@@ -223,13 +234,7 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
             if(staged.exists())staged.delete(); db.execSQL("VACUUM INTO ?",arrayOf(staged.absolutePath));check(staged.isFile)
             val capturedAnchor=SQLiteDatabase.openDatabase(staged.absolutePath,null,SQLiteDatabase.OPEN_READONLY).use{capturedDb->
                 check(capturedDb.isDatabaseIntegrityOk)
-                val receipt=TurnTransactionReceiptStore(capturedDb).lastValidCommit(campaignUid)
-                CapturedSnapshotAnchor(
-                    commitOrder=receipt?.commitOrder?:0L,
-                    transactionUid=receipt?.transactionUid,
-                    turnUid=receipt?.turnUid,
-                    eventUid=receipt?.transactionUid?.let{tx->CampaignSnapshotRecoveryPolicy.anchorEventUid(capturedDb,campaignUid,tx)}
-                )
+                CampaignSnapshotRecoveryPolicy.lastCommittedAnchor(capturedDb,campaignUid)
             }
             val digest=fileSha256(staged);check(staged.renameTo(published)){"RPGOS-SNAPSHOT:PUBLISH_RENAME_FAILED"}
             db.execSQL("""UPDATE ${CampaignSnapshotSchema.CATALOG}
@@ -289,12 +294,19 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
 
     fun reconstructToVerifiedStaging():File {
         requireAdministrativeRecoveryEntryPoint()
-        return CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { reconstructLocked() }
+        return CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { reconstructLocked(null) }
     }
 
-    private fun reconstructLocked():File {
+    internal fun reconstructSnapshotToVerifiedStaging(snapshotUid:String):File {
+        requireAdministrativeRecoveryEntryPoint()
+        require(snapshotUid.isNotBlank())
+        return CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { reconstructLocked(snapshotUid) }
+    }
+
+    private fun reconstructLocked(requiredSnapshotUid:String?):File {
         reconcileOrphansLocked()
-        val snapshot=list().firstOrNull{CampaignSnapshotRecoveryPolicy.isRecoverable(db,campaignUid,it)}
+        val snapshot=(if(requiredSnapshotUid==null) list().firstOrNull{CampaignSnapshotRecoveryPolicy.isRecoverable(db,campaignUid,it)}
+            else find(requiredSnapshotUid)?.takeIf{CampaignSnapshotRecoveryPolicy.isRecoverable(db,campaignUid,it)})
             ?:error("RPGOS-SNAPSHOT:NO_VALID_COMPATIBLE_SNAPSHOT")
         val staging=File(snapshotDir,".${snapshot.snapshotUid}.reconstructing.db")
         if(staging.exists())staging.delete();File(snapshot.payloadPath).copyTo(staging)

@@ -72,6 +72,24 @@ class Phase36SchemaVersioningTest {
         }
     }
 
+    @Test fun realReceiptV2RebuildRunsInsidePhase36MaterialLifecycle() {
+        val file=File(root,"receipt-v2.db");val dir=File(root,"receipt-v2-snaps")
+        SQLiteDatabase.openOrCreateDatabase(file,null).use { db ->
+            GroupATransactionTestFixtures.setupFinance(db,"C1")
+            commitTurn(db,"C1","RECEIPT-V2")
+            rebuildReceiptAsV2(db)
+            db.execSQL("UPDATE ${Phase36SchemaVersioning.VERSIONS} SET schema_version=2 WHERE schema_family_uid=?",arrayOf(SchemaFamilyUid.RECEIPT.name))
+            assertEquals(2,TurnTransactionReceiptSchema.physicalSchemaVersion(db))
+            val before=receiptHistory(db,"C1")
+            val safety=CampaignSnapshotManager(db,"C1",dir).create(SnapshotKind.PRE_RESTORE)
+            Phase36SchemaVersioning.ensureReady(db,"C1",safety.snapshotUid)
+            GameplayRuntimeBootstrap.initialize(db,"C1")
+            assertEquals(TURN_TRANSACTION_RECEIPT_VERSION,TurnTransactionReceiptSchema.physicalSchemaVersion(db))
+            assertEquals(before,receiptHistory(db,"C1"))
+            assertTrue(countWhere(db,Phase36SchemaVersioning.ATTEMPTS,"state='APPLIED'")>=1)
+        }
+    }
+
     @Test fun versionEdgeGraphFailsClosedAndFingerprintUsesActualSourceRoute() {
         val contract=SchemaFamilyContract(SchemaFamilyUid.EVENT,3,1)
         val e12=edge(SchemaFamilyUid.EVENT,1,2,"E12")
@@ -185,6 +203,8 @@ class Phase36SchemaVersioningTest {
                 if(accepted){
                     assertTrue("Phase36 accepted $kind but recovery rejects it",CampaignSnapshotRecoveryPolicy.isRecoverable(db,"C1",snapshot))
                     CampaignSnapshotRecoveryPolicy.requireRecoverable(db,"C1",snapshot)
+                    val staging=CampaignSnapshotManager(db,"C1",dir).reconstructSnapshotToVerifiedStaging(snapshot.snapshotUid)
+                    assertTrue(staging.isFile);staging.delete()
                 }
                 if(kind==SnapshotKind.MANUAL_EXPORT||kind==SnapshotKind.LEGACY_BACKUP) assertFalse("$kind must never be Phase36 safety",accepted)
             }
@@ -302,6 +322,24 @@ class Phase36SchemaVersioningTest {
         val result=TurnTransactionBoundary.create(db,TurnTransactionIdentity(campaign,"TURN-$command",command,"TX-$command"),proposal).commit()
         assertTrue(result is TurnExecutionResult.Committed)
     }
+
+    private fun rebuildReceiptAsV2(db:SQLiteDatabase){
+        listOf("rpgos_turn_receipts_commit_insert","rpgos_turn_receipts_no_update","rpgos_turn_receipts_no_delete",
+            "rpgos_guard_turn_transaction_receipts_insert","rpgos_guard_turn_transaction_receipts_update","rpgos_guard_turn_transaction_receipts_delete").forEach{db.execSQL("DROP TRIGGER IF EXISTS $it")}
+        db.execSQL("DROP TABLE IF EXISTS turn_transaction_receipts_v2_test")
+        db.execSQL("""CREATE TABLE turn_transaction_receipts_v2_test(
+            transaction_uid TEXT PRIMARY KEY,campaign_uid TEXT NOT NULL,turn_uid TEXT NOT NULL,command_uid TEXT NOT NULL,
+            semantic_fingerprint TEXT NOT NULL,result_fingerprint TEXT NOT NULL,commit_order INTEGER NULL CHECK(commit_order IS NULL OR commit_order>0),
+            receipt_version INTEGER NOT NULL CHECK(receipt_version IN (1,2)),commit_state TEXT NOT NULL CHECK(commit_state='COMMITTED'),
+            UNIQUE(campaign_uid,command_uid))""")
+        db.execSQL("""INSERT INTO turn_transaction_receipts_v2_test(transaction_uid,campaign_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,commit_order,receipt_version,commit_state)
+            SELECT transaction_uid,campaign_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,commit_order,2,commit_state FROM turn_transaction_receipts""")
+        db.execSQL("DROP TABLE turn_transaction_receipts")
+        db.execSQL("ALTER TABLE turn_transaction_receipts_v2_test RENAME TO turn_transaction_receipts")
+    }
+
+    private fun receiptHistory(db:SQLiteDatabase,campaign:String)=db.rawQuery("""SELECT transaction_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,COALESCE(CAST(commit_order AS TEXT),'NULL')
+        FROM turn_transaction_receipts WHERE campaign_uid=? ORDER BY transaction_uid""",arrayOf(campaign)).use{c->buildList{while(c.moveToNext())add((0 until c.columnCount).joinToString("|"){i->c.getString(i)})}}}
 
     private fun rebuildEventAsV1(db:SQLiteDatabase){
         listOf("rpgos_event_store_no_update","rpgos_event_store_no_delete","rpgos_event_store_turn_insert").forEach{db.execSQL("DROP TRIGGER IF EXISTS $it")}
