@@ -36,7 +36,7 @@ internal object GameplayRuntimeBootstrap {
             // is deliberately NOT activated here; Phase36 owns that physical migration lifecycle.
             val ensurePrePhase36Schemas = {
                 CurrentSchema.ensure(db, campaignUid)
-                TurnTransactionReceiptSchema.ensureReady(db)
+                TurnTransactionReceiptSchema.ensurePhase36Prerequisites(db)
                 CampaignSnapshotSchema.ensureReady(db)
             }
             if (GameplayMutationDatabaseGuards.isInstalled(db)) withAdministrativeMutationAuthority(db,campaignUid){ensurePrePhase36Schemas()} else ensurePrePhase36Schemas()
@@ -47,6 +47,7 @@ internal object GameplayRuntimeBootstrap {
             // Only after Phase36 has established current Event physical schema may activation install
             // Event/causal triggers and writer-contract evidence.
             val ensurePostPhase36Schemas = {
+                TurnTransactionReceiptSchema.ensureReady(db)
                 CampaignIntelligencePhase30Schema.ensureActivated(db,campaignUid)
                 CampaignCausalGraphSchema.ensureReady(db)
             }

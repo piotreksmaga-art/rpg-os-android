@@ -149,6 +149,12 @@ internal object Phase36SchemaVersioning {
     )
 
     val migrationManifest:List<MigrationEdge> = listOf(
+        MigrationEdge(SchemaFamilyUid.RECEIPT,1,TURN_TRANSACTION_RECEIPT_VERSION,"RPGOS-P36-RECEIPT-V1-V3-R1",MigrationMateriality.MATERIAL_DATA_MUTATION){db,_->
+            TurnTransactionReceiptSchema.migrateToCurrent(db)
+        },
+        MigrationEdge(SchemaFamilyUid.RECEIPT,2,TURN_TRANSACTION_RECEIPT_VERSION,"RPGOS-P36-RECEIPT-V2-V3-R1",MigrationMateriality.MATERIAL_DATA_MUTATION){db,_->
+            TurnTransactionReceiptSchema.migrateToCurrent(db)
+        },
         MigrationEdge(SchemaFamilyUid.EVENT,1,PHASE30_EVENT_SCHEMA_VERSION,"RPGOS-P36-EVENT-V1-V2-R1",MigrationMateriality.MATERIAL_DATA_MUTATION){db,injector->
             CampaignIntelligencePhase30Schema.migrateEventTableIfNeeded(db,injector)
         }
@@ -176,6 +182,7 @@ internal object Phase36SchemaVersioning {
         val plan=MigrationPlanRegistry.buildPlan(contracts,source,migrationManifest)
         if(plan.orderedEdges.isEmpty()){
             administrativeWrite(db,campaignUid){Phase35CanonDivergenceSchema.ensureReady(db)}
+            CanonDivergenceSqlAuthority.install(db)
             return
         }
         val planFingerprint=MigrationPlanRegistry.fingerprint(plan)
@@ -202,6 +209,7 @@ internal object Phase36SchemaVersioning {
                 injector.failIfRequested(Phase36MigrationFailurePoint.BEFORE_FINAL_METADATA_APPLIED)
                 db.execSQL("UPDATE $ATTEMPTS SET state=?,completed_at_epoch_ms=? WHERE migration_attempt_uid=?",arrayOf(MigrationAttemptState.APPLIED.name,System.currentTimeMillis(),attempt))
             }
+            CanonDivergenceSqlAuthority.install(db)
         }catch(t:Throwable){
             administrativeWrite(db,campaignUid){
                 db.execSQL("UPDATE $ATTEMPTS SET state=?,completed_at_epoch_ms=?,failure_code=? WHERE migration_attempt_uid=? AND state=?",arrayOf(MigrationAttemptState.FAILED.name,System.currentTimeMillis(),"MIGRATION_STEP_FAILED",attempt,MigrationAttemptState.PREPARED.name))
@@ -246,7 +254,11 @@ internal object Phase36SchemaVersioning {
         }
         administrativeWrite(db,campaignUid){
             missing.forEach{c->
-                val adopted=if(c.family==SchemaFamilyUid.EVENT) CampaignIntelligencePhase30Schema.physicalEventSchemaVersion(db)?:c.currentVersion else c.currentVersion
+                val adopted=when(c.family){
+                    SchemaFamilyUid.EVENT -> CampaignIntelligencePhase30Schema.physicalEventSchemaVersion(db)?:c.currentVersion
+                    SchemaFamilyUid.RECEIPT -> TurnTransactionReceiptSchema.physicalSchemaVersion(db)?:c.currentVersion
+                    else -> c.currentVersion
+                }
                 db.execSQL("INSERT INTO $VERSIONS(schema_family_uid,schema_version,migration_owner,updated_at_epoch_ms) VALUES(?,?,?,?)",arrayOf(c.family.name,adopted,"RPGOS-P36-ADOPT-PHYSICAL",System.currentTimeMillis()))
             }
         }
@@ -254,9 +266,12 @@ internal object Phase36SchemaVersioning {
     }
 
     private fun validatePhysicalMetadataConsistency(db:SQLiteDatabase){
-        val physical=CampaignIntelligencePhase30Schema.physicalEventSchemaVersion(db)
-        val metadata=currentMetadata(db,SchemaFamilyUid.EVENT)
-        if(physical!=null&&metadata!=null)require(physical==metadata){"RPGOS-SCHEMA:EVENT_PHYSICAL_METADATA_MISMATCH:$physical:$metadata"}
+        val eventPhysical=CampaignIntelligencePhase30Schema.physicalEventSchemaVersion(db)
+        val eventMetadata=currentMetadata(db,SchemaFamilyUid.EVENT)
+        if(eventPhysical!=null&&eventMetadata!=null)require(eventPhysical==eventMetadata){"RPGOS-SCHEMA:EVENT_PHYSICAL_METADATA_MISMATCH:$eventPhysical:$eventMetadata"}
+        val receiptPhysical=TurnTransactionReceiptSchema.physicalSchemaVersion(db)
+        val receiptMetadata=currentMetadata(db,SchemaFamilyUid.RECEIPT)
+        if(receiptPhysical!=null&&receiptMetadata!=null)require(receiptPhysical==receiptMetadata){"RPGOS-SCHEMA:RECEIPT_PHYSICAL_METADATA_MISMATCH:$receiptPhysical:$receiptMetadata"}
     }
 
     private fun inspectCompatibilityBeforeMutation(db:SQLiteDatabase){

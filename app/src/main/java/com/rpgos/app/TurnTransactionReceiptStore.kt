@@ -38,7 +38,34 @@ internal object TurnTransactionReceiptSchema {
     fun isReady(db: SQLiteDatabase): Boolean = tableExists(db, "turn_transaction_receipts") &&
         hasColumn(db, "turn_transaction_receipts", "commit_order") &&
         hasColumn(db, "turn_transaction_receipts", "required_event_count") &&
-        hasColumn(db, "turn_transaction_receipts", "required_event_manifest_fingerprint")
+        hasColumn(db, "turn_transaction_receipts", "required_event_manifest_fingerprint") &&
+        !hasLegacyReceiptVersionCheck(db)
+
+    /** Creates only fresh prerequisites; never rebuilds an existing legacy receipt table. */
+    fun ensurePhase36Prerequisites(db:SQLiteDatabase) {
+        val ownsTx=!db.inTransaction();if(ownsTx)db.beginTransaction()
+        try {
+            db.execSQL("""CREATE TABLE IF NOT EXISTS rpgos_schema_migrations(
+                migration_id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL, notes TEXT)""")
+            if(!tableExists(db,"turn_transaction_receipts")){
+                createCurrentTable(db,"turn_transaction_receipts")
+                createIndexes(db)
+            }
+            if(ownsTx)db.setTransactionSuccessful()
+        } finally { if(ownsTx)db.endTransaction() }
+    }
+
+    fun physicalSchemaVersion(db:SQLiteDatabase):Int? {
+        if(!tableExists(db,"turn_transaction_receipts"))return null
+        val hasOrder=hasColumn(db,"turn_transaction_receipts","commit_order")
+        val hasManifest=hasColumn(db,"turn_transaction_receipts","required_event_count")&&
+            hasColumn(db,"turn_transaction_receipts","required_event_manifest_fingerprint")
+        return when {
+            hasManifest&&!hasLegacyReceiptVersionCheck(db) -> TURN_TRANSACTION_RECEIPT_VERSION
+            hasOrder -> 2
+            else -> 1
+        }
+    }
 
     fun ensureReady(db: SQLiteDatabase) {
         val ownsTx = !db.inTransaction()
@@ -48,7 +75,7 @@ internal object TurnTransactionReceiptSchema {
                 migration_id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL, notes TEXT)""")
             when {
                 !tableExists(db, "turn_transaction_receipts") -> createCurrentTable(db, "turn_transaction_receipts")
-                !isReady(db) || hasLegacyReceiptVersionCheck(db) -> migrateReceiptTable(db)
+                !isReady(db) || hasLegacyReceiptVersionCheck(db) -> migrateToCurrent(db)
             }
             createIndexes(db)
             db.execSQL("INSERT OR IGNORE INTO rpgos_schema_migrations(migration_id,applied_at,notes) VALUES(?,strftime('%s','now'),?)",
@@ -59,6 +86,13 @@ internal object TurnTransactionReceiptSchema {
                 arrayOf(MIGRATION_V32_EVENT_MANIFEST, "V3 receipts bind deterministic required Event count/hash; V1/V2 remain NULL/UNKNOWN without fabricated history"))
             if (ownsTx) db.setTransactionSuccessful()
         } finally { if (ownsTx) db.endTransaction() }
+    }
+
+    internal fun migrateToCurrent(db:SQLiteDatabase) {
+        require(tableExists(db,"turn_transaction_receipts")){"RPGOS-SCHEMA:RECEIPT_TABLE_MISSING"}
+        if(isReady(db))return
+        migrateReceiptTable(db)
+        createIndexes(db)
     }
 
     private fun migrateReceiptTable(db: SQLiteDatabase) {

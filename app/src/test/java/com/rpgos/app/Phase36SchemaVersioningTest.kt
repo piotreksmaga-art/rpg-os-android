@@ -96,7 +96,11 @@ class Phase36SchemaVersioningTest {
     }
 
     @Test fun migrationManifestHasImmutablePerEdgeIdentityGolden() {
-        assertEquals("EVENT:1->2:RPGOS-P36-EVENT-V1-V2-R1:MATERIAL_DATA_MUTATION",Phase36SchemaVersioning.migrationManifestCanonical)
+        assertEquals(listOf(
+            "EVENT:1->2:RPGOS-P36-EVENT-V1-V2-R1:MATERIAL_DATA_MUTATION",
+            "RECEIPT:1->3:RPGOS-P36-RECEIPT-V1-V3-R1:MATERIAL_DATA_MUTATION",
+            "RECEIPT:2->3:RPGOS-P36-RECEIPT-V2-V3-R1:MATERIAL_DATA_MUTATION"
+        ).joinToString("\n"),Phase36SchemaVersioning.migrationManifestCanonical)
         val edge=Phase36SchemaVersioning.migrationManifest.single{it.family==SchemaFamilyUid.EVENT&&it.fromVersion==1}
         assertEquals("RPGOS-P36-EVENT-V1-V2-R1",edge.implementationId)
         assertEquals(MigrationMateriality.MATERIAL_DATA_MUTATION,edge.materiality)
@@ -190,7 +194,7 @@ class Phase36SchemaVersioningTest {
     @Test fun corruptedCrossCampaignStaleAndNonReplayableSnapshotsFailClosed() {
         val file=File(root,"snapshot-adversarial.db");val dir=File(root,"snapshot-adv")
         SQLiteDatabase.openOrCreateDatabase(file,null).use { db ->
-            GameplayRuntimeBootstrap.initialize(db,"C1")
+            GroupATransactionTestFixtures.setupFinance(db,"C1")
             val material=listOf(edge(SchemaFamilyUid.EVENT,1,2,"TEST-MATERIAL"))
 
             val corrupted=CampaignSnapshotManager(db,"C1",dir).create(SnapshotKind.PRE_RESTORE)

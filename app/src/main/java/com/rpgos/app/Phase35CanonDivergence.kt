@@ -80,7 +80,7 @@ internal fun <T> withCanonicalDivergenceCommitAuthorityForTurn(
     val frozen=authorizations.toList()
     require(frozen.all{it.spec.provenanceStatus==HistoricalProvenanceStatus.RECORDED&&it.eventUid.isNotBlank()})
     activeCanonDivergenceAuthority.set(ActiveCanonDivergenceAuthority(db,identity,frozen))
-    return try{block()}finally{activeCanonDivergenceAuthority.remove()}
+    return try{CanonDivergenceSqlAuthority.withAuthority(db,identity,frozen,block)}finally{activeCanonDivergenceAuthority.remove()}
 }
 
 internal object Phase35CanonDivergenceSchema {

@@ -113,6 +113,22 @@ class Phase35CanonDivergenceTest {
         }
     }
 
+    @Test fun rawSqlCannotReuseRealCanonicalEvidenceToForgeRecordedDivergence() {
+        SQLiteDatabase.openOrCreateDatabase(dbFile,null).use { db ->
+            GameplayRuntimeBootstrap.initialize(db,"C1")
+            commit(db,"REAL-EVIDENCE",spec("DIV-REAL","CANON","CAMPAIGN"))
+            val legal=CanonDivergenceStore(db,"C1").list().single()
+            db.execSQL("DELETE FROM ${GameplayMutationDatabaseGuards.CONTEXT_TABLE_NAME}")
+            db.execSQL("INSERT INTO ${GameplayMutationDatabaseGuards.CONTEXT_TABLE_NAME}(campaign_uid,capability_kind) VALUES('C1','TURN')")
+            val failure=runCatching {
+                rawRecordedInsert(db,"DIV-FORGED-REAL",legal.createdTransactionUid!!,legal.createdTurnUid!!,legal.createdEventUid!!,"FORGED-EXPECTATION")
+            }.exceptionOrNull()
+            assertNotNull(failure)
+            db.execSQL("DELETE FROM ${GameplayMutationDatabaseGuards.CONTEXT_TABLE_NAME}")
+            assertEquals(listOf("DIV-REAL"),CanonDivergenceStore(db,"C1").list().map{it.spec.divergenceUid})
+        }
+    }
+
     @Test fun administrativeAuthorityForeignCampaignAndMissingProvenanceCannotCallRecordCommitted() {
         SQLiteDatabase.openOrCreateDatabase(dbFile,null).use { db ->
             GameplayRuntimeBootstrap.initialize(db,"C1")
@@ -153,8 +169,8 @@ class Phase35CanonDivergenceTest {
         }
     }
 
-    private fun rawRecordedInsert(db:SQLiteDatabase,uid:String){
-        db.execSQL("""INSERT INTO ${Phase35CanonDivergenceSchema.TABLE}(divergence_uid,campaign_uid,canonical_subject_kind_uid,canonical_subject_uid,canonical_expectation_uid,world_pack_uid,world_pack_version,divergence_kind,expected_canonical_value,actual_campaign_value,lifecycle_status,created_transaction_uid,created_turn_uid,created_event_uid,provenance_status,divergence_schema_version,created_at_epoch_ms) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",arrayOf(uid,"C1","CHARACTER","P1","CANON-EXPECTATION-1","WORLD-A","1","OUTCOME","CANON","CAMPAIGN","ACTIVE","TX-FAKE","TURN-FAKE","EVENT-FAKE","RECORDED",1,1L))
+    private fun rawRecordedInsert(db:SQLiteDatabase,uid:String,tx:String="TX-FAKE",turn:String="TURN-FAKE",event:String="EVENT-FAKE",expectation:String="CANON-EXPECTATION-1"){
+        db.execSQL("""INSERT INTO ${Phase35CanonDivergenceSchema.TABLE}(divergence_uid,campaign_uid,canonical_subject_kind_uid,canonical_subject_uid,canonical_expectation_uid,world_pack_uid,world_pack_version,divergence_kind,expected_canonical_value,actual_campaign_value,lifecycle_status,created_transaction_uid,created_turn_uid,created_event_uid,provenance_status,divergence_schema_version,created_at_epoch_ms) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",arrayOf(uid,"C1","CHARACTER","P1",expectation,"WORLD-A","1","OUTCOME","CANON","CAMPAIGN","ACTIVE",tx,turn,event,"RECORDED",1,1L))
     }
 
     private fun commitBound(db:SQLiteDatabase,command:String,s:CanonDivergenceSpec,campaign:String)=
