@@ -99,11 +99,11 @@ class Phase35CanonDivergenceTest {
         SQLiteDatabase.openOrCreateDatabase(dbFile,null).use { db ->
             GameplayRuntimeBootstrap.initialize(db,"C1")
             listOf("TURN","ADMIN").forEach { kind ->
-                db.execSQL("DELETE FROM ${GameplayMutationDatabaseGuards.CONTEXT_TABLE}")
-                db.execSQL("INSERT INTO ${GameplayMutationDatabaseGuards.CONTEXT_TABLE}(campaign_uid,capability_kind,depth) VALUES('C1',?,1)",arrayOf(kind))
+                db.execSQL("DELETE FROM ${GameplayMutationDatabaseGuards.CONTEXT_TABLE_NAME}")
+                db.execSQL("INSERT INTO ${GameplayMutationDatabaseGuards.CONTEXT_TABLE_NAME}(campaign_uid,capability_kind,depth) VALUES('C1',?,1)",arrayOf(kind))
                 assertTrue(runCatching { rawRecordedInsert(db,"RAW-$kind") }.isFailure)
             }
-            db.execSQL("DELETE FROM ${GameplayMutationDatabaseGuards.CONTEXT_TABLE}")
+            db.execSQL("DELETE FROM ${GameplayMutationDatabaseGuards.CONTEXT_TABLE_NAME}")
             assertTrue(CanonDivergenceStore(db,"C1").list().isEmpty())
         }
     }

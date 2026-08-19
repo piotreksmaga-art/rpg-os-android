@@ -158,10 +158,15 @@ internal object Phase36SchemaVersioning {
     fun ensureReady(db:SQLiteDatabase,campaignUid:String,safetySnapshotUid:String?=null,injector:Phase36MigrationFailureInjector=Phase36MigrationFailureInjector.NONE){
         require(!db.inTransaction()){"RPGOS-SCHEMA:TOP_LEVEL_MIGRATION_REQUIRED"}
         require(campaignUid.isNotBlank())
-        CampaignRuntimeLifecycleLock.withRecovery(campaignUid){ensureReadyLocked(db,campaignUid,safetySnapshotUid,injector)}
+        CampaignRuntimeLifecycleLock.withRecovery(campaignUid){ensureReadyLocked(db,campaignUid,safetySnapshotUid,injector,false)}
     }
 
-    private fun ensureReadyLocked(db:SQLiteDatabase,campaignUid:String,safetySnapshotUid:String?,injector:Phase36MigrationFailureInjector){
+    internal fun ensureReadyForRecoveryStaging(db:SQLiteDatabase,campaignUid:String){
+        require(!db.inTransaction()){"RPGOS-SCHEMA:TOP_LEVEL_MIGRATION_REQUIRED"}
+        CampaignRuntimeLifecycleLock.withRecovery(campaignUid){ensureReadyLocked(db,campaignUid,null,Phase36MigrationFailureInjector.NONE,true)}
+    }
+
+    private fun ensureReadyLocked(db:SQLiteDatabase,campaignUid:String,safetySnapshotUid:String?,injector:Phase36MigrationFailureInjector,recoveryStaging:Boolean){
         inspectCompatibilityBeforeMutation(db)
         ensureMetadataTables(db)
         validateAttemptStateVocabulary(db)
@@ -176,14 +181,14 @@ internal object Phase36SchemaVersioning {
         val planFingerprint=MigrationPlanRegistry.fingerprint(plan)
         val sourceCanonical=MigrationPlanRegistry.vectorCanonical(source)
         val target=targetVector();val targetCanonical=MigrationPlanRegistry.vectorCanonical(target)
-        val firstSafety=MigrationSafetyPolicy.requireProtectedSnapshot(db,campaignUid,plan.orderedEdges,safetySnapshotUid)
+        val firstSafety=if(recoveryStaging)null else MigrationSafetyPolicy.requireProtectedSnapshot(db,campaignUid,plan.orderedEdges,safetySnapshotUid)
         val attempt="MIG-$campaignUid-${UUID.randomUUID()}";val now=System.currentTimeMillis()
         administrativeWrite(db,campaignUid){
             db.execSQL("""INSERT INTO $ATTEMPTS(migration_attempt_uid,campaign_uid,source_vector_fingerprint,target_vector_fingerprint,source_vector_canonical,target_vector_canonical,plan_fingerprint,plan_version,safety_snapshot_uid,state,started_at_epoch_ms)
                 VALUES(?,?,?,?,?,?,?,?,?,?,?)""",arrayOf(attempt,campaignUid,sourceCanonical.sha256(),targetCanonical.sha256(),sourceCanonical,targetCanonical,planFingerprint,PLAN_VERSION,safetySnapshotUid,MigrationAttemptState.PREPARED.name,now))
         }
-        val secondSafety=MigrationSafetyPolicy.requireProtectedSnapshot(db,campaignUid,plan.orderedEdges,safetySnapshotUid)
-        require(firstSafety==secondSafety){"RPGOS-SCHEMA:SAFETY_SNAPSHOT_CHANGED"}
+        val secondSafety=if(recoveryStaging)null else MigrationSafetyPolicy.requireProtectedSnapshot(db,campaignUid,plan.orderedEdges,safetySnapshotUid)
+        if(!recoveryStaging)require(firstSafety==secondSafety){"RPGOS-SCHEMA:SAFETY_SNAPSHOT_CHANGED"}
         injector.failIfRequested(Phase36MigrationFailurePoint.AFTER_SAFETY_REVALIDATION_BEFORE_RUNNING)
         try{
             administrativeWrite(db,campaignUid){
