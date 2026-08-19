@@ -9,15 +9,15 @@ Daemon will be stopped at the end of the build
 > Task :app:packageDebugResources
 > Task :app:processDebugNavigationResources
 > Task :app:javaPreCompileDebug
-> Task :app:mapDebugSourceSetPaths
-> Task :app:checkDebugAarMetadata
-> Task :app:compileDebugNavigationResources
 > Task :app:parseDebugLocalResources
+> Task :app:checkDebugAarMetadata
+> Task :app:mapDebugSourceSetPaths
+> Task :app:compileDebugNavigationResources
+> Task :app:generateDebugRFile
+> Task :app:mergeDebugResources
 > Task :app:createDebugCompatibleScreenManifests
 > Task :app:extractDeepLinksDebug
-> Task :app:generateDebugRFile
 > Task :app:processDebugMainManifest
-> Task :app:mergeDebugResources
 > Task :app:processDebugManifest
 > Task :app:processDebugManifestForPackage
 > Task :app:preDebugUnitTestBuild UP-TO-DATE
@@ -29,17 +29,128 @@ Daemon will be stopped at the end of the build
 > Task :app:processDebugResources
 > Task :app:packageDebugUnitTestForUnitTest
 > Task :app:generateDebugUnitTestConfig
-
 > Task :app:compileDebugKotlin
-e: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/CampaignSnapshotSystem.kt:108:18 'internal' function exposes its 'private-in-file' return type 'CapturedSnapshotAnchor'.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/AssetLiabilityStore.kt:18:635 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/CampaignEventStore.kt:60:17 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/CampaignEventStore.kt:360:13 'when' is exhaustive so 'else' is redundant here.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/CampaignEventStore.kt:393:9 'when' is exhaustive so 'else' is redundant here.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/CampaignSnapshotSystem.kt:174:51 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>?' & 'Serializable?']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/CampaignSnapshotSystem.kt:231:52 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>?' & 'Serializable?']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/CampaignSnapshotSystem.kt:242:41 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>?' & 'Serializable?']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/EquipmentStore.kt:32:203 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/FinancialStore.kt:14:13 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/InventoryStore.kt:10:758 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>?' & 'Serializable?']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/InventoryStore.kt:12:431 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/InventoryStore.kt:16:521 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/InventoryStore.kt:22:1749 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>?' & 'Serializable?']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/InventoryStore.kt:24:269 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/InventoryStore.kt:24:472 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/InventoryStore.kt:25:511 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/JsonCodec.kt:11:67 Java type mismatch: inferred type is 'KFunction1<MutableMap<Any?, Any?>, JSONObject>', but 'Function1<Map<String, Any?>, JSONObject>' was expected.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/JsonCodec.kt:12:65 Java type mismatch: inferred type is 'KFunction1<MutableMap<Any?, Any?>, JSONObject>', but 'Function1<Map<String, Any?>, JSONObject>' was expected.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/JsonCodec.kt:13:65 Java type mismatch: inferred type is 'KFunction1<MutableMap<Any?, Any?>, JSONObject>', but 'Function1<Map<String, Any?>, JSONObject>' was expected.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/JsonCodec.kt:14:56 Java type mismatch: inferred type is 'KFunction1<MutableMap<Any?, Any?>, JSONObject>', but 'Function1<Map<String, Any?>, JSONObject>' was expected.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/JsonCodec.kt:15:69 Java type mismatch: inferred type is 'KFunction1<MutableMap<Any?, Any?>, JSONObject>', but 'Function1<Map<String, Any?>, JSONObject>' was expected.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/JsonCodec.kt:16:73 Java type mismatch: inferred type is 'KFunction1<MutableMap<Any?, Any?>, JSONObject>', but 'Function1<Map<String, Any?>, JSONObject>' was expected.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/JsonCodec.kt:17:71 Java type mismatch: inferred type is 'KFunction1<MutableMap<Any?, Any?>, JSONObject>', but 'Function1<Map<String, Any?>, JSONObject>' was expected.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/JsonCodec.kt:18:89 Java type mismatch: inferred type is 'KFunction1<MutableMap<Any?, Any?>, JSONObject>', but 'Function1<Map<String, Any?>, JSONObject>' was expected.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/JsonCodec.kt:19:65 Java type mismatch: inferred type is 'KFunction1<MutableMap<Any?, Any?>, JSONObject>', but 'Function1<Map<String, Any?>, JSONObject>' was expected.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/JsonCodec.kt:20:73 Java type mismatch: inferred type is 'KFunction1<MutableMap<Any?, Any?>, JSONObject>', but 'Function1<Map<String, Any?>, JSONObject>' was expected.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/JsonCodec.kt:21:79 Java type mismatch: inferred type is 'KFunction1<MutableMap<Any?, Any?>, JSONObject>', but 'Function1<Map<String, Any?>, JSONObject>' was expected.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/JsonCodec.kt:22:76 Java type mismatch: inferred type is 'KFunction1<MutableMap<Any?, Any?>, JSONObject>', but 'Function1<Map<String, Any?>, JSONObject>' was expected.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/JsonCodec.kt:23:63 Java type mismatch: inferred type is 'KFunction1<MutableMap<Any?, Any?>, JSONObject>', but 'Function1<Map<String, Any?>, JSONObject>' was expected.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/JsonCodec.kt:24:67 Java type mismatch: inferred type is 'KFunction1<MutableMap<Any?, Any?>, JSONObject>', but 'Function1<Map<String, Any?>, JSONObject>' was expected.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/OwnershipModel.kt:22:27 Non-public primary constructor is exposed via the generated 'copy()' method of the 'data' class.
 
-> Task :app:compileDebugKotlin FAILED
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/targeted-1787143403533.json
+The generated 'copy()' will change its visibility in future releases.
+
+To suppress the warning do one of the following:
+- Annotate the data class with the '@ConsistentCopyVisibility' annotation.
+- Use the '-Xconsistent-data-class-copy-visibility' compiler flag.
+- Annotate the data class with the '@ExposedCopyVisibility' annotation 
+  (Discouraged, but can be used to keep binary compatibility).
+
+To learn more, see the documentation of the '@ConsistentCopyVisibility' and '@ExposedCopyVisibility' annotations.
+
+This will become an error in language version 2.5. See https://youtrack.jetbrains.com/issue/KT-11914.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/OwnershipStore.kt:17:410 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt:195:50 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>?' & 'Serializable?']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt:205:153 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt:210:113 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt:215:140 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt:282:138 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt:325:134 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase9Store.kt:29:17 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase9Store.kt:42:17 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>?' & 'Serializable?']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase9Store.kt:54:17 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase9Store.kt:68:17 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase9Store.kt:90:17 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>?' & 'Serializable?']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase9Store.kt:106:17 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>?' & 'Serializable?']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase9Store.kt:119:17 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase9Store.kt:131:17 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase9Store.kt:160:153 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase9Store.kt:168:158 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>?' & 'Serializable?']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase9Store.kt:225:133 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase9Store.kt:245:156 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>?' & 'Serializable?']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/Phase9Store.kt:381:187 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>?' & 'Serializable?']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/PlayerChangeSetCodec.kt:544:9 'when' is exhaustive so 'else' is redundant here.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/PlayerChangeSetCodec.kt:580:9 'when' is exhaustive so 'else' is redundant here.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/PlayerChangeSetModel.kt:20:27 Non-public primary constructor is exposed via the generated 'copy()' method of the 'data' class.
+
+The generated 'copy()' will change its visibility in future releases.
+
+To suppress the warning do one of the following:
+- Annotate the data class with the '@ConsistentCopyVisibility' annotation.
+- Use the '-Xconsistent-data-class-copy-visibility' compiler flag.
+- Annotate the data class with the '@ExposedCopyVisibility' annotation 
+  (Discouraged, but can be used to keep binary compatibility).
+
+To learn more, see the documentation of the '@ConsistentCopyVisibility' and '@ExposedCopyVisibility' annotations.
+
+This will become an error in language version 2.5. See https://youtrack.jetbrains.com/issue/KT-11914.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/ProgressionEngine.kt:34:35 Non-public primary constructor is exposed via the generated 'copy()' method of the 'data' class.
+
+The generated 'copy()' will change its visibility in future releases.
+
+To suppress the warning do one of the following:
+- Annotate the data class with the '@ConsistentCopyVisibility' annotation.
+- Use the '-Xconsistent-data-class-copy-visibility' compiler flag.
+- Annotate the data class with the '@ExposedCopyVisibility' annotation 
+  (Discouraged, but can be used to keep binary compatibility).
+
+To learn more, see the documentation of the '@ConsistentCopyVisibility' and '@ExposedCopyVisibility' annotations.
+
+This will become an error in language version 2.5. See https://youtrack.jetbrains.com/issue/KT-11914.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/ProjectProgressDelta.kt:4:33 Non-public primary constructor is exposed via the generated 'copy()' method of the 'data' class.
+
+The generated 'copy()' will change its visibility in future releases.
+
+To suppress the warning do one of the following:
+- Annotate the data class with the '@ConsistentCopyVisibility' annotation.
+- Use the '-Xconsistent-data-class-copy-visibility' compiler flag.
+- Annotate the data class with the '@ExposedCopyVisibility' annotation 
+  (Discouraged, but can be used to keep binary compatibility).
+
+To learn more, see the documentation of the '@ConsistentCopyVisibility' and '@ExposedCopyVisibility' annotations.
+
+This will become an error in language version 2.5. See https://youtrack.jetbrains.com/issue/KT-11914.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/SkillStore.kt:101:13 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>' & 'Serializable']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/TurnTransactionReceiptStore.kt:234:13 Type argument for reified type parameter 'T' was inferred to the intersection of ['Comparable<*>?' & 'Serializable?']. Reification of an intersection type results in the common supertype being used. This may lead to subtle issues and an explicit type argument is encouraged. This will become an error in a future release. See https://youtrack.jetbrains.com/issue/KT-71420.
+w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/rpgos/app/UpdateManager.kt:171:73 'static field GET_SIGNATURES: Int' is deprecated. Deprecated in Java.
+
+> Task :app:compileDebugJavaWithJavac
+> Task :app:processDebugJavaRes
+> Task :app:bundleDebugClassesToRuntimeJar
+> Task :app:bundleDebugClassesToCompileJar
+
+> Task :app:compileDebugUnitTestKotlin FAILED
+e: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/test/java/com/rpgos/app/Phase36SchemaVersioningTest.kt:395:1 Syntax error: Expecting a top level declaration.
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/targeted-1787143589648.json
 
 FAILURE: Build failed with an exception.
 
 * What went wrong:
-Execution failed for task ':app:compileDebugKotlin' (registered by plugin 'com.android.internal.application').
+Execution failed for task ':app:compileDebugUnitTestKotlin' (registered by plugin 'com.android.internal.application').
 > A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
    > Compilation error. See log for more details
 
@@ -49,7 +160,7 @@ Execution failed for task ':app:compileDebugKotlin' (registered by plugin 'com.a
 > Get more help at https://help.gradle.org.
 
 * Exception is:
-org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:compileDebugKotlin' (registered by plugin 'com.android.internal.application').
+org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:compileDebugUnitTestKotlin' (registered by plugin 'com.android.internal.application').
 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.lambda$executeIfValid$1(ExecuteActionsTaskExecuter.java:135)
 	at org.gradle.internal.Try$Failure.ifSuccessfulOrElse(Try.java:288)
 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:133)
@@ -81,6 +192,36 @@ org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:com
 	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:328)
 	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:459)
 	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:376)
+	at org.gradle.execution.plan.DefaultPlanExecutor.process(DefaultPlanExecutor.java:111)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.executeWithServices(DefaultTaskExecutionGraph.java:146)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph.execute(DefaultTaskExecutionGraph.java:131)
+	at org.gradle.execution.SelectedTaskExecutionAction.execute(SelectedTaskExecutionAction.java:35)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:54)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor$ExecuteTasks.call(BuildOperationFiringBuildWorkerExecutor.java:43)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.execution.BuildOperationFiringBuildWorkerExecutor.execute(BuildOperationFiringBuildWorkerExecutor.java:40)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.lambda$executeTasks$11(DefaultBuildLifecycleController.java:323)
+	at org.gradle.internal.model.StateTransitionController.doTransition(StateTransitionController.java:304)
+	at org.gradle.internal.model.StateTransitionController.lambda$tryTransition$9(StateTransitionController.java:215)
+	at org.gradle.internal.work.DefaultSynchronizer.withLock(DefaultSynchronizer.java:45)
+	at org.gradle.internal.model.StateTransitionController.tryTransition(StateTransitionController.java:215)
+	at org.gradle.internal.build.DefaultBuildLifecycleController.executeTasks(DefaultBuildLifecycleController.java:314)
+	at org.gradle.internal.build.DefaultBuildWorkGraphController$DefaultBuildWorkGraph.runWork(DefaultBuildWorkGraphController.java:220)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.lambda$withLocksAcquired$0(DefaultWorkerLeaseService.java:280)
+	at org.gradle.internal.work.ResourceLockStatistics$1.measure(ResourceLockStatistics.java:43)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocksAcquired(DefaultWorkerLeaseService.java:278)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.withLocks(DefaultWorkerLeaseService.java:270)
+	at org.gradle.internal.work.DefaultWorkerLeaseService.runAsWorkerThread(DefaultWorkerLeaseService.java:129)
+	at org.gradle.composite.internal.DefaultBuildController.doRun(DefaultBuildController.java:182)
+	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.lambda$run$0(DefaultBuildController.java:199)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:84)
+	at org.gradle.composite.internal.DefaultBuildController$BuildOpRunnable.run(DefaultBuildController.java:199)
 	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
 	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:47)
 Caused by: org.gradle.workers.internal.DefaultWorkerExecutor$WorkExecutionException: A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
@@ -196,7 +337,7 @@ Caused by: org.gradle.workers.internal.DefaultWorkerExecutor$WorkExecutionExcept
 	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:38)
 	at org.gradle.internal.execution.impl.DefaultExecutionEngine$1.execute(DefaultExecutionEngine.java:68)
 	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:132)
-	... 30 more
+	... 60 more
 Caused by: org.jetbrains.kotlin.gradle.tasks.CompilationErrorException: Compilation error. See log for more details
 	at org.jetbrains.kotlin.gradle.tasks.TasksUtilsKt.throwExceptionIfCompilationFailed(tasksUtils.kt:21)
 	at org.jetbrains.kotlin.compilerRunner.GradleKotlinCompilerWork.run(GradleKotlinCompilerWork.kt:119)
@@ -233,5 +374,5 @@ Caused by: org.jetbrains.kotlin.gradle.tasks.CompilationErrorException: Compilat
 	... 2 more
 
 
-BUILD FAILED in 37s
-24 actionable tasks: 24 executed
+BUILD FAILED in 1m 14s
+29 actionable tasks: 29 executed
