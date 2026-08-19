@@ -59,6 +59,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "LocalGameStore.kt",
             "MigrationManager.kt",
             "PackageManager.kt",
+            "Phase36EventSchemaScaffold.kt",
             "Phase36SchemaVersioning.kt",
             "Phase6Migration.kt",
             "Phase7Migration.kt",
@@ -139,6 +140,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         )
         assertTrue("RestoreManager must remain administrative", "RestoreManager.kt" in admin)
         assertTrue("migration manager must remain administrative", "MigrationManager.kt" in admin)
+        assertTrue("Phase36 Event schema rewrite must remain administrative", "Phase36EventSchemaScaffold.kt" in admin)
         assertTrue("Phase36 migration infrastructure must remain administrative", "Phase36SchemaVersioning.kt" in admin)
         assertTrue("LocalGameStore must remain explicitly audited infrastructure", "LocalGameStore.kt" in admin)
         assertTrue(canonical.intersect(evidence).isEmpty())
