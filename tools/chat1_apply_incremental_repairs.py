@@ -134,6 +134,11 @@ replace_once(
                 CampaignCausalGraphSchema.ensureReady(db)
             }'''
 )
+replace_once(
+    "app/src/main/java/com/rpgos/app/GameplayRuntimeBootstrap.kt",
+    '''        Phase36SchemaVersioning.requireReady(db)''',
+    '''        Phase36SchemaVersioning.requireReady(db,campaignUid)'''
+)
 
 replace_once(
     "app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt",
@@ -179,6 +184,55 @@ replace_once(
         if(receiptPhysical!=null&&receiptMetadata!=null)require(receiptPhysical==receiptMetadata){"RPGOS-SCHEMA:RECEIPT_PHYSICAL_METADATA_MISMATCH:$receiptPhysical:$receiptMetadata"}
     }'''
 )
+replace_once(
+    "app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt",
+    '''    fun requireReady(db:SQLiteDatabase){''',
+    '''    fun requireReady(db:SQLiteDatabase,campaignUid:String){
+        require(campaignUid.isNotBlank())'''
+)
+replace_once(
+    "app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt",
+    '''        check(db.rawQuery("SELECT 1 FROM $ATTEMPTS WHERE state IN (?,?) LIMIT 1",arrayOf(MigrationAttemptState.PREPARED.name,MigrationAttemptState.RUNNING.name)).use{!it.moveToFirst()}){"RPGOS-SCHEMA:INCOMPLETE_MIGRATION"}''',
+    '''        check(db.rawQuery("SELECT 1 FROM $ATTEMPTS WHERE campaign_uid=? AND state IN (?,?) LIMIT 1",arrayOf(campaignUid,MigrationAttemptState.PREPARED.name,MigrationAttemptState.RUNNING.name)).use{!it.moveToFirst()}){"RPGOS-SCHEMA:INCOMPLETE_MIGRATION"}'''
+)
+
+# Upgrade old Phase36 attempt tables to a real DB-level state CHECK after validating existing rows.
+replace_once(
+    "app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt",
+    '''        ensureColumn(db,ATTEMPTS,"source_vector_canonical","TEXT")
+        ensureColumn(db,ATTEMPTS,"target_vector_canonical","TEXT")
+    }''',
+    '''        ensureColumn(db,ATTEMPTS,"source_vector_canonical","TEXT")
+        ensureColumn(db,ATTEMPTS,"target_vector_canonical","TEXT")
+        if(!attemptTableHasStateCheck(db)){
+            validateAttemptStateVocabulary(db)
+            db.beginTransaction();try{
+                db.execSQL("DROP TABLE IF EXISTS ${ATTEMPTS}_p36_checked")
+                db.execSQL("""CREATE TABLE ${ATTEMPTS}_p36_checked(
+                    migration_attempt_uid TEXT PRIMARY KEY,campaign_uid TEXT NOT NULL,source_vector_fingerprint TEXT NOT NULL,target_vector_fingerprint TEXT NOT NULL,
+                    source_vector_canonical TEXT,target_vector_canonical TEXT,plan_fingerprint TEXT NOT NULL,plan_version INTEGER NOT NULL,safety_snapshot_uid TEXT,
+                    state TEXT NOT NULL CHECK(state IN ('PREPARED','RUNNING','APPLIED','FAILED')),started_at_epoch_ms INTEGER NOT NULL,completed_at_epoch_ms INTEGER,failure_code TEXT)""")
+                db.execSQL("""INSERT INTO ${ATTEMPTS}_p36_checked(migration_attempt_uid,campaign_uid,source_vector_fingerprint,target_vector_fingerprint,source_vector_canonical,target_vector_canonical,plan_fingerprint,plan_version,safety_snapshot_uid,state,started_at_epoch_ms,completed_at_epoch_ms,failure_code)
+                    SELECT migration_attempt_uid,campaign_uid,source_vector_fingerprint,target_vector_fingerprint,source_vector_canonical,target_vector_canonical,plan_fingerprint,plan_version,safety_snapshot_uid,state,started_at_epoch_ms,completed_at_epoch_ms,failure_code FROM $ATTEMPTS""")
+                db.execSQL("DROP TABLE $ATTEMPTS")
+                db.execSQL("ALTER TABLE ${ATTEMPTS}_p36_checked RENAME TO $ATTEMPTS")
+                db.setTransactionSuccessful()
+            }finally{db.endTransaction()}
+        }
+    }'''
+)
+phase36 = Path("app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt")
+p36core = phase36.read_text(encoding="utf-8")
+state_marker='''    private fun adoptMissingFamilyVersions(db:SQLiteDatabase,campaignUid:String){'''
+state_method='''    private fun attemptTableHasStateCheck(db:SQLiteDatabase):Boolean = db.rawQuery(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",arrayOf(ATTEMPTS)
+    ).use{c->c.moveToFirst()&&!c.isNull(0)&&c.getString(0).replace(" ","").contains("CHECK(stateIN('PREPARED','RUNNING','APPLIED','FAILED'))",ignoreCase=true)}
+
+'''
+if state_method not in p36core:
+    if state_marker not in p36core: raise SystemExit("attempt check marker missing")
+    p36core=p36core.replace(state_marker,state_method+state_marker,1)
+phase36.write_text(p36core,encoding="utf-8")
 
 # P36-AUD-003: one shared anchor definition must also work on legacy receipt V2 snapshots, before
 # the receipt migration has installed V3 manifest columns.
@@ -331,6 +385,24 @@ receipt_test='''    @Test fun realReceiptV2RebuildRunsInsidePhase36MaterialLifec
 if receipt_test not in p36_text:
     if receipt_test_marker not in p36_text: raise SystemExit("receipt test insertion marker missing")
     p36_text=p36_text.replace(receipt_test_marker,receipt_test+receipt_test_marker,1)
+
+campaign_scope_marker='''    @Test fun malformedMigrationStateIsRejectedByDatabaseCheck() {'''
+campaign_scope_test='''    @Test fun activeAttemptForAnotherCampaignDoesNotPoisonReadyCampaign() {
+        val file=File(root,"attempt-campaign-scope.db")
+        SQLiteDatabase.openOrCreateDatabase(file,null).use { db ->
+            GameplayRuntimeBootstrap.initialize(db,"C1")
+            val current=targetVector();val plan=MigrationPlanRegistry.fingerprint(MigrationPlan(current,emptyList()))
+            insertAttempt(db,"FOREIGN-C2","C2",MigrationAttemptState.PREPARED,current,current,plan,Phase36SchemaVersioning.PLAN_VERSION,null)
+            GameplayRuntimeBootstrap.requireReady(db,"C1")
+            Phase36SchemaVersioning.ensureReady(db,"C1")
+            assertEquals(1L,countWhere(db,Phase36SchemaVersioning.ATTEMPTS,"migration_attempt_uid='FOREIGN-C2' AND state='PREPARED'"))
+        }
+    }
+
+'''
+if campaign_scope_test not in p36_text:
+    if campaign_scope_marker not in p36_text: raise SystemExit("campaign scope insertion marker missing")
+    p36_text=p36_text.replace(campaign_scope_marker,campaign_scope_test+campaign_scope_marker,1)
 
 helpers_marker='''    private fun rebuildEventAsV1(db:SQLiteDatabase){'''
 receipt_helpers='''    private fun rebuildReceiptAsV2(db:SQLiteDatabase){
