@@ -6,6 +6,8 @@ Phase file map: `docs/Mapa plików.md`
 Coordination: `docs/PARALLEL_WORK_COORDINATION.md`, `docs/architecture/CHAT_COORDINATION_POLICY.md`
 Operational protocol: `docs/PROJECT_WORK_PROTOCOL.md`
 
+> Aktualizacja 2026-08-20: Phase 35–36 post-audit repair została scalona do `master` i ponownie zweryfikowana na canonical master SHA `4d5a114fc9f08141d75ae79f998a3400866b52ba`. Finalna walidacja `Validate RPG OS ALPHA` / run #801 / run ID `32309493128` — SUCCESS. Repair domknął P35-AUD-001..003 oraz P36-AUD-001..006, w tym runtime-only Canon Divergence authority, autentykację World Pack/expected/actual, lifecycle divergence, migrację Event v1→v2 wewnątrz durable Phase-36 attempt, version-edge graph, wspólną recoverable-snapshot policy, lifecycle serialization i immutable migration implementation identity. Następny blok pozostaje Phase 37 — NPC Knowledge model + acquisition provenance, AUDIT FIRST.
+
 > Aktualizacja 2026-08-19: Canon Divergence / Schema Versioning — Phase 35–36 została globalnie zaakceptowana przez koordynatora na exact runtime SHA `7cb61d3cdc42e0c20f2688181d054e55eacbfd8f` po implementacji, niezależnym audycie granic i post-audit hardening. Exact validation: `Validate RPG OS ALPHA` / run ID `32241299329` / job ID `96032227097` — SUCCESS. Immutable artifact ID `9361064715`, name `RPG-OS-VALIDATION-1.2.0-alpha5-hybrid145-7cb61d3cdc42e0c20f2688181d054e55eacbfd8f`, digest `sha256:73da8802468e0302c5f4548bda9a2240d5c44a17ceed209b27e10c6e11f84b90`. Superseded PR #51 został zamknięty bez merge. Następny blok: Phase 37 NPC Knowledge model + acquisition provenance, AUDIT FIRST. Acceptance record: `docs/architecture/PHASE35_36_ACCEPTANCE.md`.
 
 > Aktualizacja 2026-08-19: Snapshot / Replay Recovery — Phase 33–34 została globalnie zaakceptowana przez koordynatora na exact runtime SHA `b141a590c64b21930abcae6c63353ea93aaf50f4` po merge PR #50 i finalnym follow-up naprawiającym zgodność anchora snapshotu z faktycznie przechwyconą bazą oraz izolację orphan cleanup między kampaniami. Exact validation: `Validate RPG OS ALPHA` #783 / run ID `32217138911` / job ID `95960661888` — SUCCESS. Immutable artifact ID `9352815554`, name `RPG-OS-VALIDATION-1.2.0-alpha5-hybrid145-b141a590c64b21930abcae6c63353ea93aaf50f4`, digest `sha256:01fdb47e78a2abdd1c56fa20591431f1f3bb33f1b6f2fcdf40812c517de18e1f`. Następny blok: Phase 35 Canon Divergence, AUDIT FIRST.
@@ -26,8 +28,9 @@ Sama klasa, tabela, raport audytowy albo zielone CI nie oznacza COMPLETE. Global
 
 # AKTUALNY BASELINE PROJEKTU
 
-- Canonical accepted runtime through Phase 36: `7cb61d3cdc42e0c20f2688181d054e55eacbfd8f`.
-- Exact acceptance CI: workflow `Validate RPG OS ALPHA`, run ID `32241299329` / job `96032227097` — SUCCESS.
+- Canonical accepted runtime through Phase 36: `4d5a114fc9f08141d75ae79f998a3400866b52ba`.
+- Final post-audit exact-master acceptance CI: workflow `Validate RPG OS ALPHA`, run #801 / run ID `32309493128` — SUCCESS.
+- Earlier Phase 35–36 acceptance evidence remains preserved below for audit history.
 - Immutable validation artifact: ID `9361064715`, `RPG-OS-VALIDATION-1.2.0-alpha5-hybrid145-7cb61d3cdc42e0c20f2688181d054e55eacbfd8f`, digest `sha256:73da8802468e0302c5f4548bda9a2240d5c44a17ceed209b27e10c6e11f84b90`.
 - Phase 35 closed typed campaign-scoped canon-divergence history bound to committed transaction/event identity, preserving committed expected-vs-actual World Pack context across replacement/rollback without rewriting campaign truth or Event history.
 - Phase 36 closed explicit schema-family versioning, deterministic migration plans, fail-closed future-schema checks, durable interrupted-migration evidence/recovery, protected-snapshot safety for material migrations and non-fabricated legacy provenance.
@@ -303,6 +306,8 @@ Accepted scope includes:
 
 Exact-SHA JVM tests, signed APK and immutable artifact are GREEN. Superseded PR #51 was closed without merge. Canonical acceptance record: `docs/architecture/PHASE35_36_ACCEPTANCE.md`.
 
+Post-audit re-acceptance: Phase 35 findings P35-AUD-001..003 and Phase 36 findings P36-AUD-001..006 were repaired, independently reviewed/validated, merged to `master`, and canonical master validation passed at `4d5a114fc9f08141d75ae79f998a3400866b52ba` (`Validate RPG OS ALPHA` run #801 / run ID `32309493128`). This supersedes the earlier runtime as the current accepted Phase-36 baseline without erasing historical acceptance evidence.
+
 # FAZA C — CZAS, WIEDZA I RETRIEVAL
 - [-] 37. NPC Knowledge model + acquisition provenance
 - [-] 38. GM/NPC/PC/player-visible knowledge separation
@@ -424,7 +429,7 @@ Frontend może być rozwijany wraz z funkcjonalnością, ale należy zachować z
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
 
-Runtime through Phase 36 jest globalnie **ACCEPTED / COMPLETE** na exact runtime SHA `7cb61d3cdc42e0c20f2688181d054e55eacbfd8f`.
+Runtime through Phase 36 jest globalnie **ACCEPTED / COMPLETE** na canonical post-audit master SHA `4d5a114fc9f08141d75ae79f998a3400866b52ba` (`Validate RPG OS ALPHA` run #801 / `32309493128` — SUCCESS).
 
 Następny blok:
 `Phase 37 — NPC Knowledge model + acquisition provenance`
