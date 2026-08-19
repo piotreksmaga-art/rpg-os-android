@@ -10,7 +10,6 @@ private val activeGameplayMutation = ThreadLocal<ActiveGameplayMutation?>()
 internal object GameplayMutationDatabaseGuards {
     internal const val CONTEXT_TABLE_NAME = "rpgos_gameplay_mutation_context"
     internal const val RUNTIME_TURN_FUNCTION = "rpgos_runtime_turn_authority"
-    internal const val EVENT_RUNTIME_TURN_GUARD = "rpgos_event_store_runtime_turn_insert"
     internal const val CANON_DIVERGENCE_RUNTIME_TURN_GUARD = "rpgos_canon_divergence_runtime_turn_insert"
     private val authoritativeTables: List<String> get() = RuntimeTruthLayerRegistry.authoritativePersistentTables().toList()
     private val administrativeOnlyTables: List<String> get() = RuntimeTruthLayerRegistry.administrativeOnlyPersistentTables().toList()
@@ -82,11 +81,14 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_COMMIT_EVIDENCE_REQUIRED'); END"
     }
 
     /**
-     * SQL context rows are intentionally only defense-in-depth. For API 30+ these triggers consult
-     * a connection-local scalar function whose answer comes from the sealed in-memory turn
-     * capability. A raw SQLiteDatabase handle can manufacture TURN/writer rows, but cannot make
-     * this function report authority. On API 28-29 the same triggers are default-deny and are
-     * suspended only while a sealed canonical turn owns the outer write transaction.
+     * Persistent TURN/writer rows remain defense-in-depth and can be manufactured by a raw SQL
+     * caller. The decisive Phase 35 RECORDED-divergence guard therefore consults connection/runtime
+     * state that SQL cannot create. Upstream Event Store semantics are intentionally unchanged:
+     * even a forged SQL Event is insufficient to authorize a durable RECORDED divergence.
+     *
+     * API 30+ uses a connection-local scalar function backed by the exact SQLiteDatabase +
+     * ThreadLocal canonical turn capability. API 28-29 installs a default-deny divergence trigger;
+     * that trigger is suspended only while a sealed canonical turn owns the outer transaction.
      */
     private fun installRuntimeTurnAuthorityGuards(db: SQLiteDatabase) {
         if (Build.VERSION.SDK_INT >= 30) {
@@ -94,7 +96,6 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_COMMIT_EVIDENCE_REQUIRED'); END"
                 if (isCanonicalGameplayMutationActive(db, campaignUid)) "1" else "0"
             })
         }
-        installRuntimeTurnAuthorityTrigger(db, EVENT_RUNTIME_TURN_GUARD, CampaignIntelligencePhase30Schema.EVENT_TABLE, null)
         installRuntimeTurnAuthorityTrigger(
             db,
             CANON_DIVERGENCE_RUNTIME_TURN_GUARD,
@@ -127,13 +128,11 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-MUTATION-GATE:IN_MEMORY_TURN_AUTHORITY_REQUIRED'
     private fun suspendLegacyRuntimeTurnAuthorityGuards(db: SQLiteDatabase) {
         if (Build.VERSION.SDK_INT >= 30) return
         requireCanonicalGameplayMutation(db, activeGameplayMutation.get()?.campaignUid ?: error("RPGOS-MUTATION-GATE:NO_ACTIVE_TURN"))
-        db.execSQL("DROP TRIGGER IF EXISTS $EVENT_RUNTIME_TURN_GUARD")
         db.execSQL("DROP TRIGGER IF EXISTS $CANON_DIVERGENCE_RUNTIME_TURN_GUARD")
     }
 
     private fun restoreLegacyRuntimeTurnAuthorityGuards(db: SQLiteDatabase) {
         if (Build.VERSION.SDK_INT >= 30) return
-        installRuntimeTurnAuthorityTrigger(db, EVENT_RUNTIME_TURN_GUARD, CampaignIntelligencePhase30Schema.EVENT_TABLE, null)
         installRuntimeTurnAuthorityTrigger(
             db,
             CANON_DIVERGENCE_RUNTIME_TURN_GUARD,
