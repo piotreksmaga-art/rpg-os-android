@@ -95,6 +95,82 @@ class Phase35CanonDivergenceTest {
         }
     }
 
+    @Test fun forgedTurnAndAdminSqlContextsCannotCreateRecordedWithoutCanonicalEvidence() {
+        SQLiteDatabase.openOrCreateDatabase(dbFile,null).use { db ->
+            GameplayRuntimeBootstrap.initialize(db,"C1")
+            listOf("TURN","ADMIN").forEach { kind ->
+                db.execSQL("DELETE FROM ${GameplayMutationDatabaseGuards.CONTEXT_TABLE}")
+                db.execSQL("INSERT INTO ${GameplayMutationDatabaseGuards.CONTEXT_TABLE}(campaign_uid,capability_kind,depth) VALUES('C1',?,1)",arrayOf(kind))
+                assertTrue(runCatching { rawRecordedInsert(db,"RAW-$kind") }.isFailure)
+            }
+            db.execSQL("DELETE FROM ${GameplayMutationDatabaseGuards.CONTEXT_TABLE}")
+            assertTrue(CanonDivergenceStore(db,"C1").list().isEmpty())
+        }
+    }
+
+    @Test fun administrativeAuthorityForeignCampaignAndMissingProvenanceCannotCallRecordCommitted() {
+        SQLiteDatabase.openOrCreateDatabase(dbFile,null).use { db ->
+            GameplayRuntimeBootstrap.initialize(db,"C1")
+            val s=spec("DIV-AUTH","CANON","CAMPAIGN")
+            db.beginTransaction(); try {
+                assertTrue(runCatching { withAdministrativeMutationAuthority(db,"C1") { CanonDivergenceStore(db,"C1").recordCommitted(s,TurnTransactionIdentity("C1","T","C","TX"),"E") } }.isFailure)
+                assertTrue(runCatching { CanonDivergenceStore(db,"C1").recordCommitted(s,TurnTransactionIdentity("C2","T","C","TX"),"E") }.isFailure)
+                assertTrue(runCatching { CanonDivergenceStore(db,"C1").recordCommitted(s,TurnTransactionIdentity("C1","T","C","TX"),"E") }.isFailure)
+            } finally { db.endTransaction() }
+        }
+    }
+
+    @Test fun unboundWorldPackAndCallerSuppliedAuthenticityMismatchesFailClosed() {
+        SQLiteDatabase.openOrCreateDatabase(dbFile,null).use { db ->
+            GameplayRuntimeBootstrap.initialize(db,"C1")
+            assertTrue(runCatching { proposalBound("UNBOUND",spec("DIV-U","CANON","CAMPAIGN"),false) }.isFailure)
+            assertTrue(runCatching { proposalBound("UID",spec("DIV-UID","CANON","CAMPAIGN").copy(worldPackUid="WORLD-X"),true) }.isFailure)
+            assertTrue(runCatching { proposalBound("VER",spec("DIV-VER","CANON","CAMPAIGN").copy(worldPackVersion="2"),true) }.isFailure)
+            assertTrue(runCatching { proposalBound("EXPECT",spec("DIV-EXPECT","WRONG","CAMPAIGN"),true) }.isFailure)
+            divergenceActualOverrides["ACTUAL"]="REAL"
+            assertTrue(runCatching { proposalBound("ACTUAL",spec("DIV-ACTUAL","CANON","CLAIMED"),true) }.isFailure)
+        }
+    }
+
+    @Test fun lifecycleLinksRequireExistingSameCampaignNonSelfLegalStatus() {
+        SQLiteDatabase.openOrCreateDatabase(dbFile,null).use { db ->
+            GameplayRuntimeBootstrap.initialize(db,"C1"); GameplayRuntimeBootstrap.initialize(db,"C2")
+            commitBound(db,"BASE",spec("DIV-BASE","CANON","CAMPAIGN"),"C1")
+            commitBound(db,"C2BASE",spec("DIV-C2","CANON","CAMPAIGN"),"C2")
+            assertTrue(runCatching{commitBound(db,"SELF",spec("DIV-SELF","CANON","CAMPAIGN").copy(supersedesDivergenceUid="DIV-SELF"),"C1")}.isFailure)
+            assertTrue(runCatching{commitBound(db,"MISS",spec("DIV-MISS","CANON","CAMPAIGN").copy(supersedesDivergenceUid="NONE"),"C1")}.isFailure)
+            assertTrue(runCatching{commitBound(db,"CROSS",spec("DIV-CROSS","CANON","CAMPAIGN").copy(supersedesDivergenceUid="DIV-C2"),"C1")}.isFailure)
+            assertTrue(runCatching{commitBound(db,"BADSTATUS",spec("DIV-BAD","CANON","CAMPAIGN").copy(status=CanonDivergenceStatus.RESOLVED),"C1")}.isFailure)
+            commitBound(db,"SUPER",spec("DIV-SUPER","CANON","CAMPAIGN").copy(supersedesDivergenceUid="DIV-BASE"),"C1")
+            commitBound(db,"RESOLVE",spec("DIV-RESOLVE","CANON","CAMPAIGN").copy(status=CanonDivergenceStatus.RESOLVED,resolvesDivergenceUid="DIV-SUPER"),"C1")
+            assertEquals(setOf("DIV-BASE","DIV-SUPER","DIV-RESOLVE"),CanonDivergenceStore(db,"C1").list().map{it.spec.divergenceUid}.toSet())
+        }
+    }
+
+    private fun rawRecordedInsert(db:SQLiteDatabase,uid:String){
+        db.execSQL("""INSERT INTO ${Phase35CanonDivergenceSchema.TABLE}(divergence_uid,campaign_uid,canonical_subject_kind_uid,canonical_subject_uid,canonical_expectation_uid,world_pack_uid,world_pack_version,divergence_kind,expected_canonical_value,actual_campaign_value,lifecycle_status,created_transaction_uid,created_turn_uid,created_event_uid,provenance_status,divergence_schema_version,created_at_epoch_ms) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",arrayOf(uid,"C1","CHARACTER","P1","CANON-EXPECTATION-1","WORLD-A","1","OUTCOME","CANON","CAMPAIGN","ACTIVE","TX-FAKE","TURN-FAKE","EVENT-FAKE","RECORDED",1,1L))
+    }
+
+    private fun commitBound(db:SQLiteDatabase,command:String,s:CanonDivergenceSpec,campaign:String)=
+        TurnTransactionBoundary.create(db,TurnTransactionIdentity(campaign,"TURN-$command",command,"TX-$command"),proposalBound(command,s,true,campaign)).commit()
+
+    private fun proposalBound(command:String,s:CanonDivergenceSpec,bound:Boolean,campaign:String="C1"):CanonicalCampaignMutationProposal {
+        divergenceByCommand[command]=s
+        val actor=CommandActorRef("PLAYER","P1")
+        val cmd=PlayerCommand(commandUid=command,campaignUid=campaign,actor=actor,commandKindUid=PlayerCommandKinds.TRANSFER_FUNDS,payload=TransferFundsCommandPayload("A","B",1,"CUR"),provenance=CommandProvenance("P35-BOUND"),requestedEffectiveOrder=1)
+        val refs=setOf(CampaignScopedDomainRef(campaign,DomainRef("PLAYER","P1")),CampaignScopedDomainRef(campaign,DomainRef("CHARACTER","P1")),CampaignScopedDomainRef(campaign,DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT,"A")),CampaignScopedDomainRef(campaign,DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT,"B")),CampaignScopedDomainRef(campaign,DomainRef(PlayerResolutionReferenceKinds.CURRENCY,"CUR")))
+        val registry=PlayerResolutionComponentRegistry.of(listOf(TruthComponent()))
+        val engine:PlayerDomainEngine; val context:PlayerResolutionContext
+        if(bound){val binding=WorldPackRuleBinding("WORLD-A","1");engine=PlayerDomainEngine(registry,worldRuleRegistry=WorldRuleProviderRegistry.of(listOf(TestCanonProvider())),worldPackAuthority=WorldPackAuthoritySnapshot.single(campaign,binding));context=PlayerResolutionContext.create(campaign,actor,refs,worldRuleMode=WorldRuleMode.Bound(binding))}
+        else{engine=PlayerDomainEngine(registry);context=PlayerResolutionContext.createUnboundGeneric(campaign,actor,refs)}
+        return when(val a=CampaignMutationBoundary.resolveAndAdmit(campaign,engine,cmd,context)){is CampaignMutationAdmission.Accepted->a.proposal;is CampaignMutationAdmission.Rejected->error(a.reasonUid)}
+    }
+
+    private class TestCanonProvider:WorldRuleProvider("P35-TEST-PROVIDER","1","WORLD-A","1"){
+        override fun canonicalExpectation(reference:CanonReference)=if(reference.expectationUid=="CANON-EXPECTATION-1")CanonicalWorldExpectation(reference,CanonDivergenceKind.OUTCOME,"CANON")else null
+        override fun evaluate(request:WorldRuleRequest)=WorldRuleDecision.Allowed.create("P35-TEST-RULE")
+    }
+
     private fun spec(uid: String, expected: String, actual: String) = CanonDivergenceSpec(
         uid, CanonReference("CHARACTER", "P1", "CANON-EXPECTATION-1"), "WORLD-A", "1",
         CanonDivergenceKind.OUTCOME, expected, actual
@@ -108,14 +184,23 @@ class Phase35CanonDivergenceTest {
         val cmd = PlayerCommand(commandUid=command,campaignUid=campaign,actor=actor,commandKindUid=PlayerCommandKinds.TRANSFER_FUNDS,
             payload=TransferFundsCommandPayload("A","B",1,"CUR"),provenance=CommandProvenance("P35"),requestedEffectiveOrder=1)
         divergenceByCommand[command] = divergence
-        val engine = PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(TruthComponent())))
-        val context = PlayerResolutionContext.createUnboundGeneric(campaign, actor, setOf(
+        val refs = setOf(
             CampaignScopedDomainRef(campaign, DomainRef("PLAYER", "P1")),
             CampaignScopedDomainRef(campaign, DomainRef("CHARACTER", "P1")),
             CampaignScopedDomainRef(campaign, DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, "A")),
             CampaignScopedDomainRef(campaign, DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT, "B")),
             CampaignScopedDomainRef(campaign, DomainRef(PlayerResolutionReferenceKinds.CURRENCY, "CUR"))
-        ))
+         )
+        val engine: PlayerDomainEngine
+        val context: PlayerResolutionContext
+        if(divergence!=null){
+            val binding=WorldPackRuleBinding("WORLD-A","1")
+            engine=PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(TruthComponent())),worldRuleRegistry=WorldRuleProviderRegistry.of(listOf(TestCanonProvider())),worldPackAuthority=WorldPackAuthoritySnapshot.single(campaign,binding))
+            context=PlayerResolutionContext.create(campaign,actor,refs,worldRuleMode=WorldRuleMode.Bound(binding))
+        } else {
+            engine=PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(TruthComponent())))
+            context=PlayerResolutionContext.createUnboundGeneric(campaign,actor,refs)
+        }
         return when (val admission = CampaignMutationBoundary.resolveAndAdmit(campaign, engine, cmd, context)) {
             is CampaignMutationAdmission.Accepted -> admission.proposal
             is CampaignMutationAdmission.Rejected -> error("admission rejected: ${admission.reasonUid}")
@@ -127,7 +212,7 @@ class Phase35CanonDivergenceTest {
         override fun resolve(command: PlayerCommand<TransferFundsCommandPayload>, context: PlayerResolutionContext): PlayerResolutionComponentOutcome {
             val divergence = divergenceByCommand[command.commandUid]
             val payload = CampaignTruthChange("TRUTH-${command.commandUid}", TruthKind.FACT, "P1", "canon.outcome",
-                divergence?.actualCampaignValue ?: "CANON", null, null, null, divergence)
+                divergenceActualOverrides[command.commandUid] ?: divergence?.actualCampaignValue ?: "CANON", null, null, null, divergence)
             val changeUid = "CHANGE-${command.commandUid}"
             val subject = DomainRef("PLAYER", "P1")
             return PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(
@@ -140,5 +225,5 @@ class Phase35CanonDivergenceTest {
         }
     }
 
-    companion object { private val divergenceByCommand = mutableMapOf<String, CanonDivergenceSpec?>() }
+    companion object { private val divergenceByCommand = mutableMapOf<String, CanonDivergenceSpec?>(); private val divergenceActualOverrides=mutableMapOf<String,String>() }
 }

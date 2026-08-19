@@ -91,6 +91,14 @@ class TurnTransaction internal constructor(
                 failureInjector.failIfRequested(TurnFailurePoint.AFTER_RECEIPT_BEFORE_COMMIT)
                 committed
             }
+            val divergenceAuthorizations=CanonicalPlayerChangeApplier.divergenceAuthorizations(db,identity,proposal.playerChangeSet)
+            if(divergenceAuthorizations.isNotEmpty()){
+                withCanonicalGameplayMutationForTurn(db,identity.campaignUid,seal){
+                    withCanonicalDivergenceCommitAuthorityForTurn(db,identity,seal,divergenceAuthorizations){
+                        CanonicalPlayerChangeApplier.recordCommittedDivergences(db,identity,divergenceAuthorizations)
+                    }
+                }
+            }
             db.setTransactionSuccessful()
             db.endTransaction()
             state=TurnTransactionState.COMMITTED
@@ -206,6 +214,8 @@ internal object CanonicalPlayerChangeApplier{
                 is DevelopmentProjectChange -> Unit
                 else -> throw UnsupportedCanonicalChangeException(change.changeKindUid)
             }
+            val truth=change.payload as? CampaignTruthChange
+            if(truth?.canonDivergence!=null)require(changeSet.eventIntents.count{change.changeUid in it.causalChangeUids}==1){"RPGOS-CANON:DIVERGENCE_REQUIRES_EXACT_EVENT"}
         }
     }
 
@@ -236,6 +246,18 @@ internal object CanonicalPlayerChangeApplier{
             if(applied.size==2)injector.failIfRequested(TurnFailurePoint.AFTER_SECOND_DOMAIN_WRITE)
         }
         return TurnCommitAppliedResult(applied.toList())
+    }
+
+    fun divergenceAuthorizations(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet):List<CanonicalDivergenceCommitAuthorization> =
+        changeSet.changes.mapNotNull{change->
+            val truth=change.payload as? CampaignTruthChange ?: return@mapNotNull null
+            val spec=truth.canonDivergence ?: return@mapNotNull null
+            val intent=changeSet.eventIntents.singleOrNull{change.changeUid in it.causalChangeUids}?:error("RPGOS-CANON:DIVERGENCE_REQUIRES_EXACT_EVENT")
+            CanonicalDivergenceCommitAuthorization(spec,CampaignEventStore(db,identity.campaignUid).eventUid(identity,changeSet,intent))
+        }
+
+    fun recordCommittedDivergences(db:SQLiteDatabase,identity:TurnTransactionIdentity,items:List<CanonicalDivergenceCommitAuthorization>){
+        val store=CanonDivergenceStore(db,identity.campaignUid);items.forEach{store.recordCommitted(it.spec,identity,it.eventUid)}
     }
 
     private fun effectiveOrder(changeSet:PlayerChangeSet):Long=
@@ -357,12 +379,6 @@ internal object CanonicalPlayerChangeApplier{
             supersedesTruthUid=p.supersedesTruthUid,
             createdAt=changeSet.requestedEffectiveOrder ?: 0L
         )
-        p.canonDivergence?.let { divergence ->
-            val intent = changeSet.eventIntents.singleOrNull { changeUid in it.causalChangeUids }
-                ?: error("RPGOS-CANON:DIVERGENCE_REQUIRES_EXACT_EVENT")
-            val eventUid = CampaignEventStore(db, identity.campaignUid).eventUid(identity, changeSet, intent)
-            CanonDivergenceStore(db, identity.campaignUid).recordCommitted(divergence, identity, eventUid)
-        }
     }
 
     private fun applyProject(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,changeUid:String,p:DevelopmentProjectChange){
@@ -417,6 +433,10 @@ internal fun replayCommittedTransaction(db:SQLiteDatabase,payload:CommittedRepla
             withCanonicalCommitEvidenceForTurn(db,payload.identity.campaignUid,TURN_TRANSACTION_SEAL){
                 CommittedReplayPayloadStore(db).append(payload.identity,payload.commitOrder,payload.semanticFingerprint,payload.eventManifest,payload.changeSet,payload.causalPlan,boundary)
                 TurnTransactionReceiptStore(db).appendCommitted(payload.identity,payload.semanticFingerprint,payload.commitOrder,payload.eventManifest)
+            }
+            val divergenceAuthorizations=CanonicalPlayerChangeApplier.divergenceAuthorizations(db,payload.identity,payload.changeSet)
+            if(divergenceAuthorizations.isNotEmpty())withCanonicalGameplayMutationForTurn(db,payload.identity.campaignUid,TURN_TRANSACTION_SEAL){
+                withCanonicalDivergenceCommitAuthorityForTurn(db,payload.identity,TURN_TRANSACTION_SEAL,divergenceAuthorizations){CanonicalPlayerChangeApplier.recordCommittedDivergences(db,payload.identity,divergenceAuthorizations)}
             }
             db.setTransactionSuccessful()
         }finally{db.endTransaction()}

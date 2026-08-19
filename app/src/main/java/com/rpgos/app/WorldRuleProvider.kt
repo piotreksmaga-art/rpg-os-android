@@ -262,6 +262,7 @@ internal abstract class WorldRuleProvider(
         require(providerUid.isNotBlank() && providerVersion.isNotBlank())
         require(worldPackUid.isNotBlank() && worldPackVersion.isNotBlank())
     }
+    internal open fun canonicalExpectation(reference: CanonReference): CanonicalWorldExpectation? = null
     internal abstract fun evaluate(request: WorldRuleRequest): WorldRuleDecision
 }
 

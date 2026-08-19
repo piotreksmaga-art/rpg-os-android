@@ -375,6 +375,7 @@ class PlayerDomainEngine internal constructor(
                     )
                 }
 
+                validateCanonDivergenceAuthority(context, augmentedDraft)
                 val effectSnapshot = WorldRuleEffectSnapshot.create(augmentedDraft)
                 evaluateWorldRules(
                     stage = WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK,
@@ -407,6 +408,31 @@ class PlayerDomainEngine internal constructor(
                 val resolutionEvidence = evidence(contextFingerprint, context, component, ruleTrace)
                 validatePlayerInvariants(proposal, resolutionEvidence)
             }
+        }
+    }
+
+    private fun validateCanonDivergenceAuthority(context:PlayerResolutionContext,draft:PlayerResolutionDraft){
+        val divergent=draft.changes.mapNotNull{change->
+            val truth=change.payload as? CampaignTruthChange ?: return@mapNotNull null
+            truth.canonDivergence?.let{truth to it}
+        }
+        if(divergent.isEmpty())return
+        val binding=(context.worldRuleMode as? WorldRuleMode.Bound)?.binding?:fail("CANON_DIVERGENCE_REQUIRES_BOUND_WORLD_PACK")
+        val authoritative=try{worldPackAuthority.bindingForCampaign(context.campaignUid)}catch(e:Throwable){throw PlayerDomainEngineStructuralException("WORLD_RULE_AUTHORITY_READ_FAILED",e)}
+            ?:fail("CANON_DIVERGENCE_WORLD_PACK_AUTHORITY_MISSING")
+        if(authoritative!=binding)fail("CANON_DIVERGENCE_WORLD_PACK_AUTHORITY_MISMATCH")
+        val provider=worldRuleRegistry.providerFor(binding)?:fail("CANON_DIVERGENCE_WORLD_RULE_PROVIDER_MISSING")
+        divergent.forEach{(truth,spec)->
+            if(spec.provenanceStatus!=HistoricalProvenanceStatus.RECORDED)fail("CANON_DIVERGENCE_GAMEPLAY_PROVENANCE_NOT_RECORDED")
+            if(spec.worldPackUid!=binding.worldPackUid)fail("CANON_DIVERGENCE_WORLD_PACK_UID_MISMATCH")
+            if(spec.worldPackVersion!=binding.worldPackVersion)fail("CANON_DIVERGENCE_WORLD_PACK_VERSION_MISMATCH")
+            val expectation=try{provider.canonicalExpectation(spec.canonicalReference)}catch(e:Throwable){throw PlayerDomainEngineStructuralException("CANON_DIVERGENCE_EXPECTATION_LOOKUP_FAILED",e)}
+                ?:fail("CANON_DIVERGENCE_EXPECTATION_NOT_FOUND")
+            if(expectation.canonicalReference!=spec.canonicalReference)fail("CANON_DIVERGENCE_EXPECTATION_REFERENCE_MISMATCH")
+            if(expectation.kind!=spec.kind)fail("CANON_DIVERGENCE_EXPECTATION_KIND_MISMATCH")
+            if(expectation.expectedCanonicalValue!=spec.expectedCanonicalValue)fail("CANON_DIVERGENCE_EXPECTED_VALUE_MISMATCH")
+            val actual=truth.objectValue?:fail("CANON_DIVERGENCE_ACTUAL_VALUE_NOT_BINDABLE")
+            if(actual!=spec.actualCampaignValue)fail("CANON_DIVERGENCE_ACTUAL_VALUE_MISMATCH")
         }
     }
 
