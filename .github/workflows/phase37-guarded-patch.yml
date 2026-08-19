@@ -8,15 +8,14 @@ on:
     types: [ opened, synchronize, reopened ]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: phase37-guarded-patch
   cancel-in-progress: true
 
 jobs:
-  patch-test-commit:
-    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[phase37-generated]') }}
+  patch-test-export:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -110,15 +109,25 @@ jobs:
         if: steps.full_jvm.outcome != 'success'
         run: exit 1
 
-      - name: Remove temporary patch machinery
-        run: rm .github/phase37_patch.py .github/phase37_patch2.py .github/phase37_patch3.py .github/workflows/phase37-guarded-patch.yml
-
-      - name: Commit validated implementation
+      - name: Build validated source bundle
         shell: bash
         run: |
-          git config user.name "rpg-os-phase37-bot"
-          git config user.email "actions@github.com"
+          rm .github/phase37_patch.py .github/phase37_patch2.py .github/phase37_patch3.py .github/workflows/phase37-guarded-patch.yml
           git add -A
           git diff --cached --check
-          git commit -m "Implement Phase 37 NPC knowledge authority [phase37-generated]"
-          git push origin HEAD:agent/phase37-npc-knowledge-audit
+          mkdir -p phase37-validated-source
+          git diff --cached --binary > phase37-validated-source/phase37-validated.patch
+          git diff --cached --name-status > phase37-validated-source/MANIFEST.txt
+          git diff --cached --name-only --diff-filter=AM > phase37-validated-source/FILES.txt
+          tar -czf phase37-validated-source/phase37-validated-tree.tar.gz -T phase37-validated-source/FILES.txt
+          git diff --cached --stat > phase37-validated-source/STAT.txt
+          cat phase37-validated-source/MANIFEST.txt
+          cat phase37-validated-source/STAT.txt
+
+      - name: Upload validated Phase37 source
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase37-validated-source-${{ github.run_id }}
+          path: phase37-validated-source/
+          if-no-files-found: error
+          retention-days: 7
