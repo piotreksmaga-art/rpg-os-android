@@ -267,6 +267,39 @@ Indeks techniczny wspierający `docs/Architektura projektu.md` i `docs/Roadmap.m
 - CI: `Validate RPG OS ALPHA` run ID `32217138911`, job ID `95960661888` — SUCCESS
 - ARTIFACT: ID `9352815554`, SHA-256 `01fdb47e78a2abdd1c56fa20591431f1f3bb33f1b6f2fcdf40812c517de18e1f`
 
+## Phase 35 — Canon Divergence
+- PRIMARY: `app/src/main/java/com/rpgos/app/Phase35CanonDivergence.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/CampaignTruthStore.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/PlayerChangeSetModel.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/PlayerChangeSetCodec.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/TurnTransaction.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/WorldRuleProvider.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/ContextBuilder.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/ContextModels.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/RuntimeTruthLayerRegistry.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/RuntimePersistentInventory.kt`
+- TEST: `app/src/test/java/com/rpgos/app/Phase35CanonDivergenceTest.kt`
+- TEST: `app/src/test/java/com/rpgos/app/Phase30To36PostAuditHardeningTest.kt`
+- DOC: `docs/architecture/PHASE35_36_ACCEPTANCE.md`
+- ACCEPTED RUNTIME: `7cb61d3cdc42e0c20f2688181d054e55eacbfd8f`
+- CI: `Validate RPG OS ALPHA` run ID `32241299329`, job ID `96032227097` — SUCCESS
+- ARTIFACT: ID `9361064715`, SHA-256 `73da8802468e0302c5f4548bda9a2240d5c44a17ceed209b27e10c6e11f84b90`
+
+## Phase 36 — Schema Versioning + migration safety + legacy provenance
+- PRIMARY: `app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt`
+- PRIMARY: `app/src/main/java/com/rpgos/app/Phase36SchemaCompatibilityFingerprint.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/GameplayRuntimeBootstrap.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/GameplayMutationGate.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/CampaignSnapshotSystem.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/CampaignRuntimeLifecycleLock.kt`
+- TEST: `app/src/test/java/com/rpgos/app/Phase36SchemaVersioningTest.kt`
+- TEST: `app/src/test/java/com/rpgos/app/Phase30To36PostAuditHardeningTest.kt`
+- TEST: `app/src/test/java/com/rpgos/app/Phase33SnapshotSystemTest.kt`
+- DOC: `docs/architecture/PHASE35_36_ACCEPTANCE.md`
+- ACCEPTED RUNTIME: `7cb61d3cdc42e0c20f2688181d054e55eacbfd8f`
+- CI: `Validate RPG OS ALPHA` run ID `32241299329`, job ID `96032227097` — SUCCESS
+- ARTIFACT: ID `9361064715`, SHA-256 `73da8802468e0302c5f4548bda9a2240d5c44a17ceed209b27e10c6e11f84b90`
+
 ## Kluczowe wspólne dokumenty i runtime assets
 - `docs/Architektura projektu.md`
 - `docs/Roadmap.md`
@@ -274,6 +307,7 @@ Indeks techniczny wspierający `docs/Architektura projektu.md` i `docs/Roadmap.m
 - `docs/PROJECT_WORK_PROTOCOL.md`
 - `docs/PARALLEL_WORK_COORDINATION.md`
 - `docs/architecture/CHAT_COORDINATION_POLICY.md`
+- `docs/architecture/PHASE35_36_ACCEPTANCE.md`
 - `.github/workflows/build-alpha.yml`
 - `.github/workflows/publish-alpha.yml`
 - `app/src/main/assets/rpg_core.db`
