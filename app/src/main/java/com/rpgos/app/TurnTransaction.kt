@@ -40,7 +40,7 @@ class TurnTransaction internal constructor(
         check(state==TurnTransactionState.VALIDATED){"turn transaction can execute exactly once"}
         check(!db.inTransaction()){"nested outer TurnTransaction is forbidden"}
 
-        receiptStore.replay(identity,semanticFingerprint)?.let{receipt->
+        replayReceiptOrNull()?.let{receipt->
             val committedIdentity=receipt.committedIdentity()
             eventStore.assertCommittedSetMatches(committedIdentity,proposal.playerChangeSet,receipt)
             causalGraph.assertCommittedSetMatches(committedIdentity,rebindCausalPlan(committedIdentity),receipt)
@@ -56,7 +56,7 @@ class TurnTransaction internal constructor(
         db.beginTransaction()
         state=TurnTransactionState.IN_PROGRESS
         return try{
-            receiptStore.replay(identity,semanticFingerprint)?.let{existing->
+            replayReceiptOrNull()?.let{existing->
                 val committedIdentity=existing.committedIdentity()
                 eventStore.assertCommittedSetMatches(committedIdentity,proposal.playerChangeSet,existing)
                 causalGraph.assertCommittedSetMatches(committedIdentity,rebindCausalPlan(committedIdentity),existing)
@@ -67,7 +67,6 @@ class TurnTransaction internal constructor(
             }
 
             val commitOrder=receiptStore.reserveNextCommitOrder(identity.campaignUid)
-
             val applied=withCanonicalGameplayMutationForTurn(db,identity.campaignUid,seal){
                 val result=CanonicalPlayerChangeApplier.applyAll(db,identity,proposal.playerChangeSet,failureInjector)
                 require(result.appliedChangeUids==proposal.playerChangeSet.changes.map{it.changeUid}){
@@ -100,11 +99,37 @@ class TurnTransaction internal constructor(
         }
     }
 
+    private fun replayReceiptOrNull():TurnCommitReceipt? {
+        receiptStore.committedTransaction(identity.transactionUid)?.let { existing ->
+            if(existing.campaignUid!=identity.campaignUid) throw TurnIdempotencyConflictException(TurnTransactionReceiptStore.CROSS_CAMPAIGN_TRANSACTION_UID)
+            if(existing.commandUid!=identity.commandUid||existing.turnUid!=identity.turnUid) throw TurnIdempotencyConflictException(TurnTransactionReceiptStore.TRANSACTION_IDENTITY_MISMATCH)
+            if(!fingerprintCompatible(existing)) throw TurnIdempotencyConflictException(TurnTransactionReceiptStore.SEMANTIC_FINGERPRINT_MISMATCH)
+            return existing
+        }
+        receiptStore.committedCommand(identity.campaignUid,identity.commandUid)?.let { existing ->
+            if(!fingerprintCompatible(existing)) throw TurnIdempotencyConflictException(TurnTransactionReceiptStore.COMMAND_SEMANTIC_FINGERPRINT_MISMATCH)
+            return existing
+        }
+        return null
+    }
+
+    private fun fingerprintCompatible(receipt:TurnCommitReceipt):Boolean {
+        if(receipt.semanticFingerprint==semanticFingerprint) return true
+        if(causalRelationIntents.isEmpty()) return false
+        val committedIdentity=receipt.committedIdentity()
+        val rebound=rebindCausalPlan(committedIdentity)
+        val proposalFingerprint=TurnSemanticFingerprint.forProposal(proposal)
+        val legacyGraphFingerprint=causalGraph.planFingerprint(committedIdentity,rebound)
+        val legacyV2=sha256("RPGOS-TURN-WITH-CAUSAL-V2\u001f$proposalFingerprint\u001f$legacyGraphFingerprint")
+        return receipt.semanticFingerprint==legacyV2
+    }
+
     private fun TurnCommitReceipt.committedIdentity() = TurnTransactionIdentity(campaignUid,turnUid,commandUid,transactionUid)
 
     /**
      * Command semantic identity must not depend on the UID of a retry attempt. Same-turn Event UIDs
-     * are therefore normalized back to their stable Event-intent identities before hashing.
+     * are normalized back to stable Event-intent identities before hashing. Persisted Event/Causal
+     * rows themselves remain bound to the original transaction identity.
      */
     private fun transactionFingerprint():String{
         val proposalFingerprint=TurnSemanticFingerprint.forProposal(proposal)
