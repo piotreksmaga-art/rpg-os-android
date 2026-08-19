@@ -55,7 +55,59 @@ jobs:
         run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase37NpcKnowledgeTest' --stacktrace
 
       - name: Full JVM unit suite
+        id: full_jvm
+        continue-on-error: true
         run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+
+      - name: Collect full JVM diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p phase37-full-jvm-diagnostics
+          if [ -d app/build/test-results/testDebugUnitTest ]; then
+            cp -R app/build/test-results/testDebugUnitTest/. phase37-full-jvm-diagnostics/
+          fi
+          if [ -d app/build/reports/tests/testDebugUnitTest ]; then
+            cp -R app/build/reports/tests/testDebugUnitTest phase37-full-jvm-diagnostics/html-report
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          root = Path('app/build/test-results/testDebugUnitTest')
+          out = Path('phase37-full-jvm-diagnostics/FAILURES.txt')
+          lines = []
+          for xml in sorted(root.glob('TEST-*.xml')) if root.exists() else []:
+              try:
+                  suite = ET.parse(xml).getroot()
+              except Exception as exc:
+                  lines.append(f'XML_PARSE_ERROR {xml}: {exc}')
+                  continue
+              for case in suite.findall('testcase'):
+                  failure = case.find('failure')
+                  error = case.find('error')
+                  node = failure if failure is not None else error
+                  if node is None:
+                      continue
+                  lines.append(f"SUITE={suite.get('name')} TEST={case.get('name')} CLASS={case.get('classname')}")
+                  lines.append(f"TYPE={node.get('type')} MESSAGE={node.get('message')}")
+                  lines.append((node.text or '').strip())
+                  lines.append('---')
+          out.write_text('\n'.join(lines) if lines else 'NO_JUNIT_FAILURE_NODE_FOUND\n')
+          print(out.read_text())
+          PY
+
+      - name: Upload full JVM diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase37-full-jvm-diagnostics-${{ github.run_id }}
+          path: phase37-full-jvm-diagnostics/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enforce full JVM gate
+        if: steps.full_jvm.outcome != 'success'
+        run: exit 1
 
       - name: Remove temporary patch machinery
         run: rm .github/phase37_patch.py .github/phase37_patch2.py .github/workflows/phase37-guarded-patch.yml
