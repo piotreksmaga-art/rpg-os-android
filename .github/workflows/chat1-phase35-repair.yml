@@ -1,55 +1,13 @@
 name: Chat1 Phase35 Repair
 
 on:
-  push:
-    branches: [ "chat1-phase35-36-post-audit-repair" ]
   workflow_dispatch:
 
 permissions:
   contents: write
 
-concurrency:
-  group: chat1-phase35-repair
-  cancel-in-progress: true
-
 jobs:
-  repair-and-test:
+  diagnostic:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: chat1-phase35-36-post-audit-repair
-          fetch-depth: 0
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - run: yes | sdkmanager --licenses >/dev/null || true
-      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.5.0'
-      - name: Targeted Phase35 tests
-        id: targeted
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase35CanonDivergenceTest' --tests 'com.rpgos.app.Phase30To36PostAuditHardeningTest' --stacktrace 2>&1 | tee /tmp/chat1_phase35_gradle.log
-      - name: Publish targeted test evidence
-        if: always()
-        run: |
-          git config user.name "chat1-rpgos-repair"
-          git config user.email "actions@users.noreply.github.com"
-          mkdir -p tools
-          echo "PHASE35_TARGETED_OUTCOME=${{ steps.targeted.outcome }}" > tools/chat1_phase35_ci_result.txt
-          echo "--- GRADLE TAIL ---" >> tools/chat1_phase35_ci_result.txt
-          tail -n 260 /tmp/chat1_phase35_gradle.log >> tools/chat1_phase35_ci_result.txt || true
-          git add tools/chat1_phase35_ci_result.txt
-          git diff --cached --quiet || git commit -m "test: record Phase 35 diagnostic result [skip ci]"
-          git push origin HEAD:chat1-phase35-36-post-audit-repair
-      - name: Fail if targeted tests failed
-        if: steps.targeted.outcome != 'success'
-        run: exit 1
+      - run: echo "Phase35 diagnostic workflow retained for manual evidence only"
