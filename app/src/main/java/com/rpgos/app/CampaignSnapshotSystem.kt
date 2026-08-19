@@ -77,6 +77,7 @@ internal data class CommittedReplayPayload(
     val semanticFingerprint: String,
     val eventManifest: RequiredEventManifestSummary,
     val eventBoundaryUid: String?,
+    val replaySchemaVersion: Int,
     val changeSet: PlayerChangeSet,
     val causalPlan: List<CanonicalCausalRelationIntent>,
     val payloadSha256: String
@@ -110,7 +111,7 @@ internal class CommittedReplayPayloadStore(private val db: SQLiteDatabase) {
 
     fun after(campaignUid: String, commitOrder: Long): List<CommittedReplayPayload> = db.rawQuery(
         """SELECT transaction_uid,turn_uid,command_uid,commit_order,semantic_fingerprint,required_event_count,
-            required_event_manifest_fingerprint,event_boundary_uid,player_change_set_json,causal_plan_json,payload_sha256
+            required_event_manifest_fingerprint,event_boundary_uid,replay_schema_version,player_change_set_json,causal_plan_json,payload_sha256
             FROM ${CampaignSnapshotSchema.REPLAY} WHERE campaign_uid=? AND commit_order>? ORDER BY commit_order""",
         arrayOf(campaignUid,commitOrder.toString())
     ).use { c -> buildList { while(c.moveToNext()) { val payload=decode(campaignUid,c);require(valid(payload)){"RPGOS-SNAPSHOT:REPLAY_PAYLOAD_DIGEST_MISMATCH"};add(payload) } } }
@@ -119,10 +120,15 @@ internal class CommittedReplayPayloadStore(private val db: SQLiteDatabase) {
         "SELECT payload_sha256 FROM ${CampaignSnapshotSchema.REPLAY} WHERE transaction_uid=?", arrayOf(transactionUid)
     ).use { c -> if(!c.moveToFirst()) null else c.getString(0) }
 
-    private fun decode(campaignUid:String,c:android.database.Cursor)=CommittedReplayPayload(
+    private fun decode(campaignUid:String,c:android.database.Cursor):CommittedReplayPayload {
+        val version=c.getInt(8)
+        require(version==1){"RPGOS-SNAPSHOT:UNSUPPORTED_REPLAY_SCHEMA:$version"}
+        return CommittedReplayPayload(
         TurnTransactionIdentity(campaignUid,c.getString(1),c.getString(2),c.getString(0)),c.getLong(3),c.getString(4),
         RequiredEventManifestSummary(c.getInt(5),c.getString(6)),if(c.isNull(7))null else c.getString(7),
-        PlayerChangeSetCodec.decode(c.getString(8)),decodeCausalPlan(c.getString(9)),c.getString(10))
+        version,PlayerChangeSetCodec.decode(c.getString(9)),decodeCausalPlan(c.getString(10)),c.getString(11)
+        )
+    }
     private fun valid(p:CommittedReplayPayload):Boolean { val change=PlayerChangeSetCodec.encode(p.changeSet);val causal=encodeCausalPlan(p.causalPlan);return p.payloadSha256==sha256(replayCanonical(p.identity,p.commitOrder,p.semanticFingerprint,p.eventManifest,p.eventBoundaryUid,change,causal)) }
     companion object {
         fun encodeCausalPlan(plan:List<CanonicalCausalRelationIntent>):String = JSONArray().apply { plan.forEach { p -> put(JSONObject().apply {
@@ -232,7 +238,8 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
         try {
             SQLiteDatabase.openDatabase(staging.absolutePath,null,SQLiteDatabase.OPEN_READWRITE).use { target ->
                 check(target.isDatabaseIntegrityOk){"RPGOS-SNAPSHOT:STAGING_INTEGRITY_FAILED"}
-                GameplayRuntimeBootstrap.requireReady(target,campaignUid)
+                Phase36SchemaVersioning.ensureReady(target,campaignUid)
+                GameplayRuntimeBootstrap.initialize(target,campaignUid)
                 payloads.forEach { replayCommittedTransaction(target,it) }
                 GameplayRuntimeBootstrap.requireReady(target,campaignUid)
                 require(AuthoritativeStateDigest.compute(target)==AuthoritativeStateDigest.compute(db)){"RPGOS-SNAPSHOT:AUTHORITATIVE_DIGEST_MISMATCH"}

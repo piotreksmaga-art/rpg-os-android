@@ -73,6 +73,7 @@ object RuntimePersistentWriterRegistry {
         c("time",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE),
         c("chronicle",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE,"CHAPTER_MANIFESTS_SUMMARIES"),
         c("truthRecords",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE,"CAMPAIGN_TRUTH"),
+        c("canonDivergences",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE,"CANON_DIVERGENCE"),
         c("npcs",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE),
         c("npcDetail",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE),
         c("relationEdges",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE),

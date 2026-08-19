@@ -167,7 +167,7 @@ internal object CanonicalPlayerChangeApplier{
                 is EquipmentChange->applyEquipment(db,identity,change.changeUid,payload)
                 is FinancialChange->applyFinancial(db,identity,changeSet,change.changeUid,payload)
                 is OwnershipChange->applyOwnership(db,identity,changeSet,change.changeUid,payload)
-                is CampaignTruthChange->applyTruth(db,identity,changeSet,payload)
+                is CampaignTruthChange->applyTruth(db,identity,changeSet,change.changeUid,payload)
                 is DevelopmentProjectChange->applyProject(db,identity,changeSet,change.changeUid,payload)
                 else->throw UnsupportedCanonicalChangeException(change.changeKindUid)
             }
@@ -276,7 +276,7 @@ internal object CanonicalPlayerChangeApplier{
         )
     }
 
-    private fun applyTruth(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,p:CampaignTruthChange){
+    private fun applyTruth(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,changeUid:String,p:CampaignTruthChange){
         CampaignTruthStore(db,identity.campaignUid).record(
             kind=p.kind,
             predicate=p.predicate,
@@ -294,8 +294,15 @@ internal object CanonicalPlayerChangeApplier{
             perspectiveUid=p.perspectiveUid,
             narrativeText=p.narrativeText,
             truthUid=p.truthUid,
-            supersedesTruthUid=p.supersedesTruthUid
+            supersedesTruthUid=p.supersedesTruthUid,
+            createdAt=changeSet.requestedEffectiveOrder ?: 0L
         )
+        p.canonDivergence?.let { divergence ->
+            val intent = changeSet.eventIntents.singleOrNull { changeUid in it.causalChangeUids }
+                ?: error("RPGOS-CANON:DIVERGENCE_REQUIRES_EXACT_EVENT")
+            val eventUid = CampaignEventStore(db, identity.campaignUid).eventUid(identity, changeSet, intent)
+            CanonDivergenceStore(db, identity.campaignUid).recordCommitted(divergence, identity, eventUid)
+        }
     }
 
     private fun applyProject(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,changeUid:String,p:DevelopmentProjectChange){

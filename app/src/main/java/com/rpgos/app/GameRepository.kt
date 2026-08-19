@@ -57,6 +57,7 @@ interface CampaignRepository {
         perspectiveUid: String? = null,
         limit: Int = 100
     ): List<CampaignTruthRecord>
+    fun canonDivergences(): List<CanonDivergenceRecord>
 
     fun npcs(search: String = ""): List<NpcListItem>
     fun npcDetail(uid: String): NpcDetail

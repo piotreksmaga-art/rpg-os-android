@@ -111,7 +111,9 @@ data class CampaignTruthChange(
     val objectValue: String?,
     val perspectiveUid: String?,
     val narrativeText: String?,
-    val supersedesTruthUid: String?
+    val supersedesTruthUid: String?,
+    /** Present only when this exact committed truth change proves a canon divergence. */
+    val canonDivergence: CanonDivergenceSpec? = null
 ) : PlayerDomainChangePayload
 
 enum class ConditionOperation { ADD, REMOVE }

@@ -16,6 +16,7 @@ object RuntimeTruthLayerRegistry {
     private fun f(uid:String,layer:RuntimeTruthLayer,vararg t:String)=RuntimeStateFamily(uid,setOf(layer),t.toSet())
     val families=listOf(
         f("CAMPAIGN_TRUTH",RuntimeTruthLayer.AUTHORITATIVE,"campaign_truth_records"),
+        f("CANON_DIVERGENCE",RuntimeTruthLayer.AUTHORITATIVE,"campaign_canon_divergences"),
         f("ACTIVE_PLAYER_IDENTITY",RuntimeTruthLayer.AUTHORITATIVE,"active_player_ref"),
         f("BASE_STATS_RESOURCES",RuntimeTruthLayer.AUTHORITATIVE,"player_stats","player_resources"),
         f("PROGRESSION_PROFILES",RuntimeTruthLayer.AUTHORITATIVE,"talent_profile_entries","potential_profile_entries"),
@@ -69,7 +70,8 @@ object RuntimeTruthLayerRegistry {
         f("REBUILDABLE_INDEXES_MATERIALIZATIONS",RuntimeTruthLayer.CACHE,"narrative_memory_index"),
         f("UI_STATE",RuntimeTruthLayer.PRESENTATION,"campaign_visual_library"),
         f("BACKUP_PACKAGES",RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY),
-        f("SCHEMA_MIGRATION_REPAIR",RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY,"rpgos_schema_migrations")
+        f("SCHEMA_MIGRATION_REPAIR",RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY,"rpgos_schema_migrations"),
+        RuntimeStateFamily("SCHEMA_VERSION_STATE",setOf(RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY,RuntimeTruthLayer.OPERATIONAL_INFRASTRUCTURE),setOf("rpgos_schema_family_versions","rpgos_migration_attempts"))
     )
     private val byUid=families.associateBy{it.uid}; private val byTable=families.flatMap{a->a.persistentTables.map{it to a}}.toMap()
     fun requireFamily(uid:String)=requireNotNull(byUid[uid]){"RPGOS-G32:UNCLASSIFIED_STATE_FAMILY:$uid"}
