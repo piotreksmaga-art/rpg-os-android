@@ -28,6 +28,6 @@ jobs:
         with:
           gradle-version: '9.5.0'
       - name: Targeted Phase36
-        run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase36SchemaVersioningTest' --tests 'com.rpgos.app.Phase30To36PostAuditHardeningTest' --tests 'com.rpgos.app.Phase33SnapshotSystemTest' --stacktrace
+        run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase36SchemaVersioningTest' --tests 'com.rpgos.app.Phase36PostAuditEdgeCaseTest' --tests 'com.rpgos.app.Phase30To36PostAuditHardeningTest' --tests 'com.rpgos.app.Phase33SnapshotSystemTest' --stacktrace
       - name: Full JVM
         run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
