@@ -17,7 +17,8 @@ class CampaignTruthStore(
         perspectiveUid: String? = null,
         narrativeText: String? = null,
         truthUid: String = "TRUTH-${UUID.randomUUID()}",
-        supersedesTruthUid: String? = null
+        supersedesTruthUid: String? = null,
+        createdAt: Long = System.currentTimeMillis()
     ): CampaignTruthRecord {
         val record = CampaignTruthRecord(
             truthUid = truthUid,
@@ -29,7 +30,8 @@ class CampaignTruthStore(
             perspectiveUid = perspectiveUid,
             narrativeText = narrativeText,
             provenance = provenance,
-            supersedesTruthUid = supersedesTruthUid
+            supersedesTruthUid = supersedesTruthUid,
+            createdAt = createdAt
         )
         require(CampaignTruthPolicy.validate(record).isEmpty()) {
             "Nieprawidłowy CampaignTruthRecord: ${CampaignTruthPolicy.validate(record).joinToString()}"

@@ -53,6 +53,7 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun truthRecords(kind:TruthKind?,subjectUid:String?,perspectiveUid:String?,limit:Int):List<CampaignTruthRecord> = openGameplaySaveDb().use { db ->
         CampaignTruthStore(db,activeCampaignRef().campaignId).active(kind,subjectUid,perspectiveUid,limit)
     }
+    override fun canonDivergences(): List<CanonDivergenceRecord> = store.canonDivergences()
 
     override fun npcs(search: String): List<NpcListItem> = store.npcs(search)
     override fun npcDetail(uid: String): NpcDetail = store.npcDetail(uid)
@@ -78,5 +79,8 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun packageManager(): RpgPackageManager = store.packageManager()
     override fun backups(): List<String> = store.backups()
     override fun restoreBackup(path: String): String = store.restoreBackup(path)
+    override fun createSnapshot(kind:SnapshotKind,pinned:Boolean):CampaignSnapshotDescriptor = store.createSnapshot(kind,pinned)
+    override fun snapshots():List<CampaignSnapshotDescriptor> = store.snapshots()
+    override fun restoreLatestSnapshot():String = store.restoreLatestSnapshot()
     override fun finalizeChapter(chapter: Int, title: String): Pair<String, String> = store.finalizeChapter(chapter, title)
 }

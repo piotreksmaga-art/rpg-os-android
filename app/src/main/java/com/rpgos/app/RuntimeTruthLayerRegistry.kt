@@ -16,6 +16,7 @@ object RuntimeTruthLayerRegistry {
     private fun f(uid:String,layer:RuntimeTruthLayer,vararg t:String)=RuntimeStateFamily(uid,setOf(layer),t.toSet())
     val families=listOf(
         f("CAMPAIGN_TRUTH",RuntimeTruthLayer.AUTHORITATIVE,"campaign_truth_records"),
+        f("CANON_DIVERGENCE",RuntimeTruthLayer.AUTHORITATIVE,"campaign_canon_divergences"),
         f("ACTIVE_PLAYER_IDENTITY",RuntimeTruthLayer.AUTHORITATIVE,"active_player_ref"),
         f("BASE_STATS_RESOURCES",RuntimeTruthLayer.AUTHORITATIVE,"player_stats","player_resources"),
         f("PROGRESSION_PROFILES",RuntimeTruthLayer.AUTHORITATIVE,"talent_profile_entries","potential_profile_entries"),
@@ -39,24 +40,38 @@ object RuntimeTruthLayerRegistry {
         RuntimeStateFamily("ITEM_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("item_definitions_v2")),
         RuntimeStateFamily("EQUIPMENT_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("equipment_slot_definitions","equipment_compatibility_rules","equipment_rule_slots")),
         RuntimeStateFamily("OWNERSHIP_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("ownership_owner_kinds","ownership_asset_kinds")),
-        RuntimeStateFamily("FINANCE_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("currency_definitions","financial_transaction_type_definitions")),
+        RuntimeStateFamily("FINANCE_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("currency_definitions","financial_account_type_definitions","financial_transaction_type_definitions")),
         RuntimeStateFamily("ASSET_LIABILITY_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("asset_kind_definitions","obligation_type_definitions")),
         RuntimeStateFamily("PROJECT_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("project_type_definitions")),
+        RuntimeStateFamily("LEGACY_MECHANICS_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("technique_definitions")),
+
+        RuntimeStateFamily("CURRENT_WORLD_AUTHORITY",setOf(RuntimeTruthLayer.AUTHORITATIVE),BundledCampaignPersistentFamilies.CURRENT_WORLD_AUTHORITY),
+        RuntimeStateFamily("HISTORICAL_WORLD_EVIDENCE",setOf(RuntimeTruthLayer.APPEND_ONLY_HISTORICAL_EVIDENCE),BundledCampaignPersistentFamilies.HISTORICAL_WORLD_EVIDENCE),
+        RuntimeStateFamily("BUNDLED_MECHANICS_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),BundledCampaignPersistentFamilies.MECHANICS_DEFINITION_AUTHORITY),
+        RuntimeStateFamily("DERIVED_SIMULATION_STATE",setOf(RuntimeTruthLayer.DERIVED),BundledCampaignPersistentFamilies.DERIVED_SIMULATION_STATE),
+        RuntimeStateFamily("PRESENTATION_UI_STATE",setOf(RuntimeTruthLayer.PRESENTATION),BundledCampaignPersistentFamilies.PRESENTATION_UI_STATE),
+        RuntimeStateFamily("OPERATIONAL_REPAIR_STATE",setOf(RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY,RuntimeTruthLayer.OPERATIONAL_INFRASTRUCTURE),BundledCampaignPersistentFamilies.OPERATIONAL_REPAIR_STATE),
+        RuntimeStateFamily("NPC_KNOWLEDGE_STATE",setOf(RuntimeTruthLayer.AUTHORITATIVE),BundledCampaignPersistentFamilies.NPC_KNOWLEDGE_STATE),
+        RuntimeStateFamily("NARRATIVE_PLANNING_STATE",setOf(RuntimeTruthLayer.AUTHORITATIVE),BundledCampaignPersistentFamilies.NARRATIVE_PLANNING_STATE),
+        RuntimeStateFamily("TEMPORAL_SCHEDULE_STATE",setOf(RuntimeTruthLayer.AUTHORITATIVE),BundledCampaignPersistentFamilies.TEMPORAL_SCHEDULE_STATE),
 
         f("RESOLVED_EFFECTIVE_VALUES",RuntimeTruthLayer.DERIVED),
         f("TURN_RECEIPTS",RuntimeTruthLayer.APPEND_ONLY_COMMIT_EVIDENCE,"turn_transaction_receipts"),
         RuntimeStateFamily("EVENT_STORE",setOf(RuntimeTruthLayer.APPEND_ONLY_COMMIT_EVIDENCE,RuntimeTruthLayer.APPEND_ONLY_HISTORICAL_EVIDENCE),setOf("canonical_gameplay_events")),
         RuntimeStateFamily("CAUSAL_GRAPH",setOf(RuntimeTruthLayer.APPEND_ONLY_COMMIT_EVIDENCE,RuntimeTruthLayer.APPEND_ONLY_HISTORICAL_EVIDENCE),setOf("canonical_causal_relations")),
+        RuntimeStateFamily("CAMPAIGN_SNAPSHOTS",setOf(RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY),setOf("campaign_snapshots")),
+        RuntimeStateFamily("COMMITTED_REPLAY_MATERIAL",setOf(RuntimeTruthLayer.APPEND_ONLY_COMMIT_EVIDENCE),setOf("canonical_turn_replay_payloads")),
         f("CHARACTER_PANEL_SNAPSHOT_V2",RuntimeTruthLayer.DERIVED_PRESENTATION),
         f("PLAYER_SNAPSHOT_PROFILES",RuntimeTruthLayer.DERIVED_PROJECTION),
         RuntimeStateFamily("CONTEXT_BUNDLE",setOf(RuntimeTruthLayer.DERIVED,RuntimeTruthLayer.PRESENTATION)),
-        RuntimeStateFamily("LEGACY_RECONCILIATION_METADATA",setOf(RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY,RuntimeTruthLayer.APPEND_ONLY_HISTORICAL_EVIDENCE),setOf("legacy_stat_aliases","legacy_resource_aliases","legacy_progression_evidence","legacy_progression_mappings","legacy_skill_mappings","legacy_technique_mappings","legacy_technique_resource_cost_mappings","legacy_inventory_mappings","legacy_ownership_mappings","legacy_financial_evidence")),
+        RuntimeStateFamily("LEGACY_RECONCILIATION_METADATA",setOf(RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY,RuntimeTruthLayer.APPEND_ONLY_HISTORICAL_EVIDENCE),setOf("chapter_events","character_finances","character_inventory","character_skills","character_stats","character_status_snapshot","character_techniques","consequence_links","financial_transactions","legacy_projects","legacy_stat_aliases","legacy_resource_aliases","legacy_progression_evidence","legacy_progression_mappings","legacy_skill_mappings","legacy_technique_mappings","legacy_technique_resource_cost_mappings","legacy_inventory_mappings","legacy_ownership_mappings","legacy_financial_evidence")),
         RuntimeStateFamily("GAMEPLAY_READINESS_METADATA",setOf(RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY,RuntimeTruthLayer.OPERATIONAL_INFRASTRUCTURE),setOf("campaign_intelligence_activation","rpgos_writer_contract_context","rpgos_gameplay_mutation_context")),
         RuntimeStateFamily("CHAPTER_MANIFESTS_SUMMARIES",setOf(RuntimeTruthLayer.PRESENTATION,RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY),setOf("chapter_manifests_v2")),
         f("REBUILDABLE_INDEXES_MATERIALIZATIONS",RuntimeTruthLayer.CACHE,"narrative_memory_index"),
         f("UI_STATE",RuntimeTruthLayer.PRESENTATION,"campaign_visual_library"),
         f("BACKUP_PACKAGES",RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY),
-        f("SCHEMA_MIGRATION_REPAIR",RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY,"rpgos_schema_migrations")
+        f("SCHEMA_MIGRATION_REPAIR",RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY,"rpgos_schema_migrations"),
+        RuntimeStateFamily("SCHEMA_VERSION_STATE",setOf(RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY,RuntimeTruthLayer.OPERATIONAL_INFRASTRUCTURE),setOf("rpgos_schema_family_versions","rpgos_migration_attempts"))
     )
     private val byUid=families.associateBy{it.uid}; private val byTable=families.flatMap{a->a.persistentTables.map{it to a}}.toMap()
     fun requireFamily(uid:String)=requireNotNull(byUid[uid]){"RPGOS-G32:UNCLASSIFIED_STATE_FAMILY:$uid"}

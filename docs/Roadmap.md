@@ -1,11 +1,16 @@
-# RPG OS — KANONICZNA KOLEJNOŚĆ PRAC I CHECKLISTA
+# Roadmap
 
 Status: ACTIVE / CANONICAL ROADMAP
-Architecture: `docs/RPG_OS_MASTER_ARCHITECTURE.md`
+Architecture: `docs/Architektura projektu.md`
+Phase file map: `docs/Mapa plików.md`
 Coordination: `docs/PARALLEL_WORK_COORDINATION.md`, `docs/architecture/CHAT_COORDINATION_POLICY.md`
 Operational protocol: `docs/PROJECT_WORK_PROTOCOL.md`
 
-> Aktualizacja 2026-08-17: Transaction Integrity — Phase 26–29 została globalnie zaakceptowana przez koordynatora na exact runtime SHA `45ff53457bff16c4ff72a4cccdecac89124109c3`, po finalnym architectural enforcement repair WORK-20260817-026 i niezależnych exact-SHA rewalidacjach CHAT-4 (`WORK-20260817-027`) oraz CHAT-5 (`WORK-20260817-028`). Następny blok to Phase 30–32, rozpoczynany od AUDIT FIRST.
+> Aktualizacja 2026-08-19: Snapshot / Replay Recovery — Phase 33–34 została globalnie zaakceptowana przez koordynatora na exact runtime SHA `b141a590c64b21930abcae6c63353ea93aaf50f4` po merge PR #50 i finalnym follow-up naprawiającym zgodność anchora snapshotu z faktycznie przechwyconą bazą oraz izolację orphan cleanup między kampaniami. Exact validation: `Validate RPG OS ALPHA` #783 / run ID `32217138911` / job ID `95960661888` — SUCCESS. Immutable artifact ID `9352815554`, name `RPG-OS-VALIDATION-1.2.0-alpha5-hybrid145-b141a590c64b21930abcae6c63353ea93aaf50f4`, digest `sha256:01fdb47e78a2abdd1c56fa20591431f1f3bb33f1b6f2fcdf40812c517de18e1f`. Następny blok: Phase 35 Canon Divergence, AUDIT FIRST.
+
+> Aktualizacja 2026-08-18: Campaign Intelligence / Integrity — Phase 30–32 została zamknięta po WORK-036 i globalnie przyjęta przez koordynatora na exact runtime SHA `c202e1a7e620f1839763b8be513fd2b397760ac0`. Exact validation: `Validate RPG OS ALPHA` #779 / run ID `32166222114` / job ID `95806327105` — SUCCESS. Immutable artifact ID `9335687331`, digest `sha256:9d2e41407f47874f854c17f2f35959aea2f166adbc5a2ffc093630ff1062c629`.
+
+> Aktualizacja 2026-08-17: Transaction Integrity — Phase 26–29 została globalnie zaakceptowana przez koordynatora na exact runtime SHA `45ff53457bff16c4ff72a4cccdecac89124109c3`, po finalnym architectural enforcement repair WORK-20260817-026 i niezależnych exact-SHA rewalidacjach CHAT-4 (`WORK-20260817-027`) oraz CHAT-5 (`WORK-20260817-028`).
 
 > Future architecture update 2026-08-17: zaakceptowano kierunek native/local AI-GM jako wymagania przyszłych faz, bez rozpoczęcia Phase 48 i bez zmiany aktualnej kolejności roadmapy. Model, inference runtime i hardware backend mają być wymienne; RPG OS pozostaje właścicielem durable reality/memory/rules/transactions. TEMP-GM/Termux/localhost/llama.cpp/Bielik pozostają niekanoniczną infrastrukturą R&D/reference baseline.
 
@@ -19,11 +24,12 @@ Sama klasa, tabela, raport audytowy albo zielone CI nie oznacza COMPLETE. Global
 
 # AKTUALNY BASELINE PROJEKTU
 
-- Canonical accepted runtime through Phase 29: `45ff53457bff16c4ff72a4cccdecac89124109c3`.
-- Exact acceptance CI: run #703 / ID `32038070404` — SUCCESS.
-- Final exact-SHA revalidation: CHAT-4 PASS (`WORK-20260817-027`), CHAT-5 PASS (`WORK-20260817-028`).
-- Final architectural enforcement repair: `WORK-20260817-026`.
-- Phase 30: **NOT STARTED / AUDIT FIRST**.
+- Canonical accepted runtime through Phase 34: `b141a590c64b21930abcae6c63353ea93aaf50f4`.
+- Exact acceptance CI: workflow `Validate RPG OS ALPHA`, run #783 / ID `32217138911` / job `95960661888` — SUCCESS.
+- Immutable validation artifact: ID `9352815554`, `RPG-OS-VALIDATION-1.2.0-alpha5-hybrid145-b141a590c64b21930abcae6c63353ea93aaf50f4`, digest `sha256:01fdb47e78a2abdd1c56fa20591431f1f3bb33f1b6f2fcdf40812c517de18e1f`.
+- Phase 33–34 closed the canonical snapshot/replay and max-6 automatic retention block with staged reconstruction, prospective replay payloads, legacy baseline behavior, authoritative equality checks, captured-boundary anchors and campaign-isolated retention.
+- Documentation-only commits after the accepted runtime do not change the accepted runtime SHA above.
+- Next implementation block: **Phase 35 — Canon Divergence, AUDIT FIRST**.
 - Future local-AI requirements are canonical documentation only; **Phase 48 remains NOT STARTED**.
 
 # FAZA 0 — BASELINE / AUDYT
@@ -180,11 +186,11 @@ Accepted scope:
 - [x] 27. Turn Transaction atomic commit/rollback
 - [x] 28. Idempotency + double-commit protection
 - [x] 29. Crash recovery / LAST VALID COMMIT
-- [-] 30. Event Store append-only
-- [-] 31. Causal Graph
-- [ ] 32. Authoritative / Derived / Cache / Presentation runtime enforcement
-- [-] 33. Snapshot System
-- [-] 34. Automatic snapshot retention max 6
+- [x] 30. Event Store append-only
+- [x] 31. Causal Graph
+- [x] 32. Authoritative / Derived / Cache / Presentation runtime enforcement
+- [x] 33. Snapshot System
+- [x] 34. Automatic snapshot retention max 6
 - [-] 35. Canon Divergence
 - [-] 36. Schema Versioning + migration safety + legacy provenance
 
@@ -214,6 +220,59 @@ Accepted scope:
 - Phase 29: campaign-scoped monotonic committed ordering and recovery derive LAST VALID COMMIT from committed transaction receipts, while legacy V1 receipts without historical ordering retain `commitOrder = NULL` rather than fabricated chronology.
 
 Cross-boundary guarantees verified by final revalidation include full proposal/effect/receipt binding, retry/rollback safety, G28→G29 migration preservation, read-only recovery, supported end-to-end progression commit without creation of a second progression authority, and no Phase-30 Event Store implementation.
+
+# FAZA 30–32 — CAMPAIGN INTELLIGENCE / TRUTH-LAYER ENFORCEMENT — COMPLETE
+
+**STATUS: ACCEPTED / COMPLETE**
+
+Accepted runtime SHA:
+`c202e1a7e620f1839763b8be513fd2b397760ac0`
+
+Exact acceptance CI:
+- workflow `Validate RPG OS ALPHA`
+- run #779
+- run ID `32166222114`
+- job ID `95806327105`
+- conclusion `success`
+
+Immutable validation artifact:
+- artifact ID `9335687331`
+- name `RPG-OS-VALIDATION-1.2.0-alpha5-hybrid145-c202e1a7e620f1839763b8be513fd2b397760ac0`
+- digest `sha256:9d2e41407f47874f854c17f2f35959aea2f166adbc5a2ffc093630ff1062c629`
+
+Accepted scope includes:
+- Phase 30: required canonical Event completeness, receipt/Event manifest binding, shared Phase-29 `commitOrder` authority and deterministic event ordinal; Event Store remains append-only evidence/history rather than domain authority;
+- Phase 31: typed Causal Graph with self-edge and directed-cycle rejection, evidence/provenance binding, normal repository causal-plan path and separation from legacy/domain-specific causal-like tables;
+- Phase 32: repository-wide persistent table/writer classification, fail-closed unknown handling, gameplay/ADMIN/PRESENTATION/DERIVED capability boundaries, pure ordinary read paths, side-effect-free store construction, Event/Causal non-authority and legacy `UNKNOWN_NOT_RECORDED` preservation.
+
+WORK-036 closed the independent post-audit findings without starting Phase 33. Full local JVM suite and exact-SHA GitHub validation were GREEN before acceptance.
+
+# FAZA 33–34 — SNAPSHOT / REPLAY RECOVERY — COMPLETE
+
+**STATUS: ACCEPTED / COMPLETE**
+
+Accepted runtime SHA:
+`b141a590c64b21930abcae6c63353ea93aaf50f4`
+
+Exact acceptance CI:
+- workflow `Validate RPG OS ALPHA`
+- run #783
+- run ID `32217138911`
+- job ID `95960661888`
+- head SHA `b141a590c64b21930abcae6c63353ea93aaf50f4`
+- conclusion `success`
+
+Immutable validation artifact:
+- artifact ID `9352815554`
+- name `RPG-OS-VALIDATION-1.2.0-alpha5-hybrid145-b141a590c64b21930abcae6c63353ea93aaf50f4`
+- digest `sha256:01fdb47e78a2abdd1c56fa20591431f1f3bb33f1b6f2fcdf40812c517de18e1f`
+
+Accepted scope includes:
+- Phase 33: versioned campaign snapshot catalog and immutable payloads, prospective replay payload contract bound atomically to canonical commits, verified prospective legacy baseline without fabricated history, SQLite `VACUUM INTO` capture, anchor derived from the actually captured database image, SHA-256 verification, staged reconstruction, recovery-only replay, authoritative-state equality verification, corrupt-snapshot fallback and crash-safe activation;
+- Phase 34: typed snapshot categories, deterministic campaign-scoped retention of exactly the newest six eligible unpinned AUTOMATIC snapshots, preservation of manual/export/pre-restore/pinned/legacy packages, durable ordering independent of filesystem mtime, and snapshot pruning that does not delete Event/Causal/receipt/replay history;
+- final follow-up repair: snapshot descriptor anchor is derived from the captured payload boundary and orphan reconciliation cannot delete another campaign's valid snapshot payload.
+
+Local final full JVM evidence before integration: 792 tests, 0 failures. Exact-SHA GitHub validation produced the signed validation APK and immutable artifact above. Phase 35 was not started during this work.
 
 # FAZA C — CZAS, WIEDZA I RETRIEVAL
 - [-] 37. NPC Knowledge model + acquisition provenance
@@ -316,8 +375,8 @@ Dozwolone równoległe R&D bez rozpoczęcia Phase 48 może obejmować feasibilit
 Frontend może być rozwijany wraz z funkcjonalnością, ale należy zachować zaakceptowany styl wizualny i unikać niepowiązanego redesignu. Zmiany wymagane przez backend/integrację pozostają dozwolone zgodnie z aktualną decyzją użytkownika i coordination policy.
 
 # CROSS-CUTTING TEST GAPS
-- [ ] save -> close -> load authoritative equality
-- [ ] snapshot -> replay -> same authoritative state
+- [x] save -> close -> load authoritative equality — Phase 33 accepted snapshot/load recovery gate
+- [x] snapshot -> replay -> same authoritative state — Phase 33 accepted staged reconstruction + authoritative digest gate
 - [ ] old campaign -> migration -> valid load
 - [x] failed turn -> rollback -> no partial mutation — Phase 27/29 accepted transaction/recovery gate
 - [x] retry transaction -> no duplicate effects — Phase 28 accepted idempotency gate
@@ -336,16 +395,16 @@ Frontend może być rozwijany wraz z funkcjonalnością, ale należy zachować z
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
 
-Runtime through Phase 29 jest globalnie **ACCEPTED / COMPLETE**.
+Runtime through Phase 34 jest globalnie **ACCEPTED / COMPLETE**.
 
 Następny blok:
-`Phase 30–32 — Event Store / Causal Graph / runtime truth-layer enforcement`
+`Phase 35 — Canon Divergence`
 
 Obowiązkowa sekwencja:
-`AUDIT FIRST -> classify COMPLETE / PARTIAL / MISSING / BLOCKED -> coordinator work split -> explicit implementation authorization`
+`READ FULL ARCHITECTURE + MAPA PLIKÓW -> AUDIT FIRST -> classify COMPLETE / PARTIAL / MISSING / BLOCKED -> minimal implementation -> targeted tests -> compatibility -> full JVM -> PR -> exact-SHA CI -> coordinator acceptance`
 
-Do czasu zakończenia audytu i jawnej decyzji koordynatora:
-**PHASE 30–32 = NOT ACCEPTED / IMPLEMENTATION REQUIRES EXPLICIT AUTHORIZATION.**
+Do czasu zakończenia tego procesu:
+**PHASE 35 = NOT STARTED.**
 
 Future local-AI requirements nie zmieniają tej kolejności. **Phase 48 pozostaje NOT STARTED**; dopuszczone jest wyłącznie odseparowane R&D/evidence gathering zgodne z MASTER.
 

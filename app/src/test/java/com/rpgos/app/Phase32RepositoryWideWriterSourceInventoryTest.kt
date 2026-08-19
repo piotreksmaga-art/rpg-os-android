@@ -33,6 +33,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "ModifierStore.kt",
             "OwnershipReferenceRegistry.kt",
             "OwnershipStore.kt",
+            "Phase35CanonDivergence.kt",
             "Phase9Store.kt",
             "ProgressionProfileStore.kt",
             "SkillStore.kt",
@@ -55,6 +56,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         listOf(
             "AutoRepairEngine.kt",
             "BackupManager.kt",
+            "CampaignSnapshotSystem.kt",
             "CampaignSelectionManager.kt",
             "CanonicalPackageReplacement.kt",
             "ContentUpdateManager.kt",

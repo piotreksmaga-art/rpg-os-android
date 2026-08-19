@@ -12,7 +12,7 @@ internal object GameplayMutationDatabaseGuards {
 
     internal fun authoritativeTablesForCompatibility(): List<String> = authoritativeTables
     internal fun administrativeOnlyTablesForCompatibility(): List<String> = administrativeOnlyTables
-    internal fun campaignColumnForCompatibility(db: SQLiteDatabase, table: String): String = campaignColumn(db, table)
+    internal fun campaignColumnForCompatibility(db: SQLiteDatabase, table: String): String? = campaignColumn(db, table)
 
     fun ensureInstalled(db: SQLiteDatabase) {
         RuntimeTruthLayerRegistry.validateCanonicalInventory()
@@ -86,12 +86,13 @@ internal object GameplayMutationDatabaseGuards {
         db.delete(CONTEXT_TABLE_NAME, "campaign_uid=? AND capability_kind=?", arrayOf(campaignUid, kind))
     }
 
-    private fun createAuthorityGuard(db: SQLiteDatabase, table: String, campaignColumn: String, op: String, row: String) {
+    private fun createAuthorityGuard(db: SQLiteDatabase, table: String, campaignColumn: String?, op: String, row: String) {
         val name = "rpgos_guard_${table}_${op.lowercase()}"
+        val campaignPredicate = campaignColumn?.let { "campaign_uid=$row.$it AND " }.orEmpty()
         db.execSQL("DROP TRIGGER IF EXISTS $name")
         db.execSQL(
             """CREATE TRIGGER $name BEFORE $op ON $table
-WHEN NOT EXISTS(SELECT 1 FROM $CONTEXT_TABLE_NAME WHERE campaign_uid=$row.$campaignColumn AND capability_kind IN ('TURN','ADMIN'))
+WHEN NOT EXISTS(SELECT 1 FROM $CONTEXT_TABLE_NAME WHERE ${campaignPredicate}capability_kind IN ('TURN','ADMIN'))
 BEGIN SELECT RAISE(ABORT,'RPGOS-MUTATION-GATE:CANONICAL_TURN_TRANSACTION_REQUIRED'); END""".trimIndent()
         )
     }
@@ -106,13 +107,13 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-G32:MECHANICS_DEFINITION_REQUIRES_ADMIN'); END""
         )
     }
 
-    private fun campaignColumn(db: SQLiteDatabase, table: String): String {
+    private fun campaignColumn(db: SQLiteDatabase, table: String): String? {
         val columns = mutableSetOf<String>()
         db.rawQuery("PRAGMA table_info($table)", null).use { c -> while (c.moveToNext()) columns += c.getString(1) }
         return when {
             "campaign_id" in columns -> "campaign_id"
             "campaign_uid" in columns -> "campaign_uid"
-            else -> error("RPGOS-MUTATION-GATE:AUTHORITATIVE_TABLE_WITHOUT_CAMPAIGN_SCOPE:$table")
+            else -> null // Bundled campaign databases are themselves single-campaign authority containers.
         }
     }
 

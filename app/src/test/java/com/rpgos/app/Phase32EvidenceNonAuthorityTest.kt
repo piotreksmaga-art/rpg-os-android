@@ -59,7 +59,7 @@ class Phase32EvidenceNonAuthorityTest {
             try {
                 GameplayMutationDatabaseGuards.enterTurn(db, "C1")
                 try {
-                    CampaignEventStore(db, "C1").appendRequired(identity, proposal.playerChangeSet)
+                    CampaignEventStore(db, "C1").appendRequired(identity, proposal.playerChangeSet, 1L)
                     val events = db.rawQuery(
                         "SELECT event_uid FROM canonical_gameplay_events WHERE campaign_uid='C1' AND transaction_uid=? ORDER BY event_intent_uid",
                         arrayOf(identity.transactionUid)
@@ -77,7 +77,8 @@ class Phase32EvidenceNonAuthorityTest {
                                 targetEventUid = events[1],
                                 provenanceEventUids = listOf(events[0])
                             )
-                        )
+                        ),
+                        1L
                     )
                 } finally {
                     GameplayMutationDatabaseGuards.leaveTurn(db, "C1")

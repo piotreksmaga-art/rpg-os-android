@@ -26,10 +26,18 @@ internal class LocalGameStore(private val context: Context) {
         if (!File(coreDir, "rpg_core.db").exists()) copyAsset("rpg_core.db", File(coreDir, "rpg_core.db"))
         val campaignUid = selection.activeCampaignRef().campaignId
         openSaveDb().use { save ->
-            ensureCurrentSchema(save)
-            runCatching { AutoRepairEngine().repair(save) }
-                .onFailure { DiagnosticLogger.log(context, "AUTO_REPAIR_BOOT_FAILED", it) }
+            val explicitBootstrap = {
+                ensureCurrentSchema(save)
+                AutoRepairEngine().repair(save)
+            }
+            runCatching {
+                if (GameplayMutationDatabaseGuards.isInstalled(save)) {
+                    withAdministrativeMutationAuthority(save, campaignUid, explicitBootstrap)
+                } else explicitBootstrap()
+            }.onFailure { DiagnosticLogger.log(context, "AUTO_REPAIR_BOOT_FAILED", it) }
             GameplayRuntimeBootstrap.initialize(save, campaignUid)
+            val snapshots=CampaignSnapshotManager(save,campaignUid,File(saveDir,"snapshots"))
+            if(snapshots.latestValidCompatible()==null) snapshots.create(SnapshotKind.AUTOMATIC)
         }
     }
 
@@ -101,9 +109,14 @@ internal class LocalGameStore(private val context: Context) {
                 val campaignId = selection.activeCampaignRef().campaignId
                 val truth = CampaignTruthStore(save, campaignId).activeForContext(limit = 80)
                 val state = PlayerStateStore(save, campaignId).load()
-                return base.copy(campaignTruth = truth, playerState = state?.toContextMap() ?: emptyMap(), contextMeta = base.contextMeta + mapOf("campaign_truth_records" to truth.size, "player_state_contract" to (state != null), "active_player_uid" to state?.activePlayer?.playerUid))
+                val divergences = CanonDivergenceStore(save, campaignId).list()
+                return base.copy(campaignTruth = truth, canonDivergences = divergences, playerState = state?.toContextMap() ?: emptyMap(), contextMeta = base.contextMeta + mapOf("campaign_truth_records" to truth.size, "canon_divergences" to divergences.size, "player_state_contract" to (state != null), "active_player_uid" to state?.activePlayer?.playerUid))
             }
         }
+    }
+
+    fun canonDivergences(): List<CanonDivergenceRecord> = openGameplaySaveDb().use { db ->
+        CanonDivergenceStore(db, selection.activeCampaignRef().campaignId).list()
     }
 
     fun activePlayerRef(): ActivePlayerRef? { openGameplaySaveDb().use { db -> return ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active() } }
@@ -163,7 +176,15 @@ internal class LocalGameStore(private val context: Context) {
     fun activeWorldPackDirName(): String = selection.activeWorldPackDirName()
     fun packageManager(): RpgPackageManager = RpgPackageManager(context)
     fun backups(): List<String> = BackupManager(context).listBackups().map { it.absolutePath }
-    fun finalizeChapter(chapter: Int, title: String): Pair<String, String> { openGameplaySaveDb().use { save -> val hash = ChapterSaveManager(save).finalizeChapter(chapter, title); val backup = BackupManager(context).createBackup("chapter_$chapter"); return hash to backup.absolutePath } }
+    fun createSnapshot(kind:SnapshotKind=SnapshotKind.AUTOMATIC,pinned:Boolean=false):CampaignSnapshotDescriptor = openGameplaySaveDb().use{CampaignSnapshotManager(it,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots")).create(kind,pinned)}
+    fun snapshots():List<CampaignSnapshotDescriptor> = openGameplaySaveDb().use{CampaignSnapshotManager(it,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots")).list()}
+    fun restoreLatestSnapshot():String {
+        val active=File(saveDir,"campaign.db");val db=openGameplaySaveDb();val manager=CampaignSnapshotManager(db,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots"))
+        val staged=manager.reconstructToVerifiedStaging();manager.activateVerifiedStaging(active,staged)
+        openSaveDb().use{GameplayRuntimeBootstrap.initialize(it,selection.activeCampaignRef().campaignId)}
+        return active.absolutePath
+    }
+    fun finalizeChapter(chapter: Int, title: String): Pair<String, String> { openGameplaySaveDb().use { save -> val hash = ChapterSaveManager(save).finalizeChapter(chapter, title); CampaignSnapshotManager(save,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots")).create(SnapshotKind.AUTOMATIC);val backup = BackupManager(context).createBackup("chapter_$chapter"); return hash to backup.absolutePath } }
     internal fun applyPatch(patch: StatePatch): PatchResult { openGameplaySaveDb().use { save -> openCoreDb().use { core -> return StatePatchEngine(save, SourceOfTruthRegistry(core)).apply(patch) } } }
     private fun openSave(): SQLiteDatabase = SQLiteDatabase.openDatabase(File(saveDir, "campaign.db").absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
     private fun ensureCurrentSchema(saveDb: SQLiteDatabase) { CurrentSchema.ensure(saveDb, selection.activeCampaignRef().campaignId) }

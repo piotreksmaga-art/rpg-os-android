@@ -22,6 +22,7 @@ class OwnershipConcurrencyTest {
     private fun owner(uid:String)=OwnershipOwnerRef("CHARACTER",uid)
     private val asset=OwnedAssetRef("ASSET","X")
     private fun registerRefs(d:SQLiteDatabase){
+        CurrentSchema.ensure(d,"C")
         val r=OwnershipReferenceRegistry(d,"C");r.registerAssetKind("ASSET","test-kind");r.registerAsset(asset,"test-asset")
         listOf("A","B","C").forEach{r.registerOwner(owner(it),"test-owner")}
     }

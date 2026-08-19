@@ -39,17 +39,15 @@ class Work036Phase30To32PostAuditRepairTest {
         val base=GroupATransactionTestFixtures.admittedFinancialProposal(commandUid="CMD-W36-BAD-EVENT")
         val change=base.playerChangeSet.changes.single()
         val actor=base.playerChangeSet.actor
-        val badChangeSet=PlayerChangeSet.create(
+        val failure=runCatching{PlayerChangeSet.create(
             changeSetUid=base.playerChangeSet.changeSetUid+":BAD",campaignUid="C1",actor=actor,sourceCommandUid="CMD-W36-BAD-EVENT",
             changes=listOf(change),eventIntents=listOf(PlayerEventIntent.create(
                 eventIntentUid="BAD-EVENT",eventKindUid=PlayerEventIntentKinds.DOMAIN_EFFECT,actorRef=DomainRef("PLAYER","P1"),
                 targetRefs=listOf(DomainRef("PLAYER","P1")),causalChangeUids=listOf("MISSING-CHANGE"),
                 payload=DomainEffectEventIntentPayload(DomainRef("PLAYER","P1"),"BAD"))),
             requestedEffectiveOrder=10L,provenance=base.playerChangeSet.provenance
-        )
-        val forged=canonicalForTest(badChangeSet)
-        val failure=runCatching{TurnTransactionBoundary.create(db,TurnTransactionIdentity("C1","TURN-W36-BAD-EVENT","CMD-W36-BAD-EVENT","TX-W36-BAD-EVENT"),forged).commit()}.exceptionOrNull()
-        assertNotNull(failure);assertEquals(100L,FinancialStore(db,"C1").balance("A"));assertEquals(0L,count(db,"turn_transaction_receipts"));assertEquals(0L,count(db,"canonical_gameplay_events"))
+        )}.exceptionOrNull()
+        assertTrue(failure is PlayerChangeSetStructuralException);assertEquals(100L,FinancialStore(db,"C1").balance("A"));assertEquals(0L,count(db,"turn_transaction_receipts"));assertEquals(0L,count(db,"canonical_gameplay_events"))
     }}
 
     @Test fun eventAndCausalUseOneReceiptOwnedOrderNoIndependentAllocator(){SQLiteDatabase.create(null).use{db->
@@ -92,7 +90,7 @@ class Work036Phase30To32PostAuditRepairTest {
         assertFails{graph.validate(listOf(CanonicalCausalRelationIntent("UNREL-E",CausalRelationClass.CAUSAL,CausalRelationKinds.CAUSES,a,b,evidenceEventUids=listOf(unrelated))))}
         assertFails{graph.validate(listOf(CanonicalCausalRelationIntent("UNREL-P",CausalRelationClass.CAUSAL,CausalRelationKinds.CAUSES,a,b,provenanceEventUids=listOf(unrelated))))}
         graph.validate(listOf(CanonicalCausalRelationIntent("BOUND",CausalRelationClass.CAUSAL,CausalRelationKinds.CAUSES,a,b,evidenceEventUids=listOf(a))))
-        CurrentSchema.ensure(db,"C2");GameplayRuntimeBootstrap.initialize(db,"C2")
+        GameplayRuntimeBootstrap.initialize(db,"C2")
         assertFails{CampaignCausalGraph(db,"C2").appendRequired(TurnTransactionIdentity("C2","T","C","X"),listOf(CanonicalCausalRelationIntent("CROSS",CausalRelationClass.PROVENANCE,CausalRelationKinds.PROVENANCE_OF,a,b)),1)}
     }}
 

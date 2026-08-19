@@ -151,7 +151,7 @@ class Phase26To29PostAuditBlockerRepairTest {
 
     @Test fun C02_multi_effect_receipt_requires_all_effects_and_subset_failure_rolls_back(){
         db().use{d->
-            GroupATransactionTestFixtures.setupFinance(d);CurrentSchema.ensure(d,"C1")
+            GroupATransactionTestFixtures.setupFinance(d)
             val p=admitted("MULTI","CMD-C02")
             val tx=TurnTransactionBoundary.create(d,id("CMD-C02"),p,TurnFailureInjector{if(it==TurnFailurePoint.AFTER_FIRST_WRITE)error("stop-after-subset")})
             assertTrue(runCatching{tx.commit()}.isFailure)
@@ -201,15 +201,15 @@ class Phase26To29PostAuditBlockerRepairTest {
             createG28ReceiptTable(d)
             d.execSQL("INSERT INTO turn_transaction_receipts(transaction_uid,campaign_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,receipt_version,commit_state) VALUES(?,?,?,?,?,?,1,'COMMITTED')",
                 arrayOf("LEGACY-TX","C1","LEGACY-TURN","LEGACY-CMD",semantic,"legacy-result"))
-            TurnTransactionReceiptSchema.ensureReady(d)
+            GameplayRuntimeBootstrap.initialize(d,"C1")
             val migrated=TurnTransactionReceiptStore(d).committedTransaction("LEGACY-TX")!!
             assertEquals(1,migrated.receiptVersion);assertNull(migrated.commitOrder);assertEquals(semantic,migrated.semanticFingerprint);assertEquals("legacy-result",migrated.resultFingerprint)
             val ddl=tableSql(d,"turn_transaction_receipts").replace(" ","").lowercase()
-            assertTrue(ddl.contains("receipt_versionin(1,2)"))
+            assertTrue(ddl.contains("receipt_versionin(1,2,3)"))
             assertTrue(TurnTransactionBoundary.create(d,TurnTransactionIdentity("C1","LEGACY-TURN","LEGACY-CMD","LEGACY-TX"),legacyProposal).commit() is TurnExecutionResult.AlreadyCommitted)
             val current=admitted("FIN5","NEW-CMD")
             val committed=TurnTransactionBoundary.create(d,TurnTransactionIdentity("C1","NEW-TURN","NEW-CMD","NEW-TX"),current).commit() as TurnExecutionResult.Committed
-            assertEquals(2,committed.receipt.receiptVersion);assertEquals(1L,committed.receipt.commitOrder)
+            assertEquals(TURN_TRANSACTION_RECEIPT_VERSION,committed.receipt.receiptVersion);assertEquals(1L,committed.receipt.commitOrder)
             TurnTransactionReceiptSchema.ensureReady(d)
             assertNull(TurnTransactionReceiptStore(d).committedTransaction("LEGACY-TX")!!.commitOrder)
             assertEquals(1L,TurnRecoveryReader(d).lastValidCommit("C1")!!.commitOrder)
@@ -351,7 +351,7 @@ class Phase26To29PostAuditBlockerRepairTest {
         store.changeStatus(ProjectStatusEvent("C1","STATUS-3","PROJ1",ProjectStatus.PROTOTYPE,3,provenance="SETUP"))
     }
 
-    private fun arm(d:SQLiteDatabase){TurnTransactionReceiptSchema.ensureReady(d);GameplayMutationDatabaseGuards.ensureInstalled(d)}
+    private fun arm(d:SQLiteDatabase){GameplayRuntimeBootstrap.initialize(d,"C1")}
     private fun assertGate(block:()->Unit){val e=runCatching(block).exceptionOrNull();assertNotNull("direct writer unexpectedly succeeded",e);assertTrue(e!!.message.orEmpty().contains("CANONICAL_TURN_TRANSACTION_REQUIRED"))}
     private fun createG28ReceiptTable(d:SQLiteDatabase){
         d.execSQL("DROP TABLE IF EXISTS turn_transaction_receipts")

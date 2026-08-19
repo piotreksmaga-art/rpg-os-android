@@ -57,6 +57,7 @@ class Phase32WriterBypassInventoryTest {
         "time" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "chronicle" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "truthRecords" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
+        "canonDivergences" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "npcs" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "npcDetail" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "relationEdges" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
@@ -78,6 +79,9 @@ class Phase32WriterBypassInventoryTest {
         "packageManager" to WriterReachability.ADMINISTRATIVE,
         "backups" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "restoreBackup" to WriterReachability.ADMINISTRATIVE,
+        "createSnapshot" to WriterReachability.ADMINISTRATIVE,
+        "snapshots" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
+        "restoreLatestSnapshot" to WriterReachability.ADMINISTRATIVE,
         "finalizeChapter" to WriterReachability.ADMINISTRATIVE
     )
 

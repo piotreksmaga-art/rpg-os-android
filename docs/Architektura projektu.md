@@ -1,8 +1,8 @@
-# RPG OS — KANONICZNA INSTRUKCJA ARCHITEKTURY I ROZWOJU PROJEKTU
+# Architektura projektu
 
 Status: MASTER / CANONICAL
 
-Ten dokument jest nadrzędną instrukcją architektoniczną dla dalszego rozwoju RPG OS. Łączy dotychczasową architekturę GM Engine, Player Domain i zasady integralności systemu.
+Ten dokument jest jedyną kanoniczną architekturą projektu RPG OS. Szczegółowy indeks plików znajduje się w `docs/Mapa plików.md`, a jedyna kanoniczna roadmapa w `docs/Roadmap.md`.
 
 ## 0. Priorytet źródeł
 Jeżeli wcześniejszy plan, TODO, komentarz lub rozmowa jest sprzeczna z tym dokumentem, obowiązuje kolejno:
@@ -303,7 +303,7 @@ PLAYER INPUT -> Input Normalizer -> Intent Parser -> Turn Planner -> Initial Ret
 Deferred/background operacje nie mogą poza kontrolowaną transakcją zmieniać authoritative state.
 
 ## 42. Repository-first development protocol
-Przed kodem: przeczytaj ten dokument i roadmapę, sprawdź master, recent commits, istniejące klasy/interfejsy/tabele/migracje/testy/build/CI. Oznacz funkcję jako COMPLETE/PARTIAL/MISSING/BLOCKED. Nie twórz równoległego systemu tylko dlatego, że istniejący ma inną nazwę.
+Przed kodem: przeczytaj ten dokument, `docs/Roadmap.md` i `docs/Mapa plików.md`, sprawdź master, recent commits, istniejące klasy/interfejsy/tabele/migracje/testy/build/CI. Oznacz funkcję jako COMPLETE/PARTIAL/MISSING/BLOCKED. Nie twórz równoległego systemu tylko dlatego, że istniejący ma inną nazwę.
 
 Wybieraj najwcześniejszą brakującą zależność, nie kolejny numer na ślepo. Integracja przed refactorem.
 
@@ -355,19 +355,20 @@ Raportuj: stan początkowy, co istniało, brakującą zależność, dokładną z
 Nie raportuj funkcji, której faktycznie nie zaimplementowano.
 
 ## 48. Protokół nowej sesji
-1. Przeczytaj `docs/RPG_OS_MASTER_ARCHITECTURE.md`.
-2. Przeczytaj `docs/RPG_OS_IMPLEMENTATION_ROADMAP.md`.
-3. Przeczytaj `docs/PARALLEL_WORK_COORDINATION.md` i sprawdź ACTIVE WORK REGISTER.
-4. Sprawdź master/recent commits/build/CI/migrations/tests.
-5. Audytuj istniejącą implementację.
-6. Aktualizuj checklistę COMPLETE/PARTIAL/MISSING/BLOCKED na podstawie kodu i testów, nie pamięci.
-7. Znajdź najwcześniejszą brakującą zależność.
-8. Jeżeli sesja jest workerem, potwierdź własny WORK ITEM, allowedScope, forbiddenScope, rezerwacje oraz baseline przed zmianą kodu.
-9. Wykonaj najmniejszą bezpieczną zmianę.
-10. Przed zapisem ponownie sprawdź aktualny master i wersję modyfikowanego pliku.
-11. Test/build/integrity/commit/CI.
-12. Zaktualizuj roadmapę/checklistę tylko jeśli dowody potwierdzają status i nie istnieje otwarty równoległy WORK ITEM wymagany dla tej samej fazy.
-13. Frontend może być rozwijany, gdy służy aktualnej funkcjonalności; każda zmiana UI musi zachować zaakceptowany styl aplikacji i nie może wprowadzać niepowiązanego globalnego redesignu.
+1. Przeczytaj `docs/Architektura projektu.md`.
+2. Przeczytaj `docs/Roadmap.md`.
+3. Przeczytaj `docs/Mapa plików.md` i użyj go jako indeksu do aktualnego kodu.
+4. Przeczytaj `docs/PARALLEL_WORK_COORDINATION.md` i sprawdź ACTIVE WORK REGISTER.
+5. Sprawdź master/recent commits/build/CI/migrations/tests.
+6. Audytuj istniejącą implementację.
+7. Aktualizuj checklistę COMPLETE/PARTIAL/MISSING/BLOCKED na podstawie kodu i testów, nie pamięci.
+8. Znajdź najwcześniejszą brakującą zależność.
+9. Jeżeli sesja jest workerem, potwierdź własny WORK ITEM, allowedScope, forbiddenScope, rezerwacje oraz baseline przed zmianą kodu.
+10. Wykonaj najmniejszą bezpieczną zmianę.
+11. Przed zapisem ponownie sprawdź aktualny master i wersję modyfikowanego pliku.
+12. Test/build/integrity/commit/CI.
+13. Zaktualizuj roadmapę/checklistę tylko jeśli dowody potwierdzają status i nie istnieje otwarty równoległy WORK ITEM wymagany dla tej samej fazy.
+14. Frontend może być rozwijany, gdy służy aktualnej funkcjonalności; każda zmiana UI musi zachować zaakceptowany styl aplikacji i nie może wprowadzać niepowiązanego globalnego redesignu.
 
 ## 49. Równoległa praca wielu sesji — CANONICAL
 RPG OS dopuszcza równoległą pracę wielu chatów/sesji, ale wyłącznie w modelu kontrolowanym.
