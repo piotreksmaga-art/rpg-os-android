@@ -11,9 +11,10 @@ private val activeGameplayInitialization = ThreadLocal<ActiveGameplayInitializat
  */
 internal object GameplayRuntimeBootstrap {
     private val requiredEvidenceTriggers = setOf(
-        "rpgos_turn_receipts_no_update", "rpgos_turn_receipts_no_delete",
-        "rpgos_event_store_no_update", "rpgos_event_store_no_delete",
-        "rpgos_causal_graph_no_update", "rpgos_causal_graph_no_delete"
+        "rpgos_turn_receipts_commit_insert", "rpgos_turn_receipts_no_update", "rpgos_turn_receipts_no_delete",
+        "rpgos_event_store_turn_insert", "rpgos_event_store_no_update", "rpgos_event_store_no_delete",
+        "rpgos_causal_graph_turn_insert", "rpgos_causal_graph_no_update", "rpgos_causal_graph_no_delete",
+        "rpgos_replay_commit_insert", "rpgos_replay_no_update", "rpgos_replay_no_delete"
     )
 
     /** Explicit bootstrap/migration/restore boundary. Never call from an ordinary read path. */
@@ -50,7 +51,6 @@ internal object GameplayRuntimeBootstrap {
         return active != null && active.db === db && active.campaignUid == campaignUid
     }
 
-    /** Compatibility name retained for explicit setup/tests; production reads use requireReady(). */
     @Deprecated("Use initialize() only at explicit administrative setup boundaries; reads must use requireReady()")
     fun ensureReady(db: SQLiteDatabase, campaignUid: String) = initialize(db, campaignUid)
 
@@ -65,7 +65,9 @@ internal object GameplayRuntimeBootstrap {
         Phase36SchemaVersioning.requireReady(db)
         check(GameplayMutationDatabaseGuards.isInstalled(db)) { "RPGOS-G32:GAMEPLAY_GUARDS_NOT_READY" }
         RuntimePersistentTableInventory.requireComplete(db)
-        requiredEvidenceTriggers.forEach { trigger -> check(triggerExists(db, trigger)) { "RPGOS-G32:MISSING_EVIDENCE_GUARD:$trigger" } }
+        requiredEvidenceTriggers.forEach { trigger ->
+            check(triggerExists(db, trigger)) { "RPGOS-G32:MISSING_EVIDENCE_GUARD:$trigger" }
+        }
         GameplayMutationDatabaseGuards.authoritativeTablesForCompatibility().filter { tableExists(db, it) }.forEach { table ->
             listOf("insert", "update", "delete").forEach { operation ->
                 val trigger = "rpgos_guard_${table}_$operation"
