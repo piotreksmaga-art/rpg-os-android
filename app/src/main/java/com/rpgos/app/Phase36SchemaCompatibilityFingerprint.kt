@@ -3,12 +3,16 @@ package com.rpgos.app
 import android.database.sqlite.SQLiteDatabase
 import java.security.MessageDigest
 
-/** Stable compatibility identity: semantic family versions only, never volatile migration-attempt metadata. */
+/**
+ * Stable compatibility identity. It binds both the durable family-version vector and the immutable
+ * semantic migration manifest, but never volatile attempt timestamps/state.
+ */
 internal object Phase36SchemaCompatibilityFingerprint {
     fun compute(db: SQLiteDatabase): String {
-        val material = Phase36SchemaVersioning.contracts.joinToString("|") { contract ->
+        val versions = Phase36SchemaVersioning.contracts.joinToString("|") { contract ->
             "${contract.family.name}:${version(db, contract.family) ?: "MISSING"}"
         }
+        val material = "$versions|migrationManifest=${Phase36SchemaVersioning.migrationManifestFingerprint()}"
         return MessageDigest.getInstance("SHA-256").digest(material.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
     }

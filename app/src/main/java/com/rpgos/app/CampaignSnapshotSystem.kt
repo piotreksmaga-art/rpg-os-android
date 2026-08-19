@@ -157,7 +157,7 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
 
     private fun createLocked(kind:SnapshotKind,pinned:Boolean):CampaignSnapshotDescriptor {
         check(CampaignSnapshotSchema.isReady(db)) { "RPGOS-SNAPSHOT:SCHEMA_NOT_READY" }
-        snapshotDir.mkdirs(); reconcileOrphans();val effectivePinned=pinned||kind==SnapshotKind.USER_PINNED
+        snapshotDir.mkdirs(); reconcileOrphansLocked();val effectivePinned=pinned||kind==SnapshotKind.USER_PINNED
         val order=db.rawQuery("SELECT COALESCE(MAX(created_order),0)+1 FROM ${CampaignSnapshotSchema.CATALOG} WHERE campaign_uid=?",arrayOf(campaignUid)).use{it.moveToFirst();it.getLong(0)}
         val uid="SNAP-$campaignUid-$order-${UUID.randomUUID()}";val staged=File(snapshotDir,".$uid.staged.db");val published=File(snapshotDir,"$uid.db")
         db.execSQL("""INSERT INTO ${CampaignSnapshotSchema.CATALOG}(snapshot_uid,campaign_uid,snapshot_kind,snapshot_schema_version,created_order,
@@ -181,7 +181,7 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
                 SET anchor_commit_order=?,anchor_transaction_uid=?,anchor_turn_uid=?,anchor_event_uid=?,payload_sha256=?,publication_state=?
                 WHERE snapshot_uid=?""",arrayOf(capturedAnchor.commitOrder,capturedAnchor.transactionUid,capturedAnchor.turnUid,
                 capturedAnchor.eventUid,digest,SnapshotPublicationState.VALID.name,uid))
-            if(kind==SnapshotKind.AUTOMATIC&&!effectivePinned)pruneAutomatic()
+            if(kind==SnapshotKind.AUTOMATIC&&!effectivePinned)pruneAutomaticLocked()
             return requireNotNull(find(uid))
         } catch(t:Throwable) {
             staged.delete();published.delete();db.execSQL("UPDATE ${CampaignSnapshotSchema.CATALOG} SET publication_state=? WHERE snapshot_uid=?",arrayOf(SnapshotPublicationState.INVALID.name,uid));throw t
@@ -191,22 +191,45 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
     fun list():List<CampaignSnapshotDescriptor> { check(CampaignSnapshotSchema.isReady(db));return db.rawQuery("""SELECT snapshot_uid,snapshot_kind,snapshot_schema_version,created_order,created_at_epoch_ms,
         anchor_commit_order,anchor_transaction_uid,anchor_turn_uid,anchor_event_uid,payload_path,payload_sha256,publication_state,pinned
         FROM ${CampaignSnapshotSchema.CATALOG} WHERE campaign_uid=? ORDER BY created_order DESC,snapshot_uid DESC""",arrayOf(campaignUid)).use{c->buildList{while(c.moveToNext())add(row(c))}} }
-    fun latestValidCompatible():CampaignSnapshotDescriptor?=list().firstOrNull{it.kind!=SnapshotKind.LEGACY_BACKUP&&it.kind!=SnapshotKind.MANUAL_EXPORT&&it.state==SnapshotPublicationState.VALID&&it.schemaVersion==CampaignSnapshotSchema.VERSION&&File(it.payloadPath).isFile&&fileSha256(File(it.payloadPath))==it.payloadSha256}
+
+    fun latestValidCompatible():CampaignSnapshotDescriptor? = RecoverableSnapshotPolicy.latestRecoverable(db,campaignUid)
+
     fun delete(uid:String):Boolean {
-        if(uid in Phase36SchemaVersioning.activeSafetySnapshotUids(db,campaignUid)) return false
-        val s=find(uid)?:return false;val file=File(s.payloadPath);if(file.exists()&&!file.delete())return false
-        db.delete(CampaignSnapshotSchema.CATALOG,"snapshot_uid=? AND campaign_uid=?",arrayOf(uid,campaignUid));return true
+        requireAdministrativeRecoveryEntryPoint()
+        return CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { deleteLocked(uid) }
     }
+
+    private fun deleteLocked(uid:String):Boolean {
+        if(uid in Phase36SchemaVersioning.activeSafetySnapshotUids(db,campaignUid)) return false
+        val s=find(uid)?:return false
+        val file=File(s.payloadPath)
+        if(file.exists()&&!file.delete())return false
+        db.delete(CampaignSnapshotSchema.CATALOG,"snapshot_uid=? AND campaign_uid=?",arrayOf(uid,campaignUid))
+        return true
+    }
+
     fun pruneAutomatic(){
+        requireAdministrativeRecoveryEntryPoint()
+        CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { pruneAutomaticLocked() }
+    }
+
+    private fun pruneAutomaticLocked(){
         val protected=Phase36SchemaVersioning.activeSafetySnapshotUids(db,campaignUid)
         val eligible=list().filter{it.kind==SnapshotKind.AUTOMATIC&&!it.pinned&&it.state==SnapshotPublicationState.VALID&&it.snapshotUid !in protected}
-        eligible.drop(AUTOMATIC_RETENTION).forEach{delete(it.snapshotUid)}
+        eligible.drop(AUTOMATIC_RETENTION).forEach{deleteLocked(it.snapshotUid)}
     }
+
     fun reconcileOrphans(){
+        requireAdministrativeRecoveryEntryPoint()
+        CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { reconcileOrphansLocked() }
+    }
+
+    private fun reconcileOrphansLocked(){
         if(!CampaignSnapshotSchema.isReady(db))return
+        val protected=Phase36SchemaVersioning.activeSafetySnapshotUids(db,campaignUid)
         val catalog=list()
-        catalog.filter{it.state==SnapshotPublicationState.STAGED||it.state==SnapshotPublicationState.VALID&&(!File(it.payloadPath).isFile||fileSha256(File(it.payloadPath))!=it.payloadSha256)}.forEach{
-            db.execSQL("UPDATE ${CampaignSnapshotSchema.CATALOG} SET publication_state=? WHERE snapshot_uid=?",arrayOf(SnapshotPublicationState.INVALID.name,it.snapshotUid))
+        catalog.filter{it.snapshotUid !in protected && (it.state==SnapshotPublicationState.STAGED||it.state==SnapshotPublicationState.VALID&&(!File(it.payloadPath).isFile||fileSha256(File(it.payloadPath))!=it.payloadSha256))}.forEach{
+            db.execSQL("UPDATE ${CampaignSnapshotSchema.CATALOG} SET publication_state=? WHERE snapshot_uid=? AND campaign_uid=?",arrayOf(SnapshotPublicationState.INVALID.name,it.snapshotUid,campaignUid))
         }
         val campaignFilePrefix="SNAP-$campaignUid-"
         snapshotDir.listFiles{f->
@@ -234,16 +257,19 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
         })};target.setTransactionSuccessful()}finally{target.endTransaction()}
     }
 
-    fun reconstructToVerifiedStaging():File {
+    fun reconstructToVerifiedStaging(snapshotUid:String?=null):File {
         requireAdministrativeRecoveryEntryPoint()
-        return CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { reconstructLocked() }
+        return CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { reconstructLocked(snapshotUid) }
     }
 
-    private fun reconstructLocked():File {
-        reconcileOrphans()
-        val snapshot=list().firstOrNull { it.kind!=SnapshotKind.LEGACY_BACKUP&&it.kind!=SnapshotKind.MANUAL_EXPORT&&it.state==SnapshotPublicationState.VALID&&it.schemaVersion==CampaignSnapshotSchema.VERSION&&
-            File(it.payloadPath).isFile&&fileSha256(File(it.payloadPath))==it.payloadSha256 }
-            ?:error("RPGOS-SNAPSHOT:NO_VALID_COMPATIBLE_SNAPSHOT")
+    private fun reconstructLocked(snapshotUid:String?):File {
+        reconcileOrphansLocked()
+        val snapshot = if(snapshotUid==null) {
+            RecoverableSnapshotPolicy.latestRecoverable(db,campaignUid)
+                ?: error("RPGOS-SNAPSHOT:NO_VALID_COMPATIBLE_SNAPSHOT")
+        } else {
+            RecoverableSnapshotPolicy.requireRecoverable(db,campaignUid,snapshotUid)
+        }
         val staging=File(snapshotDir,".${snapshot.snapshotUid}.reconstructing.db")
         if(staging.exists())staging.delete();File(snapshot.payloadPath).copyTo(staging)
         val payloads=CommittedReplayPayloadStore(db).after(campaignUid,snapshot.anchorCommitOrder)
