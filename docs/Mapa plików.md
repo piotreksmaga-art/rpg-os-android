@@ -1,8 +1,8 @@
-# Mapa plików faz 1-32
+# Mapa plików
 
 Indeks techniczny wspierający `docs/Architektura projektu.md` i `docs/Roadmap.md`. Nie jest osobną architekturą ani roadmapą. Aktualny `master` pozostaje technicznym source of truth.
 
-Źródło: raport odzyskiwalności Git przygotowany 2026-08-18 dla Phase 1-32. Ścieżki służą jako punkt startowy do nawigacji; przy każdej pracy należy sprawdzić ich bieżący stan na aktualnym `master`.
+Źródło bazowe: raport odzyskiwalności Git przygotowany 2026-08-18 dla Phase 1-32; indeks jest rozwijany wraz z kolejnymi zaakceptowanymi fazami. Ścieżki służą jako punkt startowy do nawigacji; przy każdej pracy należy sprawdzić ich bieżący stan na aktualnym `master`.
 
 ## Phase 1 — Unified Repository + stable UID
 - PRIMARY: `app/src/main/java/com/rpgos/app/ActiveCampaignRef.kt`
@@ -241,9 +241,36 @@ Indeks techniczny wspierający `docs/Architektura projektu.md` i `docs/Roadmap.m
 - TEST: `app/src/test/java/com/rpgos/app/Phase32WriterBypassInventoryTest.kt`
 - TEST: `app/src/test/java/com/rpgos/app/Work036Phase30To32PostAuditRepairTest.kt`
 
+## Phase 33 — Snapshot System
+- PRIMARY: `app/src/main/java/com/rpgos/app/CampaignSnapshotSystem.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/TurnTransaction.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/TurnTransactionReceiptStore.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/CampaignEventStore.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/CampaignCausalGraph.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/GameplayRuntimeBootstrap.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/LocalGameStore.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/GameRepository.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/UnifiedGameRepository.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/RuntimeTruthLayerRegistry.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/RuntimePersistentInventory.kt`
+- TEST: `app/src/test/java/com/rpgos/app/Phase33SnapshotSystemTest.kt`
+- ACCEPTED RUNTIME: `b141a590c64b21930abcae6c63353ea93aaf50f4`
+- CI: `Validate RPG OS ALPHA` run ID `32217138911`, job ID `95960661888` — SUCCESS
+- ARTIFACT: ID `9352815554`, SHA-256 `01fdb47e78a2abdd1c56fa20591431f1f3bb33f1b6f2fcdf40812c517de18e1f`
+
+## Phase 34 — Automatic snapshot retention max 6
+- PRIMARY: `app/src/main/java/com/rpgos/app/CampaignSnapshotSystem.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/LocalGameStore.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/BackupManager.kt`
+- TEST: `app/src/test/java/com/rpgos/app/Phase34SnapshotRetentionTest.kt`
+- ACCEPTED RUNTIME: `b141a590c64b21930abcae6c63353ea93aaf50f4`
+- CI: `Validate RPG OS ALPHA` run ID `32217138911`, job ID `95960661888` — SUCCESS
+- ARTIFACT: ID `9352815554`, SHA-256 `01fdb47e78a2abdd1c56fa20591431f1f3bb33f1b6f2fcdf40812c517de18e1f`
+
 ## Kluczowe wspólne dokumenty i runtime assets
 - `docs/Architektura projektu.md`
 - `docs/Roadmap.md`
+- `docs/Mapa plików.md`
 - `docs/PROJECT_WORK_PROTOCOL.md`
 - `docs/PARALLEL_WORK_COORDINATION.md`
 - `docs/architecture/CHAT_COORDINATION_POLICY.md`
