@@ -82,12 +82,15 @@ class TurnTransaction internal constructor(
             }
             failureInjector.failIfRequested(TurnFailurePoint.BEFORE_COMMIT)
             val eventBoundaryUid=eventStore.eventsForTransaction(identity.transactionUid).lastOrNull()?.eventUid
-            CommittedReplayPayloadStore(db).append(
-                identity,commitOrder,semanticFingerprint,requiredManifest.summary,proposal.playerChangeSet,
-                causalRelationIntents,eventBoundaryUid
-            )
-            val receipt=receiptStore.appendCommitted(identity,semanticFingerprint,commitOrder,requiredManifest.summary)
-            failureInjector.failIfRequested(TurnFailurePoint.AFTER_RECEIPT_BEFORE_COMMIT)
+            val receipt=withCanonicalCommitEvidenceForTurn(db,identity.campaignUid,seal){
+                CommittedReplayPayloadStore(db).append(
+                    identity,commitOrder,semanticFingerprint,requiredManifest.summary,proposal.playerChangeSet,
+                    causalRelationIntents,eventBoundaryUid
+                )
+                val committed=receiptStore.appendCommitted(identity,semanticFingerprint,commitOrder,requiredManifest.summary)
+                failureInjector.failIfRequested(TurnFailurePoint.AFTER_RECEIPT_BEFORE_COMMIT)
+                committed
+            }
             db.setTransactionSuccessful()
             db.endTransaction()
             state=TurnTransactionState.COMMITTED
@@ -126,11 +129,7 @@ class TurnTransaction internal constructor(
 
     private fun TurnCommitReceipt.committedIdentity() = TurnTransactionIdentity(campaignUid,turnUid,commandUid,transactionUid)
 
-    /**
-     * Command semantic identity must not depend on the UID of a retry attempt. Same-turn Event UIDs
-     * are normalized back to stable Event-intent identities before hashing. Persisted Event/Causal
-     * rows themselves remain bound to the original transaction identity.
-     */
+    /** Command semantic identity is independent of the retry attempt's transaction/turn UID. */
     private fun transactionFingerprint():String{
         val proposalFingerprint=TurnSemanticFingerprint.forProposal(proposal)
         if(causalRelationIntents.isEmpty()) return proposalFingerprint
@@ -154,7 +153,6 @@ class TurnTransaction internal constructor(
             eventStore.eventUid(forIdentity,proposal.playerChangeSet,intent) to intent.eventIntentUid
         }
 
-    /** Rebind only same-turn generated Event endpoints to the original committed transaction. */
     private fun rebindCausalPlan(committedIdentity:TurnTransactionIdentity):List<CanonicalCausalRelationIntent>{
         if(causalRelationIntents.isEmpty()||committedIdentity.transactionUid==identity.transactionUid) return causalRelationIntents
         val attemptAliases=currentEventAliases(identity)
@@ -416,8 +414,10 @@ internal fun replayCommittedTransaction(db:SQLiteDatabase,payload:CommittedRepla
             require(applied.appliedChangeUids==payload.changeSet.changes.map{it.changeUid})
             val boundary=eventStore.eventsForTransaction(payload.identity.transactionUid).lastOrNull()?.eventUid
             require(boundary==payload.eventBoundaryUid){"RPGOS-SNAPSHOT:REPLAY_EVENT_BOUNDARY_MISMATCH"}
-            CommittedReplayPayloadStore(db).append(payload.identity,payload.commitOrder,payload.semanticFingerprint,payload.eventManifest,payload.changeSet,payload.causalPlan,boundary)
-            TurnTransactionReceiptStore(db).appendCommitted(payload.identity,payload.semanticFingerprint,payload.commitOrder,payload.eventManifest)
+            withCanonicalCommitEvidenceForTurn(db,payload.identity.campaignUid,TURN_TRANSACTION_SEAL){
+                CommittedReplayPayloadStore(db).append(payload.identity,payload.commitOrder,payload.semanticFingerprint,payload.eventManifest,payload.changeSet,payload.causalPlan,boundary)
+                TurnTransactionReceiptStore(db).appendCommitted(payload.identity,payload.semanticFingerprint,payload.commitOrder,payload.eventManifest)
+            }
             db.setTransactionSuccessful()
         }finally{db.endTransaction()}
     }
