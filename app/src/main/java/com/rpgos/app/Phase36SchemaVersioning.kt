@@ -64,11 +64,8 @@ internal class VersionMigrationGraph(private val edges: List<VersionMigrationEdg
             familyEdges.filter { it.fromVersion == version }
                 .sortedWith(compareBy<VersionMigrationEdge> { it.toVersion }.thenBy { it.implementationId })
                 .forEach { edge ->
-                    if (edge.toVersion in seen) {
-                        cycleSeen = true
-                    } else {
-                        dfs(edge.toVersion, path + edge, seen + edge.toVersion)
-                    }
+                    if (edge.toVersion in seen) cycleSeen = true
+                    else dfs(edge.toVersion, path + edge, seen + edge.toVersion)
                 }
         }
 
@@ -171,6 +168,7 @@ internal object Phase36SchemaVersioning {
         safetySnapshotUid: String? = null,
         beforeApplied: (() -> Unit)? = null
     ) {
+        require(campaignUid.isNotBlank())
         CampaignRuntimeLifecycleLock.withRecovery(campaignUid) {
             ensureReadyLocked(db, campaignUid, safetySnapshotUid, graph, beforeApplied)
         }
@@ -186,10 +184,9 @@ internal object Phase36SchemaVersioning {
         require(!db.inTransaction()) { "RPGOS-SCHEMA:TOP_LEVEL_MIGRATION_REQUIRED" }
         inspectCompatibilityBeforeMutation(db)
         ensureMetadataTables(db)
-        validateAllAttemptStates(db)
+        validateAllAttemptRows(db)
 
-        // Phase35 repair semantics are preserved. Its schema creation is structural/additive and
-        // remains under administrative bootstrap authority; no historical provenance is invented.
+        // Phase35 repair semantics are preserved. Schema installation is structural/additive only.
         administrativeWrite(db, campaignUid) { Phase35CanonDivergenceSchema.ensureReady(db) }
 
         val plan = buildPlan(db, graph)
@@ -219,11 +216,9 @@ internal object Phase36SchemaVersioning {
                     MigrationAttemptState.PREPARED.name, now))
         }
 
-        // Durable protection now exists. Revalidate the exact payload under the same campaign WRITE
-        // lifecycle lock immediately before material mutation, closing validation->PREPARED TOCTOU.
-        if (material) {
-            MigrationSafetyPolicy.requireProtectedSnapshot(db, campaignUid, plan, effectiveSafetyUid)
-        }
+        // Protection is durable now. Revalidate the exact payload while still owning the same
+        // campaign lifecycle WRITE lock, immediately before material mutation.
+        if (material) MigrationSafetyPolicy.requireProtectedSnapshot(db, campaignUid, plan, effectiveSafetyUid)
 
         try {
             administrativeWrite(db, campaignUid) {
@@ -256,11 +251,14 @@ internal object Phase36SchemaVersioning {
 
     fun requireReady(db: SQLiteDatabase) {
         check(table(db, VERSIONS) && table(db, ATTEMPTS) && Phase35CanonDivergenceSchema.isReady(db)) { "RPGOS-SCHEMA:NOT_READY" }
-        validateAllAttemptStates(db)
+        validateAllAttemptRows(db)
         contracts.forEach { c ->
             val found = current(db, c.family) ?: error("RPGOS-SCHEMA:MISSING_FAMILY:${c.family}")
             if (found > c.currentVersion) throw UnsupportedFutureSchemaException(c.family, found, c.currentVersion)
             check(found == c.currentVersion) { "RPGOS-SCHEMA:FAMILY_NOT_CURRENT:${c.family}:$found:${c.currentVersion}" }
+        }
+        check(Phase36EventSchemaScaffold.detectPhysicalVersion(db) == PHASE30_EVENT_SCHEMA_VERSION) {
+            "RPGOS-SCHEMA:EVENT_PHYSICAL_SCHEMA_NOT_CURRENT"
         }
         check(db.rawQuery("SELECT 1 FROM $ATTEMPTS WHERE state IN (?,?) LIMIT 1",
             arrayOf(MigrationAttemptState.PREPARED.name, MigrationAttemptState.RUNNING.name)).use { !it.moveToFirst() }) {
@@ -278,9 +276,7 @@ internal object Phase36SchemaVersioning {
     }
 
     internal fun fingerprint(plan: List<PlannedMigration>): String = plan.joinToString("|") { familyPlan ->
-        familyPlan.edges.joinToString(">") { edge ->
-            edge.semanticIdentity(familyPlan.contract.dependencies, PLAN_VERSION)
-        }
+        familyPlan.edges.joinToString(">") { edge -> edge.semanticIdentity(familyPlan.contract.dependencies, PLAN_VERSION) }
     }.sha256()
 
     internal fun buildPlan(db: SQLiteDatabase, graph: VersionMigrationGraph): List<PlannedMigration> {
@@ -317,22 +313,32 @@ internal object Phase36SchemaVersioning {
             state TEXT NOT NULL CHECK(state IN ('PREPARED','RUNNING','APPLIED','FAILED')),
             started_at_epoch_ms INTEGER NOT NULL,completed_at_epoch_ms INTEGER,
             failure_code TEXT)""")
-        // Existing accepted databases predate the CHECK constraint. Triggers provide the same
-        // fail-closed enforcement without a destructive metadata-table rebuild.
+        // Existing accepted databases predate the CHECK. These triggers enforce the same legal
+        // state set and transition graph without a destructive metadata-table rebuild.
         db.execSQL("""CREATE TRIGGER IF NOT EXISTS rpgos_migration_attempt_state_insert
             BEFORE INSERT ON $ATTEMPTS WHEN NEW.state NOT IN ('PREPARED','RUNNING','APPLIED','FAILED')
             BEGIN SELECT RAISE(ABORT,'RPGOS-SCHEMA:INVALID_MIGRATION_ATTEMPT_STATE'); END""")
         db.execSQL("""CREATE TRIGGER IF NOT EXISTS rpgos_migration_attempt_state_update
             BEFORE UPDATE OF state ON $ATTEMPTS WHEN NEW.state NOT IN ('PREPARED','RUNNING','APPLIED','FAILED')
             BEGIN SELECT RAISE(ABORT,'RPGOS-SCHEMA:INVALID_MIGRATION_ATTEMPT_STATE'); END""")
+        db.execSQL("""CREATE TRIGGER IF NOT EXISTS rpgos_migration_attempt_transition_update
+            BEFORE UPDATE OF state ON $ATTEMPTS
+            WHEN NOT (
+                (OLD.state='PREPARED' AND NEW.state IN ('RUNNING','FAILED')) OR
+                (OLD.state='RUNNING' AND NEW.state IN ('APPLIED','FAILED'))
+            )
+            BEGIN SELECT RAISE(ABORT,'RPGOS-SCHEMA:ILLEGAL_MIGRATION_ATTEMPT_TRANSITION'); END""")
     }
 
-    private fun validateAllAttemptStates(db: SQLiteDatabase) {
+    private fun validateAllAttemptRows(db: SQLiteDatabase) {
         if (!table(db, ATTEMPTS)) return
-        val legal = MigrationAttemptState.entries.map { it.name }.toSet()
-        db.rawQuery("SELECT DISTINCT state FROM $ATTEMPTS", null).use { c ->
-            while (c.moveToNext()) if (c.getString(0) !in legal) {
-                throw CorruptMigrationAttemptException("ILLEGAL_STATE:${c.getString(0)}")
+        val legal = MigrationAttemptState.values().map { it.name }.toSet()
+        db.rawQuery("SELECT campaign_uid,state FROM $ATTEMPTS", null).use { c ->
+            while (c.moveToNext()) {
+                val campaign = c.getString(0)
+                val state = c.getString(1)
+                if (campaign.isBlank()) throw CorruptMigrationAttemptException("BLANK_CAMPAIGN")
+                if (state !in legal) throw CorruptMigrationAttemptException("ILLEGAL_STATE:$state")
             }
         }
     }
@@ -453,40 +459,6 @@ internal object MigrationSafetyPolicy {
         }
         return uid
     }
-
-    /** Compatibility overload for existing focused tests. */
-    fun requireProtectedSnapshot(
-        db: SQLiteDatabase,
-        campaignUid: String,
-        steps: List<SchemaFamilyContract>,
-        safetySnapshotUid: String?
-    ) {
-        if (steps.none { it.materiality == MigrationMateriality.MATERIAL_DATA_MUTATION }) return
-        val uid = requireNotNull(safetySnapshotUid) { "RPGOS-SCHEMA:MATERIAL_MIGRATION_REQUIRES_SAFETY_SNAPSHOT" }
-        val snapshot = RecoverableSnapshotPolicy.requireRecoverable(db, campaignUid, uid)
-        require(snapshot.pinned || snapshot.kind in setOf(SnapshotKind.MANUAL_BACKUP, SnapshotKind.PRE_RESTORE, SnapshotKind.USER_PINNED)) {
-            "RPGOS-SCHEMA:SAFETY_SNAPSHOT_NOT_PROTECTED"
-        }
-    }
-}
-
-/** Legacy family-order helpers retained only for old focused tests; production uses VersionMigrationGraph. */
-internal object MigrationPlanRegistry {
-    fun order(steps: List<SchemaFamilyContract>): List<SchemaFamilyContract> {
-        require(steps.map { it.family }.toSet().size == steps.size) { "RPGOS-SCHEMA:AMBIGUOUS_MIGRATION_PATH" }
-        val remaining = steps.associateBy { it.family }.toMutableMap()
-        val result = mutableListOf<SchemaFamilyContract>()
-        while (remaining.isNotEmpty()) {
-            val ready = remaining.values.filter { step -> step.dependencies.none { it in remaining } }.sortedBy { it.family.name }
-            require(ready.isNotEmpty()) { "RPGOS-SCHEMA:MIGRATION_DEPENDENCY_CYCLE" }
-            ready.forEach { result += it; remaining.remove(it.family) }
-        }
-        return result
-    }
-
-    fun fingerprint(steps: List<SchemaFamilyContract>): String = steps.joinToString("|") {
-        "${it.family}:${it.minimumSupportedVersion}->${it.currentVersion}:${it.materiality.name}:${it.dependencies.map { d -> d.name }.sorted().joinToString(",")}:v${Phase36SchemaVersioning.PLAN_VERSION}"
-    }.sha256()
 }
 
 private fun String.sha256(): String = MessageDigest.getInstance("SHA-256").digest(toByteArray()).joinToString("") { "%02x".format(it) }
