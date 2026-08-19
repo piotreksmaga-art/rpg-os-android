@@ -1,12 +1,17 @@
 package com.rpgos.app
 
+import android.os.Build
 import android.database.sqlite.SQLiteDatabase
+import java.util.function.UnaryOperator
 
 private data class ActiveGameplayMutation(val db: SQLiteDatabase, val campaignUid: String)
 private val activeGameplayMutation = ThreadLocal<ActiveGameplayMutation?>()
 
 internal object GameplayMutationDatabaseGuards {
     internal const val CONTEXT_TABLE_NAME = "rpgos_gameplay_mutation_context"
+    internal const val RUNTIME_TURN_FUNCTION = "rpgos_runtime_turn_authority"
+    internal const val EVENT_RUNTIME_TURN_GUARD = "rpgos_event_store_runtime_turn_insert"
+    internal const val CANON_DIVERGENCE_RUNTIME_TURN_GUARD = "rpgos_canon_divergence_runtime_turn_insert"
     private val authoritativeTables: List<String> get() = RuntimeTruthLayerRegistry.authoritativePersistentTables().toList()
     private val administrativeOnlyTables: List<String> get() = RuntimeTruthLayerRegistry.administrativeOnlyPersistentTables().toList()
 
@@ -43,6 +48,7 @@ internal object GameplayMutationDatabaseGuards {
         }
         installReceiptEvidenceGuards(db)
         installReplayEvidenceGuards(db)
+        installRuntimeTurnAuthorityGuards(db)
     }
 
     private fun installReceiptEvidenceGuards(db: SQLiteDatabase) {
@@ -73,6 +79,76 @@ WHEN NOT EXISTS(
 BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_COMMIT_EVIDENCE_REQUIRED'); END""".trimIndent())
         db.execSQL("CREATE TRIGGER rpgos_replay_no_update BEFORE UPDATE ON canonical_turn_replay_payloads BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_APPEND_ONLY'); END")
         db.execSQL("CREATE TRIGGER rpgos_replay_no_delete BEFORE DELETE ON canonical_turn_replay_payloads BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_APPEND_ONLY'); END")
+    }
+
+    /**
+     * SQL context rows are intentionally only defense-in-depth. For API 30+ these triggers consult
+     * a connection-local scalar function whose answer comes from the sealed in-memory turn
+     * capability. A raw SQLiteDatabase handle can manufacture TURN/writer rows, but cannot make
+     * this function report authority. On API 28-29 the same triggers are default-deny and are
+     * suspended only while a sealed canonical turn owns the outer write transaction.
+     */
+    private fun installRuntimeTurnAuthorityGuards(db: SQLiteDatabase) {
+        if (Build.VERSION.SDK_INT >= 30) {
+            db.setCustomScalarFunction(RUNTIME_TURN_FUNCTION, UnaryOperator { campaignUid ->
+                if (isCanonicalGameplayMutationActive(db, campaignUid)) "1" else "0"
+            })
+        }
+        installRuntimeTurnAuthorityTrigger(db, EVENT_RUNTIME_TURN_GUARD, CampaignIntelligencePhase30Schema.EVENT_TABLE, null)
+        installRuntimeTurnAuthorityTrigger(
+            db,
+            CANON_DIVERGENCE_RUNTIME_TURN_GUARD,
+            Phase35CanonDivergenceSchema.TABLE,
+            "NEW.provenance_status='RECORDED'"
+        )
+    }
+
+    private fun installRuntimeTurnAuthorityTrigger(
+        db: SQLiteDatabase,
+        triggerName: String,
+        table: String,
+        extraWhen: String?
+    ) {
+        if (!tableExists(db, table)) return
+        db.execSQL("DROP TRIGGER IF EXISTS $triggerName")
+        val authorityMissing = if (Build.VERSION.SDK_INT >= 30) {
+            "$RUNTIME_TURN_FUNCTION(NEW.campaign_uid)<>'1'"
+        } else {
+            "1=1"
+        }
+        val whenClause = listOfNotNull(extraWhen, authorityMissing).joinToString(" AND ")
+        db.execSQL(
+            """CREATE TRIGGER $triggerName BEFORE INSERT ON $table
+WHEN $whenClause
+BEGIN SELECT RAISE(ABORT,'RPGOS-MUTATION-GATE:IN_MEMORY_TURN_AUTHORITY_REQUIRED'); END""".trimIndent()
+        )
+    }
+
+    private fun suspendLegacyRuntimeTurnAuthorityGuards(db: SQLiteDatabase) {
+        if (Build.VERSION.SDK_INT >= 30) return
+        requireCanonicalGameplayMutation(db, activeGameplayMutation.get()?.campaignUid ?: error("RPGOS-MUTATION-GATE:NO_ACTIVE_TURN"))
+        db.execSQL("DROP TRIGGER IF EXISTS $EVENT_RUNTIME_TURN_GUARD")
+        db.execSQL("DROP TRIGGER IF EXISTS $CANON_DIVERGENCE_RUNTIME_TURN_GUARD")
+    }
+
+    private fun restoreLegacyRuntimeTurnAuthorityGuards(db: SQLiteDatabase) {
+        if (Build.VERSION.SDK_INT >= 30) return
+        installRuntimeTurnAuthorityTrigger(db, EVENT_RUNTIME_TURN_GUARD, CampaignIntelligencePhase30Schema.EVENT_TABLE, null)
+        installRuntimeTurnAuthorityTrigger(
+            db,
+            CANON_DIVERGENCE_RUNTIME_TURN_GUARD,
+            Phase35CanonDivergenceSchema.TABLE,
+            "NEW.provenance_status='RECORDED'"
+        )
+    }
+
+    internal fun enterRuntimeTurnAuthority(db: SQLiteDatabase, campaignUid: String) {
+        requireCanonicalGameplayMutation(db, campaignUid)
+        suspendLegacyRuntimeTurnAuthorityGuards(db)
+    }
+
+    internal fun leaveRuntimeTurnAuthority(db: SQLiteDatabase) {
+        restoreLegacyRuntimeTurnAuthorityGuards(db)
     }
 
     fun isInstalled(db: SQLiteDatabase) = tableExists(db, CONTEXT_TABLE_NAME)
@@ -220,13 +296,19 @@ internal fun <T> withCanonicalGameplayMutationForTurn(
     require(previous == null) { "RPGOS-MUTATION-GATE:NESTED_GAMEPLAY_CAPABILITY" }
     GameplayMutationDatabaseGuards.enterTurn(db, campaignUid)
     activeGameplayMutation.set(ActiveGameplayMutation(db, campaignUid))
-    CanonDivergenceTurnBuffer.begin(db, campaignUid)
+    var bufferStarted = false
+    var runtimeAuthorityEntered = false
     return try {
+        CanonDivergenceTurnBuffer.begin(db, campaignUid)
+        bufferStarted = true
+        GameplayMutationDatabaseGuards.enterRuntimeTurnAuthority(db, campaignUid)
+        runtimeAuthorityEntered = true
         val result = block()
         CanonDivergenceTurnBuffer.flush(db, campaignUid)
         result
     } finally {
-        CanonDivergenceTurnBuffer.clear()
+        if (runtimeAuthorityEntered) GameplayMutationDatabaseGuards.leaveRuntimeTurnAuthority(db)
+        if (bufferStarted) CanonDivergenceTurnBuffer.clear()
         activeGameplayMutation.set(previous)
         GameplayMutationDatabaseGuards.leaveTurn(db, campaignUid)
     }
