@@ -217,9 +217,15 @@ internal fun <T> withCanonicalGameplayMutationForTurn(
     require(previous == null) { "RPGOS-MUTATION-GATE:NESTED_GAMEPLAY_CAPABILITY" }
     GameplayMutationDatabaseGuards.enterTurn(db, campaignUid)
     activeGameplayMutation.set(ActiveGameplayMutation(db, campaignUid))
+    CanonDivergenceTurnBuffer.begin(db, campaignUid)
     return try {
-        block()
+        val result = block()
+        // The canonical turn block appends required Events after domain changes. Flush only here,
+        // while the sealed in-memory capability and exact DB/campaign binding are still active.
+        CanonDivergenceTurnBuffer.flush(db, campaignUid)
+        result
     } finally {
+        CanonDivergenceTurnBuffer.clear()
         activeGameplayMutation.set(previous)
         GameplayMutationDatabaseGuards.leaveTurn(db, campaignUid)
     }
