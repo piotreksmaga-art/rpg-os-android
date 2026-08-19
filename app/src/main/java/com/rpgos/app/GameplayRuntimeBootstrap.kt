@@ -34,23 +34,25 @@ internal object GameplayRuntimeBootstrap {
         try {
             Phase36SchemaVersioning.requireNoUnsupportedFuture(db)
 
-            // Upgrade the previously accepted Phase1-34 schemas first. Existing guarded databases
-            // receive the ordinary ADMIN capability only for these legacy/current-schema writes.
-            val ensureAcceptedSchemas = {
+            // Only structural/additive scaffolding is legal before the durable Phase36 lifecycle.
+            // In particular, a physical Event v1->v2 rewrite is deliberately deferred and is
+            // executed by the explicit Phase36 EVENT migration edge after PREPARED is durable.
+            val ensureAcceptedStructuralSchemas = {
                 CurrentSchema.ensure(db, campaignUid)
                 TurnTransactionReceiptSchema.ensureReady(db)
-                CampaignIntelligencePhase30Schema.ensureActivated(db, campaignUid)
+                Phase36EventSchemaScaffold.ensureWithoutMaterialMigration(db, campaignUid)
                 CampaignCausalGraphSchema.ensureReady(db)
                 CampaignSnapshotSchema.ensureReady(db)
             }
             if (GameplayMutationDatabaseGuards.isInstalled(db)) {
-                withAdministrativeMutationAuthority(db, campaignUid) { ensureAcceptedSchemas() }
+                withAdministrativeMutationAuthority(db, campaignUid) { ensureAcceptedStructuralSchemas() }
             } else {
-                ensureAcceptedSchemas()
+                // Legacy DB without guards still receives explicit transaction boundaries for each
+                // destructive migration inside Phase36. This pre-pass is structural only.
+                ensureAcceptedStructuralSchemas()
             }
 
-            // Phase36 owns its own durable PREPARED/RUNNING/APPLIED transaction. Do not nest it
-            // inside the broad ADMIN transaction above or an interrupted attempt would be erased.
+            // Phase36 owns durable PREPARED/RUNNING/APPLIED evidence and all material migration.
             check(!db.inTransaction()) { "RPGOS-SCHEMA:PHASE36_REQUIRES_TOP_LEVEL_MIGRATION_BOUNDARY" }
             Phase36SchemaVersioning.ensureReady(db, campaignUid)
 
