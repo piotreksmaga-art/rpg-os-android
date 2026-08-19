@@ -37,11 +37,9 @@ internal object GameplayMutationDatabaseGuards {
         db.execSQL("DROP TRIGGER IF EXISTS rpgos_turn_receipts_commit_insert")
         db.execSQL("DROP TRIGGER IF EXISTS rpgos_turn_receipts_no_update")
         db.execSQL("DROP TRIGGER IF EXISTS rpgos_turn_receipts_no_delete")
-        db.execSQL("""CREATE TRIGGER rpgos_turn_receipts_commit_insert BEFORE INSERT ON turn_transaction_receipts
-WHEN NOT EXISTS(
-    SELECT 1 FROM $CONTEXT_TABLE_NAME
-    WHERE campaign_uid=NEW.campaign_uid AND capability_kind IN ('TURN','ADMIN')
-) AND NOT EXISTS(
+        val replayExists = tableExists(db, "canonical_turn_replay_payloads")
+        val evidenceAlternative = if (replayExists) {
+            """OR NOT EXISTS(
     SELECT 1 FROM canonical_turn_replay_payloads r
     WHERE r.transaction_uid=NEW.transaction_uid
       AND r.campaign_uid=NEW.campaign_uid
@@ -51,7 +49,13 @@ WHEN NOT EXISTS(
       AND r.semantic_fingerprint=NEW.semantic_fingerprint
       AND r.required_event_count=NEW.required_event_count
       AND r.required_event_manifest_fingerprint=NEW.required_event_manifest_fingerprint
-)
+)"""
+        } else ""
+        db.execSQL("""CREATE TRIGGER rpgos_turn_receipts_commit_insert BEFORE INSERT ON turn_transaction_receipts
+WHEN NOT EXISTS(
+    SELECT 1 FROM $CONTEXT_TABLE_NAME
+    WHERE campaign_uid=NEW.campaign_uid AND capability_kind='TURN'
+) $evidenceAlternative
 BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:COMMIT_EVIDENCE_REQUIRED'); END""".trimIndent())
         db.execSQL("CREATE TRIGGER rpgos_turn_receipts_no_update BEFORE UPDATE ON turn_transaction_receipts BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:APPEND_ONLY'); END")
         db.execSQL("CREATE TRIGGER rpgos_turn_receipts_no_delete BEFORE DELETE ON turn_transaction_receipts BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:APPEND_ONLY'); END")
@@ -65,11 +69,12 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:COMMIT_EVIDENCE_REQUIRED'); END""".
         db.execSQL("""CREATE TRIGGER rpgos_replay_commit_insert BEFORE INSERT ON canonical_turn_replay_payloads
 WHEN NOT EXISTS(
     SELECT 1 FROM $CONTEXT_TABLE_NAME
-    WHERE campaign_uid=NEW.campaign_uid AND capability_kind IN ('TURN','ADMIN')
+    WHERE campaign_uid=NEW.campaign_uid AND capability_kind='TURN'
 ) AND (
     NEW.required_event_count <= 0 OR
     (SELECT COUNT(*) FROM canonical_gameplay_events e
-      WHERE e.campaign_uid=NEW.campaign_uid AND e.transaction_uid=NEW.transaction_uid) <> NEW.required_event_count
+      WHERE e.campaign_uid=NEW.campaign_uid AND e.transaction_uid=NEW.transaction_uid) <> NEW.required_event_count OR
+    EXISTS(SELECT 1 FROM turn_transaction_receipts r WHERE r.transaction_uid=NEW.transaction_uid)
 )
 BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_COMMIT_EVIDENCE_REQUIRED'); END""".trimIndent())
         db.execSQL("CREATE TRIGGER rpgos_replay_no_update BEFORE UPDATE ON canonical_turn_replay_payloads BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_APPEND_ONLY'); END")
