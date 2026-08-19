@@ -16,7 +16,17 @@ internal object GameplayMutationDatabaseGuards {
 
     fun ensureInstalled(db: SQLiteDatabase) {
         RuntimeTruthLayerRegistry.validateCanonicalInventory()
-        db.execSQL("CREATE TABLE IF NOT EXISTS $CONTEXT_TABLE_NAME(campaign_uid TEXT PRIMARY KEY,capability_kind TEXT NOT NULL CHECK(capability_kind IN ('TURN','ADMIN')))")
+        db.execSQL("DROP TABLE IF EXISTS ${CONTEXT_TABLE_NAME}_v32_rebuild")
+        if (!contextSupportsCommitEvidence(db)) {
+            db.execSQL("CREATE TABLE ${CONTEXT_TABLE_NAME}_v32_rebuild(campaign_uid TEXT PRIMARY KEY,capability_kind TEXT NOT NULL CHECK(capability_kind IN ('TURN','ADMIN','COMMIT_EVIDENCE')))")
+            if (tableExists(db, CONTEXT_TABLE_NAME)) {
+                db.execSQL("INSERT OR IGNORE INTO ${CONTEXT_TABLE_NAME}_v32_rebuild(campaign_uid,capability_kind) SELECT campaign_uid,capability_kind FROM $CONTEXT_TABLE_NAME WHERE capability_kind IN ('TURN','ADMIN')")
+                db.execSQL("DROP TABLE $CONTEXT_TABLE_NAME")
+            }
+            db.execSQL("ALTER TABLE ${CONTEXT_TABLE_NAME}_v32_rebuild RENAME TO $CONTEXT_TABLE_NAME")
+        } else {
+            db.execSQL("CREATE TABLE IF NOT EXISTS $CONTEXT_TABLE_NAME(campaign_uid TEXT PRIMARY KEY,capability_kind TEXT NOT NULL CHECK(capability_kind IN ('TURN','ADMIN','COMMIT_EVIDENCE')))")
+        }
         authoritativeTables.filter { tableExists(db, it) }.forEach { table ->
             val column = campaignColumn(db, table)
             createAuthorityGuard(db, table, column, "INSERT", "NEW")
@@ -37,25 +47,11 @@ internal object GameplayMutationDatabaseGuards {
         db.execSQL("DROP TRIGGER IF EXISTS rpgos_turn_receipts_commit_insert")
         db.execSQL("DROP TRIGGER IF EXISTS rpgos_turn_receipts_no_update")
         db.execSQL("DROP TRIGGER IF EXISTS rpgos_turn_receipts_no_delete")
-        val replayExists = tableExists(db, "canonical_turn_replay_payloads")
-        val evidenceAlternative = if (replayExists) {
-            """AND NOT EXISTS(
-    SELECT 1 FROM canonical_turn_replay_payloads r
-    WHERE r.transaction_uid=NEW.transaction_uid
-      AND r.campaign_uid=NEW.campaign_uid
-      AND r.turn_uid=NEW.turn_uid
-      AND r.command_uid=NEW.command_uid
-      AND r.commit_order=NEW.commit_order
-      AND r.semantic_fingerprint=NEW.semantic_fingerprint
-      AND r.required_event_count=NEW.required_event_count
-      AND r.required_event_manifest_fingerprint=NEW.required_event_manifest_fingerprint
-)"""
-        } else ""
         db.execSQL("""CREATE TRIGGER rpgos_turn_receipts_commit_insert BEFORE INSERT ON turn_transaction_receipts
 WHEN NOT EXISTS(
     SELECT 1 FROM $CONTEXT_TABLE_NAME
-    WHERE campaign_uid=NEW.campaign_uid AND capability_kind='TURN'
-) $evidenceAlternative
+    WHERE campaign_uid=NEW.campaign_uid AND capability_kind='COMMIT_EVIDENCE'
+)
 BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:COMMIT_EVIDENCE_REQUIRED'); END""".trimIndent())
         db.execSQL("CREATE TRIGGER rpgos_turn_receipts_no_update BEFORE UPDATE ON turn_transaction_receipts BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:APPEND_ONLY'); END")
         db.execSQL("CREATE TRIGGER rpgos_turn_receipts_no_delete BEFORE DELETE ON turn_transaction_receipts BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:APPEND_ONLY'); END")
@@ -69,12 +65,7 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-TURN-RECEIPT:COMMIT_EVIDENCE_REQUIRED'); END""".
         db.execSQL("""CREATE TRIGGER rpgos_replay_commit_insert BEFORE INSERT ON canonical_turn_replay_payloads
 WHEN NOT EXISTS(
     SELECT 1 FROM $CONTEXT_TABLE_NAME
-    WHERE campaign_uid=NEW.campaign_uid AND capability_kind='TURN'
-) AND (
-    NEW.required_event_count <= 0 OR
-    (SELECT COUNT(*) FROM canonical_gameplay_events e
-      WHERE e.campaign_uid=NEW.campaign_uid AND e.transaction_uid=NEW.transaction_uid) <> NEW.required_event_count OR
-    EXISTS(SELECT 1 FROM turn_transaction_receipts r WHERE r.transaction_uid=NEW.transaction_uid)
+    WHERE campaign_uid=NEW.campaign_uid AND capability_kind='COMMIT_EVIDENCE'
 )
 BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_COMMIT_EVIDENCE_REQUIRED'); END""".trimIndent())
         db.execSQL("CREATE TRIGGER rpgos_replay_no_update BEFORE UPDATE ON canonical_turn_replay_payloads BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_APPEND_ONLY'); END")
@@ -91,10 +82,10 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_COMMIT_EVIDENCE_REQUIRED'); END"
         ).use { it.moveToFirst() }
     }
 
-    fun isTurnOrAdminActive(db: SQLiteDatabase, campaignUid: String): Boolean {
+    fun isCommitEvidenceActive(db: SQLiteDatabase, campaignUid: String): Boolean {
         if (!isInstalled(db)) return false
         return db.rawQuery(
-            "SELECT 1 FROM $CONTEXT_TABLE_NAME WHERE campaign_uid=? AND capability_kind IN ('TURN','ADMIN') LIMIT 1",
+            "SELECT 1 FROM $CONTEXT_TABLE_NAME WHERE campaign_uid=? AND capability_kind='COMMIT_EVIDENCE' LIMIT 1",
             arrayOf(campaignUid)
         ).use { it.moveToFirst() }
     }
@@ -131,6 +122,15 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_COMMIT_EVIDENCE_REQUIRED'); END"
         leave(db, campaignUid, "ADMIN")
     }
 
+    fun enterCommitEvidence(db: SQLiteDatabase, campaignUid: String) {
+        require(db.inTransaction()) { "commit-evidence capability requires outer transaction" }
+        enter(db, campaignUid, "COMMIT_EVIDENCE")
+    }
+
+    fun leaveCommitEvidence(db: SQLiteDatabase, campaignUid: String) {
+        leave(db, campaignUid, "COMMIT_EVIDENCE")
+    }
+
     private fun enter(db: SQLiteDatabase, campaignUid: String, kind: String) {
         db.execSQL("INSERT INTO $CONTEXT_TABLE_NAME(campaign_uid,capability_kind) VALUES(?,?)", arrayOf(campaignUid, kind))
     }
@@ -160,6 +160,13 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-G32:MECHANICS_DEFINITION_REQUIRES_ADMIN'); END""
         )
     }
 
+    private fun contextSupportsCommitEvidence(db: SQLiteDatabase): Boolean {
+        if (!tableExists(db, CONTEXT_TABLE_NAME)) return false
+        return db.rawQuery("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", arrayOf(CONTEXT_TABLE_NAME)).use { c ->
+            c.moveToFirst() && !c.isNull(0) && c.getString(0).contains("COMMIT_EVIDENCE")
+        }
+    }
+
     private fun campaignColumn(db: SQLiteDatabase, table: String): String? {
         val columns = mutableSetOf<String>()
         db.rawQuery("PRAGMA table_info($table)", null).use { c -> while (c.moveToNext()) columns += c.getString(1) }
@@ -179,6 +186,13 @@ internal fun requireCanonicalGameplayMutation(db: SQLiteDatabase, campaignUid: S
     val active = activeGameplayMutation.get()
     require(active != null && active.db === db && active.campaignUid == campaignUid) {
         "RPGOS-MUTATION-GATE:CANONICAL_TURN_TRANSACTION_REQUIRED"
+    }
+}
+
+internal fun requireCanonicalCommitEvidence(db: SQLiteDatabase, campaignUid: String) {
+    if (!GameplayMutationDatabaseGuards.isInstalled(db)) return
+    require(GameplayMutationDatabaseGuards.isCommitEvidenceActive(db, campaignUid)) {
+        "RPGOS-TURN-RECEIPT:COMMIT_EVIDENCE_REQUIRED"
     }
 }
 
@@ -209,6 +223,19 @@ internal fun <T> withCanonicalGameplayMutationForTurn(
         activeGameplayMutation.set(previous)
         GameplayMutationDatabaseGuards.leaveTurn(db, campaignUid)
     }
+}
+
+internal fun <T> withCanonicalCommitEvidenceForTurn(
+    db: SQLiteDatabase,
+    campaignUid: String,
+    canonicalSeal: Any,
+    block: () -> T
+): T {
+    require(TurnTransactionBoundary.acceptsCanonicalSeal(canonicalSeal)) { "RPGOS-MUTATION-GATE:INVALID_COMMIT_EVIDENCE_CAPABILITY" }
+    require(db.inTransaction()) { "RPGOS-MUTATION-GATE:COMMIT_EVIDENCE_REQUIRES_TRANSACTION" }
+    require(activeGameplayMutation.get() == null) { "RPGOS-MUTATION-GATE:COMMIT_EVIDENCE_MUST_FOLLOW_DOMAIN_WRITES" }
+    GameplayMutationDatabaseGuards.enterCommitEvidence(db, campaignUid)
+    return try { block() } finally { GameplayMutationDatabaseGuards.leaveCommitEvidence(db, campaignUid) }
 }
 
 internal fun <T> withAdministrativeMutationAuthority(db: SQLiteDatabase, campaignUid: String, block: () -> T): T {
