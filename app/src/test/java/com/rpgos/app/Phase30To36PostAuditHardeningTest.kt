@@ -296,11 +296,25 @@ class Phase30To36PostAuditHardeningTest {
             CampaignScopedDomainRef("C1",DomainRef(PlayerResolutionReferenceKinds.FINANCIAL_ACCOUNT,"B")),
             CampaignScopedDomainRef("C1",DomainRef(PlayerResolutionReferenceKinds.CURRENCY,"CUR"))
         )
-        val engine=PlayerDomainEngine(PlayerResolutionComponentRegistry.of(listOf(DivergenceTruthComponent())))
-        val context=PlayerResolutionContext.createUnboundGeneric("C1",actor,refs)
+        val binding=WorldPackRuleBinding("WORLD-A","1")
+        val engine=PlayerDomainEngine(
+            PlayerResolutionComponentRegistry.of(listOf(DivergenceTruthComponent())),
+            worldRuleRegistry=WorldRuleProviderRegistry.of(listOf(PostAuditCanonProvider())),
+            worldPackAuthority=WorldPackAuthoritySnapshot.single("C1",binding)
+        )
+        val context=PlayerResolutionContext.create("C1",actor,refs,worldRuleMode=WorldRuleMode.Bound(binding))
         return when(val admission=CampaignMutationBoundary.resolveAndAdmit("C1",engine,command,context)){
             is CampaignMutationAdmission.Accepted->admission.proposal
             is CampaignMutationAdmission.Rejected->error("admission rejected: ${admission.reasonUid}")
+        }
+    }
+
+    private class PostAuditCanonProvider : WorldRuleProvider("POST-AUDIT-CANON", "1", "WORLD-A", "1") {
+        override fun evaluate(request: WorldRuleRequest): WorldRuleDecision {
+            val evidence = if (request.stage == WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK) {
+                listOf(CanonExpectationEvidence.uid(CanonReference("CHARACTER", "P1", "CANON-WP-A"), "CANON"))
+            } else emptyList()
+            return WorldRuleDecision.Allowed.create("RPGOS-RULE:POST-AUDIT-CANON", evidence)
         }
     }
 
