@@ -19,7 +19,9 @@ internal object CampaignRuntimeLifecycleLock {
 
     fun <T> withRecovery(campaignUid: String, block: () -> T): T {
         require(campaignUid.isNotBlank())
-        val write = lock(campaignUid).writeLock()
+        val lifecycle = lock(campaignUid)
+        require(lifecycle.readHoldCount == 0) { "RPGOS-G32:GAMEPLAY_CANNOT_INVOKE_ADMIN_AUTHORITY" }
+        val write = lifecycle.writeLock()
         write.lock()
         return try { block() } finally { write.unlock() }
     }
