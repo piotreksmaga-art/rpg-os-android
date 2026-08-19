@@ -32,6 +32,16 @@ jobs:
         with:
           gradle-version: '9.5.0'
 
+      - name: Apply legacy Phase36 compatibility repair
+        run: python3 tools/chat1_legacy_phase36_compat_patch.py
+      - name: Publish repaired production code
+        run: |
+          git config user.name "chat1-rpgos-repair"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/src/main
+          git diff --cached --quiet || git commit -m "fix: preserve legacy receipt migration through Phase 36 lifecycle [skip ci]"
+          git push origin HEAD:chat1-phase35-36-post-audit-repair
+
       - name: Targeted post-audit matrix
         id: targeted
         continue-on-error: true
@@ -71,7 +81,7 @@ jobs:
             grep -E 'tests completed|BUILD SUCCESSFUL|BUILD FAILED|FAILED$' /tmp/chat1_targeted.log | tail -n 80 || true
             echo "--- FULL SUMMARY ---"
             if [ -f /tmp/chat1_full.log ]; then grep -E 'tests completed|BUILD SUCCESSFUL|BUILD FAILED|FAILED$' /tmp/chat1_full.log | tail -n 120 || true; fi
-            echo "--- TARGETED FAILURES ---"
+            echo "--- FAILURES ---"
             if [ -d app/build/test-results/testDebugUnitTest ]; then grep -R -n -E '<failure|<error' app/build/test-results/testDebugUnitTest | head -n 120 || true; fi
           } > tools/chat1_phase35_36_final_validation.txt
           git add tools/chat1_phase35_36_final_validation.txt
