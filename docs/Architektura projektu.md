@@ -399,3 +399,188 @@ VALIDATORS+TRANSACTION = WHAT BECOMES TRUE
 Po milionach słów system ma odpowiadać: co/kiedy/gdzie/kto/dlaczego/co zmieniło/kto wie/czy nadal prawda/skąd to wiemy; oraz wyjaśniać statystyki, umiejętności, techniki, przedmioty, pieniądze, własność, relacje, wojny i altered canon bez czytania całej kampanii od początku.
 
 Najpierw prawda. Potem integralność stanu. Potem mechanika. Potem pamięć/retrieval. Potem inteligencja świata. Na końcu narracyjna finezja i content.
+
+## 51. Future scope lock po zaakceptowanym Phase 36 — CANONICAL
+Poniższe sekcje rozszerzają wyłącznie przyszły zakres projektu od Phase 37 wzwyż oraz rozszerzenia post-roadmap. Nie zmieniają zakresu, semantyki, statusu ani evidence żadnej zaakceptowanej Phase 1–36.
+
+Canonical accepted runtime through Phase 36 pozostaje historycznym runtime acceptance pointem. Późniejsze zmiany dokumentacyjne i przyszłe wymagania nie są retroaktywnie częścią acceptance wcześniejszych faz.
+
+Kolejność implementacyjna nadal wynika z `docs/Roadmap.md`: najpierw najwcześniejsza brakująca zależność, repository-first audit, potem minimalny bezpieczny delta. Future AI, NPC, world-simulation ani World Pack Creator nie są zgodą na pominięcie Phase 37–84.
+
+## 52. Hybrid Local-First AI — przyszły canonical target
+Docelowa architektura AI jest **HYBRID LOCAL-FIRST** pod jednym provider-independent kontraktem. Local GM jest podstawowym wykonawcą normalnych tur i po zainstalowaniu zgodnego lokalnego modelu musi wystarczać do kontynuowania kampanii bez Internetu. Chmura jest opcjonalnym wzmacniaczem jakości, a nie drugim RPG OS i nie warunkiem dalszej gry.
+
+Globalny invariant:
+
+```text
+LOCAL AI MUST BE SUFFICIENT TO CONTINUE THE CAMPAIGN.
+CLOUD AI MAY IMPROVE QUALITY, BUT CLOUD UNAVAILABILITY MUST NEVER BLOCK PLAY.
+```
+
+Docelowy podział:
+
+```text
+RPG OS CORE
+  -> AI orchestration
+       -> AiProvider / equivalent provider-independent contract
+            +-- Local execution
+            |    -> LocalInferenceRuntime
+            |    -> RuntimeBackendSelector
+            |    -> CPU / GPU / supported NPU / AUTO
+            `-- Optional cloud execution
+                 -> cloud provider adapter(s)
+```
+
+Nie tworzymy osobnych `LocalGameMaster` i `CloudGameMaster` posiadających własną pamięć, mechanikę, prawdę lub transaction path. Provider, model, runtime i hardware backend są wymienne; ich zmiana nie może wymagać migracji kampanii.
+
+### 52.1 Workload, routing i odpowiedzialności
+Przyszły routing rozróżnia co najmniej rodzaj pracy od konkretnego providera/modelu. Logiczne workloady mogą obejmować m.in. `TURN_GM`, `DIRECTOR_CONTENT`, `WORLD_RESEARCH`, `LARGE_WORLD_EXPANSION` i bounded validation/repair assistance tam, gdzie właściwa faza na to pozwala.
+
+Normalna tura, dialog, reakcja NPC, scena i podstawowa narracja preferują lokalny execution path. Mocniejszy cloud może być używany oszczędnie do long-horizon planning, arc/quest seeds, faction conflicts, NPC agenda candidates, foreshadowing, anti-repetition/pacing assistance i dużych zadań badawczych, ale jego wynik pozostaje proposal/candidate.
+
+`CloudInvocationPolicy` lub równoważna polityka nie może być sztywnym „co N tur”. Powinna być event-driven, budget-aware, privacy-aware i user-consent-aware oraz brać pod uwagę m.in. workload, cooldown, quota/cost, network, privacy mode i user settings.
+
+Failover:
+
+```text
+cloud disabled / no network / timeout / 429 / quota exhausted /
+credential removed / provider unavailable
+-> CONTINUE LOCALLY
+```
+
+Privacy constraints mają pierwszeństwo przed availability. Provider failover nie może po cichu wysłać kampanii do providera o gorszej dozwolonej klasie prywatności.
+
+### 52.2 Cloud context, credentials i provenance
+Cloud nie dostaje całego Save/Chronicle/DB tylko dlatego, że ma duże okno kontekstu. Przyszły `CloudContextBuilder` / `CloudContextSanitizer` lub równoważna granica tworzy minimalny, zadaniowy i jawnie dozwolony kontekst.
+
+Credential/API key/OAuth state jest infrastrukturą auth/transport i nigdy nie należy do Campaign State, Save, Chronicle ani World Pack authority. Usunięcie klucza/providera nie może uszkodzić kampanii.
+
+Każdy cloud result powinien zachować minimum provenance wykonania: provider/model/workload, czas, contract/profile version, privacy mode i validation status. Provenance nie nadaje wynikowi authority.
+
+### 52.3 Optional Cloud Director
+Cloud Director jest przyszłym wariantem wykonania warstwy Director, a nie obowiązkowym elementem bieżącej turn transaction. Może generować `DirectorBundle` lub równoważną paczkę kandydatów: arc seeds, quest seeds, NPC agenda candidates, faction conflicts, world-event candidates, foreshadowing i pacing suggestions.
+
+```text
+CLOUD/DIRECTOR OUTPUT = CANDIDATE
+CLOUD/DIRECTOR OUTPUT != FACT
+CLOUD/DIRECTOR OUTPUT != COMMIT
+```
+
+Cloud enrichment może być deferred/asynchronous względem bieżącej tury. Spóźniony wynik nie może przepisać przeszłego COMMIT ani stać się authoritative state poza legalną validation/promotion/transaction path. Phase 48 dostarcza provider/execution foundation, Phase 65 semantics Directora, a Phase 79 dojrzały workload/provider/model/runtime routing.
+
+## 53. NPC individuality, personality i social behavior — przyszły canonical target
+NPC nie jest tylko rekordem wiedzy ani chwilową personą wygenerowaną przez LLM. Istotny NPC jest trwałym aktorem świata z własną tożsamością psychologiczną, wartościami, celami, relacjami, pamięcią, wiedzą i historią zachowania.
+
+Przy utworzeniu NPC indywidualizacja powinna wynikać z World Pack archetype/population rules, kultury/organizacji, roli społecznej, backgroundu, life-history constraints oraz kontrolowanej losowości/stable seed. Wynikowe cechy są utrwalane lub odtwarzalne deterministycznie; model nie losuje od nowa osobowości przy każdym spotkaniu.
+
+Należy rozdzielić co najmniej:
+- `PERSONALITY / TRAITS` — względnie trwałe predyspozycje;
+- `VALUES / FEARS / GOALS` — co NPC ceni, czego unika i do czego dąży;
+- `RELATIONSHIP STATE` — stosunek do konkretnej osoby/grupy;
+- `EMOTIONAL STATE` — krótkoterminowy lęk, gniew, żal, radość, stres, zazdrość, pewność itd.;
+- `KNOWLEDGE / BELIEFS` — co NPC wie, podejrzewa lub błędnie uważa;
+- `MEMORY` — co pamięta jako istotne dla siebie;
+- `SOCIAL ROLE / ORGANIZATION / CULTURE` — obowiązki, normy i incentives;
+- `RESOURCES / CAPABILITIES / CURRENT SITUATION` — realne możliwości działania.
+
+Canonical decision semantics:
+
+```text
+NPC DECISION
+= personality
++ values/goals/fears
++ emotional state
++ relationships
++ knowledge/beliefs
++ memory
++ social/organizational constraints
++ resources/capabilities
++ current situation
++ World Pack rules
++ controlled randomness where legal
+```
+
+`PERSONALITY != RELATIONSHIP != EMOTIONAL STATE`, `KNOWLEDGE != DECISION`, a `AI PROPOSAL != DECISION AUTHORITY`. Ten sam bodziec może legalnie prowadzić dwóch NPC do różnych decyzji, jeżeli różnica wynika z ich trwałego stanu i historii.
+
+Długoterminowa zmiana osobowości jest dozwolona tylko jako bounded adaptation wynikająca z legalnej historii: traumy, wieloletnich doświadczeń, sukcesów/porażek, relacji lub innych committed przyczyn. Nie wolno retroaktywnie zmieniać charakteru dlatego, że AI potrzebuje zwrotu fabularnego.
+
+Reputacja nie jest magiczną globalną liczbą dostępną wszystkim. NPC może posiadać osobiste belief o reputacji gracza nabyte przez spotkanie, plotkę, organizację, media, raport lub inne legalne acquisition provenance. Różne NPC mogą mieć sprzeczne belief o tej samej osobie.
+
+Player-facing context nie pokazuje domyślnie ukrytych numeric traits/emotions NPC. Widoczność wynika z Phase 38, obserwowalnych zachowań i World Pack mechanics.
+
+Skalowanie powinno respektować LOD: tłum może używać agregatów/archetypów, minor NPC ograniczonego profilu, persistent NPC pełniejszej osobowości, a major NPC pełnej pamięci/agenda/Director attention. Materializacja nie może fabrykować szczegółowej nieistniejącej historii; brak provenance pozostaje `UNKNOWN_NOT_RECORDED` lub równoważnym stanem.
+
+## 54. Living World / Autonomous World Simulation — przyszły canonical target
+Globalny invariant:
+
+```text
+THE WORLD DOES NOT WAIT FOR THE PLAYER.
+```
+
+Świat kampanii istnieje i rozwija się niezależnie od bezpośredniej obecności gracza. Gracz jest jednym z aktorów świata, nie jego jedynym zegarem ani jedyną przyczyną zdarzeń.
+
+Autonomiczny runtime powinien obsługiwać aktywnych `WorldActor`/równoważne byty, takie jak NPC, rodziny, klany, organizacje, gildie, firmy, miasta, państwa, armie czy inne podmioty definiowane przez World Pack. Mogą posiadać goals, resources, capabilities, relationships, knowledge, constraints, projects i pressures.
+
+Długotrwałe `WorldProcess`/równoważne procesy mogą obejmować m.in. wojnę, handel, migrację, politykę, faction expansion, research, budowę, epidemię, przestępczość, gospodarkę, demografię, dyplomację, szpiegostwo i inne world-specific procesy. Proces przechowuje przyczyny, uczestników, zasoby, stan/progress, constraints i następny punkt oceny; nie przechowuje z góry gwarantowanego fabularnego outcome.
+
+Scheduler planuje **evaluation points**, nie przeznaczenie. `EVALUATE_CRISIS` jest prawidłowym future checkpointem; `KING_DIES_IN_20_DAYS` nie jest legalne, jeżeli rezultat nie jest już deterministycznie przesądzony przez committed state/rules.
+
+### 54.1 LOD i multi-rate simulation
+World Simulation używa dynamicznego LOD oraz różnych częstotliwości aktualizacji. Scena/nearby NPC mogą działać per action/turn, lokalny region per hour/day, strategiczne organizacje/economy per day/week, demografia i wolne procesy per month/season/year. Nie symulujemy każdego farmera co turę.
+
+LOD0 = scena szczegółowa; LOD1 = lokalny region; LOD2 = organizacje/państwa strategicznie; LOD3 = odległy świat jako agregaty/trendy/pressures. Gdy obszar staje się ważny, system materializuje dodatkowy szczegół zgodny z już committed strategiczną historią zamiast wymyślać przeszłość od nowa.
+
+Background population i drobne podmioty mogą być agregowane. Materializacja konkretnego NPC zachowuje tylko legalnie znane/wywiedzione tło; nie generuje retroaktywnie fikcyjnych eventów i provenance.
+
+### 54.2 Causality, conservation i knowledge propagation
+Wojny, gospodarka, projekty, armie, populacja, zasoby, handel i organizacje muszą zostawiać spójne skutki. Wymagana jest odpowiednia dla domeny conservation/invariant validation: straty, wydatki, zużycie zasobów, migracja, narodziny/śmierć, produkcja i transfery nie mogą znikać z modelu bez przyczyny.
+
+Ważne background changes generują Event/Causal history; mikroaktywność pozostaje agregowana. Po latach system ma umieć wyjaśnić, dlaczego państwo upadło albo organizacja urosła, przez causal chain, a nie przez „AI tak napisało”.
+
+FACT świata nie staje się automatycznie PLAYER/NPC KNOWLEDGE. Informacja również propaguje się w czasie przez dozwolone kanały: observation, communication, messenger, rumor, media, organization, espionage, world-specific communication itd. World Pack określa realne możliwości/prędkość komunikacji.
+
+Quest/opportunity powinien móc wynikać z realnego world state (`shortage -> guild need -> opportunity`) zamiast być wyłącznie arbitralnie generowanym contentem.
+
+### 54.3 Director vs Simulation
+`WORLD SIMULATION = WHAT ACTUALLY DEVELOPS`.
+`DIRECTOR = WHAT DESERVES ATTENTION`.
+
+Director ani Cloud Director nie tworzy wojny, kryzysu czy śmierci tylko dlatego, że potrzebuje ciekawszej fabuły. Może podnieść relevance istniejącego pressure/process, zaproponować bounded future candidate lub poprosić o deeper simulation, lecz committed reality musi wynikać z legalnego stanu, reguł, causal history, decisions i transaction path.
+
+### 54.4 Required future stress scenarios
+Roadmap acceptance dla odpowiednich późniejszych faz powinna zawierać co najmniej:
+- `WORLD_WITHOUT_PLAYER`: wieloletnia symulacja bez aktywnej ingerencji gracza powoduje legalne starzenie, zgony/narodziny tam gdzie wspierane, postęp projektów, zmiany organizacji/economy/politics/wars, legalną propagację wiedzy i replayable causal history;
+- `SAME_WORLD_TWO_CAMPAIGNS`: dwie kampanie z tego samego World Pack/initial seed mogą diverge po różnych player actions, a różnice muszą być wyjaśnialne przez committed actions + world processes + controlled randomness + causal history;
+- save/load/replay po background simulation zachowuje dokładnie tę samą authoritative reality;
+- brak player interaction nie może prowadzić do world freeze, a brak cloud providera nie może zatrzymać lokalnej world simulation.
+
+## 55. World Pack Creator — POST-ROADMAP EXTENSION ONLY
+Produkcyjny World Pack Creator rozpoczyna się **dopiero po globalnym ukończeniu i zaakceptowaniu Phase 1–84**, chyba że użytkownik jawnie zmieni kolejność w przyszłości. Nie rezerwujemy dziś automatycznie numeru `Phase 85`.
+
+World Pack Creator jest authoring/compiler layer nad ukończonym Core, a nie drugim RPG OS:
+
+```text
+COMPLETED RPG OS CORE (Phase 1–84)
+        ^
+        | final canonical contracts
+WORLD PACK CREATOR
+        |
+        v
+VALIDATED WORLD PACK ARTIFACT
+        |
+        v
+existing World Pack validation / compatibility / activation
+        |
+        v
+CAMPAIGN BOOTSTRAP THROUGH FINAL CORE
+```
+
+WPC nie implementuje własnego Event Store, Memory, Retriever, NPC Brain, World Simulation, Save/Load, Transaction Engine ani bezpośrednich losowych zapisów do SQLite. Build Workspace nie jest Campaign Repository i draft data nie jest aktywnym canonem.
+
+WPC może kompilować canon/definitions, entities, locations, organizations, temporal facts, relationships, causal baseline, supported World Rules, initial knowledge seeds, simulation baseline metadata, provenance/localization i Scenario Templates. Nie zapisuje jako World Pack authority Campaign Event history, Campaign Memory, Chronicle, current NPC decisions, current player state ani campaign divergence.
+
+Po roadmapie WPC korzysta z tego samego finalnego `AiProvider`/Model Router/workload routing co reszta systemu. Local authoring/research może działać offline tam, gdzie możliwe; opcjonalny cloud może wspierać research/design tylko za zgodą i z minimalizacją danych. Każdy AI result pozostaje typed proposal do build-time validation.
+
+Generated, AI-assisted, imported i hand-authored pack po kompilacji używają jednego finalnego runtime World Pack contractu. Candidate pack przechodzi staging -> compile -> validation -> compatibility -> explicit/atomic activation. Update aktywnego packa nie może nadpisywać campaign divergence ani po cichu przełączać istniejących kampanii na nową revision.
+
+Pierwszy realny krok po Phase 84 to **POST-ROADMAP AUDIT FIRST** przeciwko rzeczywistemu finalnemu repo. Dopiero wtedy zamykamy nazwy publicznych authoring APIs, schema, activation/bootstrap contract i rozpoczynamy WPC implementation.
