@@ -38,6 +38,20 @@ class Phase36SchemaVersioningTest {
         }
     }
 
+    @Test fun supportedButStaleFamilyVersionMigratesToCurrent() {
+        SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
+            GameplayRuntimeBootstrap.initialize(db, "C1")
+            val before = countWhere(db, Phase36SchemaVersioning.ATTEMPTS, "state='APPLIED'")
+            db.execSQL("UPDATE ${Phase36SchemaVersioning.VERSIONS} SET schema_version=1 WHERE schema_family_uid=?",
+                arrayOf(SchemaFamilyUid.EVENT.name))
+            assertEquals(1, version(db, SchemaFamilyUid.EVENT))
+            GameplayRuntimeBootstrap.initialize(db, "C1")
+            assertEquals(PHASE30_EVENT_SCHEMA_VERSION, version(db, SchemaFamilyUid.EVENT))
+            assertEquals(before + 1, countWhere(db, Phase36SchemaVersioning.ATTEMPTS, "state='APPLIED'"))
+            GameplayRuntimeBootstrap.requireReady(db, "C1")
+        }
+    }
+
     @Test fun everyUnsupportedFutureFamilyFailsBeforeMigrationMutation() {
         SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
             GameplayRuntimeBootstrap.initialize(db, "C1")
@@ -113,8 +127,15 @@ class Phase36SchemaVersioningTest {
             val automatic = CampaignSnapshotManager(db, "C1", snapshots).create(SnapshotKind.AUTOMATIC, pinned = false)
             assertTrue(runCatching { MigrationSafetyPolicy.requireProtectedSnapshot(db, "C1", material, automatic.snapshotUid) }.isFailure)
 
-            val safety = CampaignSnapshotManager(db, "C1", snapshots).create(SnapshotKind.PRE_RESTORE, pinned = true)
+            val safety = CampaignSnapshotManager(db, "C1", snapshots).create(SnapshotKind.PRE_RESTORE, pinned = false)
             MigrationSafetyPolicy.requireProtectedSnapshot(db, "C1", material, safety.snapshotUid)
+
+            db.execSQL("INSERT INTO ${Phase36SchemaVersioning.ATTEMPTS}(migration_attempt_uid,campaign_uid,source_vector_fingerprint,target_vector_fingerprint,plan_fingerprint,plan_version,safety_snapshot_uid,state,started_at_epoch_ms) VALUES('MATERIAL-ACTIVE','C1','s','t','p',1,?,'PREPARED',1)", arrayOf(safety.snapshotUid))
+            val manager = CampaignSnapshotManager(db, "C1", snapshots)
+            assertFalse(manager.delete(safety.snapshotUid))
+            assertTrue(File(safety.payloadPath).isFile)
+            db.execSQL("UPDATE ${Phase36SchemaVersioning.ATTEMPTS} SET state='FAILED',completed_at_epoch_ms=2 WHERE migration_attempt_uid='MATERIAL-ACTIVE'")
+            assertTrue(manager.delete(safety.snapshotUid))
         }
     }
 
@@ -130,4 +151,5 @@ class Phase36SchemaVersioningTest {
     private fun table(db:SQLiteDatabase,name:String)=db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",arrayOf(name)).use{it.moveToFirst()}
     private fun count(db:SQLiteDatabase,table:String)=db.rawQuery("SELECT COUNT(*) FROM $table",null).use{it.moveToFirst();it.getLong(0)}
     private fun countWhere(db:SQLiteDatabase,table:String,where:String)=db.rawQuery("SELECT COUNT(*) FROM $table WHERE $where",null).use{it.moveToFirst();it.getLong(0)}
+    private fun version(db:SQLiteDatabase,family:SchemaFamilyUid)=db.rawQuery("SELECT schema_version FROM ${Phase36SchemaVersioning.VERSIONS} WHERE schema_family_uid=?",arrayOf(family.name)).use{it.moveToFirst();it.getInt(0)}
 }
