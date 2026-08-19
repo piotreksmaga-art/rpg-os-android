@@ -43,6 +43,143 @@ replace_once(
         }catch(t:Throwable){'''
 )
 
+# P36-AUD-001/002/005: receipt V1/V2 rebuild is also a material physical migration. It must not
+# execute in bootstrap before PREPARED/RUNNING and must have explicit per-source implementation IDs.
+replace_once(
+    "app/src/main/java/com/rpgos/app/TurnTransactionReceiptStore.kt",
+    '''    fun isReady(db: SQLiteDatabase): Boolean = tableExists(db, "turn_transaction_receipts") &&
+        hasColumn(db, "turn_transaction_receipts", "commit_order") &&
+        hasColumn(db, "turn_transaction_receipts", "required_event_count") &&
+        hasColumn(db, "turn_transaction_receipts", "required_event_manifest_fingerprint")
+
+    fun ensureReady(db: SQLiteDatabase) {''',
+    '''    fun isReady(db: SQLiteDatabase): Boolean = tableExists(db, "turn_transaction_receipts") &&
+        hasColumn(db, "turn_transaction_receipts", "commit_order") &&
+        hasColumn(db, "turn_transaction_receipts", "required_event_count") &&
+        hasColumn(db, "turn_transaction_receipts", "required_event_manifest_fingerprint") &&
+        !hasLegacyReceiptVersionCheck(db)
+
+    /** Creates only fresh prerequisites; never rebuilds an existing legacy receipt table. */
+    fun ensurePhase36Prerequisites(db:SQLiteDatabase) {
+        val ownsTx=!db.inTransaction();if(ownsTx)db.beginTransaction()
+        try {
+            db.execSQL("""CREATE TABLE IF NOT EXISTS rpgos_schema_migrations(
+                migration_id TEXT PRIMARY KEY, applied_at INTEGER NOT NULL, notes TEXT)""")
+            if(!tableExists(db,"turn_transaction_receipts")){
+                createCurrentTable(db,"turn_transaction_receipts")
+                createIndexes(db)
+            }
+            if(ownsTx)db.setTransactionSuccessful()
+        } finally { if(ownsTx)db.endTransaction() }
+    }
+
+    fun physicalSchemaVersion(db:SQLiteDatabase):Int? {
+        if(!tableExists(db,"turn_transaction_receipts"))return null
+        val hasOrder=hasColumn(db,"turn_transaction_receipts","commit_order")
+        val hasManifest=hasColumn(db,"turn_transaction_receipts","required_event_count")&&
+            hasColumn(db,"turn_transaction_receipts","required_event_manifest_fingerprint")
+        return when {
+            hasManifest&&!hasLegacyReceiptVersionCheck(db) -> TURN_TRANSACTION_RECEIPT_VERSION
+            hasOrder -> 2
+            else -> 1
+        }
+    }
+
+    fun ensureReady(db: SQLiteDatabase) {'''
+)
+replace_once(
+    "app/src/main/java/com/rpgos/app/TurnTransactionReceiptStore.kt",
+    '''                !tableExists(db, "turn_transaction_receipts") -> createCurrentTable(db, "turn_transaction_receipts")
+                !isReady(db) || hasLegacyReceiptVersionCheck(db) -> migrateReceiptTable(db)
+            }
+            createIndexes(db)''',
+    '''                !tableExists(db, "turn_transaction_receipts") -> createCurrentTable(db, "turn_transaction_receipts")
+                !isReady(db) || hasLegacyReceiptVersionCheck(db) -> migrateToCurrent(db)
+            }
+            createIndexes(db)'''
+)
+replace_once(
+    "app/src/main/java/com/rpgos/app/TurnTransactionReceiptStore.kt",
+    '''    private fun migrateReceiptTable(db: SQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS turn_transaction_receipts_v32_new")''',
+    '''    internal fun migrateToCurrent(db:SQLiteDatabase) {
+        require(tableExists(db,"turn_transaction_receipts")){"RPGOS-SCHEMA:RECEIPT_TABLE_MISSING"}
+        if(isReady(db))return
+        migrateReceiptTable(db)
+        createIndexes(db)
+    }
+
+    private fun migrateReceiptTable(db: SQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS turn_transaction_receipts_v32_new")'''
+)
+
+replace_once(
+    "app/src/main/java/com/rpgos/app/GameplayRuntimeBootstrap.kt",
+    '''                CurrentSchema.ensure(db, campaignUid)
+                TurnTransactionReceiptSchema.ensureReady(db)
+                CampaignSnapshotSchema.ensureReady(db)''',
+    '''                CurrentSchema.ensure(db, campaignUid)
+                TurnTransactionReceiptSchema.ensurePhase36Prerequisites(db)
+                CampaignSnapshotSchema.ensureReady(db)'''
+)
+replace_once(
+    "app/src/main/java/com/rpgos/app/GameplayRuntimeBootstrap.kt",
+    '''            val ensurePostPhase36Schemas = {
+                CampaignIntelligencePhase30Schema.ensureActivated(db,campaignUid)
+                CampaignCausalGraphSchema.ensureReady(db)
+            }''',
+    '''            val ensurePostPhase36Schemas = {
+                TurnTransactionReceiptSchema.ensureReady(db)
+                CampaignIntelligencePhase30Schema.ensureActivated(db,campaignUid)
+                CampaignCausalGraphSchema.ensureReady(db)
+            }'''
+)
+
+replace_once(
+    "app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt",
+    '''    val migrationManifest:List<MigrationEdge> = listOf(
+        MigrationEdge(SchemaFamilyUid.EVENT,1,PHASE30_EVENT_SCHEMA_VERSION,"RPGOS-P36-EVENT-V1-V2-R1",MigrationMateriality.MATERIAL_DATA_MUTATION){db,injector->
+            CampaignIntelligencePhase30Schema.migrateEventTableIfNeeded(db,injector)
+        }
+    )''',
+    '''    val migrationManifest:List<MigrationEdge> = listOf(
+        MigrationEdge(SchemaFamilyUid.RECEIPT,1,TURN_TRANSACTION_RECEIPT_VERSION,"RPGOS-P36-RECEIPT-V1-V3-R1",MigrationMateriality.MATERIAL_DATA_MUTATION){db,_->
+            TurnTransactionReceiptSchema.migrateToCurrent(db)
+        },
+        MigrationEdge(SchemaFamilyUid.RECEIPT,2,TURN_TRANSACTION_RECEIPT_VERSION,"RPGOS-P36-RECEIPT-V2-V3-R1",MigrationMateriality.MATERIAL_DATA_MUTATION){db,_->
+            TurnTransactionReceiptSchema.migrateToCurrent(db)
+        },
+        MigrationEdge(SchemaFamilyUid.EVENT,1,PHASE30_EVENT_SCHEMA_VERSION,"RPGOS-P36-EVENT-V1-V2-R1",MigrationMateriality.MATERIAL_DATA_MUTATION){db,injector->
+            CampaignIntelligencePhase30Schema.migrateEventTableIfNeeded(db,injector)
+        }
+    )'''
+)
+replace_once(
+    "app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt",
+    '''                val adopted=if(c.family==SchemaFamilyUid.EVENT) CampaignIntelligencePhase30Schema.physicalEventSchemaVersion(db)?:c.currentVersion else c.currentVersion''',
+    '''                val adopted=when(c.family){
+                    SchemaFamilyUid.EVENT -> CampaignIntelligencePhase30Schema.physicalEventSchemaVersion(db)?:c.currentVersion
+                    SchemaFamilyUid.RECEIPT -> TurnTransactionReceiptSchema.physicalSchemaVersion(db)?:c.currentVersion
+                    else -> c.currentVersion
+                }'''
+)
+replace_once(
+    "app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt",
+    '''    private fun validatePhysicalMetadataConsistency(db:SQLiteDatabase){
+        val physical=CampaignIntelligencePhase30Schema.physicalEventSchemaVersion(db)
+        val metadata=currentMetadata(db,SchemaFamilyUid.EVENT)
+        if(physical!=null&&metadata!=null)require(physical==metadata){"RPGOS-SCHEMA:EVENT_PHYSICAL_METADATA_MISMATCH:$physical:$metadata"}
+    }''',
+    '''    private fun validatePhysicalMetadataConsistency(db:SQLiteDatabase){
+        val eventPhysical=CampaignIntelligencePhase30Schema.physicalEventSchemaVersion(db)
+        val eventMetadata=currentMetadata(db,SchemaFamilyUid.EVENT)
+        if(eventPhysical!=null&&eventMetadata!=null)require(eventPhysical==eventMetadata){"RPGOS-SCHEMA:EVENT_PHYSICAL_METADATA_MISMATCH:$eventPhysical:$eventMetadata"}
+        val receiptPhysical=TurnTransactionReceiptSchema.physicalSchemaVersion(db)
+        val receiptMetadata=currentMetadata(db,SchemaFamilyUid.RECEIPT)
+        if(receiptPhysical!=null&&receiptMetadata!=null)require(receiptPhysical==receiptMetadata){"RPGOS-SCHEMA:RECEIPT_PHYSICAL_METADATA_MISMATCH:$receiptPhysical:$receiptMetadata"}
+    }'''
+)
+
 # P36 regression fixture: the non-replayable interval test performs a real financial turn, so the
 # financial canonical state must exist first.
 replace_once(
@@ -57,6 +194,17 @@ replace_once(
             val material=listOf(edge(SchemaFamilyUid.EVENT,1,2,"TEST-MATERIAL"))
 
             val corrupted='''
+)
+
+# Update the manifest golden now that receipt material edges are explicit.
+replace_once(
+    "app/src/test/java/com/rpgos/app/Phase36SchemaVersioningTest.kt",
+    '''        assertEquals("EVENT:1->2:RPGOS-P36-EVENT-V1-V2-R1:MATERIAL_DATA_MUTATION",Phase36SchemaVersioning.migrationManifestCanonical)''',
+    '''        assertEquals(listOf(
+            "EVENT:1->2:RPGOS-P36-EVENT-V1-V2-R1:MATERIAL_DATA_MUTATION",
+            "RECEIPT:1->3:RPGOS-P36-RECEIPT-V1-V3-R1:MATERIAL_DATA_MUTATION",
+            "RECEIPT:2->3:RPGOS-P36-RECEIPT-V2-V3-R1:MATERIAL_DATA_MUTATION"
+        ).joinToString("\\n"),Phase36SchemaVersioning.migrationManifestCanonical)'''
 )
 
 # P35 regression: forged writable SQL context must still fail even if the attacker reuses genuine
