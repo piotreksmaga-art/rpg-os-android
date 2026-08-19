@@ -3,7 +3,7 @@ name: Validate RPG OS ALPHA
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "chat2-phase35-review-ci" ]
 
 permissions:
   contents: read
@@ -77,6 +77,13 @@ jobs:
 
       - name: Validate project
         run: gradle --no-daemon :app:tasks --stacktrace
+
+      - name: Run Phase 35 targeted JVM tests
+        run: >-
+          gradle --no-daemon :app:testDebugUnitTest --stacktrace
+          --tests "com.rpgos.app.Phase35CanonDivergenceTest"
+          --tests "com.rpgos.app.Phase35PostAuditRepairTest"
+          --tests "com.rpgos.app.Phase30To36PostAuditHardeningTest"
 
       - name: Run JVM unit tests
         run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
