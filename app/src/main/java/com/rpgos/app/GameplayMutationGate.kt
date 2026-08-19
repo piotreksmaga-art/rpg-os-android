@@ -39,7 +39,7 @@ internal object GameplayMutationDatabaseGuards {
         db.execSQL("DROP TRIGGER IF EXISTS rpgos_turn_receipts_no_delete")
         val replayExists = tableExists(db, "canonical_turn_replay_payloads")
         val evidenceAlternative = if (replayExists) {
-            """OR NOT EXISTS(
+            """AND NOT EXISTS(
     SELECT 1 FROM canonical_turn_replay_payloads r
     WHERE r.transaction_uid=NEW.transaction_uid
       AND r.campaign_uid=NEW.campaign_uid
