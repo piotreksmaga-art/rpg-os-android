@@ -32,7 +32,9 @@ jobs:
         with:
           gradle-version: '9.5.0'
       - name: Apply incremental repairs
-        run: python3 tools/chat1_apply_incremental_repairs.py
+        run: |
+          python3 tools/chat1_apply_incremental_repairs.py
+          python3 tools/chat1_compile_followup.py
       - name: Publish repaired candidate
         run: |
           git config user.name "chat1-rpgos-repair"
@@ -58,7 +60,7 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           echo "PHASE36_CHECKPOINT_OUTCOME=${{ steps.targeted.outcome }}" > tools/chat1_phase36_ci_result.txt
           echo "--- GRADLE TAIL ---" >> tools/chat1_phase36_ci_result.txt
-          tail -n 420 /tmp/chat1_phase36_gradle.log >> tools/chat1_phase36_ci_result.txt || true
+          tail -n 460 /tmp/chat1_phase36_gradle.log >> tools/chat1_phase36_ci_result.txt || true
           git add tools/chat1_phase36_ci_result.txt
           git diff --cached --quiet || git commit -m "test: record Phase 35-36 checkpoint result [skip ci]"
           git push origin HEAD:chat1-phase35-36-post-audit-repair
