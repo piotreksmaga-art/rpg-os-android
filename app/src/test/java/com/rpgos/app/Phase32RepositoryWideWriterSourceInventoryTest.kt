@@ -15,12 +15,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         UI_SETTINGS
     }
 
-    /**
-     * Closed inventory of production source files that contain a durable state write sink.
-     * A new writer-bearing source file must be classified deliberately or this test fails.
-     * This complements table-level RuntimeTruthLayerRegistry completeness: it inventories code
-     * entry points/sinks rather than inferring authority from table names.
-     */
+    /** Closed inventory of production source files that contain a durable state write sink. */
     private val classifiedWriterFiles: Map<String, WriterClass> = buildMap {
         listOf(
             "ActivePlayerStore.kt",
@@ -64,6 +59,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "LocalGameStore.kt",
             "MigrationManager.kt",
             "PackageManager.kt",
+            "Phase36SchemaVersioning.kt",
             "Phase6Migration.kt",
             "Phase7Migration.kt",
             "Phase8Migration.kt",
@@ -143,6 +139,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         )
         assertTrue("RestoreManager must remain administrative", "RestoreManager.kt" in admin)
         assertTrue("migration manager must remain administrative", "MigrationManager.kt" in admin)
+        assertTrue("Phase36 migration infrastructure must remain administrative", "Phase36SchemaVersioning.kt" in admin)
         assertTrue("LocalGameStore must remain explicitly audited infrastructure", "LocalGameStore.kt" in admin)
         assertTrue(canonical.intersect(evidence).isEmpty())
         assertTrue(canonical.intersect(admin).isEmpty())
