@@ -14,7 +14,12 @@ internal object GameplayRuntimeBootstrap {
         "rpgos_turn_receipts_commit_insert", "rpgos_turn_receipts_no_update", "rpgos_turn_receipts_no_delete",
         "rpgos_event_store_turn_insert", "rpgos_event_store_no_update", "rpgos_event_store_no_delete",
         "rpgos_causal_graph_turn_insert", "rpgos_causal_graph_no_update", "rpgos_causal_graph_no_delete",
-        "rpgos_replay_commit_insert", "rpgos_replay_no_update", "rpgos_replay_no_delete"
+        "rpgos_replay_commit_insert", "rpgos_replay_no_update", "rpgos_replay_no_delete",
+        Phase35CanonDivergenceSchema.RECORDED_INSERT_GUARD,
+        Phase35CanonDivergenceSchema.IMPORT_INSERT_GUARD,
+        Phase35CanonDivergenceSchema.LIFECYCLE_INSERT_GUARD,
+        GameplayMutationDatabaseGuards.EVENT_RUNTIME_TURN_GUARD,
+        GameplayMutationDatabaseGuards.CANON_DIVERGENCE_RUNTIME_TURN_GUARD
     )
 
     /** Explicit bootstrap/migration/restore boundary. Never call from an ordinary read path. */
