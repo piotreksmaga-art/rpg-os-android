@@ -6,6 +6,8 @@ Phase file map: `docs/Mapa plików.md`
 Coordination: `docs/PARALLEL_WORK_COORDINATION.md`, `docs/architecture/CHAT_COORDINATION_POLICY.md`
 Operational protocol: `docs/PROJECT_WORK_PROTOCOL.md`
 
+> Aktualizacja 2026-08-19: Canon Divergence / Schema Versioning — Phase 35–36 została globalnie zaakceptowana przez koordynatora na exact runtime SHA `7cb61d3cdc42e0c20f2688181d054e55eacbfd8f` po implementacji, niezależnym audycie granic i post-audit hardening. Exact validation: `Validate RPG OS ALPHA` / run ID `32241299329` / job ID `96032227097` — SUCCESS. Immutable artifact ID `9361064715`, name `RPG-OS-VALIDATION-1.2.0-alpha5-hybrid145-7cb61d3cdc42e0c20f2688181d054e55eacbfd8f`, digest `sha256:73da8802468e0302c5f4548bda9a2240d5c44a17ceed209b27e10c6e11f84b90`. Superseded PR #51 został zamknięty bez merge. Następny blok: Phase 37 NPC Knowledge model + acquisition provenance, AUDIT FIRST. Acceptance record: `docs/architecture/PHASE35_36_ACCEPTANCE.md`.
+
 > Aktualizacja 2026-08-19: Snapshot / Replay Recovery — Phase 33–34 została globalnie zaakceptowana przez koordynatora na exact runtime SHA `b141a590c64b21930abcae6c63353ea93aaf50f4` po merge PR #50 i finalnym follow-up naprawiającym zgodność anchora snapshotu z faktycznie przechwyconą bazą oraz izolację orphan cleanup między kampaniami. Exact validation: `Validate RPG OS ALPHA` #783 / run ID `32217138911` / job ID `95960661888` — SUCCESS. Immutable artifact ID `9352815554`, name `RPG-OS-VALIDATION-1.2.0-alpha5-hybrid145-b141a590c64b21930abcae6c63353ea93aaf50f4`, digest `sha256:01fdb47e78a2abdd1c56fa20591431f1f3bb33f1b6f2fcdf40812c517de18e1f`. Następny blok: Phase 35 Canon Divergence, AUDIT FIRST.
 
 > Aktualizacja 2026-08-18: Campaign Intelligence / Integrity — Phase 30–32 została zamknięta po WORK-036 i globalnie przyjęta przez koordynatora na exact runtime SHA `c202e1a7e620f1839763b8be513fd2b397760ac0`. Exact validation: `Validate RPG OS ALPHA` #779 / run ID `32166222114` / job ID `95806327105` — SUCCESS. Immutable artifact ID `9335687331`, digest `sha256:9d2e41407f47874f854c17f2f35959aea2f166adbc5a2ffc093630ff1062c629`.
@@ -24,12 +26,13 @@ Sama klasa, tabela, raport audytowy albo zielone CI nie oznacza COMPLETE. Global
 
 # AKTUALNY BASELINE PROJEKTU
 
-- Canonical accepted runtime through Phase 34: `b141a590c64b21930abcae6c63353ea93aaf50f4`.
-- Exact acceptance CI: workflow `Validate RPG OS ALPHA`, run #783 / ID `32217138911` / job `95960661888` — SUCCESS.
-- Immutable validation artifact: ID `9352815554`, `RPG-OS-VALIDATION-1.2.0-alpha5-hybrid145-b141a590c64b21930abcae6c63353ea93aaf50f4`, digest `sha256:01fdb47e78a2abdd1c56fa20591431f1f3bb33f1b6f2fcdf40812c517de18e1f`.
-- Phase 33–34 closed the canonical snapshot/replay and max-6 automatic retention block with staged reconstruction, prospective replay payloads, legacy baseline behavior, authoritative equality checks, captured-boundary anchors and campaign-isolated retention.
+- Canonical accepted runtime through Phase 36: `7cb61d3cdc42e0c20f2688181d054e55eacbfd8f`.
+- Exact acceptance CI: workflow `Validate RPG OS ALPHA`, run ID `32241299329` / job `96032227097` — SUCCESS.
+- Immutable validation artifact: ID `9361064715`, `RPG-OS-VALIDATION-1.2.0-alpha5-hybrid145-7cb61d3cdc42e0c20f2688181d054e55eacbfd8f`, digest `sha256:73da8802468e0302c5f4548bda9a2240d5c44a17ceed209b27e10c6e11f84b90`.
+- Phase 35 closed typed campaign-scoped canon-divergence history bound to committed transaction/event identity, preserving committed expected-vs-actual World Pack context across replacement/rollback without rewriting campaign truth or Event history.
+- Phase 36 closed explicit schema-family versioning, deterministic migration plans, fail-closed future-schema checks, durable interrupted-migration evidence/recovery, protected-snapshot safety for material migrations and non-fabricated legacy provenance.
 - Documentation-only commits after the accepted runtime do not change the accepted runtime SHA above.
-- Next implementation block: **Phase 35 — Canon Divergence, AUDIT FIRST**.
+- Next implementation block: **Phase 37 — NPC Knowledge model + acquisition provenance, AUDIT FIRST**.
 - Future local-AI requirements are canonical documentation only; **Phase 48 remains NOT STARTED**.
 
 # FAZA 0 — BASELINE / AUDYT
@@ -191,8 +194,8 @@ Accepted scope:
 - [x] 32. Authoritative / Derived / Cache / Presentation runtime enforcement
 - [x] 33. Snapshot System
 - [x] 34. Automatic snapshot retention max 6
-- [-] 35. Canon Divergence
-- [-] 36. Schema Versioning + migration safety + legacy provenance
+- [x] 35. Canon Divergence
+- [x] 36. Schema Versioning + migration safety + legacy provenance
 
 # FAZA 26–29 — TRANSACTION INTEGRITY — COMPLETE
 
@@ -273,6 +276,32 @@ Accepted scope includes:
 - final follow-up repair: snapshot descriptor anchor is derived from the captured payload boundary and orphan reconciliation cannot delete another campaign's valid snapshot payload.
 
 Local final full JVM evidence before integration: 792 tests, 0 failures. Exact-SHA GitHub validation produced the signed validation APK and immutable artifact above. Phase 35 was not started during this work.
+
+# FAZA 35–36 — CANON DIVERGENCE / SCHEMA VERSIONING — COMPLETE
+
+**STATUS: ACCEPTED / COMPLETE**
+
+Accepted runtime SHA:
+`7cb61d3cdc42e0c20f2688181d054e55eacbfd8f`
+
+Exact acceptance CI:
+- workflow `Validate RPG OS ALPHA`
+- run ID `32241299329`
+- job ID `96032227097`
+- head SHA `7cb61d3cdc42e0c20f2688181d054e55eacbfd8f`
+- conclusion `success`
+
+Immutable validation artifact:
+- artifact ID `9361064715`
+- name `RPG-OS-VALIDATION-1.2.0-alpha5-hybrid145-7cb61d3cdc42e0c20f2688181d054e55eacbfd8f`
+- digest `sha256:73da8802468e0302c5f4548bda9a2240d5c44a17ceed209b27e10c6e11f84b90`
+
+Accepted scope includes:
+- Phase 35: typed campaign-scoped Canon Divergence records separate from Campaign Truth and World Pack source material; normal gameplay records divergence only inside the canonical committed-turn transaction and binds it to transaction/turn/event identity; canon-consistent outcomes create no divergence; rollback/idempotent retry create no duplicate divergence; historical expected/actual World Pack context survives World Pack replacement/rollback; verified administrative import preserves unknown history as unknown rather than fabricating provenance;
+- Phase 36: explicit schema-family current versions, read-only readiness verification, fail-closed unsupported-future checks before migration mutation, deterministic migration ordering/fingerprints with ambiguity/cycle rejection, durable PREPARED/RUNNING/APPLIED/FAILED attempt evidence and interrupted-attempt recovery, protected verified snapshot requirement for material migration, explicit administrative bootstrap ownership, and legacy provenance preservation without invented chronology/history;
+- post-audit hardening: commit/replay evidence forgery guards, same-command semantic retry returning original receipt, lifecycle serialization of recovery vs gameplay turns, preservation of commit evidence under retention, campaign-scoped orphan reconciliation, and World Pack replacement/failed rollback unable to rewrite committed divergence/truth/events.
+
+Exact-SHA JVM tests, signed APK and immutable artifact are GREEN. Superseded PR #51 was closed without merge. Canonical acceptance record: `docs/architecture/PHASE35_36_ACCEPTANCE.md`.
 
 # FAZA C — CZAS, WIEDZA I RETRIEVAL
 - [-] 37. NPC Knowledge model + acquisition provenance
@@ -377,16 +406,16 @@ Frontend może być rozwijany wraz z funkcjonalnością, ale należy zachować z
 # CROSS-CUTTING TEST GAPS
 - [x] save -> close -> load authoritative equality — Phase 33 accepted snapshot/load recovery gate
 - [x] snapshot -> replay -> same authoritative state — Phase 33 accepted staged reconstruction + authoritative digest gate
-- [ ] old campaign -> migration -> valid load
+- [x] old campaign -> migration -> valid load — Phase 36 accepted additive migration/readiness gate
 - [x] failed turn -> rollback -> no partial mutation — Phase 27/29 accepted transaction/recovery gate
-- [x] retry transaction -> no duplicate effects — Phase 28 accepted idempotency gate
+- [x] retry transaction -> no duplicate effects — Phase 28 accepted idempotency gate; Phase 35/36 post-audit revalidated receipt/event/causal/replay identity
 - [x] simulated crash -> last valid commit recovery — Phase 29 accepted recovery gate
 - [x] no unexplained permanent regression — Phase 22 accepted proposal gate; transaction enforcement now covered through Phase 29
 - [ ] money conservation / ledger auditability
 - [ ] unique item / ownership integrity
 - [ ] NPC knowledge isolation
 - [ ] temporal historical truth
-- [ ] divergence survives canon updates
+- [x] divergence survives canon updates — Phase 35 accepted World Pack replacement/rollback preservation gate
 - [x] CharacterPanelSnapshot delete/rebuild -> no data loss — Phase 24 accepted read-model gate
 - [ ] cache/index delete/rebuild -> no data loss
 - [ ] AI provider/model replacement -> no campaign migration/data loss
@@ -395,16 +424,16 @@ Frontend może być rozwijany wraz z funkcjonalnością, ale należy zachować z
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
 
-Runtime through Phase 34 jest globalnie **ACCEPTED / COMPLETE**.
+Runtime through Phase 36 jest globalnie **ACCEPTED / COMPLETE** na exact runtime SHA `7cb61d3cdc42e0c20f2688181d054e55eacbfd8f`.
 
 Następny blok:
-`Phase 35 — Canon Divergence`
+`Phase 37 — NPC Knowledge model + acquisition provenance`
 
 Obowiązkowa sekwencja:
 `READ FULL ARCHITECTURE + MAPA PLIKÓW -> AUDIT FIRST -> classify COMPLETE / PARTIAL / MISSING / BLOCKED -> minimal implementation -> targeted tests -> compatibility -> full JVM -> PR -> exact-SHA CI -> coordinator acceptance`
 
 Do czasu zakończenia tego procesu:
-**PHASE 35 = NOT STARTED.**
+**PHASE 37 = NOT GLOBALLY ACCEPTED; AUDIT FIRST.**
 
 Future local-AI requirements nie zmieniają tej kolejności. **Phase 48 pozostaje NOT STARTED**; dopuszczone jest wyłącznie odseparowane R&D/evidence gathering zgodne z MASTER.
 
