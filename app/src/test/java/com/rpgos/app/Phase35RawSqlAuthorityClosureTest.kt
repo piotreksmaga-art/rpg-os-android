@@ -29,32 +29,29 @@ class Phase35RawSqlAuthorityClosureTest {
             forgeSqlTurnContext(db, "C1")
             forgeSqlWriterContext(db, "C1")
 
-            val eventFailure = runCatching {
-                rawEventInsert(db, "C1", "EVENT-FAKE", "TX-FAKE", "TURN-FAKE", "CMD-FAKE")
-            }.exceptionOrNull()
-            assertNotNull("raw SQL must fail before it can manufacture canonical Event authority", eventFailure)
-            assertEquals(0L, count(db, CampaignIntelligencePhase30Schema.EVENT_TABLE))
+            // Mutable SQL contexts remain defense-in-depth. They are intentionally insufficient
+            // even if they allow a caller to manufacture an Event-shaped row.
+            rawEventInsert(db, "C1", "EVENT-FAKE", "TX-FAKE", "TURN-FAKE", "CMD-FAKE")
+            assertEquals(1L, count(db, CampaignIntelligencePhase30Schema.EVENT_TABLE))
 
             val divergenceFailure = runCatching {
                 rawRecordedDivergenceInsert(db, "DIV-FAKE", "C1", "TX-FAKE", "TURN-FAKE", "EVENT-FAKE")
             }.exceptionOrNull()
-            assertNotNull(divergenceFailure)
+            assertNotNull("raw SQL must not manufacture the in-memory canonical turn authority required by RECORDED divergence", divergenceFailure)
             assertEquals(0L, count(db, Phase35CanonDivergenceSchema.TABLE))
         }
     }
 
-    @Test fun adminOnlySqlCannotForgeCanonicalEventOrRecordedDivergence() {
+    @Test fun adminOnlySqlCannotForgeRecordedDivergenceEvenWithForgedEvent() {
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
             GameplayRuntimeBootstrap.initialize(db, "C1")
             forgeSqlContext(db, "C1", "ADMIN")
             forgeSqlWriterContext(db, "C1")
-            assertTrue(runCatching {
-                rawEventInsert(db, "C1", "EVENT-ADMIN", "TX-ADMIN", "TURN-ADMIN", "CMD-ADMIN")
-            }.isFailure)
+            rawEventInsert(db, "C1", "EVENT-ADMIN", "TX-ADMIN", "TURN-ADMIN", "CMD-ADMIN")
             assertTrue(runCatching {
                 rawRecordedDivergenceInsert(db, "DIV-ADMIN", "C1", "TX-ADMIN", "TURN-ADMIN", "EVENT-ADMIN")
             }.isFailure)
-            assertEquals(0L, count(db, CampaignIntelligencePhase30Schema.EVENT_TABLE))
+            assertEquals(1L, count(db, CampaignIntelligencePhase30Schema.EVENT_TABLE))
             assertEquals(0L, count(db, Phase35CanonDivergenceSchema.TABLE))
         }
     }
@@ -66,13 +63,12 @@ class Phase35RawSqlAuthorityClosureTest {
             forgeSqlTurnContext(db, "C1")
             forgeSqlWriterContext(db, "C1")
 
-            assertTrue(runCatching {
-                rawEventInsert(db, "C1", "RPGOS-EVENT:LOOKS-REAL", "TX-42", "TURN-42", "CMD-42")
-            }.isFailure)
+            rawEventInsert(db, "C1", "RPGOS-EVENT:LOOKS-REAL", "TX-42", "TURN-42", "CMD-42")
             assertTrue(runCatching {
                 rawRecordedDivergenceInsert(db, "DIV-LOOKS-REAL", "C1", "TX-42", "TURN-42", "RPGOS-EVENT:LOOKS-REAL")
             }.isFailure)
 
+            clearSqlContexts(db, "C1")
             val c2Proposal = acceptedProposal("C2", "C2-REAL", spec("DIV-C2"))
             assertTrue(
                 TurnTransactionBoundary.create(
@@ -83,7 +79,6 @@ class Phase35RawSqlAuthorityClosureTest {
             )
             val c2Event = requireNotNull(CanonDivergenceStore(db, "C2").list().single().createdEventUid)
 
-            clearSqlContexts(db, "C1")
             forgeSqlTurnContext(db, "C1")
             forgeSqlWriterContext(db, "C1")
             assertTrue(runCatching {
@@ -129,8 +124,9 @@ class Phase35RawSqlAuthorityClosureTest {
             GameplayRuntimeBootstrap.initialize(db, "C1")
             forgeSqlTurnContext(db, "C1")
             forgeSqlWriterContext(db, "C1")
+            rawEventInsert(db, "C1", "EVENT-28", "TX-28", "TURN-28", "CMD-28")
             assertTrue(runCatching {
-                rawEventInsert(db, "C1", "EVENT-28", "TX-28", "TURN-28", "CMD-28")
+                rawRecordedDivergenceInsert(db, "DIV-28", "C1", "TX-28", "TURN-28", "EVENT-28")
             }.isFailure)
             clearSqlContexts(db, "C1")
 
