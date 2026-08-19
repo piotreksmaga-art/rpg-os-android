@@ -52,11 +52,7 @@ data class CanonDivergenceRecord(
     val createdAtEpochMs: Long
 )
 
-/**
- * Provider-issued evidence binding one canonical expectation identity to the exact expected value.
- * The evidence is only authoritative when it arrives in the final DRAFT_EFFECT_CHECK decision of
- * the WorldRuleProvider selected through the campaign's authoritative World Pack binding.
- */
+/** Provider-issued evidence binding one canonical expectation identity to the exact expected value. */
 internal object CanonExpectationEvidence {
     fun uid(reference: CanonReference, expectedValue: String): String {
         require(expectedValue.isNotBlank())
@@ -98,23 +94,13 @@ internal object CanonDivergenceAdmissionValidator {
         } ?: return UNBOUND_WORLD_RULE
 
         entries.forEach { (_, truth, spec) ->
-            if (spec.provenanceStatus != HistoricalProvenanceStatus.RECORDED) {
-                return INVALID_GAMEPLAY_PROVENANCE
-            }
-            if (spec.worldPackUid != finalDecision.worldPackUid ||
-                spec.worldPackVersion != finalDecision.worldPackVersion) {
+            if (spec.provenanceStatus != HistoricalProvenanceStatus.RECORDED) return INVALID_GAMEPLAY_PROVENANCE
+            if (spec.worldPackUid != finalDecision.worldPackUid || spec.worldPackVersion != finalDecision.worldPackVersion) {
                 return WORLD_PACK_MISMATCH
             }
-            val expectationEvidence = CanonExpectationEvidence.uid(
-                spec.canonicalReference,
-                spec.expectedCanonicalValue
-            )
-            if (expectationEvidence !in finalDecision.evidenceUids) {
-                return EXPECTATION_NOT_AUTHENTICATED
-            }
-            if (truth.kind != TruthKind.FACT || truth.objectValue != spec.actualCampaignValue) {
-                return ACTUAL_NOT_AUTHENTICATED
-            }
+            val expectationEvidence = CanonExpectationEvidence.uid(spec.canonicalReference, spec.expectedCanonicalValue)
+            if (expectationEvidence !in finalDecision.evidenceUids) return EXPECTATION_NOT_AUTHENTICATED
+            if (truth.kind != TruthKind.FACT || truth.objectValue != spec.actualCampaignValue) return ACTUAL_NOT_AUTHENTICATED
         }
         return null
     }
@@ -202,7 +188,7 @@ internal object Phase35CanonDivergenceSchema {
     ).use { it.moveToFirst() }
 }
 
-private data class PendingCanonDivergence(
+internal data class PendingCanonDivergence(
     val campaignUid: String,
     val spec: CanonDivergenceSpec,
     val identity: TurnTransactionIdentity,
@@ -247,15 +233,11 @@ internal object CanonDivergenceTurnBuffer {
     fun flush(db: SQLiteDatabase, campaignUid: String) {
         val active = local.get() ?: return
         check(active.db === db && active.campaignUid == campaignUid) { "RPGOS-CANON:TURN_BUFFER_SCOPE_MISMATCH" }
-        active.entries.forEach { pending ->
-            CanonDivergenceStore(db, campaignUid).finalizeCommitted(pending)
-        }
+        active.entries.forEach { pending -> CanonDivergenceStore(db, campaignUid).finalizeCommitted(pending) }
         active.entries.clear()
     }
 
-    fun clear() {
-        local.remove()
-    }
+    fun clear() { local.remove() }
 }
 
 class CanonDivergenceStore(private val db: SQLiteDatabase, private val campaignUid: String) {
@@ -282,8 +264,8 @@ class CanonDivergenceStore(private val db: SQLiteDatabase, private val campaignU
     }
 
     /**
-     * Records intent to persist RECORDED evidence. Durable insertion is deferred until the end of
-     * the sealed canonical gameplay capability, after Event Store append but before outer commit.
+     * Stages RECORDED evidence only inside the sealed canonical gameplay capability. Durable
+     * insertion is deferred until the same turn has appended the matching canonical Event.
      */
     internal fun recordCommitted(
         spec: CanonDivergenceSpec,
@@ -292,6 +274,7 @@ class CanonDivergenceStore(private val db: SQLiteDatabase, private val campaignU
     ): CanonDivergenceRecord {
         require(identity.campaignUid == campaignUid) { "RPGOS-CANON:CAMPAIGN_MISMATCH" }
         check(db.inTransaction()) { "RPGOS-CANON:OUTSIDE_TURN" }
+        require(TurnTransactionReceiptSchema.isReady(db)) { "RPGOS-CANON:TURN_SCHEMA_NOT_READY" }
         requireCanonicalGameplayMutation(db, campaignUid)
         require(spec.provenanceStatus == HistoricalProvenanceStatus.RECORDED)
         require(eventUid.isNotBlank())
@@ -300,21 +283,13 @@ class CanonDivergenceStore(private val db: SQLiteDatabase, private val campaignU
     }
 
     internal fun finalizeCommitted(pending: PendingCanonDivergence): CanonDivergenceRecord {
-        require(pending.campaignUid == campaignUid && pending.identity.campaignUid == campaignUid) {
-            "RPGOS-CANON:CAMPAIGN_MISMATCH"
-        }
+        require(pending.campaignUid == campaignUid && pending.identity.campaignUid == campaignUid) { "RPGOS-CANON:CAMPAIGN_MISMATCH" }
         check(db.inTransaction()) { "RPGOS-CANON:OUTSIDE_TURN" }
         requireCanonicalGameplayMutation(db, campaignUid)
         require(pending.spec.provenanceStatus == HistoricalProvenanceStatus.RECORDED)
         validateEventProvenance(pending.identity, pending.eventUid)
         validateLifecycle(pending.spec)
-        return insert(
-            pending.spec,
-            pending.identity.transactionUid,
-            pending.identity.turnUid,
-            pending.eventUid,
-            pending.createdAt
-        )
+        return insert(pending.spec, pending.identity.transactionUid, pending.identity.turnUid, pending.eventUid, pending.createdAt)
     }
 
     private fun validateEventProvenance(identity: TurnTransactionIdentity, eventUid: String) {
@@ -330,9 +305,7 @@ class CanonDivergenceStore(private val db: SQLiteDatabase, private val campaignU
         require(spec.supersedesDivergenceUid != spec.divergenceUid && spec.resolvesDivergenceUid != spec.divergenceUid) {
             "RPGOS-CANON:LIFECYCLE_SELF_REFERENCE"
         }
-        require(spec.supersedesDivergenceUid == null || spec.resolvesDivergenceUid == null) {
-            "RPGOS-CANON:LIFECYCLE_AMBIGUOUS_LINK"
-        }
+        require(spec.supersedesDivergenceUid == null || spec.resolvesDivergenceUid == null) { "RPGOS-CANON:LIFECYCLE_AMBIGUOUS_LINK" }
         when (spec.status) {
             CanonDivergenceStatus.ACTIVE -> require(spec.supersedesDivergenceUid == null && spec.resolvesDivergenceUid == null) {
                 "RPGOS-CANON:LIFECYCLE_STATUS_LINK_MISMATCH"
@@ -353,9 +326,7 @@ class CanonDivergenceStore(private val db: SQLiteDatabase, private val campaignU
     private fun insert(spec: CanonDivergenceSpec, transactionUid: String?, turnUid: String?, eventUid: String?, createdAt: Long): CanonDivergenceRecord {
         existing(spec.divergenceUid)?.let { existing ->
             require(existing.spec == spec && existing.createdTransactionUid == transactionUid &&
-                existing.createdTurnUid == turnUid && existing.createdEventUid == eventUid) {
-                "RPGOS-CANON:DIVERGENCE_IDENTITY_CONFLICT"
-            }
+                existing.createdTurnUid == turnUid && existing.createdEventUid == eventUid) { "RPGOS-CANON:DIVERGENCE_IDENTITY_CONFLICT" }
             return existing
         }
         db.insertOrThrow(Phase35CanonDivergenceSchema.TABLE, null, ContentValues().apply {
