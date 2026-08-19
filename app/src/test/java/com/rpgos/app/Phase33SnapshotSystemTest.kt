@@ -36,6 +36,19 @@ class Phase33SnapshotSystemTest {
 
     @Test fun legacyBaselineDoesNotFabricateHistoricalReplay(){SQLiteDatabase.openOrCreateDatabase(dbFile,null).use{db->GroupATransactionTestFixtures.setupFinance(db);db.beginTransaction();try{TurnTransactionReceiptStore(db).appendCommitted(TurnTransactionIdentity("C1","OLD-T","OLD-C","OLD-X"),"legacy");db.setTransactionSuccessful()}finally{db.endTransaction()};assertEquals(0L,count(db,"canonical_turn_replay_payloads"));val s=CampaignSnapshotManager(db,"C1",snapshots).create();assertEquals(1L,s.anchorCommitOrder);assertNotNull(s.payloadSha256)}}
 
+    @Test fun publishedAnchorComesFromCapturedDatabaseBoundary(){SQLiteDatabase.openOrCreateDatabase(dbFile,null).use{db->
+        GroupATransactionTestFixtures.setupFinance(db);commit(db,"ANCHOR",5)
+        val descriptor=CampaignSnapshotManager(db,"C1",snapshots).create()
+        SQLiteDatabase.openDatabase(descriptor.payloadPath,null,SQLiteDatabase.OPEN_READONLY).use{captured->
+            val receipt=TurnTransactionReceiptStore(captured).lastValidCommit("C1")!!
+            val event=CampaignEventStore(captured,"C1").eventsForTransaction(receipt.transactionUid).last()
+            assertEquals(receipt.commitOrder,descriptor.anchorCommitOrder)
+            assertEquals(receipt.transactionUid,descriptor.anchorTransactionUid)
+            assertEquals(receipt.turnUid,descriptor.anchorTurnUid)
+            assertEquals(event.eventUid,descriptor.anchorEventUid)
+        }
+    }}
+
     @Test fun corruptNewestFallsBackToEarlierValid(){SQLiteDatabase.openOrCreateDatabase(dbFile,null).use{db->GroupATransactionTestFixtures.setupFinance(db);val m=CampaignSnapshotManager(db,"C1",snapshots);val old=m.create();val newest=m.create();File(newest.payloadPath).writeText("corrupt");assertEquals(old.snapshotUid,m.latestValidCompatible()!!.snapshotUid)}}
 
     @Test fun deletingLatestFallsBackAndDeletingAllNeverDeletesCommitHistory(){SQLiteDatabase.openOrCreateDatabase(dbFile,null).use{db->GroupATransactionTestFixtures.setupFinance(db,openingBalance=200);commit(db,"A",5);val m=CampaignSnapshotManager(db,"C1",snapshots);val first=m.create();commit(db,"B",7);val latest=m.create();commit(db,"C",9);assertTrue(m.delete(latest.snapshotUid));val staged=m.reconstructToVerifiedStaging();SQLiteDatabase.openDatabase(staged.absolutePath,null,SQLiteDatabase.OPEN_READONLY).use{assertEquals(179L,FinancialStore(it,"C1").balance("A"))};val events=count(db,"canonical_gameplay_events");m.list().forEach{m.delete(it.snapshotUid)};assertEquals(events,count(db,"canonical_gameplay_events"));assertEquals(3L,count(db,"turn_transaction_receipts"));assertFalse(File(first.payloadPath).exists())}}
