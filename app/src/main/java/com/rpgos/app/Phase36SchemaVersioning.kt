@@ -32,6 +32,8 @@ internal object Phase36SchemaVersioning {
     const val VERSIONS = "rpgos_schema_family_versions"
     const val ATTEMPTS = "rpgos_migration_attempts"
     const val PLAN_VERSION = 1
+    const val PLAN_IMPLEMENTATION_REVISION = "RPGOS-P36-MIGRATION-IMPL-1"
+
     val contracts = listOf(
         SchemaFamilyContract(SchemaFamilyUid.ENGINE, 1, 1),
         SchemaFamilyContract(SchemaFamilyUid.CAMPAIGN, 1, 1, setOf(SchemaFamilyUid.ENGINE)),
@@ -50,6 +52,7 @@ internal object Phase36SchemaVersioning {
     )
 
     fun ensureReady(db: SQLiteDatabase, campaignUid: String, safetySnapshotUid: String? = null) {
+        require(!db.inTransaction()) { "RPGOS-SCHEMA:TOP_LEVEL_MIGRATION_REQUIRED" }
         inspectFutureBeforeMutation(db)
         ensureMetadataTables(db)
         val missing = contracts.filter { current(db, it.family) == null }
@@ -66,33 +69,31 @@ internal object Phase36SchemaVersioning {
         val target = targetFingerprint()
         val attempt = "MIG-$campaignUid-${UUID.randomUUID()}"
         val now = System.currentTimeMillis()
-        db.execSQL("""INSERT INTO $ATTEMPTS(
-            migration_attempt_uid,campaign_uid,source_vector_fingerprint,target_vector_fingerprint,
-            plan_fingerprint,plan_version,safety_snapshot_uid,state,started_at_epoch_ms)
-            VALUES(?,?,?,?,?,?,?,?,?)""",
-            arrayOf(attempt, campaignUid, source, target, plan, PLAN_VERSION, safetySnapshotUid,
-                MigrationAttemptState.PREPARED.name, now))
-
-        var failure: Throwable? = null
-        db.beginTransaction()
-        try {
-            db.execSQL("UPDATE $ATTEMPTS SET state=? WHERE migration_attempt_uid=?", arrayOf(MigrationAttemptState.RUNNING.name, attempt))
-            Phase35CanonDivergenceSchema.ensureReady(db)
-            ordered.forEach { contract ->
-                db.execSQL("INSERT OR REPLACE INTO $VERSIONS(schema_family_uid,schema_version,migration_owner,updated_at_epoch_ms) VALUES(?,?,?,?)",
-                    arrayOf(contract.family.name, contract.currentVersion, "GameplayRuntimeBootstrap", now))
-            }
-            db.execSQL("UPDATE $ATTEMPTS SET state=?,completed_at_epoch_ms=? WHERE migration_attempt_uid=?",
-                arrayOf(MigrationAttemptState.APPLIED.name, System.currentTimeMillis(), attempt))
-            db.setTransactionSuccessful()
-        } catch (t: Throwable) {
-            failure = t
-        } finally {
-            db.endTransaction()
+        administrativeWrite(db, campaignUid) {
+            db.execSQL("""INSERT INTO $ATTEMPTS(
+                migration_attempt_uid,campaign_uid,source_vector_fingerprint,target_vector_fingerprint,
+                plan_fingerprint,plan_version,safety_snapshot_uid,state,started_at_epoch_ms)
+                VALUES(?,?,?,?,?,?,?,?,?)""",
+                arrayOf(attempt, campaignUid, source, target, plan, PLAN_VERSION, safetySnapshotUid,
+                    MigrationAttemptState.PREPARED.name, now))
         }
-        failure?.let { t ->
-            db.execSQL("UPDATE $ATTEMPTS SET state=?,completed_at_epoch_ms=?,failure_code=? WHERE migration_attempt_uid=?",
-                arrayOf(MigrationAttemptState.FAILED.name, System.currentTimeMillis(), "MIGRATION_STEP_FAILED", attempt))
+
+        try {
+            administrativeWrite(db, campaignUid) {
+                db.execSQL("UPDATE $ATTEMPTS SET state=? WHERE migration_attempt_uid=?", arrayOf(MigrationAttemptState.RUNNING.name, attempt))
+                Phase35CanonDivergenceSchema.ensureReady(db)
+                ordered.forEach { contract ->
+                    db.execSQL("INSERT OR REPLACE INTO $VERSIONS(schema_family_uid,schema_version,migration_owner,updated_at_epoch_ms) VALUES(?,?,?,?)",
+                        arrayOf(contract.family.name, contract.currentVersion, "GameplayRuntimeBootstrap", now))
+                }
+                db.execSQL("UPDATE $ATTEMPTS SET state=?,completed_at_epoch_ms=? WHERE migration_attempt_uid=?",
+                    arrayOf(MigrationAttemptState.APPLIED.name, System.currentTimeMillis(), attempt))
+            }
+        } catch (t: Throwable) {
+            administrativeWrite(db, campaignUid) {
+                db.execSQL("UPDATE $ATTEMPTS SET state=?,completed_at_epoch_ms=?,failure_code=? WHERE migration_attempt_uid=?",
+                    arrayOf(MigrationAttemptState.FAILED.name, System.currentTimeMillis(), "MIGRATION_STEP_FAILED", attempt))
+            }
             throw t
         }
     }
@@ -152,9 +153,25 @@ internal object Phase36SchemaVersioning {
             }
         }
         if (active.isNotEmpty()) {
-            db.execSQL("UPDATE $ATTEMPTS SET state=?,completed_at_epoch_ms=?,failure_code=? WHERE campaign_uid=? AND state IN (?,?)",
-                arrayOf(MigrationAttemptState.FAILED.name, System.currentTimeMillis(), "INTERRUPTED_RESTART_SAFE", campaignUid,
-                    MigrationAttemptState.PREPARED.name, MigrationAttemptState.RUNNING.name))
+            administrativeWrite(db, campaignUid) {
+                db.execSQL("UPDATE $ATTEMPTS SET state=?,completed_at_epoch_ms=?,failure_code=? WHERE campaign_uid=? AND state IN (?,?)",
+                    arrayOf(MigrationAttemptState.FAILED.name, System.currentTimeMillis(), "INTERRUPTED_RESTART_SAFE", campaignUid,
+                        MigrationAttemptState.PREPARED.name, MigrationAttemptState.RUNNING.name))
+            }
+        }
+    }
+
+    private fun administrativeWrite(db: SQLiteDatabase, campaignUid: String, block: () -> Unit) {
+        if (GameplayMutationDatabaseGuards.isInstalled(db)) {
+            withAdministrativeMutationAuthority(db, campaignUid) { block() }
+        } else {
+            db.beginTransaction()
+            try {
+                block()
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
         }
     }
 
@@ -230,7 +247,7 @@ internal object MigrationPlanRegistry {
     }
 
     fun fingerprint(steps: List<SchemaFamilyContract>): String = steps.joinToString("|") {
-        "${it.family}:${it.minimumSupportedVersion}->${it.currentVersion}:${it.materiality.name}:${it.dependencies.map { d -> d.name }.sorted().joinToString(",")}:v${Phase36SchemaVersioning.PLAN_VERSION}"
+        "${it.family}:${it.minimumSupportedVersion}->${it.currentVersion}:${it.materiality.name}:${it.dependencies.map { d -> d.name }.sorted().joinToString(",")}:v${Phase36SchemaVersioning.PLAN_VERSION}:${Phase36SchemaVersioning.PLAN_IMPLEMENTATION_REVISION}"
     }.sha256()
 }
 
