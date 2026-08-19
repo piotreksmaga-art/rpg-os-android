@@ -180,6 +180,89 @@ replace_once(
     }'''
 )
 
+# P36-AUD-003: one shared anchor definition must also work on legacy receipt V2 snapshots, before
+# the receipt migration has installed V3 manifest columns.
+replace_once(
+    "app/src/main/java/com/rpgos/app/CampaignSnapshotSystem.kt",
+    '''            val anchor=TurnTransactionReceiptStore(captured).lastValidCommit(campaignUid)
+            val order=anchor?.commitOrder?:0L
+            require(order==snapshot.anchorCommitOrder){"RPGOS-SNAPSHOT:ANCHOR_ORDER_MISMATCH"}
+            require(anchor?.transactionUid==snapshot.anchorTransactionUid&&anchor?.turnUid==snapshot.anchorTurnUid){"RPGOS-SNAPSHOT:ANCHOR_IDENTITY_MISMATCH"}
+            val eventUid=anchor?.transactionUid?.let{tx->anchorEventUid(captured,campaignUid,tx)}
+            require(eventUid==snapshot.anchorEventUid){"RPGOS-SNAPSHOT:ANCHOR_EVENT_MISMATCH"}''',
+    '''            val anchor=lastCommittedAnchor(captured,campaignUid)
+            require(anchor.commitOrder==snapshot.anchorCommitOrder){"RPGOS-SNAPSHOT:ANCHOR_ORDER_MISMATCH"}
+            require(anchor.transactionUid==snapshot.anchorTransactionUid&&anchor.turnUid==snapshot.anchorTurnUid){"RPGOS-SNAPSHOT:ANCHOR_IDENTITY_MISMATCH"}
+            require(anchor.eventUid==snapshot.anchorEventUid){"RPGOS-SNAPSHOT:ANCHOR_EVENT_MISMATCH"}'''
+)
+replace_once(
+    "app/src/main/java/com/rpgos/app/CampaignSnapshotSystem.kt",
+    '''        val last=TurnTransactionReceiptStore(db).lastValidCommit(campaignUid)?.commitOrder?:0L
+        require(snapshot.anchorCommitOrder<=last){"RPGOS-SNAPSHOT:STALE_SNAPSHOT_ANCHOR"}''',
+    '''        val last=lastCommittedAnchor(db,campaignUid).commitOrder
+        require(snapshot.anchorCommitOrder<=last){"RPGOS-SNAPSHOT:STALE_SNAPSHOT_ANCHOR"}'''
+)
+anchor_marker = '''    private fun find(db:SQLiteDatabase,campaignUid:String,uid:String):CampaignSnapshotDescriptor? {'''
+anchor_method = '''    internal fun lastCommittedAnchor(db:SQLiteDatabase,campaignUid:String):CapturedSnapshotAnchor {
+        val receiptTable="turn_transaction_receipts"
+        val exists=db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",arrayOf(receiptTable)).use{it.moveToFirst()}
+        if(!exists)return CapturedSnapshotAnchor(0L,null,null,null)
+        val hasOrder=db.rawQuery("PRAGMA table_info($receiptTable)",null).use{c->var found=false;while(c.moveToNext())if(c.getString(1)=="commit_order")found=true;found}
+        if(!hasOrder)return CapturedSnapshotAnchor(0L,null,null,null)
+        return db.rawQuery("""SELECT transaction_uid,turn_uid,commit_order FROM $receiptTable
+            WHERE campaign_uid=? AND commit_state='COMMITTED' AND commit_order IS NOT NULL ORDER BY commit_order DESC LIMIT 1""",arrayOf(campaignUid)).use{c->
+            if(!c.moveToFirst())CapturedSnapshotAnchor(0L,null,null,null)
+            else { val tx=c.getString(0);CapturedSnapshotAnchor(c.getLong(2),tx,c.getString(1),anchorEventUid(db,campaignUid,tx)) }
+        }
+    }
+
+'''
+snap = Path("app/src/main/java/com/rpgos/app/CampaignSnapshotSystem.kt")
+snap_text = snap.read_text(encoding="utf-8")
+if anchor_method not in snap_text:
+    if anchor_marker not in snap_text: raise SystemExit("snapshot anchor insertion marker missing")
+    snap_text=snap_text.replace(anchor_marker,anchor_method+anchor_marker,1)
+old_capture='''                val receipt=TurnTransactionReceiptStore(capturedDb).lastValidCommit(campaignUid)
+                CapturedSnapshotAnchor(
+                    commitOrder=receipt?.commitOrder?:0L,
+                    transactionUid=receipt?.transactionUid,
+                    turnUid=receipt?.turnUid,
+                    eventUid=receipt?.transactionUid?.let{tx->CampaignSnapshotRecoveryPolicy.anchorEventUid(capturedDb,campaignUid,tx)}
+                )'''
+new_capture='''                CampaignSnapshotRecoveryPolicy.lastCommittedAnchor(capturedDb,campaignUid)'''
+if new_capture not in snap_text:
+    if old_capture not in snap_text: raise SystemExit("snapshot capture anchor fragment missing")
+    snap_text=snap_text.replace(old_capture,new_capture,1)
+old_reconstruct='''    fun reconstructToVerifiedStaging():File {
+        requireAdministrativeRecoveryEntryPoint()
+        return CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { reconstructLocked() }
+    }
+
+    private fun reconstructLocked():File {
+        reconcileOrphansLocked()
+        val snapshot=list().firstOrNull{CampaignSnapshotRecoveryPolicy.isRecoverable(db,campaignUid,it)}
+            ?:error("RPGOS-SNAPSHOT:NO_VALID_COMPATIBLE_SNAPSHOT")'''
+new_reconstruct='''    fun reconstructToVerifiedStaging():File {
+        requireAdministrativeRecoveryEntryPoint()
+        return CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { reconstructLocked(null) }
+    }
+
+    internal fun reconstructSnapshotToVerifiedStaging(snapshotUid:String):File {
+        requireAdministrativeRecoveryEntryPoint()
+        require(snapshotUid.isNotBlank())
+        return CampaignRuntimeLifecycleLock.withRecovery(campaignUid) { reconstructLocked(snapshotUid) }
+    }
+
+    private fun reconstructLocked(requiredSnapshotUid:String?):File {
+        reconcileOrphansLocked()
+        val snapshot=(if(requiredSnapshotUid==null) list().firstOrNull{CampaignSnapshotRecoveryPolicy.isRecoverable(db,campaignUid,it)}
+            else find(requiredSnapshotUid)?.takeIf{CampaignSnapshotRecoveryPolicy.isRecoverable(db,campaignUid,it)})
+            ?:error("RPGOS-SNAPSHOT:NO_VALID_COMPATIBLE_SNAPSHOT")'''
+if new_reconstruct not in snap_text:
+    if old_reconstruct not in snap_text: raise SystemExit("snapshot reconstruct fragment missing")
+    snap_text=snap_text.replace(old_reconstruct,new_reconstruct,1)
+snap.write_text(snap_text,encoding="utf-8")
+
 # P36 regression fixture: the non-replayable interval test performs a real financial turn, so the
 # financial canonical state must exist first.
 replace_once(
@@ -206,6 +289,73 @@ replace_once(
             "RECEIPT:2->3:RPGOS-P36-RECEIPT-V2-V3-R1:MATERIAL_DATA_MUTATION"
         ).joinToString("\\n"),Phase36SchemaVersioning.migrationManifestCanonical)'''
 )
+
+# Exact same-snapshot implication test: acceptance is followed by the actual Phase33 reconstruction
+# engine for that UID, not merely a second predicate call.
+p36 = Path("app/src/test/java/com/rpgos/app/Phase36SchemaVersioningTest.kt")
+p36_text = p36.read_text(encoding="utf-8")
+old_matrix='''                if(accepted){
+                    assertTrue("Phase36 accepted $kind but recovery rejects it",CampaignSnapshotRecoveryPolicy.isRecoverable(db,"C1",snapshot))
+                    CampaignSnapshotRecoveryPolicy.requireRecoverable(db,"C1",snapshot)
+                }'''
+new_matrix='''                if(accepted){
+                    assertTrue("Phase36 accepted $kind but recovery rejects it",CampaignSnapshotRecoveryPolicy.isRecoverable(db,"C1",snapshot))
+                    CampaignSnapshotRecoveryPolicy.requireRecoverable(db,"C1",snapshot)
+                    val staging=CampaignSnapshotManager(db,"C1",dir).reconstructSnapshotToVerifiedStaging(snapshot.snapshotUid)
+                    assertTrue(staging.isFile);staging.delete()
+                }'''
+if new_matrix not in p36_text:
+    if old_matrix not in p36_text: raise SystemExit("snapshot kind matrix fragment missing")
+    p36_text=p36_text.replace(old_matrix,new_matrix,1)
+
+receipt_test_marker='''    @Test fun versionEdgeGraphFailsClosedAndFingerprintUsesActualSourceRoute() {'''
+receipt_test='''    @Test fun realReceiptV2RebuildRunsInsidePhase36MaterialLifecycle() {
+        val file=File(root,"receipt-v2.db");val dir=File(root,"receipt-v2-snaps")
+        SQLiteDatabase.openOrCreateDatabase(file,null).use { db ->
+            GroupATransactionTestFixtures.setupFinance(db,"C1")
+            commitTurn(db,"C1","RECEIPT-V2")
+            rebuildReceiptAsV2(db)
+            db.execSQL("UPDATE ${Phase36SchemaVersioning.VERSIONS} SET schema_version=2 WHERE schema_family_uid=?",arrayOf(SchemaFamilyUid.RECEIPT.name))
+            assertEquals(2,TurnTransactionReceiptSchema.physicalSchemaVersion(db))
+            val before=receiptHistory(db,"C1")
+            val safety=CampaignSnapshotManager(db,"C1",dir).create(SnapshotKind.PRE_RESTORE)
+            Phase36SchemaVersioning.ensureReady(db,"C1",safety.snapshotUid)
+            GameplayRuntimeBootstrap.initialize(db,"C1")
+            assertEquals(TURN_TRANSACTION_RECEIPT_VERSION,TurnTransactionReceiptSchema.physicalSchemaVersion(db))
+            assertEquals(before,receiptHistory(db,"C1"))
+            assertTrue(countWhere(db,Phase36SchemaVersioning.ATTEMPTS,"state='APPLIED'")>=1)
+        }
+    }
+
+'''
+if receipt_test not in p36_text:
+    if receipt_test_marker not in p36_text: raise SystemExit("receipt test insertion marker missing")
+    p36_text=p36_text.replace(receipt_test_marker,receipt_test+receipt_test_marker,1)
+
+helpers_marker='''    private fun rebuildEventAsV1(db:SQLiteDatabase){'''
+receipt_helpers='''    private fun rebuildReceiptAsV2(db:SQLiteDatabase){
+        listOf("rpgos_turn_receipts_commit_insert","rpgos_turn_receipts_no_update","rpgos_turn_receipts_no_delete",
+            "rpgos_guard_turn_transaction_receipts_insert","rpgos_guard_turn_transaction_receipts_update","rpgos_guard_turn_transaction_receipts_delete").forEach{db.execSQL("DROP TRIGGER IF EXISTS $it")}
+        db.execSQL("DROP TABLE IF EXISTS turn_transaction_receipts_v2_test")
+        db.execSQL("""CREATE TABLE turn_transaction_receipts_v2_test(
+            transaction_uid TEXT PRIMARY KEY,campaign_uid TEXT NOT NULL,turn_uid TEXT NOT NULL,command_uid TEXT NOT NULL,
+            semantic_fingerprint TEXT NOT NULL,result_fingerprint TEXT NOT NULL,commit_order INTEGER NULL CHECK(commit_order IS NULL OR commit_order>0),
+            receipt_version INTEGER NOT NULL CHECK(receipt_version IN (1,2)),commit_state TEXT NOT NULL CHECK(commit_state='COMMITTED'),
+            UNIQUE(campaign_uid,command_uid))""")
+        db.execSQL("""INSERT INTO turn_transaction_receipts_v2_test(transaction_uid,campaign_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,commit_order,receipt_version,commit_state)
+            SELECT transaction_uid,campaign_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,commit_order,2,commit_state FROM turn_transaction_receipts""")
+        db.execSQL("DROP TABLE turn_transaction_receipts")
+        db.execSQL("ALTER TABLE turn_transaction_receipts_v2_test RENAME TO turn_transaction_receipts")
+    }
+
+    private fun receiptHistory(db:SQLiteDatabase,campaign:String)=db.rawQuery("""SELECT transaction_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,COALESCE(CAST(commit_order AS TEXT),'NULL')
+        FROM turn_transaction_receipts WHERE campaign_uid=? ORDER BY transaction_uid""",arrayOf(campaign)).use{c->buildList{while(c.moveToNext())add((0 until c.columnCount).joinToString("|"){i->c.getString(i)})}}}
+
+'''
+if receipt_helpers not in p36_text:
+    if helpers_marker not in p36_text: raise SystemExit("receipt helper insertion marker missing")
+    p36_text=p36_text.replace(helpers_marker,receipt_helpers+helpers_marker,1)
+p36.write_text(p36_text,encoding="utf-8")
 
 # P35 regression: forged writable SQL context must still fail even if the attacker reuses genuine
 # committed receipt/event/replay identities from a legal turn.
