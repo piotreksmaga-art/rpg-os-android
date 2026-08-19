@@ -50,6 +50,7 @@ jobs:
         run: |
           python3 .github/phase37_patch.py
           python3 .github/phase37_patch2.py
+          python3 .github/phase37_patch3.py
 
       - name: Targeted Phase37 tests
         run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase37NpcKnowledgeTest' --stacktrace
@@ -110,7 +111,7 @@ jobs:
         run: exit 1
 
       - name: Remove temporary patch machinery
-        run: rm .github/phase37_patch.py .github/phase37_patch2.py .github/workflows/phase37-guarded-patch.yml
+        run: rm .github/phase37_patch.py .github/phase37_patch2.py .github/phase37_patch3.py .github/workflows/phase37-guarded-patch.yml
 
       - name: Commit validated implementation
         shell: bash
