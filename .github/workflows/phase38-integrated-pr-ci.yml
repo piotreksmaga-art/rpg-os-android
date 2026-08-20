@@ -1,109 +1,66 @@
-name: Phase38 Integrated Observable Gate
+name: Phase38 Slice C Exact SHA Observable Gate
 on:
   pull_request:
     branches: [master]
 permissions:
-  contents: write
+  contents: read
 jobs:
-  validate:
+  validate-slice-c:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
           ref: chat1-phase38-slice-ab-protected-read
           fetch-depth: 0
-      - name: Verify fixed baseline
+      - name: Capture immutable validation SHA
+        id: sha
+        shell: bash
         run: |
-          git merge-base --is-ancestor d6f43231c392868b9dab88d2c0872f7565ea14cd HEAD
+          set -euo pipefail
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "VALIDATION_SHA=$(git rev-parse HEAD)"
           git fetch origin master
           test "$(git rev-parse origin/master)" = "e4b539fa87113c5ec46da2facf282c8004dc7e44"
+          git diff --quiet 2a894b614e74c1888ad901b666fd923e4bd15d32..HEAD -- app/src/main/java app/src/test/java backend
       - uses: actions/setup-java@v5
         with: {distribution: temurin, java-version: '17'}
       - uses: android-actions/setup-android@v3
-      - run: |
+      - name: Android SDK
+        run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v4
         with: {gradle-version: '9.5.0', cache-read-only: true}
-      - run: |
+      - name: Temporary wrapper
+        run: |
           gradle wrapper --gradle-version 9.5.0
-          chmod +x gradlew
-          git config user.name rpg-os-phase38-ci
-          git config user.email actions@users.noreply.github.com
-      - name: Structural A+B
-        id: ab
+          chmod +x ./gradlew
+      - name: Phase38 targeted exact-SHA gate
+        shell: bash
         run: |
-          python3 tools/phase38_integrated_patch.py hardening
-          python3 tools/phase38_integrated_fixups.py hardening
-          git diff --check
-          git add app/src/main/java app/src/test/java backend/app.py
-          git diff --cached --check
-          git commit -m 'feat(p38): harden trusted protected-read foundations'
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Structural A+B gates
-        run: |
+          set -euo pipefail
           rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
           ./gradlew --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase38*' --stacktrace
-          python3 -c "import glob,xml.etree.ElementTree as E; rs=[E.parse(x).getroot() for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml')]; t=sum(int(r.attrib.get('tests',0)) for r in rs); f=sum(int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0)) for r in rs); s=sum(int(r.attrib.get('skipped',0)) for r in rs); print(f'AB_TARGETED tests={t} failures={f} skipped={s}'); assert t and not f"
-          rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
-          ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace
-          python3 -c "import glob,xml.etree.ElementTree as E; rs=[E.parse(x).getroot() for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml')]; t=sum(int(r.attrib.get('tests',0)) for r in rs); f=sum(int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0)) for r in rs); s=sum(int(r.attrib.get('skipped',0)) for r in rs); print(f'AB_FULL tests={t} failures={f} skipped={s}'); assert t and not f"
-          test "$(git rev-parse HEAD)" = "${{ steps.ab.outputs.sha }}"
-          git push origin HEAD:chat1-phase38-slice-ab-protected-read
-      - name: Slice C
-        id: c
-        run: |
-          python3 tools/phase38_integrated_patch.py c
-          python3 tools/phase38_integrated_fixups.py c
-          git diff --check
-          git add app/src/main/java app/src/test/java
-          git diff --cached --check
-          git commit -m 'feat(p38): add universal access authority'
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Slice C gates
-        run: |
-          rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
-          ./gradlew --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase38*' --stacktrace
-          python3 -c "import glob,xml.etree.ElementTree as E; rs=[E.parse(x).getroot() for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml')]; t=sum(int(r.attrib.get('tests',0)) for r in rs); f=sum(int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0)) for r in rs); s=sum(int(r.attrib.get('skipped',0)) for r in rs); print(f'ABC_TARGETED tests={t} failures={f} skipped={s}'); assert t and not f"
-          rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
-          ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace
-          python3 -c "import glob,xml.etree.ElementTree as E; rs=[E.parse(x).getroot() for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml')]; t=sum(int(r.attrib.get('tests',0)) for r in rs); f=sum(int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0)) for r in rs); s=sum(int(r.attrib.get('skipped',0)) for r in rs); print(f'ABC_FULL tests={t} failures={f} skipped={s}'); assert t and not f"
-          test "$(git rev-parse HEAD)" = "${{ steps.c.outputs.sha }}"
-          git push origin HEAD:chat1-phase38-slice-ab-protected-read
-      - name: Slice D
-        id: d
-        run: |
-          python3 tools/phase38_integrated_patch.py d
-          git diff --check
-          git add app/src/main/java app/src/test/java
-          git diff --cached --check
-          git commit -m 'feat(p38): add universal perception and disclosure'
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Universality and final gates
-        run: |
           python3 - <<'PY'
-          from pathlib import Path
-          banned=('naruto','bleach','witcher','shinobi','ninja','chakra','reiatsu','dragon','wizard')
-          bad=[]
-          for f in Path('app/src/main/java/com/rpgos/app').glob('Phase38*.kt'):
-              t=f.read_text().lower()
-              bad += [(str(f),x) for x in banned if x in t]
-          print('P38_UNIVERSALITY_BAD',bad); assert not bad
+          import glob,xml.etree.ElementTree as E
+          rs=[E.parse(x).getroot() for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml')]
+          t=sum(int(r.attrib.get('tests',0)) for r in rs); f=sum(int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0)) for r in rs); s=sum(int(r.attrib.get('skipped',0)) for r in rs)
+          print(f'SLICE_C_TARGETED tests={t} failures={f} skipped={s}'); assert t and not f
           PY
-          test -z "$(git diff --name-only e4b539fa87113c5ec46da2facf282c8004dc7e44...HEAD | grep '^docs/' || true)"
-          test -z "$(git diff --name-only e4b539fa87113c5ec46da2facf282c8004dc7e44...HEAD | grep -Ei 'phase39|phase4[0-9]|phase[5-9][0-9]' || true)"
-          rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
-          ./gradlew --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase38*' --stacktrace
-          python3 -c "import glob,xml.etree.ElementTree as E; rs=[E.parse(x).getroot() for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml')]; t=sum(int(r.attrib.get('tests',0)) for r in rs); f=sum(int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0)) for r in rs); s=sum(int(r.attrib.get('skipped',0)) for r in rs); print(f'FINAL_TARGETED tests={t} failures={f} skipped={s}'); assert t and not f"
-          rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
-          ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace
-          python3 -c "import glob,xml.etree.ElementTree as E; rs=[E.parse(x).getroot() for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml')]; t=sum(int(r.attrib.get('tests',0)) for r in rs); f=sum(int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0)) for r in rs); s=sum(int(r.attrib.get('skipped',0)) for r in rs); print(f'FINAL_FULL tests={t} failures={f} skipped={s}'); assert t and not f"
-          test "$(git rev-parse HEAD)" = "${{ steps.d.outputs.sha }}"
-      - name: Push final green
+          test "$(git rev-parse HEAD)" = "${{ steps.sha.outputs.sha }}"
+      - name: Isolate targeted XML
+        run: rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
+      - name: Full JVM exact-SHA gate
+        shell: bash
         run: |
-          rm -f gradlew gradlew.bat; rm -rf gradle/wrapper
-          test -z "$(git status --porcelain -- app/src/main/java app/src/test/java backend/app.py)"
-          git push origin HEAD:chat1-phase38-slice-ab-protected-read
-          echo "AB_HARDENING_SHA=${{ steps.ab.outputs.sha }}"
-          echo "SLICE_C_GREEN_SHA=${{ steps.c.outputs.sha }}"
-          echo "SLICE_D_FINAL_GREEN_SHA=${{ steps.d.outputs.sha }}"
+          set -euo pipefail
+          ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace
+          python3 - <<'PY'
+          import glob,xml.etree.ElementTree as E
+          rs=[E.parse(x).getroot() for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml')]
+          t=sum(int(r.attrib.get('tests',0)) for r in rs); f=sum(int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0)) for r in rs); s=sum(int(r.attrib.get('skipped',0)) for r in rs)
+          print(f'SLICE_C_FULL tests={t} failures={f} skipped={s}'); assert t and not f
+          PY
+          test "$(git rev-parse HEAD)" = "${{ steps.sha.outputs.sha }}"
+      - name: Confirm exact-SHA green
+        run: echo "SLICE_C_GREEN_SHA=${{ steps.sha.outputs.sha }}"
