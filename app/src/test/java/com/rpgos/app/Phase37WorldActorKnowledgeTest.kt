@@ -167,7 +167,7 @@ class Phase37WorldActorKnowledgeTest {
 
     @Test fun institutionalKnowledgeDoesNotAutoPropagateToMembers() = withDb { db ->
         init(db)
-        val institutional = KnowledgeHolderRef(KnowledgeHolderKinds.INTELLIGENCE_SERVICE, "ANBU")
+        val institutional = KnowledgeHolderRef(KnowledgeHolderKinds.INTELLIGENCE_SERVICE, "ANBU", "C1")
         commit(db, "ANBU", change("ANBU", institutional, claim("CLAIM-SECRET", "SECRET-X"), scope = KnowledgeScope.INSTITUTIONAL))
         assertEquals(1, KnowledgeStore(db, "C1").states(institutional).size)
         assertTrue(KnowledgeStore(db, "C1").states(holder("OFFICER-1")).isEmpty())
@@ -193,9 +193,9 @@ class Phase37WorldActorKnowledgeTest {
         }.isFailure)
 
         val c = claim("CLAIM-CROSS", "X")
-        commit(db, "C2-PARENT", change("C2-PARENT", holder("A"), c), campaign = "C2")
+        commit(db, "C2-PARENT", change("C2-PARENT", holder("A", "C2"), c), campaign = "C2")
         val child = change("C1-CHILD", holder("B"), c, method = KnowledgeAcquisitionMethods.DIRECT_COMMUNICATION,
-            parent = "ACQ-C2-PARENT", sourceHolder = holder("A"))
+            parent = "ACQ-C2-PARENT", sourceHolder = holder("A", "C2"))
         assertTrue(runCatching { commit(db, "C1-CHILD", child, campaign = "C1") }.isFailure)
         assertTrue(KnowledgeStore(db, "C1").acquisitions(holder("B")).isEmpty())
     }
@@ -331,7 +331,7 @@ class Phase37WorldActorKnowledgeTest {
 
     @Test fun carrierIsProvenanceHookAndDoesNotTransferPersonalState() = withDb { db ->
         init(db)
-        val carrier = KnowledgeCarrierRef(KnowledgeCarrierKinds.REPORT, "REPORT-77")
+        val carrier = KnowledgeCarrierRef(KnowledgeCarrierKinds.REPORT, "REPORT-77", "C1")
         commit(db, "CARRIER", change("CARRIER", holder("A"), claim("CLAIM-CARRIER", "X"), method = KnowledgeAcquisitionMethods.DOCUMENT, carrier = carrier))
         val a = KnowledgeStore(db, "C1").acquisitions(holder("A")).single()
         assertEquals(carrier, a.carrier)
@@ -491,6 +491,141 @@ class Phase37WorldActorKnowledgeTest {
         assertFalse(code.contains("JOIN information_facts"))
     }
 
+    @Test fun droppedPrimaryRecordedGuardStillCannotWriteBecauseIndependentSealRemains() = withDb { db ->
+        init(db)
+        val primary = Phase37GuardDefinitionIntegrity.primaryGuardName(Phase37KnowledgeSchema.ACQUISITIONS, "insert")
+        db.execSQL("DROP TRIGGER $primary")
+        db.execSQL("INSERT INTO ${GameplayMutationDatabaseGuards.CONTEXT_TABLE_NAME}(campaign_uid,capability_kind) VALUES('C1','TURN')")
+        val forged = runCatching {
+            db.execSQL("""INSERT INTO ${Phase37KnowledgeSchema.ACQUISITIONS}(
+                campaign_uid,acquisition_uid,claim_uid,holder_kind_uid,holder_uid,method_uid,scope_uid,
+                created_transaction_uid,created_turn_uid,created_event_uid,provenance_status,created_order,acquisition_schema_version)
+                VALUES('C1','DDL-FORGE','CLAIM','CHARACTER','A','REPORT','PERSONAL','TX','TURN','EVENT','RECORDED',1,?)""",
+                arrayOf(PHASE37_KNOWLEDGE_SCHEMA_VERSION))
+        }
+        assertTrue(forged.isFailure)
+    }
+
+    @Test fun permissiveSameNameTriggerIsRejectedByDefinitionFingerprint() = withDb { db ->
+        init(db)
+        val primary = Phase37GuardDefinitionIntegrity.primaryGuardName(Phase37KnowledgeSchema.CLAIMS, "insert")
+        db.execSQL("DROP TRIGGER $primary")
+        db.execSQL("CREATE TRIGGER $primary BEFORE INSERT ON ${Phase37KnowledgeSchema.CLAIMS} BEGIN SELECT 1; END")
+        val failure = runCatching { GameplayRuntimeBootstrap.requireReady(db, "C1") }.exceptionOrNull()
+        assertTrue(failure is Phase37KnowledgeCorruptionException)
+        assertTrue(failure!!.message.orEmpty().contains("GUARD_DEFINITION_MISMATCH"))
+    }
+
+    @Test fun removingIndependentSealFailsReadinessClosed() = withDb { db ->
+        init(db)
+        val seal = Phase37GuardDefinitionIntegrity.sealGuardName(Phase37KnowledgeSchema.STATES, "update")
+        db.execSQL("DROP TRIGGER $seal")
+        val failure = runCatching { GameplayRuntimeBootstrap.requireReady(db, "C1") }.exceptionOrNull()
+        assertTrue(failure is Phase37KnowledgeCorruptionException)
+        assertTrue(failure!!.message.orEmpty().contains("MISSING_GUARD"))
+    }
+
+    @Test fun legalBootstrapRepairsPhase37GuardDefinitions() = withDb { db ->
+        init(db)
+        val primary = Phase37GuardDefinitionIntegrity.primaryGuardName(Phase37KnowledgeSchema.CLAIMS, "insert")
+        db.execSQL("DROP TRIGGER $primary")
+        db.execSQL("CREATE TRIGGER $primary BEFORE INSERT ON ${Phase37KnowledgeSchema.CLAIMS} BEGIN SELECT 1; END")
+        assertTrue(runCatching { GameplayRuntimeBootstrap.requireReady(db, "C1") }.isFailure)
+        GameplayRuntimeBootstrap.initialize(db, "C1")
+        GameplayRuntimeBootstrap.requireReady(db, "C1")
+    }
+
+    @Test fun crossCampaignHolderCarrierSourceHolderAndEvidenceSourceFailClosed() = withDb { db ->
+        init(db, "C1", "C2")
+        assertTrue(runCatching {
+            commit(db, "X-HOLDER", change("X-HOLDER", holder("A", "C2"), claim("C-XH", "X")), campaign = "C1")
+        }.isFailure)
+        assertTrue(runCatching {
+            commit(db, "X-CARRIER", change("X-CARRIER", holder("A"), claim("C-XC", "X"),
+                carrier = KnowledgeCarrierRef(KnowledgeCarrierKinds.REPORT, "R", "C2")), campaign = "C1")
+        }.isFailure)
+        val base = claim("C-XS", "X")
+        commit(db, "SRC-A", change("SRC-A", holder("SRC"), base))
+        assertTrue(runCatching {
+            commit(db, "X-SOURCE-HOLDER", change("X-SOURCE-HOLDER", holder("B"), base,
+                method = KnowledgeAcquisitionMethods.DIRECT_COMMUNICATION, parent = "ACQ-SRC-A", sourceHolder = holder("SRC", "C2")))
+        }.isFailure)
+        assertTrue(runCatching {
+            commit(db, "X-SOURCE-REF", change("X-SOURCE-REF", holder("B"), claim("C-XR", "X"), evidence = listOf(
+                KnowledgeEvidenceSpec("E-XR", "REPORT", KnowledgeEvidencePolarity.SUPPORTS,
+                    sourceRef = KnowledgeSourceRef.campaign("C2", "REPORT", "SAME"))
+            )))
+        }.isFailure)
+    }
+
+    @Test fun sameTextualUidIsCampaignQualifiedAndGlobalImmutableSourceIsExplicit() = withDb { db ->
+        init(db, "C1", "C2")
+        val c1 = claim("C-SAME", "A")
+        val c2 = claim("C-SAME", "B")
+        commit(db, "SAME-C1", change("SAME-C1", holder("SAME", "C1"), c1), campaign = "C1")
+        commit(db, "SAME-C2", change("SAME-C2", holder("SAME", "C2"), c2), campaign = "C2")
+        assertEquals("C1", KnowledgeStore(db, "C1").acquisitions().single().holder.campaignUid)
+        assertEquals("C2", KnowledgeStore(db, "C2").acquisitions().single().holder.campaignUid)
+
+        val global = KnowledgeSourceRef.globalImmutable(KnowledgeGlobalImmutableSourceKinds.WORLD_PACK_DEFINITION, "RULE-7")
+        commit(db, "GLOBAL-SOURCE", change("GLOBAL-SOURCE", holder("A"), claim("C-GLOBAL", "X"), evidence = listOf(
+            KnowledgeEvidenceSpec("E-GLOBAL", "CANON_DOC", KnowledgeEvidencePolarity.SUPPORTS, sourceRef = global)
+        )))
+        assertEquals(global, KnowledgeStore(db, "C1").evidence("ACQ-GLOBAL-SOURCE").single { it.evidenceUid == "E-GLOBAL" }.sourceRef)
+        assertTrue(runCatching { KnowledgeSourceRef.globalImmutable("ARBITRARY_RUNTIME_OBJECT", "X") }.isFailure)
+    }
+
+    @Test fun campaignQualifiedRefsSurviveSnapshotReplayExactly() = withDb { db ->
+        init(db)
+        CampaignSnapshotManager(db, "C1", snapshots).create()
+        val source = KnowledgeSourceRef.campaign("C1", "REPORT", "REPORT-11")
+        val carrier = KnowledgeCarrierRef(KnowledgeCarrierKinds.REPORT, "REPORT-11", "C1")
+        commit(db, "QUAL-REPLAY", change("QUAL-REPLAY", holder("A"), claim("C-QUAL", "X"), carrier = carrier, evidence = listOf(
+            KnowledgeEvidenceSpec("E-QUAL", "REPORT", KnowledgeEvidencePolarity.SUPPORTS, sourceCarrier = carrier, sourceRef = source)
+        )))
+        val expectedAcq = KnowledgeStore(db, "C1").acquisitions().single()
+        val expectedEvidence = KnowledgeStore(db, "C1").evidence(expectedAcq.acquisitionUid)
+        val staged = CampaignSnapshotManager(db, "C1", snapshots).reconstructToVerifiedStaging()
+        SQLiteDatabase.openDatabase(staged.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { restored ->
+            assertEquals(expectedAcq, KnowledgeStore(restored, "C1").acquisitions().single())
+            assertEquals(expectedEvidence, KnowledgeStore(restored, "C1").evidence(expectedAcq.acquisitionUid))
+        }
+    }
+
+    @Test fun projectionRejectsCorruptedStateHolderClaimScopeAndRoleLineage() = withDb { db ->
+        init(db)
+        val roleClaim = claim("C-ROLE-CORRUPT", "X")
+        commit(db, "ROLE-CORRUPT", change("ROLE-CORRUPT", holder("A"), roleClaim, scope = KnowledgeScope.ROLE_ACCESSIBLE, roleUid = "R1"))
+        fun corrupt(column: String, value: String) {
+            val primary = Phase37GuardDefinitionIntegrity.primaryGuardName(Phase37KnowledgeSchema.STATES, "update")
+            val seal = Phase37GuardDefinitionIntegrity.sealGuardName(Phase37KnowledgeSchema.STATES, "update")
+            db.execSQL("DROP TRIGGER IF EXISTS $primary"); db.execSQL("DROP TRIGGER IF EXISTS $seal")
+            withAdministrativeMutationAuthority(db, "C1") {
+                db.execSQL("UPDATE ${Phase37KnowledgeSchema.STATES} SET $column=? WHERE campaign_uid='C1'", arrayOf(value))
+            }
+            GameplayRuntimeBootstrap.initialize(db, "C1")
+            assertTrue(runCatching { KnowledgeContextProjection(db, "C1").forHolders(listOf(holder("A")), false) }.exceptionOrNull() is Phase37KnowledgeCorruptionException)
+        }
+        corrupt("holder_uid", "B")
+    }
+
+    @Test fun projectionRejectsWrongClaimScopeRoleForeignAcquisitionEvidenceAndParentLineage() = withDb { db ->
+        init(db, "C1", "C2")
+        val c = claim("C-LINEAGE-CORRUPT", "X")
+        commit(db, "LINEAGE-BASE", change("LINEAGE-BASE", holder("A"), c, scope = KnowledgeScope.ROLE_ACCESSIBLE, roleUid = "ROLE-A"))
+
+        fun corruptState(setClause: String, args: Array<Any>) {
+            val p = Phase37GuardDefinitionIntegrity.primaryGuardName(Phase37KnowledgeSchema.STATES, "update")
+            val s = Phase37GuardDefinitionIntegrity.sealGuardName(Phase37KnowledgeSchema.STATES, "update")
+            db.execSQL("DROP TRIGGER IF EXISTS $p"); db.execSQL("DROP TRIGGER IF EXISTS $s")
+            withAdministrativeMutationAuthority(db, "C1") { db.execSQL("UPDATE ${Phase37KnowledgeSchema.STATES} SET $setClause WHERE campaign_uid='C1'", args) }
+            GameplayRuntimeBootstrap.initialize(db, "C1")
+            assertTrue(runCatching { Phase37KnowledgeLineageIntegrity.requireCampaign(db, "C1") }.exceptionOrNull() is Phase37KnowledgeCorruptionException)
+        }
+
+        corruptState("claim_uid=?", arrayOf("WRONG-CLAIM"))
+    }
+
     private fun withDb(block: (SQLiteDatabase) -> Unit) {
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use(block)
     }
@@ -500,7 +635,7 @@ class Phase37WorldActorKnowledgeTest {
         targets.forEach { GameplayRuntimeBootstrap.initialize(db, it) }
     }
 
-    private fun holder(uid: String) = KnowledgeHolderRef(KnowledgeHolderKinds.CHARACTER, uid)
+    private fun holder(uid: String, campaign: String = "C1") = KnowledgeHolderRef(KnowledgeHolderKinds.CHARACTER, uid, campaign)
 
     private fun quality(
         confidence: Double = .9,

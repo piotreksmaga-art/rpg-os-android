@@ -458,6 +458,7 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
                 section("ACQUISITION") {
                     field("UID", payload.acquisition.acquisitionUid)
                     field("HOLDER_KIND", payload.acquisition.holder.holderKindUid); field("HOLDER_UID", payload.acquisition.holder.holderUid)
+                    nullableField("HOLDER_CAMPAIGN_UID", payload.acquisition.holder.campaignUid)
                     field("METHOD", payload.acquisition.methodUid); field("SCOPE", payload.acquisition.scope.name)
                     field("EPISTEMIC_STATE", payload.acquisition.epistemicState.name)
                     field("CONFIDENCE", payload.acquisition.quality.confidence.toString())
@@ -469,9 +470,11 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
                     nullableField("PARENT_ACQUISITION", payload.acquisition.parentAcquisitionUid)
                     nullableField("SOURCE_HOLDER_KIND", payload.acquisition.sourceHolder?.holderKindUid)
                     nullableField("SOURCE_HOLDER_UID", payload.acquisition.sourceHolder?.holderUid)
+                    nullableField("SOURCE_HOLDER_CAMPAIGN_UID", payload.acquisition.sourceHolder?.campaignUid)
                     nullableField("ROLE_UID", payload.acquisition.roleUid)
                     nullableField("CARRIER_KIND", payload.acquisition.carrier?.carrierKindUid)
                     nullableField("CARRIER_UID", payload.acquisition.carrier?.carrierUid)
+                    nullableField("CARRIER_CAMPAIGN_UID", payload.acquisition.carrier?.campaignUid)
                     field("PROVENANCE", payload.acquisition.provenanceStatus.name)
                 }
                 list("KNOWLEDGE_EVIDENCE", payload.evidence) { e ->
@@ -480,7 +483,10 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
                         nullableField("SOURCE_ACQUISITION", e.sourceAcquisitionUid)
                         nullableField("SOURCE_CARRIER_KIND", e.sourceCarrier?.carrierKindUid)
                         nullableField("SOURCE_CARRIER_UID", e.sourceCarrier?.carrierUid)
-                        nullableField("SOURCE_REF_KIND", e.sourceRefKindUid); nullableField("SOURCE_REF_UID", e.sourceRefUid)
+                        nullableField("SOURCE_CARRIER_CAMPAIGN_UID", e.sourceCarrier?.campaignUid)
+                        nullableField("SOURCE_REF_SCOPE", e.sourceRef?.scope?.name)
+                        nullableField("SOURCE_REF_CAMPAIGN_UID", e.sourceRef?.campaignUid)
+                        nullableField("SOURCE_REF_KIND", e.sourceRef?.kindUid); nullableField("SOURCE_REF_UID", e.sourceRef?.entityUid)
                     }
                 }
             }

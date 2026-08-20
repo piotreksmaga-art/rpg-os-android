@@ -20,11 +20,16 @@ internal object GameplayMutationDatabaseGuards {
     internal fun administrativeOnlyTablesForCompatibility(): List<String> = administrativeOnlyTables
     internal fun campaignColumnForCompatibility(db: SQLiteDatabase, table: String): String? = campaignColumn(db, table)
     internal fun phase37RuntimeGuardNames(): Set<String> = buildSet {
-        add(p37GuardName(Phase37KnowledgeSchema.CLAIMS, "insert"))
-        add(p37GuardName(Phase37KnowledgeSchema.ACQUISITIONS, "insert"))
-        add(p37GuardName(Phase37KnowledgeSchema.EVIDENCE, "insert"))
-        add(p37GuardName(Phase37KnowledgeSchema.STATES, "insert"))
-        add(p37GuardName(Phase37KnowledgeSchema.STATES, "update"))
+        listOf(
+            Phase37KnowledgeSchema.CLAIMS to "insert",
+            Phase37KnowledgeSchema.ACQUISITIONS to "insert",
+            Phase37KnowledgeSchema.EVIDENCE to "insert",
+            Phase37KnowledgeSchema.STATES to "insert",
+            Phase37KnowledgeSchema.STATES to "update"
+        ).forEach { (table, operation) ->
+            add(p37GuardName(table, operation))
+            add(p37SealGuardName(table, operation))
+        }
     }
 
     fun ensureInstalled(db: SQLiteDatabase) {
@@ -184,11 +189,15 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-MUTATION-GATE:IN_MEMORY_TURN_AUTHORITY_REQUIRED'
         val name = p37GuardName(table, operation.lowercase())
         db.execSQL("DROP TRIGGER IF EXISTS $name")
         val missing = if (Build.VERSION.SDK_INT >= 30) "$P37_RECORDED_WRITE_FUNCTION($tokenExpression)<>'1'" else "1=1"
-        db.execSQL(
-            """CREATE TRIGGER $name BEFORE $operation ON $table
+        val sealName = p37SealGuardName(table, operation.lowercase())
+        db.execSQL("DROP TRIGGER IF EXISTS $sealName")
+        listOf(name, sealName).forEach { triggerName ->
+            db.execSQL(
+                """CREATE TRIGGER $triggerName BEFORE $operation ON $table
 WHEN $missing
 BEGIN SELECT RAISE(ABORT,'RPGOS-KNOWLEDGE:EXACT_RECORDED_AUTHORITY_REQUIRED'); END""".trimIndent()
-        )
+            )
+        }
     }
 
     internal fun suspendLegacyPhase37RecordedWriteGuards(db: SQLiteDatabase) {
@@ -205,6 +214,9 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-KNOWLEDGE:EXACT_RECORDED_AUTHORITY_REQUIRED'); E
 
     private fun p37GuardName(table: String, operation: String) =
         P37_GUARD_PREFIX + table.removePrefix("world_actor_") + "_" + operation
+
+    private fun p37SealGuardName(table: String, operation: String) =
+        "rpgos_p37_schema_seal_" + table.removePrefix("world_actor_") + "_" + operation
 
     internal fun enterRuntimeTurnAuthority(db: SQLiteDatabase, campaignUid: String) {
         requireCanonicalGameplayMutation(db, campaignUid)

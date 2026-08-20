@@ -142,41 +142,58 @@ private fun encodeEvidence(e: KnowledgeEvidenceSpec): JsonObject = p37Obj(
     "polarity" to p37J(e.polarity.name),
     "sourceAcquisitionUid" to p37Jn(e.sourceAcquisitionUid),
     "sourceCarrier" to (e.sourceCarrier?.let(::encodeCarrier) ?: JsonNull),
-    "sourceRefKindUid" to p37Jn(e.sourceRefKindUid),
-    "sourceRefUid" to p37Jn(e.sourceRefUid)
+    "sourceRef" to (e.sourceRef?.let(::encodeSourceRef) ?: JsonNull)
 )
 
 private fun decodeEvidence(obj: JsonObject): KnowledgeEvidenceSpec {
-    obj.p37Only(setOf("evidenceUid","evidenceKindUid","polarity","sourceAcquisitionUid","sourceCarrier","sourceRefKindUid","sourceRefUid"))
+    obj.p37Only(setOf("evidenceUid","evidenceKindUid","polarity","sourceAcquisitionUid","sourceCarrier","sourceRef"))
     return KnowledgeEvidenceSpec(
         evidenceUid = obj.p37String("evidenceUid"),
         evidenceKindUid = obj.p37String("evidenceKindUid"),
         polarity = p37Enum(obj.p37String("polarity"), "INVALID_KNOWLEDGE_EVIDENCE_POLARITY"),
         sourceAcquisitionUid = obj.p37OptString("sourceAcquisitionUid"),
         sourceCarrier = obj.p37OptObject("sourceCarrier")?.let(::decodeCarrier),
-        sourceRefKindUid = obj.p37OptString("sourceRefKindUid"),
-        sourceRefUid = obj.p37OptString("sourceRefUid")
+        sourceRef = obj.p37OptObject("sourceRef")?.let(::decodeSourceRef)
     )
 }
 
 private fun encodeHolder(holder: KnowledgeHolderRef): JsonObject = p37Obj(
     "holderKindUid" to p37J(holder.holderKindUid),
-    "holderUid" to p37J(holder.holderUid)
+    "holderUid" to p37J(holder.holderUid),
+    "campaignUid" to p37Jn(holder.campaignUid)
 )
 
 private fun decodeHolder(obj: JsonObject): KnowledgeHolderRef {
-    obj.p37Only(setOf("holderKindUid","holderUid"))
-    return KnowledgeHolderRef(obj.p37String("holderKindUid"), obj.p37String("holderUid"))
+    obj.p37Only(setOf("holderKindUid","holderUid","campaignUid"))
+    return KnowledgeHolderRef(obj.p37String("holderKindUid"), obj.p37String("holderUid"), obj.p37OptString("campaignUid"))
 }
 
 private fun encodeCarrier(carrier: KnowledgeCarrierRef): JsonObject = p37Obj(
     "carrierKindUid" to p37J(carrier.carrierKindUid),
-    "carrierUid" to p37J(carrier.carrierUid)
+    "carrierUid" to p37J(carrier.carrierUid),
+    "campaignUid" to p37Jn(carrier.campaignUid)
 )
 
 private fun decodeCarrier(obj: JsonObject): KnowledgeCarrierRef {
-    obj.p37Only(setOf("carrierKindUid","carrierUid"))
-    return KnowledgeCarrierRef(obj.p37String("carrierKindUid"), obj.p37String("carrierUid"))
+    obj.p37Only(setOf("carrierKindUid","carrierUid","campaignUid"))
+    return KnowledgeCarrierRef(obj.p37String("carrierKindUid"), obj.p37String("carrierUid"), obj.p37OptString("campaignUid"))
+}
+
+private fun encodeSourceRef(ref: KnowledgeSourceRef): JsonObject = p37Obj(
+    "scope" to p37J(ref.scope.name),
+    "campaignUid" to p37Jn(ref.campaignUid),
+    "kindUid" to p37J(ref.kindUid),
+    "entityUid" to p37J(ref.entityUid)
+)
+
+private fun decodeSourceRef(obj: JsonObject): KnowledgeSourceRef {
+    obj.p37Only(setOf("scope","campaignUid","kindUid","entityUid"))
+    return KnowledgeSourceRef(
+        scope = p37Enum(obj.p37String("scope"), "INVALID_KNOWLEDGE_REFERENCE_SCOPE"),
+        campaignUid = obj.p37OptString("campaignUid"),
+        kindUid = obj.p37String("kindUid"),
+        entityUid = obj.p37String("entityUid")
+    )
 }
 
 private fun p37ConflictKey(vararg values: String): String = buildString {

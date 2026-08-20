@@ -93,6 +93,7 @@ internal object GameplayRuntimeBootstrap {
         requiredEvidenceTriggers.forEach { trigger ->
             check(triggerExists(db, trigger)) { "RPGOS-G32:MISSING_EVIDENCE_GUARD:$trigger" }
         }
+        Phase37GuardDefinitionIntegrity.requireCanonical(db)
         GameplayMutationDatabaseGuards.authoritativeTablesForCompatibility().filter { tableExists(db, it) }.forEach { table ->
             listOf("insert", "update", "delete").forEach { operation ->
                 val trigger = "rpgos_guard_${table}_$operation"

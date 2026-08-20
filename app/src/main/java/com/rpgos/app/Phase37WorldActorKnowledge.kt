@@ -20,8 +20,15 @@ object KnowledgeHolderKinds {
     const val WORLD_SPECIFIC = "WORLD_SPECIFIC"
 }
 
-data class KnowledgeHolderRef(val holderKindUid: String, val holderUid: String) {
-    init { require(holderKindUid.isNotBlank() && holderUid.isNotBlank()) }
+data class KnowledgeHolderRef(
+    val holderKindUid: String,
+    val holderUid: String,
+    val campaignUid: String? = null
+) {
+    init {
+        require(holderKindUid.isNotBlank() && holderUid.isNotBlank())
+        require(campaignUid?.isBlank() != true)
+    }
 }
 
 data class KnowledgeDomain(val domainUid: String) {
@@ -87,8 +94,15 @@ object KnowledgeCarrierKinds {
     const val WORLD_SPECIFIC = "WORLD_SPECIFIC"
 }
 
-data class KnowledgeCarrierRef(val carrierKindUid: String, val carrierUid: String) {
-    init { require(carrierKindUid.isNotBlank() && carrierUid.isNotBlank()) }
+data class KnowledgeCarrierRef(
+    val carrierKindUid: String,
+    val carrierUid: String,
+    val campaignUid: String? = null
+) {
+    init {
+        require(carrierKindUid.isNotBlank() && carrierUid.isNotBlank())
+        require(campaignUid?.isBlank() != true)
+    }
 }
 
 data class KnowledgeClaim(
@@ -132,14 +146,14 @@ data class KnowledgeEvidenceSpec(
     val polarity: KnowledgeEvidencePolarity,
     val sourceAcquisitionUid: String? = null,
     val sourceCarrier: KnowledgeCarrierRef? = null,
-    val sourceRefKindUid: String? = null,
-    val sourceRefUid: String? = null
+    val sourceRef: KnowledgeSourceRef? = null
 ) {
+    val sourceRefKindUid: String? get() = sourceRef?.kindUid
+    val sourceRefUid: String? get() = sourceRef?.entityUid
+
     init {
         require(evidenceUid.isNotBlank() && evidenceKindUid.isNotBlank())
         require(sourceAcquisitionUid?.isBlank() != true)
-        require((sourceRefKindUid == null) == (sourceRefUid == null))
-        require(sourceRefKindUid?.isBlank() != true && sourceRefUid?.isBlank() != true)
     }
 }
 
@@ -208,9 +222,11 @@ data class KnowledgeEvidence(
     val sourceEventUid: String?,
     val sourceAcquisitionUid: String?,
     val sourceCarrier: KnowledgeCarrierRef?,
-    val sourceRefKindUid: String?,
-    val sourceRefUid: String?
-)
+    val sourceRef: KnowledgeSourceRef?
+) {
+    val sourceRefKindUid: String? get() = sourceRef?.kindUid
+    val sourceRefUid: String? get() = sourceRef?.entityUid
+}
 
 data class KnowledgeState(
     val campaignUid: String,
@@ -319,6 +335,9 @@ internal object Phase37KnowledgeSchema {
         ).use { it.moveToFirst() }
         if (anyCanonical || versionRegistered) {
             check(isReady(db)) { "RPGOS-P37:CANONICAL_KNOWLEDGE_SCHEMA_CORRUPT" }
+            if (GameplayMutationDatabaseGuards.isInstalled(db)) {
+                Phase37GuardDefinitionIntegrity.requireCanonical(db)
+            }
         }
     }
 }
@@ -422,7 +441,8 @@ class KnowledgeStore(private val db: SQLiteDatabase, private val campaignUid: St
         require(identity.campaignUid == campaignUid) { "RPGOS-KNOWLEDGE:CROSS_CAMPAIGN" }
         require(change.acquisition.provenanceStatus == KnowledgeProvenanceStatus.RECORDED)
         requireCanonicalGameplayMutation(db, campaignUid)
-        KnowledgeDomainValidator.validate(change)
+        Phase37GuardDefinitionIntegrity.requireCanonical(db)
+        KnowledgeDomainValidator.validateForCampaign(change, campaignUid)
         KnowledgeTurnBuffer.stage(db, campaignUid, change, identity, eventUid, createdOrder)
     }
 
@@ -441,6 +461,7 @@ class KnowledgeStore(private val db: SQLiteDatabase, private val campaignUid: St
 
     fun acquisitions(holder: KnowledgeHolderRef? = null): List<KnowledgeAcquisition> {
         if (!Phase37KnowledgeSchema.isReady(db)) return emptyList()
+        holder?.campaignUid?.let { require(it == campaignUid) { "RPGOS-KNOWLEDGE:CROSS_CAMPAIGN_HOLDER_QUERY" } }
         val where = if (holder == null) "campaign_uid=?" else "campaign_uid=? AND holder_kind_uid=? AND holder_uid=?"
         val args = if (holder == null) arrayOf(campaignUid) else arrayOf(campaignUid, holder.holderKindUid, holder.holderUid)
         return db.rawQuery("""SELECT acquisition_uid,claim_uid,holder_kind_uid,holder_uid,method_uid,scope_uid,
@@ -449,10 +470,10 @@ class KnowledgeStore(private val db: SQLiteDatabase, private val campaignUid: St
             FROM ${Phase37KnowledgeSchema.ACQUISITIONS} WHERE $where ORDER BY created_order,acquisition_uid""", args).use { c ->
             buildList {
                 while (c.moveToNext()) add(KnowledgeAcquisition(
-                    campaignUid,c.getString(0),c.getString(1),KnowledgeHolderRef(c.getString(2),c.getString(3)),c.getString(4),
+                    campaignUid,c.getString(0),c.getString(1),KnowledgeHolderRef(c.getString(2),c.getString(3),campaignUid),c.getString(4),
                     KnowledgeScope.valueOf(c.getString(5)),str(c,6),
-                    if(c.isNull(7)) null else KnowledgeHolderRef(c.getString(7),c.getString(8)),str(c,9),
-                    if(c.isNull(10)) null else KnowledgeCarrierRef(c.getString(10),c.getString(11)),
+                    if(c.isNull(7)) null else KnowledgeHolderRef(c.getString(7),c.getString(8),campaignUid),str(c,9),
+                    if(c.isNull(10)) null else KnowledgeCarrierRef(c.getString(10),c.getString(11),campaignUid),
                     str(c,12),str(c,13),str(c,14),KnowledgeProvenanceStatus.valueOf(c.getString(15)),c.getLong(16)
                 ))
             }
@@ -461,12 +482,14 @@ class KnowledgeStore(private val db: SQLiteDatabase, private val campaignUid: St
 
     fun states(holder: KnowledgeHolderRef): List<KnowledgeState> {
         if (!Phase37KnowledgeSchema.isReady(db)) return emptyList()
+        holder.campaignUid?.let { require(it == campaignUid) { "RPGOS-KNOWLEDGE:CROSS_CAMPAIGN_HOLDER_QUERY" } }
+        val qualifiedHolder = KnowledgeHolderRef(holder.holderKindUid, holder.holderUid, campaignUid)
         return db.rawQuery("""SELECT state_uid,claim_uid,scope_uid,role_uid,epistemic_state_uid,confidence,precision_value,
             completeness,source_reliability,corroboration_count,source_observed_order,latest_acquisition_uid,updated_order,state_version
             FROM ${Phase37KnowledgeSchema.STATES} WHERE campaign_uid=? AND holder_kind_uid=? AND holder_uid=?
             ORDER BY claim_uid,scope_uid,role_uid""",arrayOf(campaignUid,holder.holderKindUid,holder.holderUid)).use { c ->
             buildList { while(c.moveToNext()) add(KnowledgeState(
-                campaignUid,c.getString(0),holder,c.getString(1),KnowledgeScope.valueOf(c.getString(2)),c.getString(3).ifBlank { null },
+                campaignUid,c.getString(0),qualifiedHolder,c.getString(1),KnowledgeScope.valueOf(c.getString(2)),c.getString(3).ifBlank { null },
                 KnowledgeEpistemicState.valueOf(c.getString(4)),KnowledgeQuality(c.getDouble(5),c.getDouble(6),c.getDouble(7),c.getDouble(8),c.getInt(9),if(c.isNull(10))null else c.getLong(10)),
                 c.getString(11),c.getLong(12),c.getLong(13)
             )) }
@@ -480,7 +503,8 @@ class KnowledgeStore(private val db: SQLiteDatabase, private val campaignUid: St
             FROM ${Phase37KnowledgeSchema.EVIDENCE} WHERE campaign_uid=? AND acquisition_uid=? ORDER BY evidence_uid""",
             arrayOf(campaignUid,acquisitionUid)).use { c -> buildList { while(c.moveToNext()) add(KnowledgeEvidence(
                 campaignUid,c.getString(0),acquisitionUid,c.getString(1),c.getString(2),KnowledgeEvidencePolarity.valueOf(c.getString(3)),
-                str(c,4),str(c,5),if(c.isNull(6))null else KnowledgeCarrierRef(c.getString(6),c.getString(7)),str(c,8),str(c,9)
+                str(c,4),str(c,5),if(c.isNull(6))null else KnowledgeCarrierRef(c.getString(6),c.getString(7),campaignUid),
+                if(c.isNull(8)) null else KnowledgeSourceRef.fromStorage(c.getString(8), c.getString(9), campaignUid)
             )) } }
     }
 
@@ -567,7 +591,7 @@ class KnowledgeStore(private val db: SQLiteDatabase, private val campaignUid: St
             put("campaign_uid",campaignUid);put("evidence_uid",e.evidenceUid);put("acquisition_uid",change.acquisition.acquisitionUid);put("claim_uid",change.claim.claimUid)
             put("evidence_kind_uid",e.evidenceKindUid);put("polarity_uid",e.polarity.name);put("source_acquisition_uid",e.sourceAcquisitionUid)
             put("source_carrier_kind_uid",e.sourceCarrier?.carrierKindUid);put("source_carrier_uid",e.sourceCarrier?.carrierUid)
-            put("source_ref_kind_uid",e.sourceRefKindUid);put("source_ref_uid",e.sourceRefUid);put("evidence_schema_version",PHASE37_KNOWLEDGE_SCHEMA_VERSION)
+            put("source_ref_kind_uid",e.sourceRef?.storageKindUid());put("source_ref_uid",e.sourceRef?.entityUid);put("evidence_schema_version",PHASE37_KNOWLEDGE_SCHEMA_VERSION)
         })
     }
 
@@ -602,8 +626,27 @@ internal object KnowledgeDomainValidator {
         val a=change.acquisition
         require(a.provenanceStatus==KnowledgeProvenanceStatus.RECORDED) { "RPGOS-KNOWLEDGE:GAMEPLAY_REQUIRES_RECORDED_PROVENANCE" }
         require(a.holder.holderKindUid.isNotBlank()&&a.holder.holderUid.isNotBlank())
+        require(!a.holder.campaignUid.isNullOrBlank()) { "RPGOS-KNOWLEDGE:UNQUALIFIED_HOLDER" }
+        a.sourceHolder?.let { require(!it.campaignUid.isNullOrBlank()) { "RPGOS-KNOWLEDGE:UNQUALIFIED_SOURCE_HOLDER" } }
+        a.carrier?.let { require(!it.campaignUid.isNullOrBlank()) { "RPGOS-KNOWLEDGE:UNQUALIFIED_CARRIER" } }
+        change.evidence.forEach { e ->
+            e.sourceCarrier?.let { require(!it.campaignUid.isNullOrBlank()) { "RPGOS-KNOWLEDGE:UNQUALIFIED_EVIDENCE_CARRIER" } }
+            e.sourceRef?.validateStructural()
+        }
         require(change.claim.domainUid.isNotBlank())
         require(change.evidence.none { it.evidenceUid == "RPGOS-KNOWLEDGE-EVENT:${a.acquisitionUid}" }) { "RPGOS-KNOWLEDGE:RESERVED_EVENT_EVIDENCE_UID" }
+    }
+
+    fun validateForCampaign(change: KnowledgeAcquisitionChange, campaignUid: String) {
+        validate(change)
+        val a = change.acquisition
+        require(a.holder.campaignUid == campaignUid) { "RPGOS-KNOWLEDGE:CROSS_CAMPAIGN_HOLDER" }
+        a.sourceHolder?.let { require(it.campaignUid == campaignUid) { "RPGOS-KNOWLEDGE:CROSS_CAMPAIGN_SOURCE_HOLDER" } }
+        a.carrier?.let { require(it.campaignUid == campaignUid) { "RPGOS-KNOWLEDGE:CROSS_CAMPAIGN_CARRIER" } }
+        change.evidence.forEach { e ->
+            e.sourceCarrier?.let { require(it.campaignUid == campaignUid) { "RPGOS-KNOWLEDGE:CROSS_CAMPAIGN_EVIDENCE_CARRIER" } }
+            e.sourceRef?.requireAllowedFor(campaignUid)
+        }
     }
 }
 
@@ -635,7 +678,9 @@ class LegacyKnowledgeCompatibilityAdapter(private val db: SQLiteDatabase, privat
 class KnowledgeContextProjection(private val db: SQLiteDatabase, private val campaignUid: String) {
     fun forHolders(holders: Collection<KnowledgeHolderRef>, includeLegacy: Boolean = true): List<Map<String,Any?>> {
         Phase37KnowledgeSchema.requireProjectionReadable(db)
+        if (Phase37KnowledgeSchema.isReady(db)) Phase37KnowledgeLineageIntegrity.requireCampaign(db, campaignUid)
         val exact=holders.distinct()
+        exact.forEach { it.campaignUid?.let { scoped -> require(scoped == campaignUid) { "RPGOS-KNOWLEDGE:CROSS_CAMPAIGN_HOLDER_QUERY" } } }
         val out=mutableListOf<Map<String,Any?>>()
         exact.forEach { holder ->
             if(Phase37KnowledgeSchema.isReady(db)) {
