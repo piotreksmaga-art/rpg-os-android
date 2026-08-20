@@ -89,9 +89,9 @@ Accepted scope i historical evidence Phase 1–36 są zamrożone i zarchiwizowan
 - [ ] 47. Iterative Retrieval + missing-context loop
 
 ## Acceptance direction Phase 37–47
-Phase 37 jest zaakceptowanym uniwersalnym epistemic core świata, nie tylko tabelą `NPC knowledge`. Obsługuje indywidualnych i instytucjonalnych holderów bez budowania osobnych systemów wiedzy dla każdego gatunku gry.
+Phase 37 jest uniwersalnym epistemic core świata, nie tylko tabelą `NPC knowledge`. Ma obsługiwać indywidualnych i instytucjonalnych holderów bez budowania osobnych systemów wiedzy dla każdego gatunku gry.
 
-Accepted Phase 37 contract obejmuje:
+Wymagane dla Phase 37:
 - typed `KnowledgeHolder`/równoważny model dla character/NPC, PC, organization, military command/unit, city/state/agency, intelligence service, research institution/team i World Pack-defined holderów;
 - rozdzielenie `FACT`, `INFORMATION/CLAIM`, `EVIDENCE`, `KNOWLEDGE STATE`, `BELIEF/ESTIMATE/HYPOTHESIS/SUSPICION`;
 - twarde invarianty `FACT != KNOWLEDGE`, `KNOWLEDGE != BELIEF`, `KNOWLEDGE != EXECUTABLE SKILL`, `KNOWLEDGE != DECISION`;
@@ -111,7 +111,42 @@ Accepted Phase 37 contract obejmuje:
 - model jest temporal-ready dla późniejszego pytania „co holder wiedział wtedy?”, pełny historical query engine pozostaje Phase 39;
 - canonical acquisition korzysta z Single Truth Mutation Path / TurnTransaction / Event-Causal evidence / idempotency / rollback / snapshot/replay / schema safety;
 - AI, raw SQL, ContextBuilder i generic StatePatch nie posiadają authority do tworzenia legalnego canonical acquisition;
-- ContextBuilder używa holder-scoped typed Knowledge projection/API zamiast definiować własny kontrakt bezpośrednimi legacy SQL reads.
+- ContextBuilder docelowo używa holder-scoped typed Knowledge projection/API zamiast definiować własny kontrakt bezpośrednimi SQL reads.
+
+Wielostylowe wymagania Phase 37:
+- character RPG: osobiste sekrety, relacje, rozpoznanie osób/technik/zdolności;
+- general/tactical/strategy: fog of war, reconnaissance, delayed reports, strength/location estimates i chain-of-command knowledge;
+- city/state management: census/tax/economy/food/crime/public-order reports, niepewność, opóźnienie i możliwość falsification/corruption;
+- merchant/trading: regional price/demand/supply/route-risk knowledge, stale information i information advantage;
+- science/research: observations, hypotheses, experiments, replications, disputed results i discoveries bez magicznego truth unlock;
+- medicine: evidence/symptoms/tests + uncertain differential diagnosis zamiast dostępu do hidden disease FACT;
+- espionage/politics: secrets, deception, counterintelligence, source trust i institutional distribution;
+- detective/investigation: clues, testimony, evidence chains i hypotheses;
+- exploration/cartography: known routes/locations/hazards/resources i niepełne map knowledge;
+- World Pack może dodawać domeny, ale nie własny konkurencyjny Knowledge Engine.
+
+Minimalne acceptance tests Phase 37 obejmują co najmniej:
+- global FACT bez acquisition -> holder nie zna go;
+- holder A zna X, holder B nie zna X;
+- direct observation -> exact provenance;
+- communication A->B -> nowe acquisition B z lineage;
+- false report/deception -> BELIEF bez zmiany FACT;
+- contradictory evidence -> oba źródła zachowane, brak silent overwrite;
+- stale knowledge nie odświeża się automatycznie po zmianie FACT;
+- merchant estimate może różnić się od aktualnej ceny rynku;
+- commander dostaje intelligence estimate zamiast omniscient military FACT;
+- scientist może utrzymywać hipotezę zgodną z evidence, ale niezgodną z hidden FACT;
+- doctor może posiadać uncertain diagnosis bez dostępu do hidden diagnosis truth;
+- knowledge about technique nie oznacza ability to execute technique;
+- institutional knowledge nie przecieka automatycznie do każdego członka;
+- role-accessible knowledge zmienia dostęp bez kopiowania prywatnej pamięci poprzednika;
+- evidence carrier może przetrwać śmierć autora;
+- cross-campaign acquisition/evidence -> FAIL;
+- raw SQL/helper/StatePatch/ADMIN nie fabrykuje `RECORDED` canonical provenance;
+- retry -> bez duplicate semantic acquisition;
+- rollback -> zero phantom knowledge;
+- snapshot/replay -> exact epistemic state;
+- holder-scoped context A nie zawiera B-only knowledge.
 
 Dalsze Phase 38–47:
 - FACT/BELIEF/NARRATIVE i GM/NPC/PC/player-visible/access separation;
@@ -170,6 +205,20 @@ Phase 50 Universal Mechanics & Combat Resolution acceptance obejmuje co najmniej
 - extreme mismatch może być rozstrzygany deterministic bounds, bez obowiązkowego fixed critical-success/failure percentage;
 - adversarial tests: no player scaling, no retroactive stat buff, no omniscient perfect counter, unavailable ability rejected, hidden attack cannot be auto-reacted to, rollback/retry/replay equality, outcome explainability.
 
+Future Player Interaction acceptance, rozwijane wraz z Phase 43–54, 63–64 i 71–75, obejmuje:
+- typed `Player Interaction Orchestrator` nad istniejącym PlayerCommand/Turn pipeline, bez własnej mutation authority;
+- `PLAYER_ACTION_CANDIDATE != PLAYER_COMMAND != COMMIT`;
+- `Suggestions`: maksymalnie trzy domyślne propozycje, generowane tylko z PC-known/visible epistemic context; kliknięcie = explicit validated user command, brak kliknięcia = brak akcji;
+- manual input zawsze pozostaje dostępny i może zignorować wszystkie sugestie;
+- optional Assisted Mode automatycznie pokazuje sugestie, ale nadal nie wybiera za gracza;
+- `Continue`: kontynuacja już zatwierdzonej intencji/świata/NPC bez tworzenia nowej wolitywnej decyzji PC;
+- `Player Decision Point` + meaningful-interruption/soft-stop policy zatrzymuje auto-advance przed nowym ważnym wyborem PC;
+- `Undo Request` korzysta z replay/branch/reconstruction, nie z ręcznego partial rollback;
+- `UNDO CONFIRMATION INVARIANT`: cofnięcie committed tury wymaga osobnego świadomego potwierdzenia po pierwszym kliknięciu; większy rewind wymaga wyraźnego zakresu/confirm;
+- undo odtwarza pełny stan świata na canonical granicy, w tym knowledge/events/relations/resources/ownership/background consequences;
+- domyślny mobile/chat UX pozostaje minimalistyczny: pole tekstowe + `Cofnij` / `Kontynuuj` / `Sugestie`; zaawansowane opcje przez progressive disclosure/menu;
+- situation recap / `Co się dzieje?` respektuje PC knowledge/visibility i nie ujawnia internal GM context.
+
 # FAZA E — PAMIĘĆ I DŁUGOTERMINOWA SYMULACJA
 - [-] 55. Working Memory — AI provider/model is not durable owner
 - [-] 56. Episodic Memory — AI provider/model is not durable owner
@@ -182,6 +231,57 @@ Phase 50 Universal Mechanics & Combat Resolution acceptance obejmuje co najmniej
 - [ ] 63. World Simulation LOD 0–3 + World Actor mechanical materialization + Combat LOD integration
 - [ ] 64. Background-world causal simulation: organizations/economy/projects/demography/wars/knowledge propagation/conflict resolution + controlled randomness
 
+## Acceptance direction Phase 55–64
+Memory pozostaje RPG OS-owned i odtwarzalna po zmianie modelu/runtime.
+
+Phase 61 NPC individuality:
+- personality/traits persisted lub deterministically reproducible;
+- archetype/culture/organization/background + controlled stable RNG;
+- osobne personality, values/goals/fears, relationship, emotional state, knowledge/beliefs, memory, social role i resources/capabilities;
+- różne NPC mogą legalnie reagować inaczej na ten sam bodziec;
+- long-term personality adaptation wymaga committed cause/provenance;
+- reputation/rumor są holder-scoped beliefs, nie omniscient global score;
+- hidden NPC traits nie są automatycznie player-visible;
+- LOD/tier dla crowd/minor/persistent/major NPC.
+
+Phase 62 decyzje:
+- decision inputs = personality + values/goals/fears + emotions + relationships + knowledge/beliefs + memory + social/organization constraints + resources/capabilities + current situation + World Pack rules + controlled randomness where legal;
+- `KNOWLEDGE != DECISION`, `PERSONALITY != DECISION`, `AI PROPOSAL != COMMIT`;
+- debug/replay powinien móc wyjaśnić czynniki/evidence decyzji.
+
+Phase 63–64 Living World:
+- global invariant: **THE WORLD DOES NOT WAIT FOR THE PLAYER**;
+- World Actor Generation/materialization supports `SEED_ONLY/PARTIAL/FULL` LOD and existing canonical facts override generative defaults;
+- generic/population/group aggregates may be promoted to persistent actors deterministically with conservation of member count/resources/history;
+- Combat LOD is integrated with World Simulation: LOD0 strategic aggregate, LOD1 formations/units, LOD2 groups + important actors, LOD3 full individual tactical resolution;
+- LOD refinement/coarsening conserves manpower/resources/casualties/unique actors/equipment/important conditions; local combat results propagate causally back to larger-scale simulation;
+- army/fleet/group combat may retain important named actors as full mechanical actors while bulk members remain aggregate;
+- orders/command propagation may include latency, communication channel, failure/interception/distortion according to World Pack and Knowledge rules;
+- background conflict resolution uses the same canonical mechanical/world rules at an appropriate LOD instead of arbitrary event generation;
+- Living World is a causal simulator, not a random event generator; material events require actor/process/domain basis;
+- WorldActor support for NPC/family/clan/organization/company/guild/city/state/army/world-specific actors;
+- persisted `Motivational Core`: needs/pressures, desires, dreams/aspirations, ambitions, fears/aversions, values, loyalties/obligations, goals, plans/commitments and optional core drives/obsessions;
+- motivations can form/change/weaken/resolve/conflict through committed causes; actor is not reset to archetype off-screen;
+- `World Actor Life Continuity`: knowledge + memory + relationships + personality + values + motivation + goals + commitments survive scenes/time skips according to authority;
+- causal loop: `WORLD STATE -> KNOWLEDGE -> PERSONALITY/VALUES/NEEDS -> DESIRES/DREAMS -> GOALS -> PLANS -> OPPORTUNITY/THREAT -> DECISION -> ACTION -> CONSEQUENCES -> WORLD STATE`;
+- long-running WorldProcess: wars, trade, politics, migration, research, construction, epidemics, crime, economy, demography, diplomacy, espionage itd.;
+- institutional agendas/strategic drives exist separately from every member's personal motivations;
+- information ecology: actors react to their holder-scoped beliefs/estimates, while information propagates with world-specific channels/delays/distortion;
+- opportunity/threat engine can surface legal action candidates from goals + knowledge + situation, but does not commit decisions itself;
+- consequence propagation follows relationships/dependencies/ownership/supply/organization/process links;
+- collective phenomena may emerge from many legal processes instead of arbitrary random events;
+- dynamic LOD0–3 + multi-rate simulation;
+- population/crowd aggregation and provenance-safe materialization;
+- world/domain conservation for supported resources/population/money/goods/armies/projects;
+- important background changes -> Event/Causal history;
+- background FACT does not automatically become PLAYER/NPC KNOWLEDGE;
+- legal information propagation using world-specific communication constraints;
+- opportunities/quests may emerge from world state/process;
+- former PC after explicit relinquish may use autonomous motivational/decision/Living World pipeline; active PC remains USER-controlled only;
+- local world simulation works without cloud;
+- Living World remains explicitly extensible: further improvements are allowed, but every material improvement must be documented with semantic contract, authority/invariants, replay/migration/performance impact and regression/adversarial tests before canonical acceptance;
+- `LIVING WORLD IMPROVEMENT WITHOUT DOCUMENTED SEMANTIC CONTRACT = NOT CANONICAL`.
+
 # FAZA F — DIRECTOR / JAKOŚĆ NARRACJI
 - [ ] 65. Director Engine + optional Cloud Director / candidate bundles
 - [-] 66. Narrative Promise Ledger
@@ -189,6 +289,14 @@ Phase 50 Universal Mechanics & Combat Resolution acceptance obejmuje co najmniej
 - [ ] 68. Anti-Repetition
 - [ ] 69. Narrative Style Profile
 - [-] 70. Chronicle generated from committed structured reality
+
+## Acceptance direction Phase 65–70
+- Director controls attention/pacing/strategic candidates, not laws of reality;
+- optional Cloud Director may produce bounded arc/quest/NPC-agenda/faction/foreshadowing/pacing candidates;
+- `DIRECTOR OUTPUT = CANDIDATE != FACT != COMMIT`;
+- Director cannot retroactively rewrite NPC personality/history or fabricate committed crisis/war without causal/domain basis;
+- cloud enrichment may be deferred/asynchronous and cannot block current turn or rewrite past COMMIT;
+- Chronicle remains projection from committed structured reality.
 
 # FAZA G — SAVE / DEBUG / SKALA
 - [-] 71. Save/Load integration + Persistent World / Character Succession
@@ -201,12 +309,65 @@ Phase 50 Universal Mechanics & Combat Resolution acceptance obejmuje co najmniej
 - [-] 78. Android performance profiling/optimization + Adaptive Turn Runtime
 - [-] 79. AI workload / provider / model / runtime routing + Response-Time Policy
 
+## Acceptance direction Phase 71–79
+Persistent World / Character Succession w Phase 71 ma zagwarantować rozdzielenie Campaign World od aktualnej Player Character:
+- `CAMPAIGN/WORLD != ACTIVE PLAYER CHARACTER`;
+- użytkownik może rozpocząć nową postać w istniejącym świecie bez resetu committed history i world state;
+- poprzednia żyjąca postać może przejść do statusu autonomicznego World Actora/NPC zamiast znikać lub pozostawać zamrożona;
+- previous PC zachowuje własny authoritative stan, ownership, relacje, memory i holder-scoped knowledge;
+- new PC otrzymuje nową identity i własny Player/Knowledge state; nie dziedziczy automatycznie prywatnej wiedzy, memories, abilities, inventory ani relationship state starego PC;
+- `SAME HUMAN USER != SAME CHARACTER KNOWLEDGE HOLDER`;
+- NPC/organizations zachowują wiedzę i relacje dotyczące poprzedniej postaci po zmianie aktywnego PC;
+- World Processes, economy, wars, projects, organizations, canon divergence, Event/Causal history i czas pozostają ciągłe;
+- control transfer/retirement jest canonical committed operation z provenance i idempotency, nie flagą UI ani AI side effect;
+- transfer/relinquish bieżącego `ACTIVE_PLAYER_CHARACTER` wymaga jawnej validated user command; MG/AI nie może samodzielnie odebrać graczowi kontroli ani przekazać aktualnej postaci do NPC autonomy;
+- unique ownership nie może zostać zdublowane podczas zmiany PC;
+- save/load/snapshot/replay/branching zachowują historię aktywnych/former PCs oraz dokładnie jeden spójny Campaign World;
+- former PC może zostać później spotkany przez nową postać i działać przez NPC Brain/Decision Engine/Living World zgodnie z własnym stanem;
+- death/retirement nie usuwa historycznych skutków byłej postaci.
+
+Obowiązkowe testy Phase 71 obejmują co najmniej:
+- `NEW_CHARACTER_SAME_WORLD`: old PC -> retire/control release -> new PC, World UID/history/state unchanged;
+- old PC pozostaje poprawnym World Actorem z własnym state/knowledge;
+- new PC nie posiada old-PC-only knowledge bez legalnej acquisition/bootstrap rule;
+- NPC A pamięta/rozpoznaje old PC, ale nie zna automatycznie new PC;
+- unique item/ownership nie duplikuje się przy zmianie PC;
+- former PC autonomicznie ewoluuje w Living World po utracie player control;
+- new PC może później spotkać former PC, a oba stany pozostają rozdzielone;
+- snapshot/save/load/replay przed i po character succession daje authoritative equality;
+- branch może zmienić wybór kolejnej PC bez przepisywania wspólnej historii przed branch point;
+- rollback/retry control-transfer nie tworzy dwóch ACTIVE_PLAYER_CHARACTER ani phantom succession.
+
+Wymagane m.in.:
+- save/load/replay authoritative equality;
+- branch history sharing without full DB duplication;
+- recovery/backups and debug/replay evidence;
+- `WORLD_WITHOUT_PLAYER`: wieloletnia autonomous simulation + causal history + save/load/replay equality;
+- `SAME_WORLD_TWO_CAMPAIGNS`: same World Pack/initial seed + different player actions -> explainably different histories;
+- world simulation budget/backlog does not linearly scan/full-freeze world/UI;
+- cloud disabled/timeout/429/quota/provider removed -> local campaign continuation;
+- malformed/late cloud candidate -> no mutation / no rewrite of past COMMIT;
+- provider/model/runtime switch and credential removal -> no campaign migration/data loss;
+- privacy/failover policy respected;
+- Phase 79 separates workload policy, provider execution choice, ModelRouter and RuntimeBackendSelector; deterministic tasks bypass AI.
+- Phase 78–79 implement `AdaptiveTurnRuntime`/equivalent performance orchestration without mutation authority: workload/AI-latency estimation, quality-budget allocation, parallel preparation, fast/deep paths and background-safe work;
+- performance classes at least `CRITICAL`, `REQUIRED`, `QUALITY`, `BACKGROUND`; correctness/player-agency/transaction/replay validation cannot be skipped to hit latency target;
+- default `ResponseTimeMode.AUTO`; normal interactive preferred target około 5 s, adaptively adjusted to model/device/thermal/workload rather than a hard correctness timeout;
+- user settings may expose simple `AUTO`/`FAST`/`BALANCED`/`QUALITY`/`CUSTOM`; Custom may define preferred minimum response time;
+- spare latency is spent `QUALITY FIRST -> IDLE ONLY LAST`; Auto may answer earlier when no useful quality work remains;
+- mechanics/storage/retrieval overhead should remain small relative to AI latency; serial AI calls require justification;
+- safe background computation may use player reading/thinking time, but speculative preparation has no COMMIT authority;
+- performance acceptance records P50/P90/P95/P99 total latency plus AI/mechanics/DB/retrieval overhead, background lag and thermal behavior on target Android hardware.
+
 # FAZA H — WORLD PACK HARDENING
 - [ ] 80. Naruto WorldRuleProvider integration test pack
 - [ ] 81. Bleach WorldRuleProvider integration test pack
 - [ ] 82. Canon/divergence automated test scenarios
 - [ ] 83. World-specific progression/evolution automated tests
 - [ ] 84. World Pack update compatibility automated tests
+
+## Acceptance direction Phase 80–84
+World Packs must prove final Core compatibility, canon/divergence behavior, world-specific rules/progression/evolution and update compatibility before World Pack Creator production work begins.
 
 # POST-ROADMAP EXTENSION — WORLD PACK CREATOR
 
@@ -215,6 +376,20 @@ Phase 50 Universal Mechanics & Combat Resolution acceptance obejmuje co najmniej
 Nie rezerwujemy obecnie Phase 85. Po Phase 84 wykonujemy `POST-ROADMAP AUDIT FIRST` przeciwko exact final repo/API/schema.
 
 WPC jest authoring/compiler layer nad finalnym Core, nie drugim Event Store, Memory, Retriever, NPC Brain, World Simulation, Save/Load ani Transaction Engine.
+
+Robocza sekwencja bez numerów kanonicznych faz:
+- `WPC-A` — final Core audit;
+- `WPC-B` — authoring contract / Build Workspace / provenance / compiler trace / activation boundary;
+- `WPC-C` — Original World vertical slice;
+- `WPC-D` — Historical Research;
+- `WPC-E` — Rule Compilation / Impact Analysis;
+- `WPC-F` — Scenario Templates + canonical campaign bootstrap;
+- `WPC-G` — Progressive/JIT expansion przez candidate revision;
+- `WPC-H` — QUICK/STANDARD/DEEP UX + explainability/repair;
+- `WPC-I` — scale/security/offline/process-death/update/Android hardening;
+- `WPC-J` — final acceptance.
+
+WPC używa finalnego wspólnego AiProvider/workload routing. AI-assisted, imported, hand-authored i generated pack kończą w jednym validated runtime World Pack contract. Draft/build workspace != active canon/Campaign Repository.
 
 # NONCANONICAL AI R&D
 TEMP-GM/Termux/localhost/llama.cpp/Vulkan/Bielik i inne konkretne model/runtime/provider eksperymenty pozostają R&D/reference evidence, nie production architecture.
@@ -229,7 +404,63 @@ Frontend może rozwijać funkcjonalność równolegle, ale zachowuje zaakceptowa
 # CROSS-CUTTING GATES / TESTS
 Już zamknięte przez Phase 1–37 pozostają historycznie zaakceptowane i nie są ponownie otwierane bez nowego findingu.
 
-Przyszłe obowiązkowe gates obejmują m.in. temporal/visibility isolation, hybrid-AI conformance, player agency, Living World causality, World Actor mechanical persistence, Combat LOD conservation, no player scaling/rubber-banding oraz adaptive response-time correctness. Szczegółowy kontrakt pozostaje w `docs/Architektura projektu.md` i acceptance direction odpowiednich faz.
+Przyszłe obowiązkowe gates obejmują co najmniej:
+- [ ] money conservation / ledger auditability where not yet fully covered
+- [ ] unique item / ownership integrity where not yet fully covered
+- [ ] World Actor knowledge isolation + typed acquisition provenance + evidence lineage
+- [ ] FACT without acquisition does not become holder knowledge
+- [ ] institutional knowledge does not automatically become member knowledge
+- [ ] expertise/knowledge about a skill or technique does not grant executable capability
+- [ ] stale/contradictory/false information remains epistemically representable without mutating FACT
+- [ ] military fog-of-war/intelligence estimate is not omniscient world state
+- [ ] administration/market/science/medicine/investigation knowledge can be uncertain, delayed or wrong
+- [ ] temporal historical truth
+- [ ] cache/index delete/rebuild -> no data loss
+- [ ] AI provider/model/runtime replacement -> no campaign migration/data loss
+- [ ] local AI player-agency + actor/action/target conformance
+- [ ] `ACTIVE_PLAYER_CHARACTER_CONTROL`: AI/MG/Director/NPC/World Simulation cannot generate or commit voluntary PC action without validated user command
+- [ ] silence/missing user input never becomes consent; forced mechanical consequence remains typed separately from player volition
+- [ ] character control transfer requires explicit validated user request + atomic commit; no autonomous relinquish/retirement by MG
+- [ ] provider crash/cancel/process death -> no partial committed turn
+- [ ] cloud failure -> local continuation
+- [ ] cloud/Director candidate cannot mutate authority or rewrite past COMMIT
+- [ ] same stimulus + different persisted NPC traits/relationships can yield different legal decisions
+- [ ] personality adaptation requires committed cause/provenance
+- [ ] reputation/rumor remains holder-scoped belief
+- [ ] `WORLD_WITHOUT_PLAYER` causal evolution + save/load/replay equality
+- [ ] `NEW_CHARACTER_SAME_WORLD`: nowy PC zachowuje ten sam Campaign World/history, old PC pozostaje aktorem świata, brak automatic knowledge/state inheritance
+- [ ] former-PC -> autonomous World Actor continuity + later encounter with new PC
+- [ ] character succession preserves unique ownership, holder-scoped knowledge, NPC relations, save/load/replay and exactly one active PC
+- [ ] `SAME_WORLD_TWO_CAMPAIGNS` divergence explainable by player actions + world processes + controlled randomness
+- [ ] background FACT does not automatically become player/NPC/organization knowledge
+- [ ] world-process/domain conservation for supported economy/population/resources/projects
+- [ ] `WORLD_CAUSALITY_LOOP`: actor knowledge/motivation/goals/plans produce explainable decisions/actions/consequences without random-event fabrication
+- [ ] actor desires/dreams/goals can evolve through committed causes and survive off-screen/time-skip continuity
+- [ ] conflicting motivations can produce different legal decisions without rewriting personality/history
+- [ ] institutional agenda != every member personal desire/goal
+- [ ] information delay/distortion can change decisions while objective FACT remains unchanged
+- [ ] consequence propagation affects causally linked actors/processes without omniscient/global leakage
+- [ ] active PC motivational state never authorizes autonomous voluntary PC action
+- [ ] every material Living World enhancement has documented semantics, authority/invariants, LOD/performance, replay/migration compatibility and tests before acceptance
+- [ ] suggestions use only active-PC epistemic/visible context; no hidden GM FACT leak through candidate actions
+- [ ] clicking a suggestion is explicit user authorization; generating/showing a suggestion alone never creates PlayerCommand/COMMIT
+- [ ] `CONTINUE_COMMAND` cannot invent new voluntary PC action and stops at the next meaningful Player Decision Point
+- [ ] Continue during travel/training/waiting respects previously authorized intent and interrupts on significant threat/opportunity/choice
+- [ ] `UNDO_CONFIRMATION`: first undo click/request cannot mutate committed state; separate confirmation is mandatory
+- [ ] confirmed undo reconstructs/branches whole canonical turn state, not partial tables; knowledge/events/relations/resources remain consistent
+- [ ] mobile default interaction remains usable with text input + three primary helpers (`Cofnij`, `Kontynuuj`, `Sugestie`) and progressive disclosure for advanced features
+- [ ] `WORLD_ACTOR_MECHANICAL_STATE`: same canonical combat-facing contract works for PC/NPC/former PC/monster/summon/vehicle/unit/group without creating a second Player physics
+- [ ] materialized actor mechanical state persists and cannot be rerolled from template after combat/history changes
+- [ ] ordinary NPC generation is independent of active-PC power; no hidden level scaling/rubber-banding
+- [ ] counter capability must preexist mechanically and counter selection must be justified by holder-available knowledge/perception
+- [ ] controlled generation respects required/conditional/weighted/forbidden World Pack constraints, power envelope, rarity/uniqueness and deterministic seed/provenance
+- [ ] CombatIntent does not imply success; Combat Engine resolves before narration/COMMIT
+- [ ] hidden/unperceived attack cannot create omniscient dodge/parry/counter
+- [ ] combat reaction/interrupt/clash/timing replay produces deterministic equality from stored evidence
+- [ ] Combat LOD refinement/coarsening conserves manpower/resources/casualties/unique actors/equipment/conditions
+- [ ] strategic/army combat can descend to individual important-actor combat and propagate results back without double counting
+- [ ] response-time `AUTO` adapts quality/workload while preserving canonical correctness; user-selected minimum never permits skipping required validation
+- [ ] available latency improves quality before idle waiting; speculative/background preparation never commits future player/world decisions
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
 `Phase 38 — GM/NPC/PC/player-visible knowledge separation + belief/reputation/access visibility boundaries`
