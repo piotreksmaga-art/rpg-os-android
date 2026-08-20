@@ -1,0 +1,23 @@
+name: Phase37 Follow-up 3
+on:
+  push:
+    branches: ["chat3-phase37-post-audit-hardening"]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: contains(github.event.head_commit.message, 'trigger corruption fixture fix')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chat3-phase37-post-audit-hardening
+          fetch-depth: 0
+      - run: python3 tools/phase37_followup3.py
+      - run: git diff --check
+      - run: |
+          git config user.name "rpg-os-phase37-hardening-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git add app/src/test/java/com/rpgos/app/Phase37WorldActorKnowledgeTest.kt
+          git commit -m "test(p37): repair corruption fixtures and guard assertion"
+          git push origin HEAD:chat3-phase37-post-audit-hardening
