@@ -1,0 +1,49 @@
+name: Phase38 PR Validation Observer
+
+on:
+  pull_request:
+    branches: [ "master" ]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chat1-phase38-slice-ab-protected-read
+          fetch-depth: 0
+      - name: Apply exact integration patch
+        run: python3 tools/phase38_apply_slice_ab_patch.py
+      - name: Diff hygiene
+        run: git diff --check
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Android SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Targeted Phase38 A+B
+        run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase38*' --stacktrace
+      - name: Full JVM
+        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+      - name: Test summary
+        run: |
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          files=glob.glob('app/build/test-results/testDebugUnitTest/*.xml')
+          tests=fail=skip=0
+          for f in files:
+              r=ET.parse(f).getroot();tests+=int(r.attrib.get('tests',0));fail+=int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0));skip+=int(r.attrib.get('skipped',0))
+          print(f'FULL_JVM_SUMMARY tests={tests} failures={fail} skipped={skip}')
+          if fail: raise SystemExit(1)
+          PY
