@@ -77,7 +77,7 @@ jobs:
       - name: Full JVM
         id: full
         continue-on-error: true
-        run: ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace --rerun-tasks
+        run: ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace
       - name: Full JVM summary
         if: always()
         run: |
