@@ -56,6 +56,8 @@ internal object Phase38LegacyContextFixtureSchema {
         db.execSQL("CREATE TABLE IF NOT EXISTS chapter_manifests_v2(chapter INTEGER,title TEXT,active_threads_json TEXT,decisions_json TEXT,consequences_json TEXT,quests_json TEXT,continuity_warnings_json TEXT)")
         db.execSQL("CREATE TABLE IF NOT EXISTS npc_memories_v2(memory_uid TEXT,entity_uid TEXT,memory_type TEXT,subject_uid TEXT,chapter INTEGER,day INTEGER,importance REAL,emotional_valence REAL,accuracy REAL,summary TEXT,active INTEGER DEFAULT 1)")
         db.execSQL("CREATE TABLE IF NOT EXISTS organization_memberships_v3(organization_uid TEXT,character_uid TEXT,unit_uid TEXT,position_uid TEXT,role_title TEXT,status TEXT)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS timeline_events(timeline_uid TEXT,name TEXT)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS active_world_events(timeline_uid TEXT,event_type TEXT,status TEXT,public_summary TEXT,gm_summary TEXT,started_day INTEGER)")
     }
 }
 ''')
