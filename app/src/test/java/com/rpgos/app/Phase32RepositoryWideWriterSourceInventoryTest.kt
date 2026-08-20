@@ -29,6 +29,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "OwnershipReferenceRegistry.kt",
             "OwnershipStore.kt",
             "Phase35CanonDivergence.kt",
+            "Phase37WorldActorKnowledge.kt",
             "Phase9Store.kt",
             "ProgressionProfileStore.kt",
             "SkillStore.kt",
@@ -138,6 +139,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             setOf("CampaignEventStore.kt", "CampaignCausalGraph.kt", "TurnTransactionReceiptStore.kt"),
             evidence
         )
+        assertTrue("Phase37 knowledge writer must remain canonical domain state", "Phase37WorldActorKnowledge.kt" in canonical)
         assertTrue("RestoreManager must remain administrative", "RestoreManager.kt" in admin)
         assertTrue("migration manager must remain administrative", "MigrationManager.kt" in admin)
         assertTrue("Phase36 Event schema rewrite must remain administrative", "Phase36EventSchemaScaffold.kt" in admin)

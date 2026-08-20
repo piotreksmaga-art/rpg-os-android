@@ -73,7 +73,9 @@ class TypedPlayerChangeRegistry private constructor(
         codec(change.changeKindUid).conflictKeysUntyped(change.payload)
 
     companion object {
-        fun core(): TypedPlayerChangeRegistry = TypedPlayerChangeRegistry(coreChangeCodecs())
+        fun core(): TypedPlayerChangeRegistry = TypedPlayerChangeRegistry(
+            coreChangeCodecs() + mapOf(PHASE37_KNOWLEDGE_CHANGE_KIND to phase37KnowledgeChangeCodec())
+        )
     }
 }
 

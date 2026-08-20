@@ -6,7 +6,7 @@ import java.util.UUID
 
 enum class SchemaFamilyUid {
     ENGINE, CAMPAIGN, WORLD_PACK, PLAYER, RECEIPT, EVENT, CAUSAL, SNAPSHOT, REPLAY,
-    CANON_DIVERGENCE, FINANCE, INVENTORY, OWNERSHIP, DEVELOPMENT_PROJECT
+    CANON_DIVERGENCE, KNOWLEDGE, FINANCE, INVENTORY, OWNERSHIP, DEVELOPMENT_PROJECT
 }
 
 enum class MigrationMateriality { STRUCTURAL_ADDITIVE, MATERIAL_DATA_MUTATION }
@@ -124,6 +124,7 @@ internal object Phase36SchemaVersioning {
         SchemaFamilyContract(SchemaFamilyUid.SNAPSHOT, CampaignSnapshotSchema.VERSION, 1, setOf(SchemaFamilyUid.CAMPAIGN)),
         SchemaFamilyContract(SchemaFamilyUid.REPLAY, 1, 1, setOf(SchemaFamilyUid.SNAPSHOT, SchemaFamilyUid.EVENT)),
         SchemaFamilyContract(SchemaFamilyUid.CANON_DIVERGENCE, CANON_DIVERGENCE_SCHEMA_VERSION, 1, setOf(SchemaFamilyUid.EVENT)),
+        SchemaFamilyContract(SchemaFamilyUid.KNOWLEDGE, PHASE37_KNOWLEDGE_SCHEMA_VERSION, 1, setOf(SchemaFamilyUid.CAMPAIGN, SchemaFamilyUid.EVENT)),
         SchemaFamilyContract(SchemaFamilyUid.FINANCE, 1, 1, setOf(SchemaFamilyUid.PLAYER)),
         SchemaFamilyContract(SchemaFamilyUid.INVENTORY, 1, 1, setOf(SchemaFamilyUid.PLAYER)),
         SchemaFamilyContract(SchemaFamilyUid.OWNERSHIP, 1, 1, setOf(SchemaFamilyUid.INVENTORY)),
@@ -186,8 +187,15 @@ internal object Phase36SchemaVersioning {
         ensureMetadataTables(db)
         validateAllAttemptRows(db)
 
-        // Phase35 repair semantics are preserved. Schema installation is structural/additive only.
-        administrativeWrite(db, campaignUid) { Phase35CanonDivergenceSchema.ensureReady(db) }
+        // Phase35 repair semantics are preserved. Phase37 adds only structural epistemic tables; legacy rows are not rewritten.
+        administrativeWrite(db, campaignUid) {
+            Phase35CanonDivergenceSchema.ensureReady(db)
+            if (current(db, SchemaFamilyUid.KNOWLEDGE) == null) {
+                Phase37KnowledgeSchema.ensureReady(db)
+            } else {
+                check(Phase37KnowledgeSchema.isReady(db)) { "RPGOS-SCHEMA:KNOWLEDGE_PHYSICAL_SCHEMA_NOT_CURRENT" }
+            }
+        }
 
         val plan = buildPlan(db, graph)
         val planFingerprint = fingerprint(plan)
@@ -250,7 +258,7 @@ internal object Phase36SchemaVersioning {
     fun requireNoUnsupportedFuture(db: SQLiteDatabase) = inspectCompatibilityBeforeMutation(db)
 
     fun requireReady(db: SQLiteDatabase) {
-        check(table(db, VERSIONS) && table(db, ATTEMPTS) && Phase35CanonDivergenceSchema.isReady(db)) { "RPGOS-SCHEMA:NOT_READY" }
+        check(table(db, VERSIONS) && table(db, ATTEMPTS) && Phase35CanonDivergenceSchema.isReady(db) && Phase37KnowledgeSchema.isReady(db)) { "RPGOS-SCHEMA:NOT_READY" }
         validateAllAttemptRows(db)
         contracts.forEach { c ->
             val found = current(db, c.family) ?: error("RPGOS-SCHEMA:MISSING_FAMILY:${c.family}")
@@ -428,6 +436,8 @@ internal object Phase36SchemaVersioning {
         current(db, contract.family)?.let { return it }
         return when (contract.family) {
             SchemaFamilyUid.EVENT -> Phase36EventSchemaScaffold.detectPhysicalVersion(db) ?: contract.currentVersion
+            SchemaFamilyUid.KNOWLEDGE -> if (Phase37KnowledgeSchema.isReady(db)) PHASE37_KNOWLEDGE_SCHEMA_VERSION
+                else error("RPGOS-SCHEMA:KNOWLEDGE_PHYSICAL_SCHEMA_NOT_CURRENT")
             else -> contract.currentVersion
         }
     }

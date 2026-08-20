@@ -18,8 +18,10 @@ internal object GameplayRuntimeBootstrap {
         Phase35CanonDivergenceSchema.RECORDED_INSERT_GUARD,
         Phase35CanonDivergenceSchema.IMPORT_INSERT_GUARD,
         Phase35CanonDivergenceSchema.LIFECYCLE_INSERT_GUARD,
-        GameplayMutationDatabaseGuards.CANON_DIVERGENCE_RUNTIME_TURN_GUARD
-    )
+        GameplayMutationDatabaseGuards.CANON_DIVERGENCE_RUNTIME_TURN_GUARD,
+        "rpgos_p37_acquisition_no_update", "rpgos_p37_acquisition_no_delete",
+        "rpgos_p37_evidence_no_update", "rpgos_p37_evidence_no_delete"
+    ) + GameplayMutationDatabaseGuards.phase37RuntimeGuardNames()
 
     /** Explicit bootstrap/migration/restore boundary. Never call from an ordinary read path. */
     fun initialize(db: SQLiteDatabase, campaignUid: String, safetySnapshotUid: String? = null) {
@@ -84,12 +86,14 @@ internal object GameplayRuntimeBootstrap {
         check(tableExists(db, CampaignIntelligencePhase30Schema.EVENT_TABLE)) { "RPGOS-G32:EVENT_STORE_NOT_READY" }
         check(CampaignCausalGraphSchema.isReady(db)) { "RPGOS-G32:CAUSAL_GRAPH_NOT_READY" }
         check(CampaignSnapshotSchema.isReady(db)) { "RPGOS-G34:SNAPSHOT_SCHEMA_NOT_READY" }
+        check(Phase37KnowledgeSchema.isReady(db)) { "RPGOS-P37:KNOWLEDGE_SCHEMA_NOT_READY" }
         Phase36SchemaVersioning.requireReady(db)
         check(GameplayMutationDatabaseGuards.isInstalled(db)) { "RPGOS-G32:GAMEPLAY_GUARDS_NOT_READY" }
         RuntimePersistentTableInventory.requireComplete(db)
         requiredEvidenceTriggers.forEach { trigger ->
             check(triggerExists(db, trigger)) { "RPGOS-G32:MISSING_EVIDENCE_GUARD:$trigger" }
         }
+        Phase37GuardDefinitionIntegrity.requireCanonical(db)
         GameplayMutationDatabaseGuards.authoritativeTablesForCompatibility().filter { tableExists(db, it) }.forEach { table ->
             listOf("insert", "update", "delete").forEach { operation ->
                 val trigger = "rpgos_guard_${table}_$operation"
