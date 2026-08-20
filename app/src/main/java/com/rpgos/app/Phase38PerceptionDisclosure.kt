@@ -415,7 +415,7 @@ class DisclosureResolver {
         if (perception.campaignUid != policy.campaignUid || recognition.campaignUid != policy.campaignUid || interpretation.campaignUid != policy.campaignUid)
             throw VisibilityAuthorityFailure.CrossCampaign()
         require(perception.observer == recognition.observer && perception.observer == interpretation.observer) { "RPGOS-P38-DISCLOSURE:OBSERVER_MISMATCH" }
-        val subject = perception.presentedSubject ?: VisibilitySubjectRef(policy.campaignUid, "PERCEPTION_SIGNAL", requireNotNull(perception.signalRef).signalUid)
+        val subject = perception.presentedSubject ?: VisibilitySubjectRef(policy.campaignUid, "PERCEPTION_SIGNAL", perception.signalRef?.signalUid ?: "NO_SIGNAL")
         if (!policy.isWellFormed()) return closed(perception, subject, ProjectionDataState.CORRUPTION, "MALFORMED_DISCLOSURE_POLICY")
         if (!perception.detected) {
             val state = when (perception.state) {
