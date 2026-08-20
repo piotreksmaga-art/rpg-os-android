@@ -10,7 +10,7 @@ private val activeGameplayInitialization = ThreadLocal<ActiveGameplayInitializat
  * INITIALIZE is administrative and may migrate; REQUIRE READY is strictly read-only verification.
  */
 internal object GameplayRuntimeBootstrap {
-    private val requiredEvidenceTriggers: Set<String> get() = setOf(
+    private val requiredEvidenceTriggers = setOf(
         "rpgos_turn_receipts_commit_insert", "rpgos_turn_receipts_no_update", "rpgos_turn_receipts_no_delete",
         "rpgos_event_store_turn_insert", "rpgos_event_store_no_update", "rpgos_event_store_no_delete",
         "rpgos_causal_graph_turn_insert", "rpgos_causal_graph_no_update", "rpgos_causal_graph_no_delete",
@@ -45,7 +45,6 @@ internal object GameplayRuntimeBootstrap {
                 Phase36EventSchemaScaffold.ensureWithoutMaterialMigration(db, campaignUid)
                 CampaignCausalGraphSchema.ensureReady(db)
                 CampaignSnapshotSchema.ensureReady(db)
-                Phase37KnowledgeSchema.ensureReady(db)
             }
             if (GameplayMutationDatabaseGuards.isInstalled(db)) {
                 withAdministrativeMutationAuthority(db, campaignUid) { ensureAcceptedStructuralSchemas() }

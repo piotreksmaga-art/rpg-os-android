@@ -203,7 +203,7 @@ internal object CanonicalPlayerChangeApplier{
             when(change.payload){
                 is StatChange,is ResourceChange,is SkillChange,is TechniqueChange,is InventoryChange,
                 is EquipmentChange,is FinancialChange,is OwnershipChange,is CampaignTruthChange,
-                is DevelopmentProjectChange -> Unit
+                is DevelopmentProjectChange,is KnowledgeAcquisitionChange -> Unit
                 else -> throw UnsupportedCanonicalChangeException(change.changeKindUid)
             }
         }
@@ -228,6 +228,7 @@ internal object CanonicalPlayerChangeApplier{
                 is FinancialChange->applyFinancial(db,identity,changeSet,change.changeUid,payload)
                 is OwnershipChange->applyOwnership(db,identity,changeSet,change.changeUid,payload)
                 is CampaignTruthChange->applyTruth(db,identity,changeSet,change.changeUid,payload)
+                is KnowledgeAcquisitionChange->applyKnowledge(db,identity,changeSet,change.changeUid,payload)
                 is DevelopmentProjectChange->applyProject(db,identity,changeSet,change.changeUid,payload)
                 else->throw UnsupportedCanonicalChangeException(change.changeKindUid)
             }
@@ -363,6 +364,13 @@ internal object CanonicalPlayerChangeApplier{
             val eventUid = CampaignEventStore(db, identity.campaignUid).eventUid(identity, changeSet, intent)
             CanonDivergenceStore(db, identity.campaignUid).recordCommitted(divergence, identity, eventUid)
         }
+    }
+
+    private fun applyKnowledge(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,changeUid:String,p:KnowledgeAcquisitionChange){
+        val intents=changeSet.eventIntents.filter{changeUid in it.causalChangeUids}
+        require(intents.size==1){"RPGOS-KNOWLEDGE:ACQUISITION_REQUIRES_EXACT_EVENT"}
+        val eventUid=CampaignEventStore(db,identity.campaignUid).eventUid(identity,changeSet,intents.single())
+        KnowledgeStore(db,identity.campaignUid).stageRecorded(p,identity,eventUid,effectiveOrder(changeSet))
     }
 
     private fun applyProject(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,changeUid:String,p:DevelopmentProjectChange){

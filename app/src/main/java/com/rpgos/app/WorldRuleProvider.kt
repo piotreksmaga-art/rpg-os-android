@@ -368,6 +368,7 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
         is ConditionChange -> "CONDITION_CHANGE"
         is RuntimeChange -> "RUNTIME_CHANGE"
         is DevelopmentProjectChange -> "DEVELOPMENT_PROJECT_CHANGE"
+        is KnowledgeAcquisitionChange -> "KNOWLEDGE_ACQUISITION_CHANGE"
     }
     record(payloadType) {
         field("CHANGE_UID", change.changeUid)
@@ -446,6 +447,42 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
                 field("PROJECT_UID", payload.projectUid); field("WORK_RESULT_KIND_UID", payload.workResultKindUid)
                 longField("PROGRESS_DELTA", payload.progressDelta.units)
                 list("EVIDENCE_REFS", payload.evidenceRefs) { ref -> domainRef("EVIDENCE_REF", ref) }
+            }
+            is KnowledgeAcquisitionChange -> {
+                section("CLAIM") {
+                    field("UID", payload.claim.claimUid); field("SUBJECT_KIND", payload.claim.subjectKindUid)
+                    field("SUBJECT_UID", payload.claim.subjectUid); field("PREDICATE", payload.claim.predicateUid)
+                    field("VALUE", payload.claim.valueCanonical); nullableField("OBJECT_KIND", payload.claim.objectKindUid)
+                    nullableField("OBJECT_UID", payload.claim.objectUid); field("DOMAIN", payload.claim.domainUid)
+                }
+                section("ACQUISITION") {
+                    field("UID", payload.acquisition.acquisitionUid)
+                    field("HOLDER_KIND", payload.acquisition.holder.holderKindUid); field("HOLDER_UID", payload.acquisition.holder.holderUid)
+                    field("METHOD", payload.acquisition.methodUid); field("SCOPE", payload.acquisition.scope.name)
+                    field("EPISTEMIC_STATE", payload.acquisition.epistemicState.name)
+                    field("CONFIDENCE", payload.acquisition.quality.confidence.toString())
+                    field("PRECISION", payload.acquisition.quality.precision.toString())
+                    field("COMPLETENESS", payload.acquisition.quality.completeness.toString())
+                    field("SOURCE_RELIABILITY", payload.acquisition.quality.sourceReliability.toString())
+                    longField("CORROBORATION_COUNT", payload.acquisition.quality.corroborationCount.toLong())
+                    nullableLongField("SOURCE_OBSERVED_ORDER", payload.acquisition.quality.sourceObservedOrder)
+                    nullableField("PARENT_ACQUISITION", payload.acquisition.parentAcquisitionUid)
+                    nullableField("SOURCE_HOLDER_KIND", payload.acquisition.sourceHolder?.holderKindUid)
+                    nullableField("SOURCE_HOLDER_UID", payload.acquisition.sourceHolder?.holderUid)
+                    nullableField("ROLE_UID", payload.acquisition.roleUid)
+                    nullableField("CARRIER_KIND", payload.acquisition.carrier?.carrierKindUid)
+                    nullableField("CARRIER_UID", payload.acquisition.carrier?.carrierUid)
+                    field("PROVENANCE", payload.acquisition.provenanceStatus.name)
+                }
+                list("KNOWLEDGE_EVIDENCE", payload.evidence) { e ->
+                    record("KNOWLEDGE_EVIDENCE") {
+                        field("UID", e.evidenceUid); field("KIND", e.evidenceKindUid); field("POLARITY", e.polarity.name)
+                        nullableField("SOURCE_ACQUISITION", e.sourceAcquisitionUid)
+                        nullableField("SOURCE_CARRIER_KIND", e.sourceCarrier?.carrierKindUid)
+                        nullableField("SOURCE_CARRIER_UID", e.sourceCarrier?.carrierUid)
+                        nullableField("SOURCE_REF_KIND", e.sourceRefKindUid); nullableField("SOURCE_REF_UID", e.sourceRefUid)
+                    }
+                }
             }
         }
     }

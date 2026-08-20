@@ -187,11 +187,14 @@ internal object Phase36SchemaVersioning {
         ensureMetadataTables(db)
         validateAllAttemptRows(db)
 
-        // Phase35 repair and Phase37 additive schema semantics are preserved. No legacy knowledge
-        // rows are rewritten and no historical acquisition provenance is manufactured here.
+        // Phase35 repair semantics are preserved. Phase37 adds only structural epistemic tables; legacy rows are not rewritten.
         administrativeWrite(db, campaignUid) {
             Phase35CanonDivergenceSchema.ensureReady(db)
-            Phase37KnowledgeSchema.ensureReady(db)
+            if (current(db, SchemaFamilyUid.KNOWLEDGE) == null) {
+                Phase37KnowledgeSchema.ensureReady(db)
+            } else {
+                check(Phase37KnowledgeSchema.isReady(db)) { "RPGOS-SCHEMA:KNOWLEDGE_PHYSICAL_SCHEMA_NOT_CURRENT" }
+            }
         }
 
         val plan = buildPlan(db, graph)
@@ -221,6 +224,8 @@ internal object Phase36SchemaVersioning {
                     MigrationAttemptState.PREPARED.name, now))
         }
 
+        // Protection is durable now. Revalidate the exact payload while still owning the same
+        // campaign lifecycle WRITE lock, immediately before material mutation.
         if (material) MigrationSafetyPolicy.requireProtectedSnapshot(db, campaignUid, plan, effectiveSafetyUid)
 
         try {
@@ -249,12 +254,11 @@ internal object Phase36SchemaVersioning {
         }
     }
 
+    /** Must run before any bootstrap migration writes. */
     fun requireNoUnsupportedFuture(db: SQLiteDatabase) = inspectCompatibilityBeforeMutation(db)
 
     fun requireReady(db: SQLiteDatabase) {
-        check(table(db, VERSIONS) && table(db, ATTEMPTS) && Phase35CanonDivergenceSchema.isReady(db) && Phase37KnowledgeSchema.isReady(db)) {
-            "RPGOS-SCHEMA:NOT_READY"
-        }
+        check(table(db, VERSIONS) && table(db, ATTEMPTS) && Phase35CanonDivergenceSchema.isReady(db) && Phase37KnowledgeSchema.isReady(db)) { "RPGOS-SCHEMA:NOT_READY" }
         validateAllAttemptRows(db)
         contracts.forEach { c ->
             val found = current(db, c.family) ?: error("RPGOS-SCHEMA:MISSING_FAMILY:${c.family}")
@@ -298,7 +302,8 @@ internal object Phase36SchemaVersioning {
         val remaining = plans.associateBy { it.contract.family }.toMutableMap()
         val ordered = mutableListOf<PlannedMigration>()
         while (remaining.isNotEmpty()) {
-            val ready = remaining.values.filter { p -> p.contract.dependencies.none { it in remaining } }.sortedBy { it.contract.family.name }
+            val ready = remaining.values.filter { p -> p.contract.dependencies.none { it in remaining } }
+                .sortedBy { it.contract.family.name }
             require(ready.isNotEmpty()) { "RPGOS-SCHEMA:MIGRATION_DEPENDENCY_CYCLE" }
             ready.forEach { ordered += it; remaining.remove(it.contract.family) }
         }
@@ -316,6 +321,8 @@ internal object Phase36SchemaVersioning {
             state TEXT NOT NULL CHECK(state IN ('PREPARED','RUNNING','APPLIED','FAILED')),
             started_at_epoch_ms INTEGER NOT NULL,completed_at_epoch_ms INTEGER,
             failure_code TEXT)""")
+        // Existing accepted databases predate the CHECK. These triggers enforce the same legal
+        // state set and transition graph without a destructive metadata-table rebuild.
         db.execSQL("""CREATE TRIGGER IF NOT EXISTS rpgos_migration_attempt_state_insert
             BEFORE INSERT ON $ATTEMPTS WHEN NEW.state NOT IN ('PREPARED','RUNNING','APPLIED','FAILED')
             BEGIN SELECT RAISE(ABORT,'RPGOS-SCHEMA:INVALID_MIGRATION_ATTEMPT_STATE'); END""")
@@ -324,7 +331,10 @@ internal object Phase36SchemaVersioning {
             BEGIN SELECT RAISE(ABORT,'RPGOS-SCHEMA:INVALID_MIGRATION_ATTEMPT_STATE'); END""")
         db.execSQL("""CREATE TRIGGER IF NOT EXISTS rpgos_migration_attempt_transition_update
             BEFORE UPDATE OF state ON $ATTEMPTS
-            WHEN NOT ((OLD.state='PREPARED' AND NEW.state IN ('RUNNING','FAILED')) OR (OLD.state='RUNNING' AND NEW.state IN ('APPLIED','FAILED')))
+            WHEN NOT (
+                (OLD.state='PREPARED' AND NEW.state IN ('RUNNING','FAILED')) OR
+                (OLD.state='RUNNING' AND NEW.state IN ('APPLIED','FAILED'))
+            )
             BEGIN SELECT RAISE(ABORT,'RPGOS-SCHEMA:ILLEGAL_MIGRATION_ATTEMPT_TRANSITION'); END""")
     }
 
@@ -333,7 +343,8 @@ internal object Phase36SchemaVersioning {
         val legal = MigrationAttemptState.values().map { it.name }.toSet()
         db.rawQuery("SELECT campaign_uid,state FROM $ATTEMPTS", null).use { c ->
             while (c.moveToNext()) {
-                val campaign = c.getString(0); val state = c.getString(1)
+                val campaign = c.getString(0)
+                val state = c.getString(1)
                 if (campaign.isBlank()) throw CorruptMigrationAttemptException("BLANK_CAMPAIGN")
                 if (state !in legal) throw CorruptMigrationAttemptException("ILLEGAL_STATE:$state")
             }
@@ -341,87 +352,123 @@ internal object Phase36SchemaVersioning {
     }
 
     private data class ActiveAttempt(
-        val uid: String,val source: String,val target: String,val plan: String,val planVersion: Int,val state: MigrationAttemptState
+        val uid: String,
+        val source: String,
+        val target: String,
+        val plan: String,
+        val planVersion: Int,
+        val state: MigrationAttemptState
     )
 
     private fun recoverInterrupted(
-        db: SQLiteDatabase,campaignUid: String,currentPlan: List<PlannedMigration>,currentPlanFingerprint: String,
-        currentSourceVector: String,currentTargetVector: String
+        db: SQLiteDatabase,
+        campaignUid: String,
+        currentPlan: List<PlannedMigration>,
+        currentPlanFingerprint: String,
+        currentSourceVector: String,
+        currentTargetVector: String
     ) {
         val active = db.rawQuery("""SELECT migration_attempt_uid,source_vector_fingerprint,target_vector_fingerprint,
-            plan_fingerprint,plan_version,state FROM $ATTEMPTS WHERE campaign_uid=? AND state IN (?,?)
-            ORDER BY started_at_epoch_ms,migration_attempt_uid""",
-            arrayOf(campaignUid,MigrationAttemptState.PREPARED.name,MigrationAttemptState.RUNNING.name)).use { c ->
-            buildList { while(c.moveToNext()) add(ActiveAttempt(c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getInt(4),MigrationAttemptState.valueOf(c.getString(5)))) }
+            plan_fingerprint,plan_version,state FROM $ATTEMPTS
+            WHERE campaign_uid=? AND state IN (?,?) ORDER BY started_at_epoch_ms,migration_attempt_uid""",
+            arrayOf(campaignUid, MigrationAttemptState.PREPARED.name, MigrationAttemptState.RUNNING.name)).use { c ->
+            buildList {
+                while (c.moveToNext()) add(ActiveAttempt(
+                    c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getInt(4),
+                    MigrationAttemptState.valueOf(c.getString(5))
+                ))
+            }
         }
-        if(active.isEmpty()) return
-        if(active.size!=1) throw CorruptMigrationAttemptException("MULTIPLE_ACTIVE_ATTEMPTS:$campaignUid")
-        val attempt=active.single()
-        if(currentPlan.isEmpty()) throw CorruptMigrationAttemptException("ACTIVE_ATTEMPT_WITH_CURRENT_SCHEMA:${attempt.uid}")
-        if(attempt.planVersion!=PLAN_VERSION) throw CorruptMigrationAttemptException("PLAN_VERSION:${attempt.uid}")
-        if(attempt.source!=currentSourceVector) throw CorruptMigrationAttemptException("SOURCE_VECTOR:${attempt.uid}")
-        if(attempt.target!=currentTargetVector) throw CorruptMigrationAttemptException("TARGET_VECTOR:${attempt.uid}")
-        if(attempt.plan!=currentPlanFingerprint) throw MigrationPlanMismatchException(attempt.plan,currentPlanFingerprint)
-        administrativeWrite(db,campaignUid) {
+        if (active.isEmpty()) return
+        if (active.size != 1) throw CorruptMigrationAttemptException("MULTIPLE_ACTIVE_ATTEMPTS:$campaignUid")
+        val attempt = active.single()
+
+        if (currentPlan.isEmpty()) throw CorruptMigrationAttemptException("ACTIVE_ATTEMPT_WITH_CURRENT_SCHEMA:${attempt.uid}")
+        if (attempt.planVersion != PLAN_VERSION) throw CorruptMigrationAttemptException("PLAN_VERSION:${attempt.uid}")
+        if (attempt.source != currentSourceVector) throw CorruptMigrationAttemptException("SOURCE_VECTOR:${attempt.uid}")
+        if (attempt.target != currentTargetVector) throw CorruptMigrationAttemptException("TARGET_VECTOR:${attempt.uid}")
+        if (attempt.plan != currentPlanFingerprint) throw MigrationPlanMismatchException(attempt.plan, currentPlanFingerprint)
+
+        administrativeWrite(db, campaignUid) {
             db.execSQL("UPDATE $ATTEMPTS SET state=?,completed_at_epoch_ms=?,failure_code=? WHERE migration_attempt_uid=?",
-                arrayOf(MigrationAttemptState.FAILED.name,System.currentTimeMillis(),"INTERRUPTED_RESTART_SAFE",attempt.uid))
+                arrayOf(MigrationAttemptState.FAILED.name, System.currentTimeMillis(), "INTERRUPTED_RESTART_SAFE", attempt.uid))
         }
     }
 
     private fun inspectCompatibilityBeforeMutation(db: SQLiteDatabase) {
         if (!table(db, VERSIONS)) return
-        contracts.forEach { c -> current(db,c.family)?.let { found ->
-            if(found>c.currentVersion) throw UnsupportedFutureSchemaException(c.family,found,c.currentVersion)
-            require(found>=c.minimumSupportedVersion) { "RPGOS-SCHEMA:UNSUPPORTED_OLD:${c.family}:$found:${c.minimumSupportedVersion}" }
-        } }
+        contracts.forEach { c ->
+            current(db, c.family)?.let { found ->
+                if (found > c.currentVersion) throw UnsupportedFutureSchemaException(c.family, found, c.currentVersion)
+                require(found >= c.minimumSupportedVersion) { "RPGOS-SCHEMA:UNSUPPORTED_OLD:${c.family}:$found:${c.minimumSupportedVersion}" }
+            }
+        }
     }
 
     private fun administrativeWrite(db: SQLiteDatabase, campaignUid: String, block: () -> Unit) {
-        if(GameplayMutationDatabaseGuards.isInstalled(db)) withAdministrativeMutationAuthority(db,campaignUid){block()}
-        else {
+        if (GameplayMutationDatabaseGuards.isInstalled(db)) {
+            withAdministrativeMutationAuthority(db, campaignUid) { block() }
+        } else {
             db.beginTransaction()
-            try { block(); db.setTransactionSuccessful() } finally { db.endTransaction() }
+            try {
+                block()
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
         }
     }
 
     private fun registerMissingCurrentVersions(db: SQLiteDatabase, now: Long) {
         contracts.forEach { contract ->
-            if(current(db,contract.family)==null) {
-                val effective=effectiveVersion(db,contract)
-                check(effective==contract.currentVersion) { "RPGOS-SCHEMA:CANNOT_REGISTER_NONCURRENT:${contract.family}:$effective:${contract.currentVersion}" }
+            if (current(db, contract.family) == null) {
+                val effective = effectiveVersion(db, contract)
+                check(effective == contract.currentVersion) {
+                    "RPGOS-SCHEMA:CANNOT_REGISTER_NONCURRENT:${contract.family}:$effective:${contract.currentVersion}"
+                }
                 db.execSQL("INSERT INTO $VERSIONS(schema_family_uid,schema_version,migration_owner,updated_at_epoch_ms) VALUES(?,?,?,?)",
-                    arrayOf(contract.family.name,contract.currentVersion,"GameplayRuntimeBootstrap",now))
+                    arrayOf(contract.family.name, contract.currentVersion, "GameplayRuntimeBootstrap", now))
             }
         }
     }
 
     private fun effectiveVersion(db: SQLiteDatabase, contract: SchemaFamilyContract): Int {
-        current(db,contract.family)?.let{return it}
-        return when(contract.family) {
+        current(db, contract.family)?.let { return it }
+        return when (contract.family) {
             SchemaFamilyUid.EVENT -> Phase36EventSchemaScaffold.detectPhysicalVersion(db) ?: contract.currentVersion
-            SchemaFamilyUid.KNOWLEDGE -> if(Phase37KnowledgeSchema.isReady(db)) PHASE37_KNOWLEDGE_SCHEMA_VERSION else contract.currentVersion
+            SchemaFamilyUid.KNOWLEDGE -> if (Phase37KnowledgeSchema.isReady(db)) PHASE37_KNOWLEDGE_SCHEMA_VERSION
+                else error("RPGOS-SCHEMA:KNOWLEDGE_PHYSICAL_SCHEMA_NOT_CURRENT")
             else -> contract.currentVersion
         }
     }
 
-    private fun current(db: SQLiteDatabase, family: SchemaFamilyUid): Int? = if(!table(db,VERSIONS)) null else db.rawQuery(
-        "SELECT schema_version FROM $VERSIONS WHERE schema_family_uid=?",arrayOf(family.name)).use{if(it.moveToFirst())it.getInt(0) else null}
+    private fun current(db: SQLiteDatabase, family: SchemaFamilyUid): Int? = if (!table(db, VERSIONS)) null else db.rawQuery(
+        "SELECT schema_version FROM $VERSIONS WHERE schema_family_uid=?", arrayOf(family.name)
+    ).use { if (it.moveToFirst()) it.getInt(0) else null }
 
-    private fun vectorFingerprint(db: SQLiteDatabase): String = contracts.joinToString("|") { "${it.family}:${effectiveVersion(db,it)}" }.sha256()
+    private fun vectorFingerprint(db: SQLiteDatabase): String = contracts.joinToString("|") { contract ->
+        "${contract.family}:${effectiveVersion(db, contract)}"
+    }.sha256()
+
     private fun targetFingerprint(): String = contracts.joinToString("|") { "${it.family}:${it.currentVersion}" }.sha256()
-    private fun table(db: SQLiteDatabase,name:String)=db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",arrayOf(name)).use{it.moveToFirst()}
+    private fun table(db: SQLiteDatabase, name: String) = db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", arrayOf(name)).use { it.moveToFirst() }
 }
 
 internal object MigrationSafetyPolicy {
-    fun requireProtectedSnapshot(db: SQLiteDatabase,campaignUid:String,plan:List<PlannedMigration>,safetySnapshotUid:String?):String? {
-        if(plan.none{it.isMaterial}) return null
-        val uid=requireNotNull(safetySnapshotUid){"RPGOS-SCHEMA:MATERIAL_MIGRATION_REQUIRES_SAFETY_SNAPSHOT"}
-        val snapshot=RecoverableSnapshotPolicy.requireRecoverable(db,campaignUid,uid)
-        require(snapshot.pinned || snapshot.kind in setOf(SnapshotKind.MANUAL_BACKUP,SnapshotKind.PRE_RESTORE,SnapshotKind.USER_PINNED)) {
+    fun requireProtectedSnapshot(
+        db: SQLiteDatabase,
+        campaignUid: String,
+        plan: List<PlannedMigration>,
+        safetySnapshotUid: String?
+    ): String? {
+        if (plan.none { it.isMaterial }) return null
+        val uid = requireNotNull(safetySnapshotUid) { "RPGOS-SCHEMA:MATERIAL_MIGRATION_REQUIRES_SAFETY_SNAPSHOT" }
+        val snapshot = RecoverableSnapshotPolicy.requireRecoverable(db, campaignUid, uid)
+        require(snapshot.pinned || snapshot.kind in setOf(SnapshotKind.MANUAL_BACKUP, SnapshotKind.PRE_RESTORE, SnapshotKind.USER_PINNED)) {
             "RPGOS-SCHEMA:SAFETY_SNAPSHOT_NOT_PROTECTED"
         }
         return uid
     }
 }
 
-private fun String.sha256():String=MessageDigest.getInstance("SHA-256").digest(toByteArray()).joinToString(""){"%02x".format(it)}
+private fun String.sha256(): String = MessageDigest.getInstance("SHA-256").digest(toByteArray()).joinToString("") { "%02x".format(it) }

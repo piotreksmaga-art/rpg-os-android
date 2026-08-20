@@ -339,6 +339,7 @@ internal class CampaignEventStore(private val db: SQLiteDatabase, private val ca
             is ConditionChange -> PlayerChangeKinds.CONDITION
             is RuntimeChange -> PlayerChangeKinds.RUNTIME
             is DevelopmentProjectChange -> PlayerChangeKinds.DEVELOPMENT_PROJECT
+            is KnowledgeAcquisitionChange -> PHASE37_KNOWLEDGE_CHANGE_KIND
             else -> throw EventStoreIntegrityException("UNCLASSIFIED_CHANGE_KIND")
         }
         if (change.changeKindUid != expectedKind) throw EventStoreIntegrityException("CHANGE_KIND_PAYLOAD_MISMATCH")
@@ -372,6 +373,7 @@ internal class CampaignEventStore(private val db: SQLiteDatabase, private val ca
         is ConditionChange -> payload.subject
         is RuntimeChange -> payload.subject
         is DevelopmentProjectChange -> DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid)
+        is KnowledgeAcquisitionChange -> DomainRef(payload.acquisition.holder.holderKindUid, payload.acquisition.holder.holderUid)
         else -> throw EventStoreIntegrityException("UNCLASSIFIED_CHANGE_KIND")
     }
 

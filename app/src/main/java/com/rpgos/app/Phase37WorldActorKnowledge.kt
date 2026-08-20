@@ -294,24 +294,89 @@ internal object Phase37KnowledgeSchema {
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_p37_acquisition_claim ON $ACQUISITIONS(campaign_uid,claim_uid,created_order,acquisition_uid)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_p37_evidence_acquisition ON $EVIDENCE(campaign_uid,acquisition_uid,evidence_uid)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_p37_state_holder ON $STATES(campaign_uid,holder_kind_uid,holder_uid,epistemic_state_uid,claim_uid)")
+        db.execSQL("CREATE TRIGGER IF NOT EXISTS rpgos_p37_claim_no_update BEFORE UPDATE ON $CLAIMS BEGIN SELECT RAISE(ABORT,'RPGOS-KNOWLEDGE:CLAIM_APPEND_ONLY'); END")
+        db.execSQL("CREATE TRIGGER IF NOT EXISTS rpgos_p37_claim_no_delete BEFORE DELETE ON $CLAIMS BEGIN SELECT RAISE(ABORT,'RPGOS-KNOWLEDGE:CLAIM_APPEND_ONLY'); END")
         db.execSQL("CREATE TRIGGER IF NOT EXISTS rpgos_p37_acquisition_no_update BEFORE UPDATE ON $ACQUISITIONS BEGIN SELECT RAISE(ABORT,'RPGOS-KNOWLEDGE:ACQUISITION_APPEND_ONLY'); END")
         db.execSQL("CREATE TRIGGER IF NOT EXISTS rpgos_p37_acquisition_no_delete BEFORE DELETE ON $ACQUISITIONS BEGIN SELECT RAISE(ABORT,'RPGOS-KNOWLEDGE:ACQUISITION_APPEND_ONLY'); END")
         db.execSQL("CREATE TRIGGER IF NOT EXISTS rpgos_p37_evidence_no_update BEFORE UPDATE ON $EVIDENCE BEGIN SELECT RAISE(ABORT,'RPGOS-KNOWLEDGE:EVIDENCE_APPEND_ONLY'); END")
         db.execSQL("CREATE TRIGGER IF NOT EXISTS rpgos_p37_evidence_no_delete BEFORE DELETE ON $EVIDENCE BEGIN SELECT RAISE(ABORT,'RPGOS-KNOWLEDGE:EVIDENCE_APPEND_ONLY'); END")
+        db.execSQL("CREATE TRIGGER IF NOT EXISTS rpgos_p37_state_no_delete BEFORE DELETE ON $STATES BEGIN SELECT RAISE(ABORT,'RPGOS-KNOWLEDGE:STATE_DELETE_FORBIDDEN'); END")
     }
 
     fun isReady(db: SQLiteDatabase): Boolean = listOf(CLAIMS, ACQUISITIONS, EVIDENCE, STATES, EXPERTISE).all { table ->
         db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", arrayOf(table)).use { it.moveToFirst() }
     }
+
+    fun requireProjectionReadable(db: SQLiteDatabase) {
+        val tables = listOf(CLAIMS, ACQUISITIONS, EVIDENCE, STATES, EXPERTISE)
+        val anyCanonical = tables.any { table ->
+            db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", arrayOf(table)).use { it.moveToFirst() }
+        }
+        val versionRegistered = db.rawQuery(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", arrayOf(Phase36SchemaVersioning.VERSIONS)
+        ).use { it.moveToFirst() } && db.rawQuery(
+            "SELECT 1 FROM ${Phase36SchemaVersioning.VERSIONS} WHERE schema_family_uid=? LIMIT 1", arrayOf(SchemaFamilyUid.KNOWLEDGE.name)
+        ).use { it.moveToFirst() }
+        if (anyCanonical || versionRegistered) {
+            check(isReady(db)) { "RPGOS-P37:CANONICAL_KNOWLEDGE_SCHEMA_CORRUPT" }
+        }
+    }
 }
 
-private data class PendingKnowledgeAcquisition(
+internal data class PendingKnowledgeAcquisition(
     val campaignUid: String,
     val change: KnowledgeAcquisitionChange,
     val identity: TurnTransactionIdentity,
     val eventUid: String,
     val createdOrder: Long
 )
+
+internal object Phase37KnowledgeWriteTokens {
+    private fun hex(value: String?): String = value.orEmpty().toByteArray(Charsets.UTF_8).joinToString("") { "%02X".format(it) }
+    fun claim(campaignUid: String, c: KnowledgeClaim) =
+        "CLAIM:${hex(campaignUid)}:${hex(c.claimUid)}:${hex(c.subjectKindUid)}:${hex(c.subjectUid)}:${hex(c.predicateUid)}:${hex(c.valueCanonical)}:${hex(c.domainUid)}"
+    fun acquisition(campaignUid: String, a: KnowledgeAcquisitionSpec, claimUid: String, eventUid: String) =
+        "ACQ:${hex(campaignUid)}:${hex(a.acquisitionUid)}:${hex(claimUid)}:${hex(a.holder.holderKindUid)}:${hex(a.holder.holderUid)}:${hex(eventUid)}:${hex(KnowledgeProvenanceStatus.RECORDED.name)}"
+    fun evidence(campaignUid: String, acquisitionUid: String, claimUid: String, e: KnowledgeEvidenceSpec) =
+        "EVID:${hex(campaignUid)}:${hex(e.evidenceUid)}:${hex(acquisitionUid)}:${hex(claimUid)}:${hex(e.evidenceKindUid)}:${hex(e.polarity.name)}:${hex("")}:${hex(e.sourceAcquisitionUid)}"
+    fun eventEvidence(campaignUid: String, acquisitionUid: String, claimUid: String, eventUid: String) =
+        "EVID:${hex(campaignUid)}:${hex("RPGOS-KNOWLEDGE-EVENT:$acquisitionUid")}:${hex(acquisitionUid)}:${hex(claimUid)}:${hex("COMMITTED_EVENT")}:${hex(KnowledgeEvidencePolarity.SUPPORTS.name)}:${hex(eventUid)}:${hex("")}"
+    fun state(campaignUid: String, change: KnowledgeAcquisitionChange) = with(change.acquisition) {
+        val role = roleUid.orEmpty()
+        val uid = "RPGOS-KNOWLEDGE-STATE:${holder.holderKindUid}:${holder.holderUid}:${change.claim.claimUid}:${scope.name}:$role"
+        "STATE:${hex(campaignUid)}:${hex(uid)}:${hex(holder.holderKindUid)}:${hex(holder.holderUid)}:${hex(change.claim.claimUid)}:${hex(scope.name)}:${hex(role)}:${hex(epistemicState.name)}:${hex(acquisitionUid)}"
+    }
+    fun forPending(p: PendingKnowledgeAcquisition): Set<String> = buildSet {
+        add(claim(p.campaignUid, p.change.claim))
+        add(acquisition(p.campaignUid, p.change.acquisition, p.change.claim.claimUid, p.eventUid))
+        add(eventEvidence(p.campaignUid, p.change.acquisition.acquisitionUid, p.change.claim.claimUid, p.eventUid))
+        p.change.evidence.forEach { add(evidence(p.campaignUid, p.change.acquisition.acquisitionUid, p.change.claim.claimUid, it)) }
+        add(state(p.campaignUid, p.change))
+    }
+}
+
+internal object KnowledgeRecordedWriteAuthority {
+    private data class Active(val db: SQLiteDatabase, val campaignUid: String, val tokens: Set<String>)
+    private val local = ThreadLocal<Active?>()
+
+    fun isAuthorized(db: SQLiteDatabase, token: String): Boolean {
+        val a = local.get()
+        return a != null && a.db === db && token in a.tokens && isCanonicalGameplayMutationActive(db, a.campaignUid)
+    }
+
+    fun <T> withPending(db: SQLiteDatabase, campaignUid: String, pending: PendingKnowledgeAcquisition, block: () -> T): T {
+        requireCanonicalGameplayMutation(db, campaignUid)
+        check(local.get() == null) { "RPGOS-KNOWLEDGE:NESTED_RECORDED_WRITE_AUTHORITY" }
+        local.set(Active(db, campaignUid, Phase37KnowledgeWriteTokens.forPending(pending)))
+        GameplayMutationDatabaseGuards.suspendLegacyPhase37RecordedWriteGuards(db)
+        return try {
+            block()
+        } finally {
+            GameplayMutationDatabaseGuards.restoreLegacyPhase37RecordedWriteGuards(db)
+            local.remove()
+        }
+    }
+}
 
 /** Exact-db/campaign in-memory buffer. Mutable SQLite context rows cannot manufacture this capability. */
 internal object KnowledgeTurnBuffer {
@@ -339,7 +404,11 @@ internal object KnowledgeTurnBuffer {
     fun flush(db: SQLiteDatabase, campaignUid: String) {
         val active = local.get() ?: return
         require(active.db === db && active.campaignUid == campaignUid) { "RPGOS-KNOWLEDGE:TURN_BUFFER_SCOPE_MISMATCH" }
-        active.entries.forEach { KnowledgeStore(db, campaignUid).finalizeRecorded(it) }
+        active.entries.forEach { pending ->
+            KnowledgeRecordedWriteAuthority.withPending(db, campaignUid, pending) {
+                KnowledgeStore(db, campaignUid).finalizeRecorded(pending)
+            }
+        }
         active.entries.clear()
     }
 
@@ -513,7 +582,14 @@ class KnowledgeStore(private val db: SQLiteDatabase, private val campaignUid: St
             put("corroboration_count",q.corroborationCount);put("source_observed_order",q.sourceObservedOrder);put("latest_acquisition_uid",a.acquisitionUid)
             put("updated_order",p.createdOrder);put("state_version",current+1L);put("state_schema_version",PHASE37_KNOWLEDGE_SCHEMA_VERSION)
         }
-        db.insertWithOnConflict(Phase37KnowledgeSchema.STATES,null,values,SQLiteDatabase.CONFLICT_REPLACE).also { require(it!=-1L) }
+        if (current == 0L) {
+            db.insertOrThrow(Phase37KnowledgeSchema.STATES, null, values)
+        } else {
+            val updated = db.update(
+                Phase37KnowledgeSchema.STATES, values, "campaign_uid=? AND state_uid=?", arrayOf(campaignUid, stateUid)
+            )
+            require(updated == 1) { "RPGOS-KNOWLEDGE:STATE_UPDATE_IDENTITY_CONFLICT" }
+        }
     }
 
     private fun stateUid(holder: KnowledgeHolderRef, claimUid: String, scope: KnowledgeScope, role: String) =
@@ -558,6 +634,7 @@ class LegacyKnowledgeCompatibilityAdapter(private val db: SQLiteDatabase, privat
 /** Holder-scoped read projection. Phase 38 visibility policy is deliberately not implemented here. */
 class KnowledgeContextProjection(private val db: SQLiteDatabase, private val campaignUid: String) {
     fun forHolders(holders: Collection<KnowledgeHolderRef>, includeLegacy: Boolean = true): List<Map<String,Any?>> {
+        Phase37KnowledgeSchema.requireProjectionReadable(db)
         val exact=holders.distinct()
         val out=mutableListOf<Map<String,Any?>>()
         exact.forEach { holder ->
