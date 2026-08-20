@@ -9,6 +9,7 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     private val context = context.applicationContext
     private val store = LocalGameStore(this.context)
     private val selection = CampaignSelectionManager(this.context)
+    private val visibility = VisibilityAuthorityService()
 
     override fun bootstrap() = store.bootstrap()
     override fun activeCampaignRef(): ActiveCampaignRef = selection.activeCampaignRef()
@@ -27,12 +28,7 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun setActiveWorldPack(dirName: String) = store.setActiveWorldPack(dirName)
     override fun createCampaign(name: String): File = store.createCampaign(name)
 
-    /**
-     * Writable campaign DB ownership stays inside the repository/transaction layer.
-     * Production gameplay callers never receive this handle.
-     */
     private fun openGameplaySaveDb(): SQLiteDatabase = store.openGameplaySaveDb()
-
     override fun openWorldDb(): SQLiteDatabase = store.openWorldDb()
     override fun openCoreDb(): SQLiteDatabase = store.openCoreDb()
 
@@ -44,43 +40,61 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         TurnTransactionBoundary.create(db, identity, proposal, failureInjector).commit()
     }
 
-    override fun buildContext(playerInput: String, chapter: Int): ContextBundle = store.buildContext(playerInput, chapter)
-    override fun fullCharacterPanel(): CharacterPanelSnapshot = store.fullCharacterPanel()
+    override fun buildContext(playerInput: String, chapter: Int, audience: AudienceContext, purpose: PurposeContext): ContextBundle =
+        store.buildContext(playerInput, chapter, audience, purpose)
+    override fun fullCharacterPanel(audience: AudienceContext, purpose: PurposeContext): CharacterPanelSnapshot =
+        store.fullCharacterPanel(audience, purpose)
     override fun status(): StatusSnapshot = store.status()
     override fun time(): TimeSnapshot = store.time()
     override fun chronicle(): List<ChronicleEntry> = store.chronicle()
 
-    override fun truthRecords(kind:TruthKind?,subjectUid:String?,perspectiveUid:String?,limit:Int):List<CampaignTruthRecord> = openGameplaySaveDb().use { db ->
-        CampaignTruthStore(db,activeCampaignRef().campaignId).active(kind,subjectUid,perspectiveUid,limit)
+    override fun truthRecords(
+        audience: AudienceContext,
+        purpose: PurposeContext,
+        kind: TruthKind?,
+        subjectUid: String?,
+        perspectiveUid: String?,
+        limit: Int
+    ): VisibilityProjection<List<CampaignTruthRecord>> {
+        val campaign = activeCampaignRef().campaignId
+        val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(campaign, VisibilitySubjectKinds.CAMPAIGN_TRUTH, "CAMPAIGN_TRUTH_RECORDS"))
+        return visibility.projectList(request) {
+            openGameplaySaveDb().use { db -> CampaignTruthStore(db, campaign).active(kind, subjectUid, perspectiveUid, limit) }
+        }
     }
-    override fun canonDivergences(): List<CanonDivergenceRecord> = store.canonDivergences()
 
-    override fun npcs(search: String): List<NpcListItem> = store.npcs(search)
-    override fun npcDetail(uid: String): NpcDetail = store.npcDetail(uid)
-    override fun relationEdges(): List<RelationEdge> = store.relationEdges()
-    override fun economies(): List<EconomySummary> = store.economies()
-    override fun wars(): List<WarSummary> = store.wars()
-    override fun relationships(): List<RelationshipItem> = store.relationships()
-    override fun organizations(): List<OrganizationItem> = store.organizations()
-    override fun politics(): List<PoliticalItem> = store.politics()
+    override fun canonDivergences(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<CanonDivergenceRecord>> {
+        val campaign = activeCampaignRef().campaignId
+        val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(campaign, VisibilitySubjectKinds.CANON_DIVERGENCE, "CANON_DIVERGENCES"))
+        return visibility.projectList(request) { store.canonDivergences() }
+    }
+
+    override fun npcs(search: String, audience: AudienceContext, purpose: PurposeContext): List<NpcListItem> = store.npcs(search, audience, purpose)
+    override fun npcDetail(uid: String, audience: AudienceContext, purpose: PurposeContext): NpcDetail = store.npcDetail(uid, audience, purpose)
+    override fun relationEdges(audience: AudienceContext, purpose: PurposeContext): List<RelationEdge> = store.relationEdges(audience, purpose)
+    override fun economies(audience: AudienceContext, purpose: PurposeContext): List<EconomySummary> = store.economies(audience, purpose)
+    override fun wars(audience: AudienceContext, purpose: PurposeContext): List<WarSummary> = store.wars(audience, purpose)
+    override fun relationships(audience: AudienceContext, purpose: PurposeContext): List<RelationshipItem> = store.relationships(audience, purpose)
+    override fun organizations(audience: AudienceContext, purpose: PurposeContext): List<OrganizationItem> = store.organizations(audience, purpose)
+    override fun politics(audience: AudienceContext, purpose: PurposeContext): List<PoliticalItem> = store.politics(audience, purpose)
     override fun syncCheck(): SyncCheckResult = store.syncCheck()
     override fun dbTables(): List<DbTableInfo> = store.dbTables()
     override fun diagnostics(contextSummary: String): DiagnosticsSnapshot = store.diagnostics(contextSummary)
     override fun worldRegions(): List<WorldRegionItem> = store.worldRegions()
     override fun worldLocations(search: String): List<WorldLocationItem> = store.worldLocations(search)
-    override fun activeWorldEvents(): List<WorldEventItem> = store.activeWorldEvents()
+    override fun activeWorldEvents(audience: AudienceContext, purpose: PurposeContext): List<WorldEventItem> = store.activeWorldEvents(audience, purpose)
     override fun techniqueBrowser(search: String): List<TechniqueBrowserItem> = store.techniqueBrowser(search)
     override fun missionBrowser(): List<MissionBrowserItem> = store.missionBrowser()
     override fun visualLibrary(): List<VisualRecord> = store.visualLibrary()
-    override fun addVisual(title:String,kind:String,uri:String,chapter:Int?,relatedEntityUid:String?,relatedLocationUid:String?,prompt:String?,revisedPrompt:String?,sourceVisualUid:String?):String = store.addVisual(
-        title=title,kind=kind,uri=uri,chapter=chapter,relatedEntityUid=relatedEntityUid,relatedLocationUid=relatedLocationUid,
-        prompt=prompt,revisedPrompt=revisedPrompt,sourceVisualUid=sourceVisualUid
+    override fun addVisual(title: String, kind: String, uri: String, chapter: Int?, relatedEntityUid: String?, relatedLocationUid: String?, prompt: String?, revisedPrompt: String?, sourceVisualUid: String?): String = store.addVisual(
+        title = title, kind = kind, uri = uri, chapter = chapter, relatedEntityUid = relatedEntityUid, relatedLocationUid = relatedLocationUid,
+        prompt = prompt, revisedPrompt = revisedPrompt, sourceVisualUid = sourceVisualUid
     )
     override fun packageManager(): RpgPackageManager = store.packageManager()
     override fun backups(): List<String> = store.backups()
     override fun restoreBackup(path: String): String = store.restoreBackup(path)
-    override fun createSnapshot(kind:SnapshotKind,pinned:Boolean):CampaignSnapshotDescriptor = store.createSnapshot(kind,pinned)
-    override fun snapshots():List<CampaignSnapshotDescriptor> = store.snapshots()
-    override fun restoreLatestSnapshot():String = store.restoreLatestSnapshot()
+    override fun createSnapshot(kind: SnapshotKind, pinned: Boolean): CampaignSnapshotDescriptor = store.createSnapshot(kind, pinned)
+    override fun snapshots(): List<CampaignSnapshotDescriptor> = store.snapshots()
+    override fun restoreLatestSnapshot(): String = store.restoreLatestSnapshot()
     override fun finalizeChapter(chapter: Int, title: String): Pair<String, String> = store.finalizeChapter(chapter, title)
 }
