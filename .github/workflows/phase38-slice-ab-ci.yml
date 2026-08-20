@@ -37,25 +37,41 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
+      - name: Temporary Gradle wrapper
+        run: |
+          gradle wrapper --gradle-version 9.5.0
+          chmod +x ./gradlew
       - name: Targeted Phase38 A+B
-        run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase38*' --stacktrace
-      - name: Full JVM
-        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
-      - name: Test summary
+        run: ./gradlew --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase38*' --stacktrace
+      - name: Targeted summary
         run: |
           python3 - <<'PY'
           import glob, xml.etree.ElementTree as ET
-          files=glob.glob('app/build/test-results/testDebugUnitTest/*.xml')
           tests=fail=skip=0
-          for f in files:
+          for f in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
+              r=ET.parse(f).getroot();tests+=int(r.attrib.get('tests',0));fail+=int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0));skip+=int(r.attrib.get('skipped',0))
+          print(f'TARGETED_SUMMARY tests={tests} failures={fail} skipped={skip}')
+          if fail: raise SystemExit(1)
+          PY
+      - name: Full JVM
+        run: ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace
+      - name: Full JVM summary
+        run: |
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          tests=fail=skip=0
+          for f in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
               r=ET.parse(f).getroot();tests+=int(r.attrib.get('tests',0));fail+=int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0));skip+=int(r.attrib.get('skipped',0))
           print(f'FULL_JVM_SUMMARY tests={tests} failures={fail} skipped={skip}')
           if fail: raise SystemExit(1)
           PY
-      - name: Commit tested code
+      - name: Remove temporary wrapper and commit tested code
         run: |
+          rm -f gradlew gradlew.bat
+          rm -rf gradle/wrapper
           git config user.name "rpg-os-phase38-ci"
           git config user.email "actions@users.noreply.github.com"
           git add app/src/main/java app/src/test/java backend/app.py
+          git diff --cached --check
           git commit -m "feat(p38): protected read boundary and consumer inventory"
           git push origin HEAD:chat1-phase38-slice-ab-protected-read
