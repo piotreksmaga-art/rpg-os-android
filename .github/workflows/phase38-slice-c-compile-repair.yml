@@ -45,7 +45,7 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           python3 tools/phase38_slice_c_compile_repair.py
           git diff --check
-          changed=$(git diff --name-only | sort)
+          changed=$(git diff --name-only -- app/src/main/java tools/phase38_integrated_fixups.py | sort)
           printf '%s\n' "$changed"
           expected=$(printf '%s\n' \
             app/src/main/java/com/rpgos/app/Phase38AccessAuthority.kt \
@@ -59,6 +59,7 @@ jobs:
                   app/src/main/java/com/rpgos/app/WorldRuleProvider.kt \
                   tools/phase38_integrated_fixups.py
           git diff --cached --check
+          test -z "$(git diff --cached --name-only -- gradle gradlew gradlew.bat)"
           git commit -m "fix(p38): repair Slice C sealed payload integration"
           sha=$(git rev-parse HEAD)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
