@@ -113,16 +113,116 @@ Core posiada mechanizmy uniwersalne. World Pack dostarcza canon, definitions i w
 
 World Pack nie kopiuje infrastruktury Core: transactions, events, memory, economy framework, snapshots, retrieval, NPC Brain, World Simulation, Save/Load.
 
-## 10. NPC Knowledge i widoczność
-Każdy istotny NPC ma holder-scoped wiedzę/beliefs. Globalny FACT nie oznacza automatycznie wiedzy NPC ani gracza.
+## 10. World Actor Knowledge / Epistemic State — CANONICAL TARGET
+Phase 37 buduje uniwersalny epistemiczny fundament świata, nie wyłącznie tabelę wiedzy NPC. System ma odpowiadać: **kto co wie, uważa, podejrzewa lub szacuje; z jakiego dowodu to wynika; kiedy informację uzyskał; jaka jest jej jakość, aktualność i dostępność**.
 
-Legalne acquisition provenance obejmuje zależnie od świata m.in. observation, communication, research, inference, organization sharing, rumor, document/media, interrogation, surveillance/espionage i World Pack mechanics.
+Globalny FACT nie oznacza automatycznie wiedzy NPC, gracza, organizacji, urzędu ani innego World Actora.
 
-Legacy wiedza bez zachowanej historycznej provenance pozostaje `LEGACY` / `UNKNOWN_NOT_RECORDED` lub równoważnym typed stanem; system nie fabrykuje przeszłości.
+### 10.1 KnowledgeHolder
+Knowledge holderem może być zależnie od domeny m.in.:
+- `CHARACTER` / NPC;
+- `PLAYER_CHARACTER`;
+- `MILITARY_UNIT` / `ARMY_COMMAND`;
+- `ORGANIZATION` / guild / company / clan;
+- `CITY_ADMINISTRATION` / `STATE` / agency;
+- `INTELLIGENCE_SERVICE`;
+- `RESEARCH_TEAM` / `LABORATORY` / institution;
+- world-specific actor.
 
-Informacja może być prawdziwa, fałszywa, częściowa, niepewna lub sprzeczna. Sharing tworzy nowe acquisition provenance odbiorcy; nie jest magicznym kopiowaniem globalnej wiedzy.
+Dokument, raport, książka, mapa, baza, archiwum, notatnik badawczy lub inny nośnik może przechowywać/przenosić evidence bez bycia autonomicznym aktorem decyzyjnym.
 
-Player-visible, NPC-visible i GM/internal context są oddzielnymi warstwami. Ukryty stan NPC nie staje się automatycznie widoczny graczowi.
+`PERSONAL KNOWLEDGE`, `INSTITUTIONAL KNOWLEDGE` i `ROLE-ACCESSIBLE KNOWLEDGE` są odrębnymi semantykami. Wiedza instytucji nie staje się automatycznie wiedzą każdego członka.
+
+### 10.2 Truth, information, evidence i belief
+Rozdzielamy co najmniej:
+- `FACT` — authoritative reality;
+- `INFORMATION / CLAIM` — treść możliwa do przekazania lub oceny;
+- `EVIDENCE` — obserwacja, raport, dokument, pomiar, wynik, wypowiedź itd.;
+- `KNOWLEDGE STATE` — aktualny stan epistemiczny konkretnego holdera;
+- `BELIEF / ESTIMATE / HYPOTHESIS / SUSPICION` — interpretacja holdera.
+
+`FACT != KNOWLEDGE`, `KNOWLEDGE != BELIEF`, `KNOWLEDGE != EXECUTABLE SKILL`, `KNOWLEDGE != DECISION`.
+
+Claimy powinny być granularne: np. osoba może być znana jako członek organizacji, użytkownik konkretnej techniki, ostatnio widziana w lokacji X, ranna, podejrzana itd. Każdy claim może mieć własne evidence, czas, precision, confidence i secrecy.
+
+Stan epistemiczny może rozróżniać m.in. `KNOWN`, `BELIEVED`, `SUSPECTED`, `PARTIALLY_KNOWN`, `DOUBTED`, `DISBELIEVED`, `CONTRADICTED`, `OUTDATED`. Brak rekordu zwykle oznacza brak recorded knowledge, nie materializowany wpis `UNKNOWN` dla każdego możliwego faktu.
+
+### 10.3 Acquisition provenance i lineage
+Legalne acquisition provenance obejmuje zależnie od świata m.in.:
+- direct observation;
+- direct communication;
+- document / media / report;
+- rumor / hearsay;
+- education / training;
+- research / experiment;
+- inference;
+- institutional sharing;
+- interrogation;
+- surveillance / espionage;
+- memory;
+- World Pack mechanics;
+- `LEGACY` / `UNKNOWN_NOT_RECORDED`.
+
+Nowe canonical acquisition wymagają legalnego committed cause/evidence. AI, ContextBuilder, generic StatePatch ani raw storage helper nie mogą samodzielnie tworzyć authoritative knowledge acquisition.
+
+Sharing tworzy nowe acquisition provenance odbiorcy; nie jest magicznym kopiowaniem globalnej wiedzy. Lineage powinien pozwalać prześledzić łańcuch `event/observation -> report -> summary -> recipient -> later sharing`, w tym distortion, omission, misunderstanding, exaggeration, translation error lub deliberate deception.
+
+Legacy wiedza bez zachowanej historycznej provenance pozostaje `LEGACY` / `UNKNOWN_NOT_RECORDED`; system nie fabrykuje przeszłości.
+
+Historyczne acquisitions są trwałym evidence, a current KnowledgeState może być odbudowywalną/wersjonowaną projekcją nad nimi i innymi legalnymi źródłami.
+
+### 10.4 Quality, freshness i contradiction
+Informacja może być prawdziwa, fałszywa, częściowa, niepewna, sprzeczna lub nieaktualna. Confidence nie jest truth flag.
+
+Jakość informacji może uwzględniać według domeny m.in.:
+- confidence;
+- precision;
+- freshness / observedAt / lastUpdated;
+- completeness;
+- source reliability;
+- corroboration;
+- known deception;
+- uncertainty interval/range.
+
+Nowy FACT w świecie nie aktualizuje automatycznie wiedzy holdera. Kupiec może znać starą cenę, generał stary meldunek, naukowiec nieaktualną teorię, lekarz błędną diagnozę.
+
+Sprzeczne evidence nie powinno być bezwarunkowo nadpisywane. Holder może posiadać competing evidence i zmieniać belief wraz z nowymi źródłami.
+
+### 10.5 Expertise i wiedza domenowa
+Core wspiera typed/data-driven knowledge domains i expertise hooks bez zamykania systemu na jeden gatunek gry. Przykładowe domeny: military intelligence, tactics, market/valuation, medicine, science, crafting, politics/law, geography, history, technique knowledge, investigation i World Pack-defined domains.
+
+Ekspertyza wpływa na jakość rozpoznania, interpretacji, szacowania, inference i wykrywania deception, ale nie daje automatycznie wykonawczej zdolności. NPC może rozpoznać technikę, znać jej kontrę i nadal nie umieć jej wykonać; wykonanie pozostaje authority Skill/Technique/Mechanics.
+
+### 10.6 Style gry wspierane jednym epistemic core
+Ten sam Knowledge Engine ma obsługiwać różne style gry bez osobnych konkurencyjnych systemów:
+- character RPG — osobista wiedza, sekrety, relacje, rozpoznanie zdolności;
+- generał / tactical / grand strategy — fog of war, reconnaissance, intelligence estimates, chain of command;
+- city/state management — censuses, tax/economy/food/crime/public-order reports, corruption i opóźnione dane;
+- merchant/trading — regional prices, demand/supply, route risk, information arbitrage;
+- science/research — observations, hypotheses, experiments, replications, disputed theories i discoveries;
+- medicine — symptoms, tests, differential diagnosis i uncertain evidence;
+- espionage/politics — secrets, deception, counterintelligence, promises, faction assessments;
+- detective/investigation — clues, witness statements, hypotheses i evidence chains;
+- exploration/cartography — known routes/locations/hazards/resources i niepełne map knowledge;
+- World Pack-defined styles.
+
+Domena mechaniki rozstrzyga rzeczywistość; Knowledge Engine przechowuje tylko epistemiczny obraz tej rzeczywistości u holderów.
+
+### 10.7 Organization, role i access metadata
+Wiedza może należeć do organizacji/urzędu i być udostępniana przez rolę, clearance lub legalny sharing. Zmiana stanowiska może zmienić dostęp do institutional records, ale nie kopiuje prywatnych memories poprzednika.
+
+Phase 37 przechowuje metadata potrzebne do access/visibility, np. `PUBLIC`, `PRIVATE`, `SECRET`, `CLASSIFIED`, `ROLE_RESTRICTED`, `ORGANIZATION_RESTRICTED`, `WORLD_SPECIFIC`; pełne egzekwowanie GM/NPC/PC/player-visible granic należy do Phase 38.
+
+Player-visible, PC-known, NPC-known i GM/internal context nie są synonimami.
+
+### 10.8 Temporal readiness, durability i context boundary
+Model Phase 37 musi być temporal-ready: system później ma móc odpowiedzieć „co holder wiedział wtedy?”, a nie tylko „co wie teraz”. Pełny historical truth/query engine należy do Phase 39.
+
+Canonical acquisitions uczestniczą w Single Truth Mutation Path, TurnTransaction, Event/Causal evidence, idempotency, rollback, snapshot/replay i schema/migration safety.
+
+Retry tej samej logicznej acquisition nie tworzy duplikatu; rollback nie pozostawia phantom knowledge; snapshot/replay odtwarza ten sam epistemic state.
+
+ContextBuilder nie jest authority wiedzy. Docelowo pobiera holder-scoped `KnowledgeContextProjection`/typed Knowledge API zamiast definiować własną semantykę bezpośrednimi SQL query.
 
 ## 11. Temporal Engine, Scheduler i Time Skip
 Stan historyczny może posiadać `validFrom/validUntil` lub równoważny temporal contract. Retrieval musi odpowiadać „co było prawdą wtedy?”, nie automatycznie używać teraźniejszości.
