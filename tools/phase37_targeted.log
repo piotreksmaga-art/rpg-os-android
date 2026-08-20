@@ -18,10 +18,10 @@ Daemon will be stopped at the end of the build
 > Task :app:processDebugMainManifest
 > Task :app:processDebugManifest
 > Task :app:preDebugUnitTestBuild UP-TO-DATE
-> Task :app:javaPreCompileDebugUnitTest
-> Task :app:processDebugManifestForPackage
 > Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:javaPreCompileDebugUnitTest
 > Task :app:mergeDebugAssets
+> Task :app:processDebugManifestForPackage
 > Task :app:mergeDebugUnitTestManifest
 > Task :app:processDebugUnitTestManifest
 > Task :app:processDebugResources
@@ -138,8 +138,8 @@ w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/main/java/com/
 
 > Task :app:compileDebugJavaWithJavac
 > Task :app:processDebugJavaRes
-> Task :app:bundleDebugClassesToCompileJar
 > Task :app:bundleDebugClassesToRuntimeJar
+> Task :app:bundleDebugClassesToCompileJar
 
 > Task :app:compileDebugUnitTestKotlin
 w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/test/java/com/rpgos/app/Phase24CharacterPanelSnapshotV2Test.kt:21:9 'static fun assertEquals(p0: Array<(out) Any!>!, p1: Array<(out) Any!>!): Unit' is deprecated. Deprecated in Java.
@@ -250,42 +250,6 @@ w: file:///home/runner/work/rpg-os-android/rpg-os-android/app/src/test/java/com/
 
 > Task :app:testDebugUnitTest
 
-Phase37WorldActorKnowledgeTest > snapshotReplayPreservesFullContradictoryKnowledgeHistoryAndProjection FAILED
-    java.lang.IllegalArgumentException: RPGOS-KNOWLEDGE:CROSS_HOLDER_PROVENANCE_MISMATCH
-        at com.rpgos.app.KnowledgeStore.validateLineage(Phase37WorldActorKnowledge.kt:536)
-        at com.rpgos.app.KnowledgeStore.finalizeRecorded$app(Phase37WorldActorKnowledge.kt:453)
-        at com.rpgos.app.KnowledgeTurnBuffer.flush$lambda$1$0(Phase37WorldActorKnowledge.kt:428)
-        at com.rpgos.app.KnowledgeRecordedWriteAuthority.withPending(Phase37WorldActorKnowledge.kt:392)
-        at com.rpgos.app.KnowledgeTurnBuffer.flush(Phase37WorldActorKnowledge.kt:427)
-        at com.rpgos.app.GameplayMutationGateKt.withCanonicalGameplayMutationForTurn(GameplayMutationGate.kt:387)
-        at com.rpgos.app.TurnTransaction.commitLocked(TurnTransaction.kt:70)
-        at com.rpgos.app.TurnTransaction.commit$lambda$0(TurnTransaction.kt:37)
-        at com.rpgos.app.CampaignRuntimeLifecycleLock.withTurn(CampaignRuntimeLifecycleLock.kt:17)
-        at com.rpgos.app.TurnTransaction.commit(TurnTransaction.kt:37)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.commit(Phase37WorldActorKnowledgeTest.kt:787)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.commit$default(Phase37WorldActorKnowledgeTest.kt:778)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.snapshotReplayPreservesFullContradictoryKnowledgeHistoryAndProjection$lambda$0(Phase37WorldActorKnowledgeTest.kt:442)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.withDb(Phase37WorldActorKnowledgeTest.kt:733)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.snapshotReplayPreservesFullContradictoryKnowledgeHistoryAndProjection(Phase37WorldActorKnowledgeTest.kt:430)
-
-Phase37WorldActorKnowledgeTest > fullyValidLineageProjectionPasses FAILED
-    java.lang.IllegalArgumentException: RPGOS-KNOWLEDGE:CROSS_HOLDER_PROVENANCE_MISMATCH
-        at com.rpgos.app.KnowledgeStore.validateLineage(Phase37WorldActorKnowledge.kt:536)
-        at com.rpgos.app.KnowledgeStore.finalizeRecorded$app(Phase37WorldActorKnowledge.kt:453)
-        at com.rpgos.app.KnowledgeTurnBuffer.flush$lambda$1$0(Phase37WorldActorKnowledge.kt:428)
-        at com.rpgos.app.KnowledgeRecordedWriteAuthority.withPending(Phase37WorldActorKnowledge.kt:392)
-        at com.rpgos.app.KnowledgeTurnBuffer.flush(Phase37WorldActorKnowledge.kt:427)
-        at com.rpgos.app.GameplayMutationGateKt.withCanonicalGameplayMutationForTurn(GameplayMutationGate.kt:387)
-        at com.rpgos.app.TurnTransaction.commitLocked(TurnTransaction.kt:70)
-        at com.rpgos.app.TurnTransaction.commit$lambda$0(TurnTransaction.kt:37)
-        at com.rpgos.app.CampaignRuntimeLifecycleLock.withTurn(CampaignRuntimeLifecycleLock.kt:17)
-        at com.rpgos.app.TurnTransaction.commit(TurnTransaction.kt:37)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.commit(Phase37WorldActorKnowledgeTest.kt:787)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.commit$default(Phase37WorldActorKnowledgeTest.kt:778)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.fullyValidLineageProjectionPasses$lambda$0(Phase37WorldActorKnowledgeTest.kt:690)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.withDb(Phase37WorldActorKnowledgeTest.kt:733)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.fullyValidLineageProjectionPasses(Phase37WorldActorKnowledgeTest.kt:686)
-
 Phase37WorldActorKnowledgeTest > removingIndependentSealFailsReadinessClosed FAILED
     java.lang.AssertionError
         at org.junit.Assert.fail(Assert.java:87)
@@ -319,46 +283,10 @@ Phase37WorldActorKnowledgeTest > projectionRejectsEvidenceClaimOrAcquisitionMism
         at com.rpgos.app.Phase37WorldActorKnowledgeTest.withDb(Phase37WorldActorKnowledgeTest.kt:733)
         at com.rpgos.app.Phase37WorldActorKnowledgeTest.projectionRejectsEvidenceClaimOrAcquisitionMismatch(Phase37WorldActorKnowledgeTest.kt:660)
 
-Phase37WorldActorKnowledgeTest > evidenceLineageSurvivesSnapshotReplay FAILED
-    java.lang.IllegalArgumentException: RPGOS-KNOWLEDGE:CROSS_HOLDER_PROVENANCE_MISMATCH
-        at com.rpgos.app.KnowledgeStore.validateLineage(Phase37WorldActorKnowledge.kt:536)
-        at com.rpgos.app.KnowledgeStore.finalizeRecorded$app(Phase37WorldActorKnowledge.kt:453)
-        at com.rpgos.app.KnowledgeTurnBuffer.flush$lambda$1$0(Phase37WorldActorKnowledge.kt:428)
-        at com.rpgos.app.KnowledgeRecordedWriteAuthority.withPending(Phase37WorldActorKnowledge.kt:392)
-        at com.rpgos.app.KnowledgeTurnBuffer.flush(Phase37WorldActorKnowledge.kt:427)
-        at com.rpgos.app.GameplayMutationGateKt.withCanonicalGameplayMutationForTurn(GameplayMutationGate.kt:387)
-        at com.rpgos.app.TurnTransaction.commitLocked(TurnTransaction.kt:70)
-        at com.rpgos.app.TurnTransaction.commit$lambda$0(TurnTransaction.kt:37)
-        at com.rpgos.app.CampaignRuntimeLifecycleLock.withTurn(CampaignRuntimeLifecycleLock.kt:17)
-        at com.rpgos.app.TurnTransaction.commit(TurnTransaction.kt:37)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.commit(Phase37WorldActorKnowledgeTest.kt:787)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.commit$default(Phase37WorldActorKnowledgeTest.kt:778)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.evidenceLineageSurvivesSnapshotReplay$lambda$0(Phase37WorldActorKnowledgeTest.kt:311)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.withDb(Phase37WorldActorKnowledgeTest.kt:733)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.evidenceLineageSurvivesSnapshotReplay(Phase37WorldActorKnowledgeTest.kt:306)
-
-Phase37WorldActorKnowledgeTest > sharingCreatesRecipientAcquisitionWithLineageInsteadOfCloningState FAILED
-    java.lang.IllegalArgumentException: RPGOS-KNOWLEDGE:CROSS_HOLDER_PROVENANCE_MISMATCH
-        at com.rpgos.app.KnowledgeStore.validateLineage(Phase37WorldActorKnowledge.kt:536)
-        at com.rpgos.app.KnowledgeStore.finalizeRecorded$app(Phase37WorldActorKnowledge.kt:453)
-        at com.rpgos.app.KnowledgeTurnBuffer.flush$lambda$1$0(Phase37WorldActorKnowledge.kt:428)
-        at com.rpgos.app.KnowledgeRecordedWriteAuthority.withPending(Phase37WorldActorKnowledge.kt:392)
-        at com.rpgos.app.KnowledgeTurnBuffer.flush(Phase37WorldActorKnowledge.kt:427)
-        at com.rpgos.app.GameplayMutationGateKt.withCanonicalGameplayMutationForTurn(GameplayMutationGate.kt:387)
-        at com.rpgos.app.TurnTransaction.commitLocked(TurnTransaction.kt:70)
-        at com.rpgos.app.TurnTransaction.commit$lambda$0(TurnTransaction.kt:37)
-        at com.rpgos.app.CampaignRuntimeLifecycleLock.withTurn(CampaignRuntimeLifecycleLock.kt:17)
-        at com.rpgos.app.TurnTransaction.commit(TurnTransaction.kt:37)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.commit(Phase37WorldActorKnowledgeTest.kt:787)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.commit$default(Phase37WorldActorKnowledgeTest.kt:778)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.sharingCreatesRecipientAcquisitionWithLineageInsteadOfCloningState$lambda$0(Phase37WorldActorKnowledgeTest.kt:62)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.withDb(Phase37WorldActorKnowledgeTest.kt:733)
-        at com.rpgos.app.Phase37WorldActorKnowledgeTest.sharingCreatesRecipientAcquisitionWithLineageInsteadOfCloningState(Phase37WorldActorKnowledgeTest.kt:58)
-
-51 tests completed, 7 failed
+51 tests completed, 3 failed
 
 > Task :app:testDebugUnitTest FAILED
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/targeted-1787225942216.json
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/targeted-1787226191669.json
 
 FAILURE: Build failed with an exception.
 
