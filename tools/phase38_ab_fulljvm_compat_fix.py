@@ -160,7 +160,14 @@ path.write_text(text, encoding="utf-8")
 # semantically unchanged: they still prove storage/type/provenance continuity,
 # but now cross Phase38 through explicit trusted diagnostic authority.
 
-def migrate_context_call(rel: str, campaign: str, player_input: str, chapter: int, variable: str = "bundle") -> None:
+def migrate_context_call(
+    rel: str,
+    campaign: str,
+    player_input: str,
+    chapter: int,
+    variable: str = "bundle",
+    trusted_variable: str = "trustedContext"
+) -> None:
     path = p(rel)
     text = path.read_text(encoding="utf-8")
     old = f'''                val {variable} = run {{ Phase38LegacyContextFixtureSchema.ensure(save, world); ContextBuilder(save,world).build("{player_input}",{chapter},VisibilityAudienceFactory.diagnostic("{campaign}"),PurposeContext("{campaign}",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }}\n'''
@@ -172,13 +179,29 @@ def migrate_context_call(rel: str, campaign: str, player_input: str, chapter: in
         db_name = "save"
     if old not in text:
         raise SystemExit(f"trusted diagnostic migration anchor missing in {rel}: {player_input}")
-    new = f'''                Phase38LegacyContextFixtureSchema.ensure({db_name}, world)\n                val trustedContext = Phase38TrustedTestAuthority.diagnosticContextBuilder({db_name}, world, "{campaign}")\n                val {variable} = trustedContext.builder.build(\n                    "{player_input}", {chapter}, trustedContext.audience,\n                    PurposeContext("{campaign}", VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)\n                )\n'''
+    new = f'''                Phase38LegacyContextFixtureSchema.ensure({db_name}, world)\n                val {trusted_variable} = Phase38TrustedTestAuthority.diagnosticContextBuilder({db_name}, world, "{campaign}")\n                val {variable} = {trusted_variable}.builder.build(\n                    "{player_input}", {chapter}, {trusted_variable}.audience,\n                    PurposeContext("{campaign}", VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)\n                )\n'''
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
-migrate_context_call("app/src/test/java/com/rpgos/app/Phase32ContextBuilderTruthReadTest.kt", "C", "look", 1)
-migrate_context_call("app/src/test/java/com/rpgos/app/Phase32ContextBuilderTruthReadTest.kt", "C", "look again", 2, "rebuilt")
-migrate_context_call("app/src/test/java/com/rpgos/app/Phase32ContextCanonicalDomainsTest.kt", "C", "inspect canonical domains", 1)
-migrate_context_call("app/src/test/java/com/rpgos/app/Phase32ContextCanonicalDomainsTest.kt", "C", "rebuild canonical domains", 2, "rebuilt")
+migrate_context_call(
+    "app/src/test/java/com/rpgos/app/Phase32ContextBuilderTruthReadTest.kt",
+    "C", "look", 1,
+    trusted_variable = "trustedInitialContext"
+)
+migrate_context_call(
+    "app/src/test/java/com/rpgos/app/Phase32ContextBuilderTruthReadTest.kt",
+    "C", "look again", 2, "rebuilt",
+    trusted_variable = "trustedRebuiltContext"
+)
+migrate_context_call(
+    "app/src/test/java/com/rpgos/app/Phase32ContextCanonicalDomainsTest.kt",
+    "C", "inspect canonical domains", 1,
+    trusted_variable = "trustedInitialContext"
+)
+migrate_context_call(
+    "app/src/test/java/com/rpgos/app/Phase32ContextCanonicalDomainsTest.kt",
+    "C", "rebuild canonical domains", 2, "rebuilt",
+    trusted_variable = "trustedRebuiltContext"
+)
 
 # Legacy unknown projection uses a chained builder expression; preserve the
 # LEGACY record exactly and only change the diagnostic fixture authority.
