@@ -28,6 +28,7 @@ jobs:
 
       - name: Restore accepted baseline and apply reviewed Phase37 deltas
         run: |
+          python3 tools/phase37_fix_restore_helper.py
           python3 tools/phase37_restore_baseline_minimal.py
           python3 tools/phase37_apply_integration_patch.py
           python3 tools/phase37_apply_test_patch.py
