@@ -10,7 +10,7 @@ private val activeGameplayInitialization = ThreadLocal<ActiveGameplayInitializat
  * INITIALIZE is administrative and may migrate; REQUIRE READY is strictly read-only verification.
  */
 internal object GameplayRuntimeBootstrap {
-    private val requiredEvidenceTriggers = setOf(
+    private val requiredEvidenceTriggers: Set<String> get() = setOf(
         "rpgos_turn_receipts_commit_insert", "rpgos_turn_receipts_no_update", "rpgos_turn_receipts_no_delete",
         "rpgos_event_store_turn_insert", "rpgos_event_store_no_update", "rpgos_event_store_no_delete",
         "rpgos_causal_graph_turn_insert", "rpgos_causal_graph_no_update", "rpgos_causal_graph_no_delete",
@@ -18,8 +18,10 @@ internal object GameplayRuntimeBootstrap {
         Phase35CanonDivergenceSchema.RECORDED_INSERT_GUARD,
         Phase35CanonDivergenceSchema.IMPORT_INSERT_GUARD,
         Phase35CanonDivergenceSchema.LIFECYCLE_INSERT_GUARD,
-        GameplayMutationDatabaseGuards.CANON_DIVERGENCE_RUNTIME_TURN_GUARD
-    )
+        GameplayMutationDatabaseGuards.CANON_DIVERGENCE_RUNTIME_TURN_GUARD,
+        "rpgos_p37_acquisition_no_update", "rpgos_p37_acquisition_no_delete",
+        "rpgos_p37_evidence_no_update", "rpgos_p37_evidence_no_delete"
+    ) + GameplayMutationDatabaseGuards.phase37RuntimeGuardNames()
 
     /** Explicit bootstrap/migration/restore boundary. Never call from an ordinary read path. */
     fun initialize(db: SQLiteDatabase, campaignUid: String, safetySnapshotUid: String? = null) {
@@ -43,6 +45,7 @@ internal object GameplayRuntimeBootstrap {
                 Phase36EventSchemaScaffold.ensureWithoutMaterialMigration(db, campaignUid)
                 CampaignCausalGraphSchema.ensureReady(db)
                 CampaignSnapshotSchema.ensureReady(db)
+                Phase37KnowledgeSchema.ensureReady(db)
             }
             if (GameplayMutationDatabaseGuards.isInstalled(db)) {
                 withAdministrativeMutationAuthority(db, campaignUid) { ensureAcceptedStructuralSchemas() }
@@ -84,6 +87,7 @@ internal object GameplayRuntimeBootstrap {
         check(tableExists(db, CampaignIntelligencePhase30Schema.EVENT_TABLE)) { "RPGOS-G32:EVENT_STORE_NOT_READY" }
         check(CampaignCausalGraphSchema.isReady(db)) { "RPGOS-G32:CAUSAL_GRAPH_NOT_READY" }
         check(CampaignSnapshotSchema.isReady(db)) { "RPGOS-G34:SNAPSHOT_SCHEMA_NOT_READY" }
+        check(Phase37KnowledgeSchema.isReady(db)) { "RPGOS-P37:KNOWLEDGE_SCHEMA_NOT_READY" }
         Phase36SchemaVersioning.requireReady(db)
         check(GameplayMutationDatabaseGuards.isInstalled(db)) { "RPGOS-G32:GAMEPLAY_GUARDS_NOT_READY" }
         RuntimePersistentTableInventory.requireComplete(db)
