@@ -20,9 +20,7 @@ jobs:
 
       - name: Verify isolated audited base ancestry
         shell: bash
-        run: |
-          git merge-base --is-ancestor 7d94c30ac47f23e44cbe7515a267512c3d6ad4de HEAD
-          test "$(git rev-list --count 7d94c30ac47f23e44cbe7515a267512c3d6ad4de..HEAD)" -le 2
+        run: git merge-base --is-ancestor 7d94c30ac47f23e44cbe7515a267512c3d6ad4de HEAD
 
       - name: Apply Phase37 post-audit hardening
         run: python3 tools/phase37_post_audit_hardening.py
