@@ -29,6 +29,6 @@ class Phase38AccessAuthorityTest {
     }
     @Test fun temporaryGrantValidityIsTemporalAndNonDestructive(){
         val p=AccessAuthorityChange(AccessOperation.GRANT,"G","ENTITY","A",AccessGrantKind.TEMPORARY.name,"POLICY",validFromOrder=10,validUntilOrder=20)
-        assertEquals(10,p.validFromOrder);assertEquals(20,p.validUntilOrder)
+        assertEquals(10L,p.validFromOrder);assertEquals(20L,p.validUntilOrder)
     }
 }
