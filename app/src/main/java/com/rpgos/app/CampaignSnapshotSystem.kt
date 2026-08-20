@@ -16,7 +16,7 @@ enum class ReplayAuthorityCoverage { REPLAYABLE, NON_REPLAYABLE_FAIL_CLOSED }
 object CampaignReplayAuthorityMatrix {
     val replayableFamilyUids:Set<String> = setOf(
         "CAMPAIGN_TRUTH","CANON_DIVERGENCE","BASE_STATS_RESOURCES","SKILLS_TECHNIQUES","INVENTORY","EQUIPMENT_LOADOUT",
-        "OWNERSHIP_HISTORY","FINANCE_AUTHORITY","DEVELOPMENT_PROJECTS"
+        "OWNERSHIP_HISTORY","FINANCE_AUTHORITY","DEVELOPMENT_PROJECTS","NPC_KNOWLEDGE_STATE"
     )
     val nonReplayableFamilyUids:Set<String> = RuntimeTruthLayerRegistry.families.filter{it.isAuthoritative}.map{it.uid}.toSet()-replayableFamilyUids
     fun coverage(familyUid:String):ReplayAuthorityCoverage { val family=RuntimeTruthLayerRegistry.requireFamily(familyUid);require(family.isAuthoritative);return if(familyUid in replayableFamilyUids)ReplayAuthorityCoverage.REPLAYABLE else ReplayAuthorityCoverage.NON_REPLAYABLE_FAIL_CLOSED }

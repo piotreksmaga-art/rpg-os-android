@@ -11,12 +11,26 @@ internal object GameplayMutationDatabaseGuards {
     internal const val CONTEXT_TABLE_NAME = "rpgos_gameplay_mutation_context"
     internal const val RUNTIME_TURN_FUNCTION = "rpgos_runtime_turn_authority"
     internal const val CANON_DIVERGENCE_RUNTIME_TURN_GUARD = "rpgos_canon_divergence_runtime_turn_insert"
+    internal const val P37_RECORDED_WRITE_FUNCTION = "rpgos_p37_recorded_write_authority"
+    private const val P37_GUARD_PREFIX = "rpgos_p37_recorded_"
     private val authoritativeTables: List<String> get() = RuntimeTruthLayerRegistry.authoritativePersistentTables().toList()
     private val administrativeOnlyTables: List<String> get() = RuntimeTruthLayerRegistry.administrativeOnlyPersistentTables().toList()
 
     internal fun authoritativeTablesForCompatibility(): List<String> = authoritativeTables
     internal fun administrativeOnlyTablesForCompatibility(): List<String> = administrativeOnlyTables
     internal fun campaignColumnForCompatibility(db: SQLiteDatabase, table: String): String? = campaignColumn(db, table)
+    internal fun phase37RuntimeGuardNames(): Set<String> = buildSet {
+        listOf(
+            Phase37KnowledgeSchema.CLAIMS to "insert",
+            Phase37KnowledgeSchema.ACQUISITIONS to "insert",
+            Phase37KnowledgeSchema.EVIDENCE to "insert",
+            Phase37KnowledgeSchema.STATES to "insert",
+            Phase37KnowledgeSchema.STATES to "update"
+        ).forEach { (table, operation) ->
+            add(p37GuardName(table, operation))
+            add(p37SealGuardName(table, operation))
+        }
+    }
 
     fun ensureInstalled(db: SQLiteDatabase) {
         RuntimeTruthLayerRegistry.validateCanonicalInventory()
@@ -34,6 +48,7 @@ internal object GameplayMutationDatabaseGuards {
         // Phase 35 guards are reinstalled here as well as at schema creation so already-current
         // databases receive post-audit protection without a Phase 36 schema-version change.
         Phase35CanonDivergenceSchema.ensureReady(db)
+        check(Phase37KnowledgeSchema.isReady(db)) { "RPGOS-P37:KNOWLEDGE_SCHEMA_NOT_READY" }
         authoritativeTables.filter { tableExists(db, it) }.forEach { table ->
             val column = campaignColumn(db, table)
             createAuthorityGuard(db, table, column, "INSERT", "NEW")
@@ -95,6 +110,9 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_COMMIT_EVIDENCE_REQUIRED'); END"
             db.setCustomScalarFunction(RUNTIME_TURN_FUNCTION, UnaryOperator { campaignUid ->
                 if (isCanonicalGameplayMutationActive(db, campaignUid)) "1" else "0"
             })
+            db.setCustomScalarFunction(P37_RECORDED_WRITE_FUNCTION, UnaryOperator { token ->
+                if (KnowledgeRecordedWriteAuthority.isAuthorized(db, token)) "1" else "0"
+            })
         }
         installRuntimeTurnAuthorityTrigger(
             db,
@@ -102,6 +120,7 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_COMMIT_EVIDENCE_REQUIRED'); END"
             Phase35CanonDivergenceSchema.TABLE,
             "NEW.provenance_status='RECORDED'"
         )
+        installPhase37RecordedWriteAuthorityGuards(db)
     }
 
     private fun installRuntimeTurnAuthorityTrigger(
@@ -140,6 +159,64 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-MUTATION-GATE:IN_MEMORY_TURN_AUTHORITY_REQUIRED'
             "NEW.provenance_status='RECORDED'"
         )
     }
+
+    private fun installPhase37RecordedWriteAuthorityGuards(db: SQLiteDatabase) {
+        installPhase37RecordedWriteGuard(
+            db, Phase37KnowledgeSchema.CLAIMS, "INSERT", "NEW",
+            "'CLAIM:'||hex(NEW.campaign_uid)||':'||hex(NEW.claim_uid)||':'||hex(NEW.subject_kind_uid)||':'||hex(NEW.subject_uid)||':'||hex(NEW.predicate_uid)||':'||hex(NEW.value_canonical)||':'||hex(NEW.domain_uid)"
+        )
+        installPhase37RecordedWriteGuard(
+            db, Phase37KnowledgeSchema.ACQUISITIONS, "INSERT", "NEW",
+            "'ACQ:'||hex(NEW.campaign_uid)||':'||hex(NEW.acquisition_uid)||':'||hex(NEW.claim_uid)||':'||hex(NEW.holder_kind_uid)||':'||hex(NEW.holder_uid)||':'||hex(COALESCE(NEW.created_event_uid,''))||':'||hex(NEW.provenance_status)"
+        )
+        installPhase37RecordedWriteGuard(
+            db, Phase37KnowledgeSchema.EVIDENCE, "INSERT", "NEW",
+            "'EVID:'||hex(NEW.campaign_uid)||':'||hex(NEW.evidence_uid)||':'||hex(NEW.acquisition_uid)||':'||hex(NEW.claim_uid)||':'||hex(NEW.evidence_kind_uid)||':'||hex(NEW.polarity_uid)||':'||hex(COALESCE(NEW.source_event_uid,''))||':'||hex(COALESCE(NEW.source_acquisition_uid,''))"
+        )
+        val stateToken = "'STATE:'||hex(NEW.campaign_uid)||':'||hex(NEW.state_uid)||':'||hex(NEW.holder_kind_uid)||':'||hex(NEW.holder_uid)||':'||hex(NEW.claim_uid)||':'||hex(NEW.scope_uid)||':'||hex(NEW.role_uid)||':'||hex(NEW.epistemic_state_uid)||':'||hex(NEW.latest_acquisition_uid)"
+        installPhase37RecordedWriteGuard(db, Phase37KnowledgeSchema.STATES, "INSERT", "NEW", stateToken)
+        installPhase37RecordedWriteGuard(db, Phase37KnowledgeSchema.STATES, "UPDATE", "NEW", stateToken)
+    }
+
+    private fun installPhase37RecordedWriteGuard(
+        db: SQLiteDatabase,
+        table: String,
+        operation: String,
+        row: String,
+        tokenExpression: String
+    ) {
+        if (!tableExists(db, table)) return
+        val name = p37GuardName(table, operation.lowercase())
+        db.execSQL("DROP TRIGGER IF EXISTS $name")
+        val missing = if (Build.VERSION.SDK_INT >= 30) "$P37_RECORDED_WRITE_FUNCTION($tokenExpression)<>'1'" else "1=1"
+        val sealName = p37SealGuardName(table, operation.lowercase())
+        db.execSQL("DROP TRIGGER IF EXISTS $sealName")
+        listOf(name, sealName).forEach { triggerName ->
+            db.execSQL(
+                """CREATE TRIGGER $triggerName BEFORE $operation ON $table
+WHEN $missing
+BEGIN SELECT RAISE(ABORT,'RPGOS-KNOWLEDGE:EXACT_RECORDED_AUTHORITY_REQUIRED'); END""".trimIndent()
+            )
+        }
+    }
+
+    internal fun suspendLegacyPhase37RecordedWriteGuards(db: SQLiteDatabase) {
+        if (Build.VERSION.SDK_INT >= 30) return
+        val campaignUid = activeGameplayMutation.get()?.campaignUid ?: error("RPGOS-MUTATION-GATE:NO_ACTIVE_TURN")
+        requireCanonicalGameplayMutation(db, campaignUid)
+        phase37RuntimeGuardNames().forEach { db.execSQL("DROP TRIGGER IF EXISTS $it") }
+    }
+
+    internal fun restoreLegacyPhase37RecordedWriteGuards(db: SQLiteDatabase) {
+        if (Build.VERSION.SDK_INT >= 30) return
+        installPhase37RecordedWriteAuthorityGuards(db)
+    }
+
+    private fun p37GuardName(table: String, operation: String) =
+        P37_GUARD_PREFIX + table.removePrefix("world_actor_") + "_" + operation
+
+    private fun p37SealGuardName(table: String, operation: String) =
+        "rpgos_p37_schema_seal_" + table.removePrefix("world_actor_") + "_" + operation
 
     internal fun enterRuntimeTurnAuthority(db: SQLiteDatabase, campaignUid: String) {
         requireCanonicalGameplayMutation(db, campaignUid)
@@ -296,17 +373,22 @@ internal fun <T> withCanonicalGameplayMutationForTurn(
     GameplayMutationDatabaseGuards.enterTurn(db, campaignUid)
     activeGameplayMutation.set(ActiveGameplayMutation(db, campaignUid))
     var bufferStarted = false
+    var knowledgeBufferStarted = false
     var runtimeAuthorityEntered = false
     return try {
         CanonDivergenceTurnBuffer.begin(db, campaignUid)
         bufferStarted = true
+        KnowledgeTurnBuffer.begin(db, campaignUid)
+        knowledgeBufferStarted = true
         GameplayMutationDatabaseGuards.enterRuntimeTurnAuthority(db, campaignUid)
         runtimeAuthorityEntered = true
         val result = block()
         CanonDivergenceTurnBuffer.flush(db, campaignUid)
+        KnowledgeTurnBuffer.flush(db, campaignUid)
         result
     } finally {
         if (runtimeAuthorityEntered) GameplayMutationDatabaseGuards.leaveRuntimeTurnAuthority(db)
+        if (knowledgeBufferStarted) KnowledgeTurnBuffer.clear()
         if (bufferStarted) CanonDivergenceTurnBuffer.clear()
         activeGameplayMutation.set(previous)
         GameplayMutationDatabaseGuards.leaveTurn(db, campaignUid)

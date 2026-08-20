@@ -52,6 +52,7 @@ object RuntimePersistentWriterRegistry {
         "FINANCE_AUTHORITY",
         "CAMPAIGN_TRUTH",
         "CANON_DIVERGENCE",
+        "NPC_KNOWLEDGE_STATE",
         "DEVELOPMENT_PROJECTS",
         "TURN_RECEIPTS",
         "EVENT_STORE",

@@ -814,6 +814,17 @@ internal fun draftReferences(draft: PlayerResolutionDraft): List<DomainRef> = bu
                 add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
                 addAll(payload.evidenceRefs)
             }
+            is KnowledgeAcquisitionChange -> {
+                add(DomainRef(payload.acquisition.holder.holderKindUid, payload.acquisition.holder.holderUid))
+                payload.acquisition.sourceHolder?.let { add(DomainRef(it.holderKindUid, it.holderUid)) }
+                payload.evidence.forEach { e ->
+                    e.sourceRef?.let { source ->
+                        if (source.scope == KnowledgeReferenceScope.CAMPAIGN) {
+                            add(DomainRef(source.kindUid, source.entityUid))
+                        }
+                    }
+                }
+            }
         }
     }
     draft.eventIntents.forEach { intent ->
