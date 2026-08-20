@@ -23,10 +23,13 @@ jobs:
           ref: chat1-phase37-world-actor-knowledge
           fetch-depth: 0
 
-      - name: Apply exact Phase37 integration patches
+      - name: Restore accepted baseline and apply reviewed Phase37 deltas
         run: |
+          python3 tools/phase37_restore_baseline_minimal.py
           python3 tools/phase37_apply_integration_patch.py
           python3 tools/phase37_apply_test_patch.py
+          python3 tools/phase37_finalize_known_findings.py
+          python3 tools/phase37_append_finalization_tests.py
 
       - name: Verify patch cleanliness
         run: git diff --check
@@ -51,21 +54,29 @@ jobs:
         with:
           gradle-version: '9.5.0'
 
+      - name: Run targeted Phase37 suite
+        run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase37WorldActorKnowledgeTest' --stacktrace
+
       - name: Run full JVM suite on patched workspace
         run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
 
-      - name: Commit tested integration patch
+      - name: Commit tested Phase37 candidate
         shell: bash
         run: |
           git config user.name "rpg-os-phase37-ci"
           git config user.email "actions@users.noreply.github.com"
-          git add app/src/main/java/com/rpgos/app/PlayerChangeSetCodec.kt \
-                  app/src/main/java/com/rpgos/app/TurnTransaction.kt \
-                  app/src/main/java/com/rpgos/app/CampaignEventStore.kt \
-                  app/src/main/java/com/rpgos/app/WorldRuleProvider.kt \
-                  app/src/main/java/com/rpgos/app/PlayerDomainEngine.kt \
-                  app/src/main/java/com/rpgos/app/CampaignSnapshotSystem.kt \
-                  app/src/main/java/com/rpgos/app/ContextBuilder.kt \
-                  app/src/test/java/com/rpgos/app/Phase37WorldActorKnowledgeTest.kt
-          git commit -m "feat(p37): integrate knowledge with canonical turn and replay"
+          git add -- \
+            app/src/main/java/com/rpgos/app/GameplayMutationGate.kt \
+            app/src/main/java/com/rpgos/app/GameplayRuntimeBootstrap.kt \
+            app/src/main/java/com/rpgos/app/Phase36SchemaVersioning.kt \
+            app/src/main/java/com/rpgos/app/Phase37WorldActorKnowledge.kt \
+            app/src/main/java/com/rpgos/app/PlayerChangeSetCodec.kt \
+            app/src/main/java/com/rpgos/app/TurnTransaction.kt \
+            app/src/main/java/com/rpgos/app/CampaignEventStore.kt \
+            app/src/main/java/com/rpgos/app/WorldRuleProvider.kt \
+            app/src/main/java/com/rpgos/app/PlayerDomainEngine.kt \
+            app/src/main/java/com/rpgos/app/CampaignSnapshotSystem.kt \
+            app/src/main/java/com/rpgos/app/ContextBuilder.kt \
+            app/src/test/java/com/rpgos/app/Phase37WorldActorKnowledgeTest.kt
+          git commit -m "feat(p37): finalize canonical world-actor knowledge integration"
           git push origin HEAD:chat1-phase37-world-actor-knowledge
