@@ -339,6 +339,42 @@ Quest/opportunity może wynikać z rzeczywistego world state/process zamiast z a
 
 Director może podnosić relevance albo proponować future candidates; nie tworzy committed wojny, kryzysu czy śmierci bez legalnego causal/domain basis.
 
+### 15.4 Persistent World i Character Succession — CANONICAL TARGET
+Campaign World i aktualnie sterowana postać gracza są odrębnymi tożsamościami. `CAMPAIGN/WORLD != ACTIVE PLAYER CHARACTER`.
+
+Zmiana aktywnej postaci nie tworzy automatycznie nowego świata i nie resetuje historii kampanii. System ma docelowo pozwalać utworzyć nową postać w istniejącym Campaign World, zachowując committed reality, Event/Causal history, czas, NPC, organizacje, gospodarkę, przedmioty, własność, relacje, wiedzę holderów, World Processes, divergence i inne world-owned authority.
+
+Poprzednia player character może po relinquish/retirement/death/control-transfer:
+- pozostać pełnoprawnym World Actorem/NPC, jeżeli nadal żyje i istnieje w świecie;
+- zachować własne stats/resources/skills/techniques/inventory/ownership/relationships/memory/knowledge i historię zgodnie z authority odpowiednich domen;
+- podlegać później NPC Brain/Decision Engine i Living World zamiast pozostawać zamrożonym artefaktem starego save'a;
+- zostać ponownie spotkana, obserwowana, wspomniana lub stać się stroną późniejszych wydarzeń;
+- pozostać historycznym aktorem nawet po śmierci, bez usuwania skutków jej życia.
+
+Nowa player character otrzymuje własną identity, Player State, knowledge holder state, memories i legalny initial/bootstrap state. Nie dziedziczy automatycznie prywatnej wiedzy, wspomnień, relacji, umiejętności, inventory ani metawiedzy poprzedniej postaci tylko dlatego, że steruje nią ten sam użytkownik.
+
+`SAME HUMAN USER != SAME CHARACTER KNOWLEDGE HOLDER`.
+
+Jeżeli gracz jako człowiek pamięta sekret ze starej postaci, nowa postać nadal musi zdobyć go legalnie przez Phase 37/38 acquisition/visibility rules, chyba że World Pack lub jawna canonical bootstrap rule legalnie nadaje tę wiedzę.
+
+Control transfer jest commitowalną operacją domenową z durable provenance. System musi rozróżniać co najmniej:
+- `ACTIVE_PLAYER_CHARACTER` — obecnie kontrolowany aktor;
+- `FORMER_PLAYER_CHARACTER / RETIRED_TO_WORLD` — były PC pozostający aktorem świata;
+- `DECEASED/HISTORICAL` — aktor nieaktywny biologicznie lub historycznie, którego skutki i historia pozostają;
+- world-specific legal control states.
+
+Jedna kampania może posiadać sekwencję wielu player characters bez resetu World UID/history. Save/Load, replay, branching, snapshot i migration muszą zachowywać zarówno ciągłość świata, jak i historię zmian aktywnego PC.
+
+Zmiana postaci nie może:
+- kopiować całej wiedzy starego PC do nowego;
+- usuwać starego PC z Event/Causal history;
+- duplikować unikalnej własności/przedmiotów;
+- resetować NPC knowledge/reputation/world consequences;
+- tworzyć drugiego Campaign World pod pozorem tej samej kampanii;
+- pozwalać AI na nieautoryzowany transfer kontroli.
+
+Docelowy przykład legalny: gracz kończy grę magiem, tworzy wiedźmina w tym samym świecie, a dawny mag nadal istnieje jako autonomiczny World Actor z własną wiedzą i konsekwencjami; nowy wiedźmin posiada odrębny epistemiczny i mechaniczny stan i może później spotkać poprzednią postać.
+
 ## 16. Memory i Chronicle
 Trwała pamięć kampanii należy do RPG OS, nie do modelu/provider/runtime/KV/session cache.
 
