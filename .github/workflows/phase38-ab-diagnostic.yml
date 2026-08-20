@@ -27,6 +27,7 @@ jobs:
           python3 tools/phase38_integrated_fixups.py hardening
           python3 tools/phase38_ab_gate_fixups_robust2.py
           python3 tools/phase38_contextbuilder_gate_fix.py
+          python3 tools/phase38_ab_fulljvm_compat_fix.py
           git diff --check
       - name: Targeted A+B gate
         shell: bash
