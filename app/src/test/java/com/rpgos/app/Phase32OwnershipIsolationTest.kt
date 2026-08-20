@@ -94,7 +94,10 @@ class Phase32OwnershipIsolationTest {
             assertEquals(before, ownership.history(asset))
 
             SQLiteDatabase.openOrCreateDatabase(worldFile, null).use { world ->
-                ContextBuilder(db, world).build("inspect", 1)
+                run { Phase38LegacyContextFixtureSchema.ensure(db, world); run {
+                    val contextCampaign = ActiveCampaignRef.fromDatabasePath(db.path).campaignId
+                    ContextBuilder(db,world).build("inspect",1,VisibilityAudienceFactory.diagnostic(contextCampaign),PurposeContext(contextCampaign,VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION))
+                } }
             }
             assertEquals(before, ownership.history(asset))
 

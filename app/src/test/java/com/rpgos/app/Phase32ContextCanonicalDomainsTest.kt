@@ -146,7 +146,7 @@ class Phase32ContextCanonicalDomainsTest {
                 val projectBefore = DevelopmentProjectStore(save, "C").project("PROJECT-G32-CONTEXT")
                 val ledgerBefore = tableCount(save, "financial_ledger_transactions")
 
-                val bundle = ContextBuilder(save, world).build("inspect canonical domains", 1)
+                val bundle = run { Phase38LegacyContextFixtureSchema.ensure(save, world); ContextBuilder(save,world).build("inspect canonical domains",1,VisibilityAudienceFactory.diagnostic("C"),PurposeContext("C",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }
                 assertTrue(bundle.campaignTruth.any { it["truth_uid"] == "TRUTH-G32-CONTEXT-DOMAINS" && it["object_value"] == "canonical" })
                 assertTrue(bundle.playerState.isNotEmpty())
                 assertEquals("P1", (bundle.playerState["active_player"] as Map<*, *>)["player_uid"])
@@ -211,7 +211,7 @@ class Phase32ContextCanonicalDomainsTest {
                 assertEquals(projectBefore, DevelopmentProjectStore(save, "C").project("PROJECT-G32-CONTEXT"))
                 assertEquals(ledgerBefore, tableCount(save, "financial_ledger_transactions"))
 
-                val rebuilt = ContextBuilder(save, world).build("rebuild canonical domains", 2)
+                val rebuilt = run { Phase38LegacyContextFixtureSchema.ensure(save, world); ContextBuilder(save,world).build("rebuild canonical domains",2,VisibilityAudienceFactory.diagnostic("C"),PurposeContext("C",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }
                 assertTrue(rebuilt.campaignTruth.any { it["truth_uid"] == "TRUTH-G32-CONTEXT-DOMAINS" && it["object_value"] == "canonical" })
                 @Suppress("UNCHECKED_CAST")
                 val rebuiltOwnership = rebuilt.playerStatus["ownership"] as List<Map<String, Any?>>

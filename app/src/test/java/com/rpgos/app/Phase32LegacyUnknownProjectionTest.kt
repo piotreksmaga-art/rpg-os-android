@@ -71,7 +71,7 @@ class Phase32LegacyUnknownProjectionTest {
 
             SQLiteDatabase.openOrCreateDatabase(worldFile, null).use { world ->
                 val projected = ContextBuilder(db, world)
-                    .build("inspect legacy history", 1)
+                    .let { builder -> Phase38LegacyContextFixtureSchema.ensure(db, world); builder.build("inspect legacy history",1,VisibilityAudienceFactory.diagnostic("C1"),PurposeContext("C1",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }
                     .campaignTruth
                     .single { it["truth_uid"] == "TRUTH-G32-LEGACY-UNKNOWN" }
 

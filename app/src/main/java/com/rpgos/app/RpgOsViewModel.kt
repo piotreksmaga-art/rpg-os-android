@@ -10,6 +10,10 @@ import kotlinx.coroutines.launch
 class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     private val store = LocalGameStore(app)
     private val appSettings = AppSettings(app)
+    private fun playerAudience() = VisibilityAudienceFactory.player(store.activeCampaignId())
+    private fun playerPurpose(uid:String) = PurposeContext(store.activeCampaignId(),uid)
+    private fun diagnosticAudience() = VisibilityAudienceFactory.diagnostic(store.activeCampaignId())
+    private fun diagnosticPurpose() = PurposeContext(store.activeCampaignId(),VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
 
     private val _settings = MutableStateFlow(appSettings.load())
     val settings: StateFlow<RpgOsSettings> = _settings
@@ -213,7 +217,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
             val app = getApplication<Application>()
             runCatching {
                 val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1
-                val context = store.buildContext("STARTUP_CONTEXT", chapter)
+                val context = store.buildContext("STARTUP_CONTEXT", chapter,playerAudience(),playerPurpose(VisibilityPurposeKinds.GAMEPLAY_NARRATION))
                 _lastContextSummary.value =
                     "ContextBundle v1: wątki=${context.activeThreads.size}, NPC=${context.relevantNpcs.size}, " +
                     "wiedza=${context.npcKnowledge.size}, wydarzenia=${context.activeWorldEvents.size}, " +
@@ -229,26 +233,26 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refresh() {
         _status.value = store.status()
-        _characterPanel.value = store.fullCharacterPanel()
+        _characterPanel.value = store.fullCharacterPanel(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
         _time.value = store.time()
         _chronicle.value = store.chronicle()
         _worldPacks.value = store.packageManager().listWorldPacks()
         _campaigns.value = store.packageManager().listCampaigns()
         _backups.value = store.backups()
-        _npcs.value = store.npcs()
-        _relationEdges.value = store.relationEdges()
-        _economies.value = store.economies()
-        _wars.value = store.wars()
+        _npcs.value = store.npcs("",playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _relationEdges.value = store.relationEdges(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _economies.value = store.economies(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _wars.value = store.wars(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
         _sync.value = store.syncCheck()
         _dbTables.value = store.dbTables()
         _visualLibrary.value = store.visualLibrary()
-        _relationships.value = store.relationships()
-        _organizations.value = store.organizations()
-        _politics.value = store.politics()
+        _relationships.value = store.relationships(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _organizations.value = store.organizations(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _politics.value = store.politics(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
         _diagnostics.value = store.diagnostics(_lastContextSummary.value)
         _regions.value = store.worldRegions()
         _locations.value = store.worldLocations()
-        _worldEvents.value = store.activeWorldEvents()
+        _worldEvents.value = store.activeWorldEvents(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
         _techniques.value = store.techniqueBrowser()
         _missions.value = store.missionBrowser()
         _activeCampaign.value = store.activeCampaignDirName()
@@ -266,17 +270,20 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
             runCatching {
                 _imageStatus.value = "Generowanie obrazu..."
                 val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1
-                val context = store.buildContext(scenePrompt, chapter)
+                val context = store.buildContext(scenePrompt,chapter,playerAudience(),playerPurpose(VisibilityPurposeKinds.SCENE_VISUALIZATION))
                 val prompt = VisualPromptBuilder().buildScenePrompt(scenePrompt, context)
                 val result = ImageBackendClient(_settings.value.backendUrl).generate(
-                    ImageGenerationRequest("scene", title.ifBlank { "Scena" }, prompt, null, chapter)
+                    ImageGenerationRequest(
+                        "scene", title.ifBlank { "Scena" }, prompt, null, chapter,
+                        Phase38VisualAuthorization.authorize(context.visibilityEnvelope,VisibilityPurposeKinds.SCENE_VISUALIZATION,"SCENE",title.ifBlank { "SCENE" },prompt)
+                    )
                 )
                 val uri = GalleryService(contextApp).saveGeneratedImage(result, "scene", null)
                 store.addVisual(result.title, "scene", uri.toString(), chapter, null, null, prompt, result.revisedPrompt)
-                _npcs.value = store.npcs()
-        _relationEdges.value = store.relationEdges()
-        _economies.value = store.economies()
-        _wars.value = store.wars()
+                _npcs.value = store.npcs("",playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _relationEdges.value = store.relationEdges(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _economies.value = store.economies(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _wars.value = store.wars(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
         _sync.value = store.syncCheck()
         _dbTables.value = store.dbTables()
         _visualLibrary.value = store.visualLibrary()
@@ -300,21 +307,27 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             runCatching {
                 _imageStatus.value = "Generowanie postaci..."
+                val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1
+                val visualContext = store.buildContext("CHARACTER_VISUALIZATION:$name",chapter,playerAudience(),playerPurpose(VisibilityPurposeKinds.CHARACTER_VISUALIZATION))
                 val prompt = VisualPromptBuilder().buildCharacterPrompt(
                     name,
                     traits.split(",").map { it.trim() }.filter { it.isNotBlank() },
                     equipment.split(",").map { it.trim() }.filter { it.isNotBlank() },
-                    notes
+                    notes,
+                    visualContext
                 )
                 val result = ImageBackendClient(_settings.value.backendUrl).generate(
-                    ImageGenerationRequest("character", name.ifBlank { "Postać" }, prompt)
+                    ImageGenerationRequest(
+                        "character", name.ifBlank { "Postać" }, prompt,
+                        authorization = Phase38VisualAuthorization.authorize(visualContext.visibilityEnvelope,VisibilityPurposeKinds.CHARACTER_VISUALIZATION,"CHARACTER",name.ifBlank { "CHARACTER" },prompt)
+                    )
                 )
                 val uri = GalleryService(contextApp).saveGeneratedImage(result, "character", null)
                 store.addVisual(result.title, "character", uri.toString(), null, null, null, prompt, result.revisedPrompt)
-                _npcs.value = store.npcs()
-        _relationEdges.value = store.relationEdges()
-        _economies.value = store.economies()
-        _wars.value = store.wars()
+                _npcs.value = store.npcs("",playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _relationEdges.value = store.relationEdges(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _economies.value = store.economies(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _wars.value = store.wars(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
         _sync.value = store.syncCheck()
         _dbTables.value = store.dbTables()
         _visualLibrary.value = store.visualLibrary()
@@ -335,16 +348,21 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
             runCatching {
                 _imageStatus.value = "Generowanie scenerii..."
                 val era = _time.value.era
-                val prompt = VisualPromptBuilder().buildLocationPrompt(name, description, era)
+                val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1
+                val visualContext = store.buildContext("LOCATION_VISUALIZATION:$name",chapter,playerAudience(),playerPurpose(VisibilityPurposeKinds.LOCATION_VISUALIZATION))
+                val prompt = VisualPromptBuilder().buildLocationPrompt(name, description, era, visualContext)
                 val result = ImageBackendClient(_settings.value.backendUrl).generate(
-                    ImageGenerationRequest("location", name.ifBlank { "Lokacja" }, prompt)
+                    ImageGenerationRequest(
+                        "location", name.ifBlank { "Lokacja" }, prompt,
+                        authorization = Phase38VisualAuthorization.authorize(visualContext.visibilityEnvelope,VisibilityPurposeKinds.LOCATION_VISUALIZATION,"LOCATION",name.ifBlank { "LOCATION" },prompt)
+                    )
                 )
                 val uri = GalleryService(contextApp).saveGeneratedImage(result, "location", null)
                 store.addVisual(result.title, "location", uri.toString(), null, null, null, prompt, result.revisedPrompt)
-                _npcs.value = store.npcs()
-        _relationEdges.value = store.relationEdges()
-        _economies.value = store.economies()
-        _wars.value = store.wars()
+                _npcs.value = store.npcs("",playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _relationEdges.value = store.relationEdges(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _economies.value = store.economies(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _wars.value = store.wars(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
         _sync.value = store.syncCheck()
         _dbTables.value = store.dbTables()
         _visualLibrary.value = store.visualLibrary()
@@ -364,12 +382,25 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             runCatching {
                 _imageStatus.value = "Edycja obrazu..."
+                val editEnvelope = VisibilityAuthorityService().envelope(
+                    playerAudience(),
+                    playerPurpose(VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION)
+                )
+                val editAuthorization = Phase38VisualAuthorization.authorize(
+                    editEnvelope,
+                    VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION,
+                    "VISUAL",
+                    source.visualUid,
+                    instruction,
+                    VisualInputOrigins.USER_STANDALONE
+                )
                 val result = ImageEditBackendClient(contextApp, _settings.value.backendUrl).edit(
                     ImageEditRequest(
                         sourceVisualUid = source.visualUid,
                         sourceUri = source.uri,
                         title = source.title + "_edit",
-                        instruction = instruction
+                        instruction = instruction,
+                        authorization = editAuthorization
                     )
                 )
                 val uri = GalleryService(contextApp).saveGeneratedImage(
@@ -388,10 +419,10 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                     result.revisedPrompt,
                     source.visualUid
                 )
-                _npcs.value = store.npcs()
-        _relationEdges.value = store.relationEdges()
-        _economies.value = store.economies()
-        _wars.value = store.wars()
+                _npcs.value = store.npcs("",playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _relationEdges.value = store.relationEdges(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _economies.value = store.economies(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _wars.value = store.wars(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
         _sync.value = store.syncCheck()
         _dbTables.value = store.dbTables()
         _visualLibrary.value = store.visualLibrary()
@@ -413,8 +444,8 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun searchNpcs(query:String){ _npcs.value=store.npcs(query) }
-    fun selectNpc(uid:String){ _selectedNpc.value=store.npcDetail(uid) }
+    fun searchNpcs(query:String){ _npcs.value=store.npcs(query,playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI)) }
+    fun selectNpc(uid:String){ _selectedNpc.value=store.npcDetail(uid,playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI)) }
 
     fun searchWorld(query: String) {
         _locations.value = store.worldLocations(query)
@@ -493,7 +524,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
             check("Refresh danych") { refresh() }
             check("ContextBundle") {
                 val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1
-                store.buildContext("DEV_SELF_TEST",chapter)
+                store.buildContext("DEV_SELF_TEST",chapter,diagnosticAudience(),diagnosticPurpose())
             }
             check("Ustawienia") { appSettings.load() }
             check("Pliki aplikacji") {
@@ -510,7 +541,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
             val app=getApplication<Application>()
             try {
                 val chapter=(_chronicle.value.maxOfOrNull{it.chapter}?:0)+1
-                val context=store.buildContext("CONTEXT_TEST",chapter)
+                val context=store.buildContext("CONTEXT_TEST",chapter,diagnosticAudience(),diagnosticPurpose())
                 _developerStatus.value=
                     "✅ ContextBundle OK | wątki=${context.activeThreads.size}, NPC=${context.relevantNpcs.size}, " +
                     "misje=${context.missions.size}, pamięć=${context.retrievedLongTermMemory.size}"
@@ -526,7 +557,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
             val app=getApplication<Application>()
             try {
                 val chapter=(_chronicle.value.maxOfOrNull{it.chapter}?:0)+1
-                val context=store.buildContext("BACKEND_TEST",chapter)
+                val context=store.buildContext("BACKEND_TEST",chapter,playerAudience(),playerPurpose(VisibilityPurposeKinds.GAMEPLAY_NARRATION))
                 val result=BackendClient(_settings.value.backendUrl)
                     .sendTurn("Odpowiedz wyłącznie: RPG_OS_BACKEND_OK",chapter,context)
                 _developerStatus.value="✅ Backend odpowiedział: ${result.narration.take(120)}"
@@ -565,7 +596,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                 _messages.value = _messages.value + ChatMessage("system", "Budowanie ContextBundle...")
 
                 val context = try {
-                    store.buildContext(text, chapter)
+                    store.buildContext(text, chapter,playerAudience(),playerPurpose(VisibilityPurposeKinds.GAMEPLAY_NARRATION))
                 } catch (t: Throwable) {
                     DiagnosticLogger.log(app, "CONTEXT_GUARDED", t)
                     _messages.value = _messages.value + ChatMessage(
@@ -583,7 +614,8 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                         worldPressures = emptyList(),
                         canonConstraints = emptyList(),
                         recentChronicle = emptyList(),
-                        retrievedLongTermMemory = emptyList()
+                        retrievedLongTermMemory = emptyList(),
+                        visibilityEnvelope = VisibilityAuthorityService().envelope(playerAudience(),playerPurpose(VisibilityPurposeKinds.GAMEPLAY_NARRATION))
                     )
                 }
 

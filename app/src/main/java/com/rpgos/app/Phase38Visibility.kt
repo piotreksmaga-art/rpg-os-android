@@ -17,6 +17,7 @@ object VisibilityPurposeKinds {
     const val SCENE_VISUALIZATION = "SCENE_VISUALIZATION"
     const val CHARACTER_VISUALIZATION = "CHARACTER_VISUALIZATION"
     const val LOCATION_VISUALIZATION = "LOCATION_VISUALIZATION"
+    const val IMAGE_EDIT_VISUALIZATION = "IMAGE_EDIT_VISUALIZATION"
     const val INTERNAL_SIMULATION = "INTERNAL_SIMULATION"
     const val DIAGNOSTIC_INSPECTION = "DIAGNOSTIC_INSPECTION"
 }
@@ -99,7 +100,7 @@ enum class DisclosureLevel(val rank: Int) {
     fun canReduceTo(other: DisclosureLevel): Boolean = other.rank <= rank
 }
 
-enum class ProjectionDataState { DISCLOSED, NO_DATA, DENIED, NOT_DISCLOSED, UNKNOWN }
+enum class ProjectionDataState { DISCLOSED, NO_DATA, DENIED, NOT_DISCLOSED, UNKNOWN, CORRUPTION }
 
 data class VisibilityDecision(
     val level: DisclosureLevel,
@@ -123,11 +124,13 @@ data class VisibilityProjectionEnvelope(
     val audience: AudienceContext,
     val purpose: PurposeContext,
     val maximumDisclosure: DisclosureLevel,
-    val authorityUid: String = VisibilityAuthorityService.AUTHORITY_UID
+    val authorityUid: String = VisibilityAuthorityService.AUTHORITY_UID,
+    val projectionVersionUid: String = VisibilityAuthorityService.PROJECTION_VERSION_UID
 ) {
     init {
         require(campaignUid == audience.campaignUid && campaignUid == purpose.campaignUid)
         require(authorityUid == VisibilityAuthorityService.AUTHORITY_UID) { "RPGOS-VISIBILITY:UNKNOWN_AUTHORITY" }
+        require(projectionVersionUid == VisibilityAuthorityService.PROJECTION_VERSION_UID) { "RPGOS-VISIBILITY:UNKNOWN_PROJECTION_VERSION" }
     }
 
     fun reduceTo(level: DisclosureLevel): VisibilityProjectionEnvelope {
@@ -163,7 +166,10 @@ data class VisibilityProjection<T>(
 }
 
 class VisibilityAuthorityService {
-    companion object { const val AUTHORITY_UID = "RPGOS-P38-VISIBILITY-AUTHORITY-1" }
+    companion object {
+        const val AUTHORITY_UID = "RPGOS-P38-VISIBILITY-AUTHORITY-1"
+        const val PROJECTION_VERSION_UID = "RPGOS-P38-VISIBILITY-PROJECTION-1"
+    }
 
     private val knownAudiences = setOf(
         AudienceKinds.PLAYER, AudienceKinds.PLAYER_CHARACTER, AudienceKinds.WORLD_ACTOR,
@@ -173,7 +179,7 @@ class VisibilityAuthorityService {
         VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING,
         VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.SCENE_VISUALIZATION,
         VisibilityPurposeKinds.CHARACTER_VISUALIZATION, VisibilityPurposeKinds.LOCATION_VISUALIZATION,
-        VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION
+        VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION, VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION
     )
     private val publicKinds = setOf(
         VisibilitySubjectKinds.PUBLIC_WORLD_EVENT, VisibilitySubjectKinds.PUBLIC_WORLD_ACTOR_PROFILE,

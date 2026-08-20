@@ -9,6 +9,10 @@ client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 PHASE38_AUTHORITY_UID = "RPGOS-P38-VISIBILITY-AUTHORITY-1"
 PHASE38_GM_PURPOSES = {"GAMEPLAY_NARRATION", "WORLD_ACTOR_REASONING"}
+PHASE38_PROJECTION_VERSION_UID = "RPGOS-P38-VISIBILITY-PROJECTION-1"
+PHASE38_VISUAL_PURPOSES = {"SCENE_VISUALIZATION", "CHARACTER_VISUALIZATION", "LOCATION_VISUALIZATION", "IMAGE_EDIT_VISUALIZATION"}
+PHASE38_VISUAL_AUDIENCES = {"PLAYER", "PLAYER_CHARACTER"}
+PHASE38_DISCLOSURE_RANK = {"DENY": 0, "DISCLOSE_EXISTENCE": 1, "DISCLOSE_REDACTED": 2, "DISCLOSE_PARTIAL": 3, "DISCLOSE_FULL": 4}
 
 class TurnRequest(BaseModel):
     campaign_id: str
@@ -75,23 +79,32 @@ TURN_SCHEMA = {
 }
 
 SYSTEM_PROMPT = """You are the Game Master for RPG OS.
+The supplied context_bundle is already a Phase38-authorized projection. Never reconstruct or infer protected information absent from that projection.
 Return only data matching the requested JSON schema.
-The supplied context_bundle is already a Phase38-authorized projection. Never infer, reconstruct, request, or fabricate information outside that projection.
-FACT, KNOWLEDGE, ACCESS, DISCLOSURE and PRESENTATION are distinct. Absence from the projection is not evidence that hidden data is false or nonexistent.
-Use campaign_truth only when it is present in the authorized projection. A record with truth_kind=FACT is objective committed campaign reality; BELIEF remains perspective-scoped and NARRATIVE remains presentation-only.
-Use player_state only when present in the authorized projection. Never promote NARRATIVE to FACT automatically.
-Never invent World Actor knowledge absent from the authorized holder-scoped projection.
+Use campaign_truth as structured campaign truth with provenance.
+A campaign_truth record with truth_kind=FACT is objective committed campaign reality.
+A campaign_truth record with truth_kind=BELIEF is only what perspective_uid believes; never treat it as global reality.
+A campaign_truth record with truth_kind=NARRATIVE is presentation only; never treat it as factual history unless a supporting FACT or committed event exists.
+Never promote NARRATIVE to FACT automatically. If narrative and FACT conflict, FACT wins.
+Use player_state as the canonical Phase 3 player read contract. player_state.active_player identifies the controlled character for this campaign.
+Treat player_state.persistent as durable authoritative character data, player_state.runtime as current transient conditions/resources, and player_state.derived only as rebuildable/read-only values. Do not reinterpret a temporary runtime penalty as permanent regression.
+Never invent NPC knowledge that is absent from npc_knowledge, npc_memories, or a BELIEF owned by that NPC.
+Use player_skills and player_techniques as authoritative learned abilities.
+Use active_world_events, world_pressures and recent_chronicle to preserve causality.
+Use player_organizations and scene/location state when deciding who can plausibly appear.
+Respect canon_constraints unless campaign state has already diverged.
 Narration must be in Polish.
 The state_patch must contain only concrete state changes caused by this turn.
 Do not write to campaign_truth_records through state_patch; campaign truth uses a dedicated validated repository path.
 Do not write to reference/canon/legacy tables; Android validates all patches anyway.
+Do not include hidden GM-only information in narration unless the player has discovered it.
 """
 
 @app.get("/health")
 def health():
     return {"ok": True, "service": "rpg-os-backend", "version": "0.3.0"}
 
-def _require_phase38_projection(req: TurnRequest) -> Dict[str, Any]:
+def _require_phase38_projection(req: TurnRequest):
     envelope = req.context_bundle.get("visibility_envelope")
     if not isinstance(envelope, dict):
         raise HTTPException(status_code=400, detail="RPGOS-VISIBILITY:MISSING_PROJECTION_ENVELOPE")
@@ -122,9 +135,24 @@ def gm_turn(req: TurnRequest):
         model=model,
         instructions=SYSTEM_PROMPT,
         input=[
-            {"role": "user", "content": [{"type": "input_text", "text": "Generate the next RPG turn as JSON. Context:\n" + json.dumps(payload, ensure_ascii=False)}]}
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": "Generate the next RPG turn as JSON. Context:\n" + json.dumps(payload, ensure_ascii=False)
+                    }
+                ]
+            }
         ],
-        text={"format": {"type": "json_schema", "name": "rpg_os_turn", "strict": True, "schema": TURN_SCHEMA}}
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "rpg_os_turn",
+                "strict": True,
+                "schema": TURN_SCHEMA
+            }
+        }
     )
 
     raw = response.output_text
@@ -133,12 +161,62 @@ def gm_turn(req: TurnRequest):
         data["state_patch"]["transaction_id"] = str(uuid.uuid4())
     return data
 
+
+class Phase38VisualEnvelope(BaseModel):
+    campaign_uid: str
+    audience_kind_uid: str
+    audience_uid: Optional[str] = None
+    purpose_uid: str
+    authority_uid: str
+    projection_version_uid: str
+    disclosure_ceiling: str
+    payload_disclosure: str
+    subject_kind_uid: str
+    subject_uid: str
+    request_uid: str
+    payload_sha256: str
+    input_origin_uid: str
+
+
+def _visual_payload_digest(payload: str) -> str:
+    import hashlib
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _require_visual_projection(envelope: Phase38VisualEnvelope, campaign_uid: str, expected_purpose: str, payload: str):
+    if envelope.authority_uid != PHASE38_AUTHORITY_UID:
+        raise HTTPException(status_code=400, detail="RPGOS-VISIBILITY:INVALID_PROJECTION_AUTHORITY")
+    if envelope.projection_version_uid != PHASE38_PROJECTION_VERSION_UID:
+        raise HTTPException(status_code=400, detail="RPGOS-VISIBILITY:INVALID_PROJECTION_VERSION")
+    if envelope.campaign_uid != campaign_uid:
+        raise HTTPException(status_code=400, detail="RPGOS-VISIBILITY:CROSS_CAMPAIGN_PROJECTION")
+    if envelope.audience_kind_uid not in PHASE38_VISUAL_AUDIENCES:
+        raise HTTPException(status_code=403, detail="RPGOS-VISIBILITY:UNSUPPORTED_VISUAL_AUDIENCE")
+    if expected_purpose not in PHASE38_VISUAL_PURPOSES or envelope.purpose_uid != expected_purpose:
+        raise HTTPException(status_code=403, detail="RPGOS-VISIBILITY:VISUAL_PURPOSE_MISMATCH")
+    ceiling = PHASE38_DISCLOSURE_RANK.get(envelope.disclosure_ceiling)
+    payload_level = PHASE38_DISCLOSURE_RANK.get(envelope.payload_disclosure)
+    if ceiling is None or payload_level is None:
+        raise HTTPException(status_code=400, detail="RPGOS-VISIBILITY:INVALID_DISCLOSURE")
+    if ceiling == 0:
+        raise HTTPException(status_code=403, detail="RPGOS-VISIBILITY:PROJECTION_DENIED")
+    if payload_level > ceiling:
+        raise HTTPException(status_code=403, detail="RPGOS-VISIBILITY:VISUAL_DISCLOSURE_ESCALATION")
+    if envelope.payload_sha256 != _visual_payload_digest(payload):
+        raise HTTPException(status_code=400, detail="RPGOS-VISIBILITY:VISUAL_PAYLOAD_SUBSTITUTION")
+    if not envelope.request_uid or not envelope.subject_kind_uid or not envelope.subject_uid:
+        raise HTTPException(status_code=400, detail="RPGOS-VISIBILITY:MALFORMED_VISUAL_BINDING")
+    return envelope
+
+
 class ImageGenerateRequest(BaseModel):
     kind: str
     title: str
     prompt: str
     related_entity_uid: Optional[str] = None
     chapter: Optional[int] = None
+    campaign_uid: str
+    visibility_envelope: Phase38VisualEnvelope
 
 class ImageGenerateResponse(BaseModel):
     title: str
@@ -150,28 +228,81 @@ class ImageGenerateResponse(BaseModel):
 def generate_image(req: ImageGenerateRequest):
     if not os.environ.get("OPENAI_API_KEY"):
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
+
+    expected_purpose = {
+        "scene": "SCENE_VISUALIZATION",
+        "character": "CHARACTER_VISUALIZATION",
+        "location": "LOCATION_VISUALIZATION",
+    }.get(req.kind)
+    if expected_purpose is None:
+        raise HTTPException(status_code=400, detail="RPGOS-VISIBILITY:UNSUPPORTED_VISUAL_KIND")
+    _require_visual_projection(req.visibility_envelope, req.campaign_uid, expected_purpose, req.prompt)
+
+    # Use only the already-authorized prompt; never reconstruct campaign context server-side.
     image_model = os.environ.get("RPGOS_IMAGE_MODEL", "gpt-image-1")
-    result = client.images.generate(model=image_model,prompt=req.prompt,size="1024x1024",quality="medium")
+    result = client.images.generate(
+        model=image_model,
+        prompt=req.prompt,
+        size="1024x1024",
+        quality="medium"
+    )
+
     item = result.data[0]
     b64 = getattr(item, "b64_json", None)
     if not b64:
         raise HTTPException(status_code=502, detail="Image API returned no base64 image data")
-    return ImageGenerateResponse(title=req.title,mime_type="image/png",base64_data=b64,revised_prompt=getattr(item,"revised_prompt",None))
+
+    return ImageGenerateResponse(
+        title=req.title,
+        mime_type="image/png",
+        base64_data=b64,
+        revised_prompt=getattr(item, "revised_prompt", None)
+    )
+
 
 @app.post("/v1/images/edit", response_model=ImageGenerateResponse)
-async def edit_image(title: str = Form(...), instruction: str = Form(...), image: UploadFile = File(...)):
+async def edit_image(
+    title: str = Form(...),
+    instruction: str = Form(...),
+    campaign_uid: str = Form(...),
+    visibility_envelope: str = Form(...),
+    image: UploadFile = File(...)
+):
     if not os.environ.get("OPENAI_API_KEY"):
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not configured")
+
+    try:
+        visual_envelope = Phase38VisualEnvelope(**json.loads(visibility_envelope))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"RPGOS-VISIBILITY:MALFORMED_VISUAL_ENVELOPE:{type(exc).__name__}")
+    _require_visual_projection(visual_envelope, campaign_uid, "IMAGE_EDIT_VISUALIZATION", instruction)
+
     image_model = os.environ.get("RPGOS_IMAGE_MODEL", "gpt-image-1")
     raw = await image.read()
+
     with tempfile.NamedTemporaryFile(suffix=".png", delete=True) as temp:
-        temp.write(raw); temp.flush()
+        temp.write(raw)
+        temp.flush()
         with open(temp.name, "rb") as image_file:
-            result = client.images.edit(model=image_model,image=image_file,prompt=instruction,size="1024x1024")
-    item=result.data[0]; b64=getattr(item,"b64_json",None)
+            result = client.images.edit(
+                model=image_model,
+                image=image_file,
+                prompt=instruction,
+                size="1024x1024"
+            )
+
+    item = result.data[0]
+    b64 = getattr(item, "b64_json", None)
     if not b64:
         raise HTTPException(status_code=502, detail="Image edit returned no base64 data")
-    return ImageGenerateResponse(title=title,mime_type="image/png",base64_data=b64,revised_prompt=getattr(item,"revised_prompt",None))
+
+    return ImageGenerateResponse(
+        title=title,
+        mime_type="image/png",
+        base64_data=b64,
+        revised_prompt=getattr(item, "revised_prompt", None)
+    )
+
 
 # ---- RPG OS Update System v1 ----
 import urllib.request
@@ -188,7 +319,10 @@ def _latest_release():
     repo = os.environ.get("RPGOS_GITHUB_REPO", "").strip()
     if not repo:
         raise HTTPException(status_code=503, detail="RPGOS_GITHUB_REPO is not configured")
-    req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/latest",headers=_update_github_headers())
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/releases/latest",
+        headers=_update_github_headers()
+    )
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             return json.loads(r.read().decode("utf-8"))
@@ -202,7 +336,10 @@ def _asset(release, name):
     raise HTTPException(status_code=404, detail=f"Release asset not found: {name}")
 
 def _asset_bytes(asset):
-    req = urllib.request.Request(asset["url"],headers=_update_github_headers("application/octet-stream"))
+    req = urllib.request.Request(
+        asset["url"],
+        headers=_update_github_headers("application/octet-stream")
+    )
     with urllib.request.urlopen(req, timeout=120) as r:
         return r.read()
 
@@ -213,10 +350,24 @@ def latest_update():
     return json.loads(raw.decode("utf-8"))
 
 @app.get("/v1/updates/apk")
-def download_update_apk():
+def latest_update_apk():
     release = _latest_release()
-    asset = next((a for a in release.get("assets", []) if a.get("name", "").endswith(".apk")), None)
-    if asset is None:
-        raise HTTPException(status_code=404, detail="APK asset not found")
-    data = _asset_bytes(asset)
-    return StreamingResponse(iter([data]), media_type="application/vnd.android.package-archive")
+    apk = _asset(release, "RPG-OS.apk")
+
+    def stream():
+        req = urllib.request.Request(
+            apk["url"],
+            headers=_update_github_headers("application/octet-stream")
+        )
+        with urllib.request.urlopen(req, timeout=180) as r:
+            while True:
+                chunk = r.read(262144)
+                if not chunk:
+                    break
+                yield chunk
+
+    return StreamingResponse(
+        stream(),
+        media_type="application/vnd.android.package-archive",
+        headers={"Content-Disposition": 'attachment; filename="RPG-OS.apk"'}
+    )

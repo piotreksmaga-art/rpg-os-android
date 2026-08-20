@@ -27,6 +27,11 @@ class ImageEditBackendClient(
                 "Backend nie jest skonfigurowany."
             }
 
+            reqData.authorization.requireRequest(
+                reqData.authorization.campaignUid,
+                VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION,
+                reqData.instruction
+            )
             val uri = android.net.Uri.parse(reqData.sourceUri)
             val bytes = context.contentResolver.openInputStream(uri).use { input ->
                 requireNotNull(input) { "Nie można odczytać obrazu źródłowego." }
@@ -37,6 +42,8 @@ class ImageEditBackendClient(
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("title", reqData.title)
                 .addFormDataPart("instruction", reqData.instruction)
+                .addFormDataPart("campaign_uid", reqData.authorization.campaignUid)
+                .addFormDataPart("visibility_envelope", reqData.authorization.toJson().toString())
                 .addFormDataPart(
                     "image",
                     "source.png",

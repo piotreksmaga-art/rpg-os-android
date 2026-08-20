@@ -75,7 +75,7 @@ class TechniqueContextBuilderTest {
             GameplayRuntimeBootstrap.ensureReady(db, campaignId)
             GameplayRuntimeBootstrap.requireReady(db, campaignId)
 
-            val context = ContextBuilder(db, db).build("status", 1)
+            val context = run { Phase38LegacyContextFixtureSchema.ensure(db); ContextBuilder(db, db).build("status",1,VisibilityAudienceFactory.player(campaignId),PurposeContext(campaignId,VisibilityPurposeKinds.GAMEPLAY_NARRATION)) }
             assertEquals(1002, context.playerTechniques.size)
             assertEquals(1001, context.playerTechniques.count { it["canonical"] == true })
             assertEquals(1, context.playerTechniques.count { it["canonical"] == false })

@@ -176,12 +176,16 @@ class Phase38VisibilityBoundaryTest {
     @Test fun visibilityConsumerInventoryIsRepositoryWideAndFailClosed(){
         VisibilityConsumerInventory.validateUnique()
         val root=repoRoot()
-        val markers=listOf("gm_summary","npc_memories_v2","npc_beliefs","npc_schedules","npc_decisions","CampaignTruthStore(","KnowledgeContextProjection(")
-        val unclassified=File(root,"app/src/main/java").walkTopDown().filter{it.isFile&&it.extension=="kt"}.mapNotNull{f->
-            val text=f.readText();if(markers.any(text::contains)) f.relativeTo(root).invariantSeparatorsPath else null
-        }.filter{VisibilityConsumerInventory.contractForSource(it)==null}.toList()
+        val productionFiles = sequenceOf(
+            File(root,"app/src/main/java").walkTopDown().filter{it.isFile&&it.extension=="kt"},
+            File(root,"backend").walkTopDown().filter{it.isFile&&it.extension=="py"}
+        ).flatten()
+        val unclassified=productionFiles.mapNotNull{f->
+            val path=f.relativeTo(root).invariantSeparatorsPath
+            if(VisibilityConsumerInventory.looksProtected(f.readText()) && VisibilityConsumerInventory.contractForSource(path)==null) path else null
+        }.toList()
         assertTrue("unclassified protected consumers: $unclassified",unclassified.isEmpty())
-        assertTrue(runCatching{VisibilityConsumerInventory.requireClassified("app/src/main/java/com/rpgos/app/NewHiddenConsumer.kt")}.isFailure)
+        assertTrue(runCatching{VisibilityConsumerInventory.requireClassifiedIfProtected("app/src/main/java/com/rpgos/app/NewHiddenConsumer.kt","class X { val x = CampaignTruthStore(db, c) }")}.isFailure)
     }
 
     @Test fun universalCoreContainsNoWorldSpecificSemanticBranches(){

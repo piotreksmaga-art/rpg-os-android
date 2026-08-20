@@ -30,6 +30,7 @@ object JsonCodec {
             put("purpose_uid", context.visibilityEnvelope.purpose.purposeUid)
             put("maximum_disclosure", context.visibilityEnvelope.maximumDisclosure.name)
             put("authority_uid", context.visibilityEnvelope.authorityUid)
+            put("projection_version_uid", context.visibilityEnvelope.projectionVersionUid)
         })
     }
 

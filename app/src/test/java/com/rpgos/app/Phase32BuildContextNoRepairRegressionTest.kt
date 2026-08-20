@@ -33,6 +33,8 @@ class Phase32BuildContextNoRepairRegressionTest {
         campaignDbFile = File(campaignDir, "campaign.db")
         SQLiteDatabase.openOrCreateDatabase(campaignDbFile, null).use { db ->
             Phase32ProductionReadyTestFixture.setup(db, campaignUid)
+            Phase38LegacyContextFixtureSchema.ensure(db)
+            GameplayMutationDatabaseGuards.ensureInstalled(db)
             assertFalse(tableExists(db, "rpgos_repair_log"))
         }
 
