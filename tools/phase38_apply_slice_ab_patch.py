@@ -21,7 +21,7 @@ replace_once(
     '        VisibilitySubjectKinds.PUBLIC_WAR_SUMMARY, VisibilitySubjectKinds.PUBLIC_DASHBOARD_DATA, VisibilitySubjectKinds.WORLD_PRESENTATION\n'
 )
 
-# ContextBuilder typo from WorldEventItem.name and no hidden subject inference.
+# ContextBuilder typo from WorldEventItem.name.
 replace_once(
     "app/src/main/java/com/rpgos/app/ContextBuilder.kt",
     'mapOf("title" to e.title,"status" to e.status,"summary" to e.summary)',
@@ -72,6 +72,12 @@ replacements={
 '''fun economies():List<EconomySummary>{ val c=activeCampaignId();val a=VisibilityAudienceFactory.player(c);val p=PurposeContext(c,VisibilityPurposeKinds.PLAYER_UI);openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).economies(a,p)}} }''',
 'fun wars():List<WarSummary>{ openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).wars()}} }':
 '''fun wars():List<WarSummary>{ val c=activeCampaignId();val a=VisibilityAudienceFactory.player(c);val p=PurposeContext(c,VisibilityPurposeKinds.PLAYER_UI);openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).wars(a,p)}} }''',
+'fun relationships(): List<RelationshipItem> { openWorldDb().use { world -> openGameplaySaveDb().use { save -> return SocialReader(world, save).relationships() } } }':
+'''fun relationships(): List<RelationshipItem> { val c=activeCampaignId();val a=VisibilityAudienceFactory.player(c);val p=PurposeContext(c,VisibilityPurposeKinds.PLAYER_UI);openWorldDb().use { world -> openGameplaySaveDb().use { save -> return SocialReader(world, save).relationships(a,p) } } }''',
+'fun organizations(): List<OrganizationItem> { openWorldDb().use { world -> openGameplaySaveDb().use { save -> return SocialReader(world, save).organizations() } } }':
+'''fun organizations(): List<OrganizationItem> { val c=activeCampaignId();val a=VisibilityAudienceFactory.player(c);val p=PurposeContext(c,VisibilityPurposeKinds.PLAYER_UI);openWorldDb().use { world -> openGameplaySaveDb().use { save -> return SocialReader(world, save).organizations(a,p) } } }''',
+'fun politics(): List<PoliticalItem> { openWorldDb().use { world -> openGameplaySaveDb().use { save -> return SocialReader(world, save).politics() } } }':
+'''fun politics(): List<PoliticalItem> { val c=activeCampaignId();val a=VisibilityAudienceFactory.player(c);val p=PurposeContext(c,VisibilityPurposeKinds.PLAYER_UI);openWorldDb().use { world -> openGameplaySaveDb().use { save -> return SocialReader(world, save).politics(a,p) } } }''',
 'fun activeWorldEvents(): List<WorldEventItem> { openWorldDb().use { world -> openGameplaySaveDb().use { save -> return WorldReader(world, save).activeEvents() } } }':
 '''fun activeWorldEvents(): List<WorldEventItem> { val c=activeCampaignId();val a=VisibilityAudienceFactory.player(c);val p=PurposeContext(c,VisibilityPurposeKinds.PLAYER_UI);openWorldDb().use { world -> openGameplaySaveDb().use { save -> return WorldReader(world, save).activeEvents(a,p) } } }'''
 }
@@ -84,7 +90,7 @@ replace_once(
     'val context = store.buildContextForPurpose(scenePrompt, chapter, VisibilityPurposeKinds.SCENE_VISUALIZATION)\n                val prompt = VisualPromptBuilder().buildScenePrompt(scenePrompt, context)'
 )
 
-# Fallback bundle is also explicitly low-privilege and purpose-bound.
+# Fallback bundle is explicitly low-privilege and purpose-bound.
 replace_once(
     "app/src/main/java/com/rpgos/app/RpgOsViewModel.kt",
 '''                        recentChronicle = emptyList(),
@@ -98,7 +104,5 @@ replace_once(
                         )
                     )'''
 )
-
-# Backend and local fallback receive the same already-projected bundle; no backend-specific expansion.
 
 print("Phase38 Slice A+B integration patch applied")
