@@ -145,7 +145,14 @@ class Phase32TruthTypeEndToEndTest {
             assertEquals(expectedTypes, truthStore.active().associate { it.truthUid to it.kind })
 
             SQLiteDatabase.openOrCreateDatabase(worldFile, null).use { world ->
-                val contextTruth = run { Phase38LegacyContextFixtureSchema.ensure(db, world); ContextBuilder(db,world).build("inspect truth",1,VisibilityAudienceFactory.diagnostic("C1"),PurposeContext("C1",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }.campaignTruth
+                Phase38LegacyContextFixtureSchema.ensure(db, world)
+                val trustedContext = Phase38TrustedTestAuthority.diagnosticContextBuilder(db, world, "C1")
+                val contextTruth = trustedContext.builder
+                    .build(
+                        "inspect truth", 1, trustedContext.audience,
+                        PurposeContext("C1", VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
+                    )
+                    .campaignTruth
                     .associate { it.getValue("truth_uid") as String to TruthKind.valueOf(it.getValue("truth_kind") as String) }
                 assertEquals(expectedTypes, contextTruth)
             }

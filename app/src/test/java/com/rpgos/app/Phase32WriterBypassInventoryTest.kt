@@ -24,6 +24,7 @@ class Phase32WriterBypassInventoryTest {
         ADMINISTRATIVE,
         PRESENTATION_ONLY,
         READ_ONLY_NON_AUTHORITATIVE,
+        PROTECTED_PROJECTED_READ,
         GAMEPLAY_UNREACHABLE
     }
 
@@ -36,20 +37,16 @@ class Phase32WriterBypassInventoryTest {
         "activeCampaignRef" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "activePlayerRef" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "setActivePlayer" to WriterReachability.ADMINISTRATIVE,
-        "playerState" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
+        "protectedReads" to WriterReachability.PROTECTED_PROJECTED_READ,
         "statDefinitions" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "resourceDefinitions" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "registerStatDefinitions" to WriterReachability.ADMINISTRATIVE,
         "registerResourceDefinitions" to WriterReachability.ADMINISTRATIVE,
-        "playerStats" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "playerResources" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "activeCampaignDirName" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "activeWorldPackDirName" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "setActiveCampaign" to WriterReachability.ADMINISTRATIVE,
         "setActiveWorldPack" to WriterReachability.ADMINISTRATIVE,
         "createCampaign" to WriterReachability.ADMINISTRATIVE,
-        "openWorldDb" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "openCoreDb" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "commitTurn" to WriterReachability.CANONICAL_TURN,
         "buildContext" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "fullCharacterPanel" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
@@ -120,9 +117,19 @@ class Phase32WriterBypassInventoryTest {
             .filter { Modifier.isPublic(it.modifiers) && !it.isSynthetic && it.returnType == SQLiteDatabase::class.java }
             .map { it.name }
             .toSet()
-        assertEquals(setOf("openWorldDb", "openCoreDb"), sqliteReturning)
-        assertEquals(WriterReachability.READ_ONLY_NON_AUTHORITATIVE, repositoryEntryPoints.getValue("openWorldDb"))
-        assertEquals(WriterReachability.READ_ONLY_NON_AUTHORITATIVE, repositoryEntryPoints.getValue("openCoreDb"))
+        assertTrue("normal CampaignRepository must expose no raw SQLiteDatabase handle", sqliteReturning.isEmpty())
+        val publicNames = CampaignRepository::class.java.declaredMethods
+            .filter { Modifier.isPublic(it.modifiers) && !it.isSynthetic }
+            .map { it.name }
+            .toSet()
+        assertFalse(publicNames.contains("openWorldDb"))
+        assertFalse(publicNames.contains("openCoreDb"))
+        assertFalse(publicNames.contains("playerState"))
+        assertFalse(publicNames.contains("playerStats"))
+        assertFalse(publicNames.contains("playerResources"))
+        assertEquals(WriterReachability.PROTECTED_PROJECTED_READ, repositoryEntryPoints.getValue("protectedReads"))
+        val protectedReadsMethod = CampaignRepository::class.java.declaredMethods.single { it.name == "protectedReads" }
+        assertEquals(ProtectedCampaignReadRepository::class.java, protectedReadsMethod.returnType)
     }
 
     @Test

@@ -47,23 +47,7 @@ data class VisibilityPrincipalRef(val kindUid: String, val uid: String) {
     init { require(kindUid.isNotBlank() && uid.isNotBlank()) }
 }
 
-data class AudienceContext(
-    val campaignUid: String,
-    val audienceKindUid: String,
-    val principal: VisibilityPrincipalRef? = null,
-    /** Explicit cognition mapping. WORLD_ACTOR identity is never inferred to equal a Phase37 holder. */
-    val knowledgeHolders: List<KnowledgeHolderRef> = emptyList()
-) {
-    init {
-        require(campaignUid.isNotBlank() && audienceKindUid.isNotBlank())
-        knowledgeHolders.forEach { holder ->
-            require(holder.campaignUid == campaignUid) { "RPGOS-VISIBILITY:CAMPAIGN_QUALIFIED_HOLDER_REQUIRED" }
-        }
-        if (audienceKindUid == AudienceKinds.WORLD_ACTOR || audienceKindUid == AudienceKinds.PLAYER_CHARACTER) {
-            require(principal != null) { "RPGOS-VISIBILITY:ACTOR_AUDIENCE_REQUIRES_PRINCIPAL" }
-        }
-    }
-}
+// AudienceContext is defined in Phase38TrustedAuthority.kt; it is an untrusted audience descriptor.
 
 data class PurposeContext(val campaignUid: String, val purposeUid: String) {
     init { require(campaignUid.isNotBlank() && purposeUid.isNotBlank()) }
@@ -96,7 +80,8 @@ data class VisibilityRequest(
 }
 
 enum class DisclosureLevel(val rank: Int) {
-    DENY(0), DISCLOSE_EXISTENCE(1), DISCLOSE_REDACTED(2), DISCLOSE_PARTIAL(3), DISCLOSE_FULL(4);
+    DENY(0), DISCLOSE_EXISTENCE(10), CATEGORY_ONLY(20), QUALITATIVE(30), APPROXIMATE(40), RANGE(50),
+    SUMMARY(60), DISCLOSE_REDACTED(70), DISCLOSE_PARTIAL(80), DETAILED(90), DISCLOSE_FULL(100);
     fun canReduceTo(other: DisclosureLevel): Boolean = other.rank <= rank
 }
 
@@ -194,17 +179,24 @@ class VisibilityAuthorityService {
         VisibilitySubjectKinds.HIDDEN_PRESSURE, VisibilitySubjectKinds.WORLD_EVENT_GM_DETAIL
     )
 
-    fun decide(request: VisibilityRequest): VisibilityDecision {
+    fun decide(request: VisibilityRequest): VisibilityDecision = decide(request, null)
+
+    fun decide(request: VisibilityRequest, trusted: TrustedPrincipalContext?): VisibilityDecision {
         validate(request)
+        if (trusted != null && trusted.campaignUid != request.audience.campaignUid) throw VisibilityAuthorityFailure.CrossCampaign()
+        if (trusted != null && trusted.principal != request.audience.principal) return deny("TRUSTED_PRINCIPAL_MISMATCH")
         val a = request.audience.audienceKindUid
         val p = request.purpose.purposeUid
         val s = request.subject.subjectKindUid
         if (a !in knownAudiences) return deny("UNKNOWN_AUDIENCE")
         if (p !in knownPurposes) return deny("UNKNOWN_PURPOSE")
 
-        if (a == AudienceKinds.DEVELOPER_DIAGNOSTIC && p == VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION) return full("EXPLICIT_DIAGNOSTIC")
-        if (a == AudienceKinds.INTERNAL_SYSTEM && p == VisibilityPurposeKinds.INTERNAL_SIMULATION) return full("EXPLICIT_INTERNAL_SIMULATION")
-        if (a == AudienceKinds.GM_RUNTIME && p in setOf(VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.INTERNAL_SIMULATION)) return full("GM_RUNTIME_INTERNAL")
+        if (a == AudienceKinds.DEVELOPER_DIAGNOSTIC && p == VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
+            return if (trusted?.isPrivileged(Phase38RuntimeAuthority.PRIV_DIAGNOSTIC) == true) full("TRUSTED_DIAGNOSTIC") else deny("PRIVILEGED_CAPABILITY_REQUIRED")
+        if (a == AudienceKinds.INTERNAL_SYSTEM && p == VisibilityPurposeKinds.INTERNAL_SIMULATION)
+            return if (trusted?.isPrivileged(Phase38RuntimeAuthority.PRIV_INTERNAL) == true) full("TRUSTED_INTERNAL_SIMULATION") else deny("PRIVILEGED_CAPABILITY_REQUIRED")
+        if (a == AudienceKinds.GM_RUNTIME && p in setOf(VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.INTERNAL_SIMULATION))
+            return if (trusted?.isPrivileged(Phase38RuntimeAuthority.PRIV_GM) == true) full("TRUSTED_GM_RUNTIME") else deny("PRIVILEGED_CAPABILITY_REQUIRED")
 
         if (s in publicKinds && p in setOf(
                 VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION,
@@ -213,15 +205,16 @@ class VisibilityAuthorityService {
             )) return full("PUBLIC_PROJECTION")
 
         if (s == VisibilitySubjectKinds.PLAYER_STATE && a in setOf(AudienceKinds.PLAYER, AudienceKinds.PLAYER_CHARACTER)) {
-            return if (p in setOf(VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.CHARACTER_VISUALIZATION)) full("PLAYER_STATE") else deny("PURPOSE_NOT_NECESSARY")
+            if (trusted == null || !trusted.controls(request.subject.subjectUid)) return deny("PLAYER_STATE_SUBJECT_NOT_CONTROLLED")
+            return if (p in setOf(VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.CHARACTER_VISUALIZATION)) full("CONTROLLED_PLAYER_STATE") else deny("PURPOSE_NOT_NECESSARY")
         }
 
         if (s == VisibilitySubjectKinds.PHASE37_HOLDER_KNOWLEDGE) {
             val holder = request.subject.holder ?: return deny("HOLDER_REQUIRED")
-            val explicitlyMapped = request.audience.knowledgeHolders.any {
+            val explicitlyMapped = trusted?.cognitionHolders?.any {
                 it.campaignUid == request.audience.campaignUid &&
                     it.holderKindUid == holder.holderKindUid && it.holderUid == holder.holderUid
-            }
+            } == true
             return if (explicitlyMapped && p == VisibilityPurposeKinds.WORLD_ACTOR_REASONING) full("EXPLICIT_COGNITION_MAPPING") else deny("KNOWLEDGE_NOT_MAPPED_TO_AUDIENCE")
         }
 
@@ -237,8 +230,10 @@ class VisibilityAuthorityService {
         return VisibilityProjectionEnvelope(audience.campaignUid, audience, purpose, DisclosureLevel.DISCLOSE_FULL)
     }
 
-    fun <T> project(request: VisibilityRequest, read: () -> T): VisibilityProjection<T> {
-        val decision = decide(request)
+    fun <T> project(request: VisibilityRequest, read: () -> T): VisibilityProjection<T> = project(request, null, read)
+
+    fun <T> project(request: VisibilityRequest, trusted: TrustedPrincipalContext?, read: () -> T): VisibilityProjection<T> {
+        val decision = decide(request, trusted)
         if (decision.level == DisclosureLevel.DENY) {
             val state = when (decision.reasonCode) {
                 "UNKNOWN_AUDIENCE", "UNKNOWN_PURPOSE", "UNKNOWN_PROTECTED_SUBJECT" -> ProjectionDataState.UNKNOWN
@@ -257,8 +252,10 @@ class VisibilityAuthorityService {
         }
     }
 
-    fun <T> projectList(request: VisibilityRequest, read: () -> List<T>): VisibilityProjection<List<T>> {
-        val projection = project(request, read)
+    fun <T> projectList(request: VisibilityRequest, read: () -> List<T>): VisibilityProjection<List<T>> = projectList(request, null, read)
+
+    fun <T> projectList(request: VisibilityRequest, trusted: TrustedPrincipalContext?, read: () -> List<T>): VisibilityProjection<List<T>> {
+        val projection = project(request, trusted, read)
         return if (projection.value != null && projection.value.isEmpty()) projection.copy(dataState = ProjectionDataState.NO_DATA) else projection
     }
 

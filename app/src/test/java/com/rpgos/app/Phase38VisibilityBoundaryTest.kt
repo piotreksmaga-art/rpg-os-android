@@ -41,13 +41,14 @@ class Phase38VisibilityBoundaryTest {
     }
 
     @Test fun playerAndPlayerCharacterAreStructurallyDistinct(){
-        val pc=AudienceContext(campaign,AudienceKinds.PLAYER_CHARACTER,VisibilityPrincipalRef("ENTITY","PC"),listOf(KnowledgeHolderRef(KnowledgeHolderKinds.PLAYER_CHARACTER,"PC",campaign)))
+        val fixture=Phase38TrustedTestAuthority.playerCharacter(campaign,"PC")
+        val pc=fixture.audience
         assertNotEquals(player.audienceKindUid,pc.audienceKindUid)
         val holder=KnowledgeHolderRef(KnowledgeHolderKinds.PLAYER_CHARACTER,"PC",campaign)
         val subject=VisibilitySubjectRef(campaign,VisibilitySubjectKinds.PHASE37_HOLDER_KNOWLEDGE,"PC",holder=holder)
         val reasoning=PurposeContext(campaign,VisibilityPurposeKinds.WORLD_ACTOR_REASONING)
         assertEquals(DisclosureLevel.DENY,authority.decide(VisibilityRequest(player,reasoning,subject)).level)
-        assertEquals(DisclosureLevel.DISCLOSE_FULL,authority.decide(VisibilityRequest(pc,reasoning,subject)).level)
+        assertEquals(DisclosureLevel.DISCLOSE_FULL,authority.decide(VisibilityRequest(pc,reasoning,subject),fixture.trusted).level)
     }
 
     @Test fun playerDisclosureDoesNotCreatePcAcquisition(){
@@ -60,7 +61,9 @@ class Phase38VisibilityBoundaryTest {
     @Test fun gmInternalAuthorityDoesNotImplyPlayerDisclosure(){
         val gm=AudienceContext(campaign,AudienceKinds.GM_RUNTIME,VisibilityPrincipalRef("GM","RUNTIME"))
         val gmPurpose=PurposeContext(campaign,VisibilityPurposeKinds.INTERNAL_SIMULATION)
-        assertEquals(DisclosureLevel.DISCLOSE_FULL,authority.decide(req(gm,gmPurpose,VisibilitySubjectKinds.CAMPAIGN_TRUTH,"T")).level)
+        assertEquals(DisclosureLevel.DENY,authority.decide(req(gm,gmPurpose,VisibilitySubjectKinds.CAMPAIGN_TRUTH,"T")).level)
+        val trusted=Phase38RuntimeAuthority.privileged(gm,Phase38RuntimeAuthority.PRIV_GM)
+        assertEquals(DisclosureLevel.DISCLOSE_FULL,authority.decide(req(gm,gmPurpose,VisibilitySubjectKinds.CAMPAIGN_TRUTH,"T"),trusted).level)
         assertEquals(DisclosureLevel.DENY,authority.decide(req(player,playerUi,VisibilitySubjectKinds.CAMPAIGN_TRUTH,"T")).level)
     }
 
@@ -86,11 +89,11 @@ class Phase38VisibilityBoundaryTest {
         assertTrue(d.memories.isEmpty());assertTrue(d.beliefs.isEmpty());assertTrue(d.schedules.isEmpty());assertTrue(d.decisions.isEmpty())
     }
 
-    @Test fun explicitDiagnosticAudienceCanReceiveAuthorizedPrivateProjection(){
+    @Test fun callerConstructedDiagnosticAudienceCannotReceivePrivateProjection(){
         world.execSQL("INSERT INTO canon_characters_v2(character_uid,name,sex,status) VALUES('B','Beta','x','active')")
         save.execSQL("INSERT INTO npc_memories_v2(entity_uid,summary,importance,chapter) VALUES('B','MEM_SECRET',1,1)")
         val a=VisibilityAudienceFactory.diagnostic(campaign);val p=PurposeContext(campaign,VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
-        assertEquals(listOf("MEM_SECRET"),NpcWorldDashboardReader(world,save).npcDetail("B",a,p).memories)
+        assertTrue(NpcWorldDashboardReader(world,save).npcDetail("B",a,p).memories.isEmpty())
     }
 
     @Test fun deniedProjectionDoesNotExecuteProtectedReadBlock(){
@@ -180,12 +183,38 @@ class Phase38VisibilityBoundaryTest {
             File(root,"app/src/main/java").walkTopDown().filter{it.isFile&&it.extension=="kt"},
             File(root,"backend").walkTopDown().filter{it.isFile&&it.extension=="py"}
         ).flatten()
-        val unclassified=productionFiles.mapNotNull{f->
+        val violations=productionFiles.mapNotNull{f->
             val path=f.relativeTo(root).invariantSeparatorsPath
-            if(VisibilityConsumerInventory.looksProtected(f.readText()) && VisibilityConsumerInventory.contractForSource(path)==null) path else null
+            val sourceText=f.readText()
+            if(!VisibilityConsumerInventory.looksProtected(sourceText)) null
+            else runCatching{VisibilityConsumerInventory.requireClassifiedIfProtected(path,sourceText)}.exceptionOrNull()?.let{path}
         }.toList()
-        assertTrue("unclassified protected consumers: $unclassified",unclassified.isEmpty())
-        assertTrue(runCatching{VisibilityConsumerInventory.requireClassifiedIfProtected("app/src/main/java/com/rpgos/app/NewHiddenConsumer.kt","class X { val x = CampaignTruthStore(db, c) }")}.isFailure)
+        assertTrue("unclassified/forbidden protected consumers: $violations",violations.isEmpty())
+        val gatewayPath="app/src/main/java/com/rpgos/app/Phase38ProtectedRead.kt"
+        val gatewaySource=source(gatewayPath)
+        assertEquals(ProtectedEntryPointClassification.TRUSTED_GATEWAY,VisibilityConsumerInventory.entryPointClassification(gatewayPath,gatewaySource))
+        val direct="class X { val x = CampaignTruthStore(db, c) }"
+        assertEquals(ProtectedEntryPointClassification.FORBIDDEN_DIRECT_CONSUMER,VisibilityConsumerInventory.entryPointClassification("app/src/main/java/com/rpgos/app/NewHiddenConsumer.kt",direct))
+        assertTrue(runCatching{VisibilityConsumerInventory.requireClassifiedIfProtected("app/src/main/java/com/rpgos/app/NewHiddenConsumer.kt",direct)}.isFailure)
+        val gatewayWithUnrelatedDirectRead=gatewaySource+"\nfun unrelatedBypass() = CampaignTruthStore(db, c)\n"
+        assertEquals(ProtectedEntryPointClassification.FORBIDDEN_DIRECT_CONSUMER,VisibilityConsumerInventory.entryPointClassification(gatewayPath,gatewayWithUnrelatedDirectRead))
+        assertTrue(runCatching{VisibilityConsumerInventory.requireClassifiedIfProtected(gatewayPath,gatewayWithUnrelatedDirectRead)}.isFailure)
+    }
+
+    @Test fun contextBuilderUsesProtectedGatewayWithoutDirectProtectedEntryPoints(){
+        val contextPath="app/src/main/java/com/rpgos/app/ContextBuilder.kt"
+        val contextSource=source(contextPath)
+        assertEquals(ProtectedConsumerCapability.PROJECTED_CONSUMER,VisibilityConsumerInventory.contractForSource(contextPath)?.capability)
+        assertFalse(VisibilityConsumerInventory.hasForbiddenDirectProtectedEntryPoint(contextSource))
+        assertEquals(ProtectedEntryPointClassification.PROJECTED_CONSUMER,VisibilityConsumerInventory.entryPointClassification(contextPath,contextSource))
+        assertTrue(contextSource.contains("ProtectedCampaignReadRepository.borrowed"))
+        assertTrue(contextSource.contains("campaign_truth_state"))
+        assertTrue(contextSource.contains("player_state_state"))
+
+        val gatewayPath="app/src/main/java/com/rpgos/app/Phase38ProtectedRead.kt"
+        assertEquals(ProtectedEntryPointClassification.TRUSTED_GATEWAY,VisibilityConsumerInventory.entryPointClassification(gatewayPath,source(gatewayPath)))
+        val ordinaryDirect="class NormalProjectedConsumer { val x = CampaignTruthStore(db, campaign) }"
+        assertEquals(ProtectedEntryPointClassification.FORBIDDEN_DIRECT_CONSUMER,VisibilityConsumerInventory.entryPointClassification("app/src/main/java/com/rpgos/app/NormalProjectedConsumer.kt",ordinaryDirect))
     }
 
     @Test fun universalCoreContainsNoWorldSpecificSemanticBranches(){

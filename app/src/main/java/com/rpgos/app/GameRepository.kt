@@ -1,6 +1,5 @@
 package com.rpgos.app
 
-import android.database.sqlite.SQLiteDatabase
 import java.io.File
 
 /** Canonical campaign repository. Protected reads require explicit Phase38 audience + purpose. */
@@ -10,14 +9,12 @@ interface CampaignRepository {
     fun activeCampaignRef(): ActiveCampaignRef
     fun activePlayerRef(): ActivePlayerRef?
     fun setActivePlayer(playerUid: String): ActivePlayerRef
-    fun playerState(): PlayerStateSnapshot?
+    fun protectedReads(): ProtectedCampaignReadRepository
 
     fun statDefinitions(): List<StatDefinition>
     fun resourceDefinitions(): List<ResourceDefinition>
     fun registerStatDefinitions(worldPackUid: String, definitions: List<StatDefinition>)
     fun registerResourceDefinitions(worldPackUid: String, definitions: List<ResourceDefinition>)
-    fun playerStats(): List<PlayerStat>
-    fun playerResources(): List<PlayerResource>
 
     fun activeCampaignDirName(): String
     fun activeWorldPackDirName(): String
@@ -25,8 +22,6 @@ interface CampaignRepository {
     fun setActiveWorldPack(dirName: String)
     fun createCampaign(name: String): File
 
-    fun openWorldDb(): SQLiteDatabase
-    fun openCoreDb(): SQLiteDatabase
 
     fun commitTurn(
         identity: TurnTransactionIdentity,

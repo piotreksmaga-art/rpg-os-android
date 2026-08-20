@@ -1,4 +1,4 @@
-import os, json, uuid, base64, tempfile
+import os, json, uuid, base64, tempfile, hashlib
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
@@ -174,16 +174,28 @@ class Phase38VisualEnvelope(BaseModel):
     subject_kind_uid: str
     subject_uid: str
     request_uid: str
+    request_kind_uid: str
     payload_sha256: str
+    semantic_request_sha256: str
     input_origin_uid: str
+    related_entity_uid: Optional[str] = None
+    source_visual_uid: Optional[str] = None
+    source_image_sha256: Optional[str] = None
 
 
 def _visual_payload_digest(payload: str) -> str:
-    import hashlib
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _require_visual_projection(envelope: Phase38VisualEnvelope, campaign_uid: str, expected_purpose: str, payload: str):
+def _visual_semantic_digest(envelope: Phase38VisualEnvelope, payload: str, request_kind: str, related_entity_uid=None, source_visual_uid=None, source_image_sha256=None) -> str:
+    fields = [envelope.campaign_uid,envelope.audience_kind_uid,envelope.audience_uid or "",envelope.purpose_uid,
+              envelope.subject_kind_uid,envelope.subject_uid,envelope.request_uid,request_kind,payload,related_entity_uid or "",
+              source_visual_uid or "",source_image_sha256 or ""]
+    return hashlib.sha256("\x1f".join(fields).encode("utf-8")).hexdigest()
+
+
+def _require_visual_projection(envelope: Phase38VisualEnvelope, campaign_uid: str, expected_purpose: str, payload: str,
+                               request_kind: str, related_entity_uid=None, source_visual_uid=None, source_image_sha256=None):
     if envelope.authority_uid != PHASE38_AUTHORITY_UID:
         raise HTTPException(status_code=400, detail="RPGOS-VISIBILITY:INVALID_PROJECTION_AUTHORITY")
     if envelope.projection_version_uid != PHASE38_PROJECTION_VERSION_UID:
@@ -204,6 +216,13 @@ def _require_visual_projection(envelope: Phase38VisualEnvelope, campaign_uid: st
         raise HTTPException(status_code=403, detail="RPGOS-VISIBILITY:VISUAL_DISCLOSURE_ESCALATION")
     if envelope.payload_sha256 != _visual_payload_digest(payload):
         raise HTTPException(status_code=400, detail="RPGOS-VISIBILITY:VISUAL_PAYLOAD_SUBSTITUTION")
+    if envelope.request_kind_uid != request_kind:
+        raise HTTPException(status_code=400, detail="RPGOS-VISIBILITY:VISUAL_REQUEST_KIND_MISMATCH")
+    if envelope.related_entity_uid != related_entity_uid or envelope.source_visual_uid != source_visual_uid or envelope.source_image_sha256 != source_image_sha256:
+        raise HTTPException(status_code=400, detail="RPGOS-VISIBILITY:VISUAL_SOURCE_SUBSTITUTION")
+    expected_semantic = _visual_semantic_digest(envelope,payload,request_kind,related_entity_uid,source_visual_uid,source_image_sha256)
+    if envelope.semantic_request_sha256 != expected_semantic:
+        raise HTTPException(status_code=400, detail="RPGOS-VISIBILITY:VISUAL_SEMANTIC_SUBSTITUTION")
     if not envelope.request_uid or not envelope.subject_kind_uid or not envelope.subject_uid:
         raise HTTPException(status_code=400, detail="RPGOS-VISIBILITY:MALFORMED_VISUAL_BINDING")
     return envelope
@@ -236,7 +255,7 @@ def generate_image(req: ImageGenerateRequest):
     }.get(req.kind)
     if expected_purpose is None:
         raise HTTPException(status_code=400, detail="RPGOS-VISIBILITY:UNSUPPORTED_VISUAL_KIND")
-    _require_visual_projection(req.visibility_envelope, req.campaign_uid, expected_purpose, req.prompt)
+    _require_visual_projection(req.visibility_envelope, req.campaign_uid, expected_purpose, req.prompt, "GENERATE", req.related_entity_uid)
 
     # Use only the already-authorized prompt; never reconstruct campaign context server-side.
     image_model = os.environ.get("RPGOS_IMAGE_MODEL", "gpt-image-1")
@@ -266,6 +285,7 @@ async def edit_image(
     instruction: str = Form(...),
     campaign_uid: str = Form(...),
     visibility_envelope: str = Form(...),
+    source_visual_uid: str = Form(...),
     image: UploadFile = File(...)
 ):
     if not os.environ.get("OPENAI_API_KEY"):
@@ -275,10 +295,10 @@ async def edit_image(
         visual_envelope = Phase38VisualEnvelope(**json.loads(visibility_envelope))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"RPGOS-VISIBILITY:MALFORMED_VISUAL_ENVELOPE:{type(exc).__name__}")
-    _require_visual_projection(visual_envelope, campaign_uid, "IMAGE_EDIT_VISUALIZATION", instruction)
-
     image_model = os.environ.get("RPGOS_IMAGE_MODEL", "gpt-image-1")
     raw = await image.read()
+    source_digest = hashlib.sha256(raw).hexdigest()
+    _require_visual_projection(visual_envelope, campaign_uid, "IMAGE_EDIT_VISUALIZATION", instruction, "EDIT", None, source_visual_uid, source_digest)
 
     with tempfile.NamedTemporaryFile(suffix=".png", delete=True) as temp:
         temp.write(raw)

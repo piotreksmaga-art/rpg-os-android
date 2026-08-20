@@ -30,7 +30,12 @@ class ImageBackendClient(
                 "location" -> VisibilityPurposeKinds.LOCATION_VISUALIZATION
                 else -> error("RPGOS-VISIBILITY:UNSUPPORTED_VISUAL_KIND")
             }
-            requestData.authorization.requireRequest(requestData.authorization.campaignUid, expectedPurpose, requestData.prompt)
+            requestData.authorization.requireRequest(VisualSemanticRequest(
+                requestData.authorization.campaignUid, requestData.authorization.audienceKindUid, requestData.authorization.audienceUid,
+                expectedPurpose, requestData.authorization.subjectKindUid, requestData.authorization.subjectUid,
+                requestData.authorization.requestUid, VisualRequestKinds.GENERATE, requestData.prompt,
+                relatedEntityUid = requestData.relatedEntityUid
+            ))
             val json = JSONObject().apply {
                 put("kind", requestData.kind)
                 put("title", requestData.title)

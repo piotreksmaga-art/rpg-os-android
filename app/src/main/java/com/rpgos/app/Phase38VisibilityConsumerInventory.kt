@@ -1,6 +1,7 @@
 package com.rpgos.app
 
 enum class ProtectedConsumerCapability {
+    TRUSTED_GATEWAY,
     PROJECTION_AUTHORITY,
     PROJECTED_CONSUMER,
     DIAGNOSTIC_PROJECTED_CONSUMER,
@@ -8,6 +9,10 @@ enum class ProtectedConsumerCapability {
     PRESENTATION_AFTER_PROJECTION,
     ADMINISTRATIVE_WRITE_ONLY,
     AUTHORITY_METADATA
+}
+
+enum class ProtectedEntryPointClassification {
+    TRUSTED_GATEWAY, PROJECTED_CONSUMER, FORBIDDEN_DIRECT_CONSUMER
 }
 
 data class ProtectedConsumerContract(
@@ -95,6 +100,9 @@ object VisibilityConsumerInventory {
             VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("schema-migration-manager", "app/src/main/java/com/rpgos/app/MigrationManager.kt", ProtectedConsumerCapability.ADMINISTRATIVE_WRITE_ONLY,
             VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
+        c("protected-read-gateway", "app/src/main/java/com/rpgos/app/Phase38ProtectedRead.kt", ProtectedConsumerCapability.TRUSTED_GATEWAY,
+            VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING,
+            VisibilityPurposeKinds.CHARACTER_VISUALIZATION, VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("visibility-consumer-inventory", "app/src/main/java/com/rpgos/app/Phase38VisibilityConsumerInventory.kt", ProtectedConsumerCapability.AUTHORITY_METADATA,
             VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
     )
@@ -105,9 +113,65 @@ object VisibilityConsumerInventory {
         "hidden_pressure","world_pressures","country_economies","relationships_v2",
         "visibility_envelope","Phase38VisualAuthorization","/v1/images/generate","/v1/images/edit"
     )
-    fun looksProtected(sourceText:String):Boolean = protectedMarkers.any(sourceText::contains)
-    fun requireClassifiedIfProtected(sourcePath:String,sourceText:String):ProtectedConsumerContract? =
-        if(looksProtected(sourceText)) requireClassified(sourcePath) else null
+    private val forbiddenDirectSymbols = listOf("CampaignTruthStore(", "PlayerStateStore(", "KnowledgeStore(", ".openWorldDb()", ".openCoreDb()")
+    fun hasForbiddenDirectProtectedEntryPoint(source: String): Boolean = forbiddenDirectSymbols.any(source::contains)
+
+    private fun trustedGatewayBody(source: String): IntRange? {
+        val annotation = source.indexOf("@TrustedProtectedReadGateway")
+        if (annotation < 0) return null
+        val classPos = source.indexOf("class ProtectedCampaignReadRepository", annotation)
+        if (classPos < 0) return null
+        val open = source.indexOf('{', classPos)
+        if (open < 0) return null
+        var depth = 0
+        for (i in open until source.length) {
+            when (source[i]) {
+                '{' -> depth++
+                '}' -> {
+                    depth--
+                    if (depth == 0) return open..i
+                }
+            }
+        }
+        return null
+    }
+
+    fun entryPointClassification(sourcePath: String, sourceText: String): ProtectedEntryPointClassification {
+        val directPositions = forbiddenDirectSymbols.flatMap { symbol ->
+            buildList {
+                var start = 0
+                while (true) {
+                    val at = sourceText.indexOf(symbol, start)
+                    if (at < 0) break
+                    add(at)
+                    start = at + symbol.length
+                }
+            }
+        }
+        if (directPositions.isEmpty()) return ProtectedEntryPointClassification.PROJECTED_CONSUMER
+        val contract = contractForSource(sourcePath) ?: return ProtectedEntryPointClassification.FORBIDDEN_DIRECT_CONSUMER
+        return when (contract.capability) {
+            ProtectedConsumerCapability.TRUSTED_GATEWAY -> {
+                val scope = trustedGatewayBody(sourceText) ?: return ProtectedEntryPointClassification.FORBIDDEN_DIRECT_CONSUMER
+                if (directPositions.all { it in scope }) ProtectedEntryPointClassification.TRUSTED_GATEWAY
+                else ProtectedEntryPointClassification.FORBIDDEN_DIRECT_CONSUMER
+            }
+            ProtectedConsumerCapability.PROJECTED_CONSUMER,
+            ProtectedConsumerCapability.DIAGNOSTIC_PROJECTED_CONSUMER,
+            ProtectedConsumerCapability.PRESENTATION_AFTER_PROJECTION -> ProtectedEntryPointClassification.FORBIDDEN_DIRECT_CONSUMER
+            else -> ProtectedEntryPointClassification.PROJECTED_CONSUMER
+        }
+    }
+
+    fun looksProtected(source: String): Boolean = protectedMarkers.any(source::contains)
+    fun requireClassifiedIfProtected(sourcePath:String,sourceText:String):ProtectedConsumerContract? {
+        if (!looksProtected(sourceText)) return null
+        val contract = requireClassified(sourcePath)
+        require(entryPointClassification(sourcePath, sourceText) != ProtectedEntryPointClassification.FORBIDDEN_DIRECT_CONSUMER) {
+            "RPGOS-VISIBILITY:FORBIDDEN_DIRECT_PROTECTED_ENTRY_POINT:$sourcePath"
+        }
+        return contract
+    }
 
     private val byPath = contracts.associateBy { it.sourcePath }
     fun contractForSource(sourcePath: String): ProtectedConsumerContract? = byPath[sourcePath]

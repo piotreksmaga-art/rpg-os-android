@@ -42,9 +42,23 @@ class Phase38FinalClosureTest {
 
     @Test fun sceneEnvelopeCannotBeReusedForEditAndEditCannotGainHiddenActor(){
         val instruction="brighten the disclosed foreground"
-        val edit=Phase38VisualAuthorization.authorize(env(VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION),VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION,"VISUAL","V1",instruction,VisualInputOrigins.USER_STANDALONE,requestUid="EDIT-1")
-        edit.requireRequest(campaign,VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION,instruction)
-        assertTrue(runCatching{Phase38VisualAuthorization.authorize(env(VisibilityPurposeKinds.SCENE_VISUALIZATION),VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION,"VISUAL","V1",instruction)}.isFailure)
+        val sourceBytes="source-image-v1".toByteArray()
+        val sourceDigest=Phase38VisualAuthorization.digestBytes(sourceBytes)
+        val edit=Phase38VisualAuthorization.authorize(
+            env(VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION),VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION,
+            "VISUAL","V1",instruction,VisualInputOrigins.USER_STANDALONE,requestUid="EDIT-1",
+            sourceVisualUid="V1",sourceImageSha256=sourceDigest
+        )
+        val valid=VisualSemanticRequest(
+            campaign,AudienceKinds.PLAYER,"HUMAN_PLAYER",VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION,
+            "VISUAL","V1","EDIT-1",VisualRequestKinds.EDIT,instruction,
+            sourceVisualUid="V1",sourceImageSha256=sourceDigest
+        )
+        edit.requireRequest(valid)
+        assertTrue(runCatching{Phase38VisualAuthorization.authorize(env(VisibilityPurposeKinds.SCENE_VISUALIZATION),VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION,"VISUAL","V1",instruction,sourceVisualUid="V1",sourceImageSha256=sourceDigest)}.isFailure)
+        assertTrue(runCatching{edit.requireRequest(valid.copy(sourceVisualUid="V2"))}.isFailure)
+        assertTrue(runCatching{edit.requireRequest(valid.copy(sourceImageSha256=Phase38VisualAuthorization.digestBytes("source-image-v2".toByteArray())))}.isFailure)
+        assertTrue(runCatching{edit.requireRequest(valid.copy(promptOrInstruction="darken the disclosed foreground"))}.isFailure)
         val editClient=source("app/src/main/java/com/rpgos/app/ImageEditBackendClient.kt")
         assertFalse(editClient.contains("CampaignTruth"));assertFalse(editClient.contains("gm_summary"));assertFalse(editClient.contains("npc_memories"))
     }
@@ -69,26 +83,34 @@ class Phase38FinalClosureTest {
     @Test fun playerAndPlayerCharacterAndTwoPcKnowledgeRemainIsolated(){
         val holderA=KnowledgeHolderRef(KnowledgeHolderKinds.PLAYER_CHARACTER,"PC-A",campaign)
         val holderB=KnowledgeHolderRef(KnowledgeHolderKinds.PLAYER_CHARACTER,"PC-B",campaign)
-        val pcA=AudienceContext(campaign,AudienceKinds.PLAYER_CHARACTER,VisibilityPrincipalRef("ENTITY","PC-A"),listOf(holderA))
-        val pcB=AudienceContext(campaign,AudienceKinds.PLAYER_CHARACTER,VisibilityPrincipalRef("ENTITY","PC-B"),listOf(holderB))
+        val fixtureA=Phase38TrustedTestAuthority.playerCharacter(campaign,"PC-A")
+        val fixtureB=Phase38TrustedTestAuthority.playerCharacter(campaign,"PC-B")
+        val pcA=fixtureA.audience
+        val pcB=fixtureB.audience
         val reasoning=PurposeContext(campaign,VisibilityPurposeKinds.WORLD_ACTOR_REASONING)
         val subA=VisibilitySubjectRef(campaign,VisibilitySubjectKinds.PHASE37_HOLDER_KNOWLEDGE,"PC-A",holder=holderA)
         val subB=VisibilitySubjectRef(campaign,VisibilitySubjectKinds.PHASE37_HOLDER_KNOWLEDGE,"PC-B",holder=holderB)
         assertNotEquals(AudienceKinds.PLAYER,pcA.audienceKindUid)
-        assertEquals(DisclosureLevel.DISCLOSE_FULL,authority.decide(VisibilityRequest(pcA,reasoning,subA)).level)
-        assertEquals(DisclosureLevel.DENY,authority.decide(VisibilityRequest(pcA,reasoning,subB)).level)
-        assertEquals(DisclosureLevel.DISCLOSE_FULL,authority.decide(VisibilityRequest(pcB,reasoning,subB)).level)
+        assertEquals(DisclosureLevel.DISCLOSE_FULL,authority.decide(VisibilityRequest(pcA,reasoning,subA),fixtureA.trusted).level)
+        assertEquals(DisclosureLevel.DENY,authority.decide(VisibilityRequest(pcA,reasoning,subB),fixtureA.trusted).level)
+        assertEquals(DisclosureLevel.DISCLOSE_FULL,authority.decide(VisibilityRequest(pcB,reasoning,subB),fixtureB.trusted).level)
+        assertEquals(DisclosureLevel.DENY,authority.decide(VisibilityRequest(pcB,reasoning,subA),fixtureB.trusted).level)
         assertEquals(DisclosureLevel.DENY,authority.decide(VisibilityRequest(player,reasoning,subA)).level)
         val c2Holder=KnowledgeHolderRef(KnowledgeHolderKinds.PLAYER_CHARACTER,"PC-A","C2")
         assertTrue(runCatching{VisibilityRequest(pcA,reasoning,VisibilitySubjectRef("C2",VisibilitySubjectKinds.PHASE37_HOLDER_KNOWLEDGE,"PC-A",holder=c2Holder))}.isFailure)
     }
 
     @Test fun diagnosticVisibilityDoesNotBecomePlayerVisibilityAndStrategicDisclosureDoesNotAcquireKnowledge(){
-        val diagnostic=VisibilityAudienceFactory.diagnostic(campaign)
+        val diagnosticFixture=Phase38TrustedTestAuthority.diagnostic(campaign)
+        val diagnostic=diagnosticFixture.audience
         val diagPurpose=PurposeContext(campaign,VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
         val truth=VisibilitySubjectRef(campaign,VisibilitySubjectKinds.CAMPAIGN_TRUTH,"T")
-        assertEquals(DisclosureLevel.DISCLOSE_FULL,authority.decide(VisibilityRequest(diagnostic,diagPurpose,truth)).level)
-        assertEquals(DisclosureLevel.DENY,authority.decide(VisibilityRequest(player,PurposeContext(campaign,VisibilityPurposeKinds.PLAYER_UI),truth)).level)
+        val diagnosticRequest=VisibilityRequest(diagnostic,diagPurpose,truth)
+        assertEquals(DisclosureLevel.DENY,authority.decide(diagnosticRequest).level)
+        assertEquals(DisclosureLevel.DISCLOSE_FULL,authority.decide(diagnosticRequest,diagnosticFixture.trusted).level)
+        val playerRequest=VisibilityRequest(player,PurposeContext(campaign,VisibilityPurposeKinds.PLAYER_UI),truth)
+        assertEquals(DisclosureLevel.DENY,authority.decide(playerRequest).level)
+        assertEquals(DisclosureLevel.DENY,authority.decide(playerRequest,diagnosticFixture.trusted).level)
     }
 
     @Test fun conservativeRelationshipPoliticsEconomyOrganizationAreNotImplicitlyPublic(){
@@ -96,8 +118,11 @@ class Phase38FinalClosureTest {
         listOf(VisibilitySubjectKinds.RELATIONSHIP_DATA,VisibilitySubjectKinds.POLITICS_DATA,VisibilitySubjectKinds.ECONOMY_DATA,VisibilitySubjectKinds.ORGANIZATION_DATA).forEach{
             assertEquals(DisclosureLevel.DENY,authority.decide(VisibilityRequest(player,ui,VisibilitySubjectRef(campaign,it,"X"))).level)
         }
-        val diagnostic=VisibilityAudienceFactory.diagnostic(campaign);val dp=PurposeContext(campaign,VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
-        assertEquals(DisclosureLevel.DISCLOSE_FULL,authority.decide(VisibilityRequest(diagnostic,dp,VisibilitySubjectRef(campaign,VisibilitySubjectKinds.POLITICS_DATA,"X"))).level)
+        val diagnosticFixture=Phase38TrustedTestAuthority.diagnostic(campaign)
+        val diagnostic=diagnosticFixture.audience;val dp=PurposeContext(campaign,VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
+        val politics=VisibilityRequest(diagnostic,dp,VisibilitySubjectRef(campaign,VisibilitySubjectKinds.POLITICS_DATA,"X"))
+        assertEquals(DisclosureLevel.DENY,authority.decide(politics).level)
+        assertEquals(DisclosureLevel.DISCLOSE_FULL,authority.decide(politics,diagnosticFixture.trusted).level)
     }
 
     @Test fun corruptionNoDataDeniedNotDisclosedUnknownAreDistinctContracts(){

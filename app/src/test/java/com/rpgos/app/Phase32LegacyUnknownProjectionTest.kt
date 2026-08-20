@@ -70,8 +70,13 @@ class Phase32LegacyUnknownProjectionTest {
             assertEquals(0L, count(db, "turn_transaction_receipts"))
 
             SQLiteDatabase.openOrCreateDatabase(worldFile, null).use { world ->
-                val projected = ContextBuilder(db, world)
-                    .let { builder -> Phase38LegacyContextFixtureSchema.ensure(db, world); builder.build("inspect legacy history",1,VisibilityAudienceFactory.diagnostic("C1"),PurposeContext("C1",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }
+                Phase38LegacyContextFixtureSchema.ensure(db, world)
+                val trustedContext = Phase38TrustedTestAuthority.diagnosticContextBuilder(db, world, "C1")
+                val projected = trustedContext.builder
+                    .build(
+                        "inspect legacy history", 1, trustedContext.audience,
+                        PurposeContext("C1", VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
+                    )
                     .campaignTruth
                     .single { it["truth_uid"] == "TRUTH-G32-LEGACY-UNKNOWN" }
 

@@ -15,13 +15,14 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun activeCampaignRef(): ActiveCampaignRef = selection.activeCampaignRef()
     override fun activePlayerRef(): ActivePlayerRef? = store.activePlayerRef()
     override fun setActivePlayer(playerUid: String): ActivePlayerRef = store.setActivePlayer(playerUid)
-    override fun playerState(): PlayerStateSnapshot? = store.playerState()
+    internal fun infrastructurePlayerState(): PlayerStateSnapshot? = store.playerState()
+    override fun protectedReads(): ProtectedCampaignReadRepository = ProtectedCampaignReadRepository(::openGameplaySaveDb, activeCampaignRef().campaignId, ::activePlayerRef)
     override fun statDefinitions(): List<StatDefinition> = store.statDefinitions()
     override fun resourceDefinitions(): List<ResourceDefinition> = store.resourceDefinitions()
     override fun registerStatDefinitions(worldPackUid: String, definitions: List<StatDefinition>) = store.registerStatDefinitions(worldPackUid, definitions)
     override fun registerResourceDefinitions(worldPackUid: String, definitions: List<ResourceDefinition>) = store.registerResourceDefinitions(worldPackUid, definitions)
-    override fun playerStats(): List<PlayerStat> = store.playerStats()
-    override fun playerResources(): List<PlayerResource> = store.playerResources()
+    internal fun infrastructurePlayerStats(): List<PlayerStat> = store.playerStats()
+    internal fun infrastructurePlayerResources(): List<PlayerResource> = store.playerResources()
     override fun activeCampaignDirName(): String = activeCampaignRef().directoryName
     override fun activeWorldPackDirName(): String = store.activeWorldPackDirName()
     override fun setActiveCampaign(dirName: String) = store.setActiveCampaign(dirName)
@@ -29,8 +30,8 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun createCampaign(name: String): File = store.createCampaign(name)
 
     private fun openGameplaySaveDb(): SQLiteDatabase = store.openGameplaySaveDb()
-    override fun openWorldDb(): SQLiteDatabase = store.openWorldDb()
-    override fun openCoreDb(): SQLiteDatabase = store.openCoreDb()
+    internal fun infrastructureOpenWorldDb(): SQLiteDatabase = store.openWorldDb()
+    internal fun infrastructureOpenCoreDb(): SQLiteDatabase = store.openCoreDb()
 
     override fun commitTurn(
         identity: TurnTransactionIdentity,
