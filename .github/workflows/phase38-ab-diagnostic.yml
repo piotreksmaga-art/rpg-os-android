@@ -25,22 +25,25 @@ jobs:
           chmod +x gradlew
           python3 tools/phase38_integrated_patch.py hardening
           python3 tools/phase38_integrated_fixups.py hardening
+          python3 tools/phase38_ab_gate_fixups.py
           git diff --check
       - name: Compile and targeted diagnostic
         shell: bash
         run: |
           set +e
+          rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
           ./gradlew --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase38*' --stacktrace > /tmp/p38.log 2>&1
           rc=$?
           echo "P38_RC=$rc"
           if [ "$rc" -ne 0 ]; then
             echo '=== KOTLIN/JAVA ERRORS ==='
-            grep -E '(^e: file:| error: |Compilation error|Unresolved reference|overrides nothing|Cannot access|Type mismatch|No value passed|Too many arguments)' /tmp/p38.log | tail -n 200 || true
+            grep -E '(^e: file:| error: |Compilation error|Unresolved reference|overrides nothing|Cannot access|Type mismatch|No value passed|Too many arguments)' /tmp/p38.log | tail -n 240 || true
             echo '=== TEST FAILURES ==='
-            grep -E '(FAILED|AssertionError|expected:|but was:|There were failing tests|FAILURE: Build failed)' /tmp/p38.log | tail -n 200 || true
+            grep -E '(FAILED|AssertionError|expected:|but was:|There were failing tests|FAILURE: Build failed)' /tmp/p38.log | tail -n 240 || true
             echo '=== LOG TAIL ==='
-            tail -n 180 /tmp/p38.log
+            tail -n 220 /tmp/p38.log
           else
+            python3 -c "import glob,xml.etree.ElementTree as E; rs=[E.parse(x).getroot() for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml')]; t=sum(int(r.attrib.get('tests',0)) for r in rs); f=sum(int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0)) for r in rs); s=sum(int(r.attrib.get('skipped',0)) for r in rs); print(f'AB_TARGETED tests={t} failures={f} skipped={s}'); assert t and not f"
             grep -E 'BUILD SUCCESSFUL' /tmp/p38.log | tail -n 5 || true
           fi
           exit "$rc"
