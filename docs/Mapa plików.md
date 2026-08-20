@@ -311,10 +311,33 @@ Indeks techniczny wspierający `docs/Architektura projektu.md` i `docs/Roadmap.m
 - CURRENT POST-AUDIT MASTER: `4d5a114fc9f08141d75ae79f998a3400866b52ba`
 - FINAL MASTER CI: `Validate RPG OS ALPHA` run #801 / run ID `32309493128` — SUCCESS
 
+## Phase 37 — World Actor Knowledge, Expertise & Acquisition Provenance
+- PRIMARY: `app/src/main/java/com/rpgos/app/Phase37WorldActorKnowledge.kt`
+- PRIMARY: `app/src/main/java/com/rpgos/app/Phase37KnowledgeChangeCodec.kt`
+- PRIMARY: `app/src/main/java/com/rpgos/app/Phase37KnowledgeLineageIntegrity.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/GameplayMutationGate.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/GameplayRuntimeBootstrap.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/ContextBuilder.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/PlayerChangeSetModel.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/PlayerChangeSetCodec.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/PlayerDomainEngine.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/TurnTransaction.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/CampaignEventStore.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/CampaignSnapshotSystem.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/BundledCampaignPersistentFamilies.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/WorldRuleProvider.kt`
+- TEST: `app/src/test/java/com/rpgos/app/Phase37WorldActorKnowledgeTest.kt`
+- FINAL AUDITED CANDIDATE: `53aa66931926e92ed7cbe0d68deff4f4ee2378d6` — independent post-hardening audit PASS
+- GREEN EVIDENCE: `884` JVM tests / `0` failures / `0` skipped on exact audited app/test subtree
+- INTEGRATION PR: #69 — merged
+- ACCEPTED MASTER: `7538c3ca16b5e74133f13ce611821d0699c798d0`
+- NOTE: separate push-triggered exact-merge-SHA run was not surfaced by the available connector; no synthetic CI ID is recorded.
+
 ## Kluczowe wspólne dokumenty i runtime assets
 - `docs/Architektura projektu.md`
 - `docs/Roadmap.md`
 - `docs/Mapa plików.md`
+- `docs/Historia projektu.md`
 - `docs/PROJECT_WORK_PROTOCOL.md`
 - `docs/PARALLEL_WORK_COORDINATION.md`
 - `docs/architecture/CHAT_COORDINATION_POLICY.md`
