@@ -548,7 +548,7 @@ class KnowledgeStore(private val db: SQLiteDatabase, private val campaignUid: St
     private data class AcquisitionScope(val claimUid: String, val holder: KnowledgeHolderRef)
     private fun acquisitionScope(uid: String): AcquisitionScope? = db.rawQuery(
         "SELECT claim_uid,holder_kind_uid,holder_uid FROM ${Phase37KnowledgeSchema.ACQUISITIONS} WHERE campaign_uid=? AND acquisition_uid=? LIMIT 1",
-        arrayOf(campaignUid,uid)).use { c -> if(c.moveToFirst())AcquisitionScope(c.getString(0),KnowledgeHolderRef(c.getString(1),c.getString(2))) else null }
+        arrayOf(campaignUid,uid)).use { c -> if(c.moveToFirst())AcquisitionScope(c.getString(0),KnowledgeHolderRef(c.getString(1),c.getString(2),campaignUid)) else null }
 
     private fun insertClaim(claim: KnowledgeClaim) {
         val existing = db.rawQuery("""SELECT subject_kind_uid,subject_uid,predicate_uid,value_canonical,object_kind_uid,object_uid,domain_uid
