@@ -21,8 +21,8 @@ data class ProtectedConsumerContract(
 }
 
 /**
- * Phase 38 Slice B fail-closed inventory. The repository test scans production Kotlin sources for
- * protected-data markers and requires every matching source path to be classified here.
+ * Phase 38 Slice B fail-closed inventory. Repository tests scan production Kotlin sources for
+ * protected-data markers and require every matching source path to be classified here.
  */
 object VisibilityConsumerInventory {
     private fun c(uid: String, path: String, capability: ProtectedConsumerCapability, vararg purposes: String) =
@@ -44,6 +44,8 @@ object VisibilityConsumerInventory {
             VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("npc-world-dashboard", "app/src/main/java/com/rpgos/app/NpcWorldDashboardReader.kt", ProtectedConsumerCapability.PROJECTED_CONSUMER,
             VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
+        c("social-reader", "app/src/main/java/com/rpgos/app/SocialReader.kt", ProtectedConsumerCapability.PROJECTED_CONSUMER,
+            VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("rpgos-view-model", "app/src/main/java/com/rpgos/app/RpgOsViewModel.kt", ProtectedConsumerCapability.PRESENTATION_AFTER_PROJECTION,
             VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.SCENE_VISUALIZATION,
             VisibilityPurposeKinds.CHARACTER_VISUALIZATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
@@ -59,6 +61,14 @@ object VisibilityConsumerInventory {
         c("phase37-context-discovery", "app/src/main/java/com/rpgos/app/Phase37KnowledgeContextDiscovery.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
             VisibilityPurposeKinds.INTERNAL_SIMULATION),
         c("campaign-truth-authority", "app/src/main/java/com/rpgos/app/CampaignTruthStore.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
+        c("source-of-truth-registry", "app/src/main/java/com/rpgos/app/SourceOfTruthRegistry.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
+        c("persistent-family-registry", "app/src/main/java/com/rpgos/app/BundledCampaignPersistentFamilies.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION),
+        c("turn-transaction", "app/src/main/java/com/rpgos/app/TurnTransaction.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION),
+        c("unified-repository", "app/src/main/java/com/rpgos/app/UnifiedGameRepository.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
             VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
     )
 
