@@ -25,7 +25,7 @@ Globalny status zmienia koordynator po sprawdzeniu implementacji, integracji, pe
 - Exact acceptance CI: `Validate RPG OS ALPHA`, run #801 / `32309493128` — SUCCESS.
 - Późniejsze commity dokumentacyjne nie zmieniają accepted runtime SHA.
 - Pełne historyczne SHA/CI/artifacts/findingi: `docs/Historia projektu.md` i phase acceptance records.
-- Następny implementacyjny gate: **Phase 37 — NPC Knowledge model + acquisition provenance, AUDIT FIRST**.
+- Następny implementacyjny gate: **Phase 37 — World Actor Knowledge, Expertise & Acquisition Provenance, AUDIT FIRST**.
 - Phase 48 pozostaje NOT STARTED.
 - World Pack Creator pozostaje DEFERRED do czasu globalnego ACCEPTED Phase 1–84.
 
@@ -75,8 +75,8 @@ Globalny status zmienia koordynator po sprawdzeniu implementacji, integracji, pe
 Accepted scope i historical evidence Phase 1–36 są zamrożone i zarchiwizowane. Future changes nie reinterpretują ich retroaktywnie.
 
 # FAZA C — CZAS, WIEDZA I RETRIEVAL
-- [-] 37. NPC Knowledge model + acquisition provenance
-- [-] 38. GM/NPC/PC/player-visible knowledge separation + belief/reputation visibility boundaries
+- [-] 37. World Actor Knowledge, Expertise & Acquisition Provenance
+- [-] 38. GM/NPC/PC/player-visible knowledge separation + belief/reputation/access visibility boundaries
 - [-] 39. Temporal Engine historical truth
 - [-] 40. Scheduler — evaluation points/deadlines, not precommitted outcomes
 - [-] 41. Structured SQL Retriever
@@ -88,13 +88,71 @@ Accepted scope i historical evidence Phase 1–36 są zamrożone i zarchiwizowan
 - [ ] 47. Iterative Retrieval + missing-context loop
 
 ## Acceptance direction Phase 37–47
-- holder-scoped NPC knowledge with typed acquisition provenance;
-- FACT/BELIEF/NARRATIVE and GM/NPC/PC/player-visible separation;
-- legacy unknown provenance remains unknown;
-- historical truth queries are temporal, not present-state substitution;
+Phase 37 jest uniwersalnym epistemic core świata, nie tylko tabelą `NPC knowledge`. Ma obsługiwać indywidualnych i instytucjonalnych holderów bez budowania osobnych systemów wiedzy dla każdego gatunku gry.
+
+Wymagane dla Phase 37:
+- typed `KnowledgeHolder`/równoważny model dla character/NPC, PC, organization, military command/unit, city/state/agency, intelligence service, research institution/team i World Pack-defined holderów;
+- rozdzielenie `FACT`, `INFORMATION/CLAIM`, `EVIDENCE`, `KNOWLEDGE STATE`, `BELIEF/ESTIMATE/HYPOTHESIS/SUSPICION`;
+- twarde invarianty `FACT != KNOWLEDGE`, `KNOWLEDGE != BELIEF`, `KNOWLEDGE != EXECUTABLE SKILL`, `KNOWLEDGE != DECISION`;
+- granular claim identity zamiast jednego omniscient blobu „wiedza o obiekcie”;
+- typed/data-driven acquisition provenance: observation, communication, document/report/media, rumor/hearsay, education/training, research/experiment, inference, institutional sharing, interrogation, surveillance/espionage, memory, World Pack mechanics, legacy/unknown;
+- immutable/traceable acquisition evidence + current holder epistemic state/projection;
+- acquisition lineage umożliwiający śledzenie event/observation -> report -> summary -> recipient -> later sharing;
+- legacy unknown provenance pozostaje `LEGACY` / `UNKNOWN_NOT_RECORDED`; bez fabrykowania przeszłości;
+- informacje mogą być true/false/partial/uncertain/contradicted/outdated bez zmiany authoritative FACT;
+- quality metadata/semantics dla confidence, precision, freshness, completeness, source reliability, corroboration i uncertainty gdzie domena tego wymaga;
+- sprzeczne evidence może współistnieć zamiast bezwarunkowego last-write-wins;
+- typed/data-driven knowledge domains + expertise hooks; expertise poprawia recognition/interpretation/estimate/inference, ale nie nadaje zdolności wykonawczej;
+- personal knowledge, institutional knowledge i role-accessible knowledge są rozdzielone;
+- wiedza instytucji nie przecieka automatycznie do wszystkich jej członków;
+- dokumenty/raporty/archiwa/notatki/mapy mogą być nośnikami evidence bez bycia autonomicznymi decision actors;
+- access/secrecy metadata przygotowują Phase 38, ale pełne GM/NPC/PC/player-visible enforcement pozostaje Phase 38;
+- model jest temporal-ready dla późniejszego pytania „co holder wiedział wtedy?”, pełny historical query engine pozostaje Phase 39;
+- canonical acquisition korzysta z Single Truth Mutation Path / TurnTransaction / Event-Causal evidence / idempotency / rollback / snapshot/replay / schema safety;
+- AI, raw SQL, ContextBuilder i generic StatePatch nie posiadają authority do tworzenia legalnego canonical acquisition;
+- ContextBuilder docelowo używa holder-scoped typed Knowledge projection/API zamiast definiować własny kontrakt bezpośrednimi SQL reads.
+
+Wielostylowe wymagania Phase 37:
+- character RPG: osobiste sekrety, relacje, rozpoznanie osób/technik/zdolności;
+- general/tactical/strategy: fog of war, reconnaissance, delayed reports, strength/location estimates i chain-of-command knowledge;
+- city/state management: census/tax/economy/food/crime/public-order reports, niepewność, opóźnienie i możliwość falsification/corruption;
+- merchant/trading: regional price/demand/supply/route-risk knowledge, stale information i information advantage;
+- science/research: observations, hypotheses, experiments, replications, disputed results i discoveries bez magicznego truth unlock;
+- medicine: evidence/symptoms/tests + uncertain differential diagnosis zamiast dostępu do hidden disease FACT;
+- espionage/politics: secrets, deception, counterintelligence, source trust i institutional distribution;
+- detective/investigation: clues, testimony, evidence chains i hypotheses;
+- exploration/cartography: known routes/locations/hazards/resources i niepełne map knowledge;
+- World Pack może dodawać domeny, ale nie własny konkurencyjny Knowledge Engine.
+
+Minimalne acceptance tests Phase 37 obejmują co najmniej:
+- global FACT bez acquisition -> holder nie zna go;
+- holder A zna X, holder B nie zna X;
+- direct observation -> exact provenance;
+- communication A->B -> nowe acquisition B z lineage;
+- false report/deception -> BELIEF bez zmiany FACT;
+- contradictory evidence -> oba źródła zachowane, brak silent overwrite;
+- stale knowledge nie odświeża się automatycznie po zmianie FACT;
+- merchant estimate może różnić się od aktualnej ceny rynku;
+- commander dostaje intelligence estimate zamiast omniscient military FACT;
+- scientist może utrzymywać hipotezę zgodną z evidence, ale niezgodną z hidden FACT;
+- doctor może posiadać uncertain diagnosis bez dostępu do hidden diagnosis truth;
+- knowledge about technique nie oznacza ability to execute technique;
+- institutional knowledge nie przecieka automatycznie do każdego członka;
+- role-accessible knowledge zmienia dostęp bez kopiowania prywatnej pamięci poprzednika;
+- evidence carrier może przetrwać śmierć autora;
+- cross-campaign acquisition/evidence -> FAIL;
+- raw SQL/helper/StatePatch/ADMIN nie fabrykuje `RECORDED` canonical provenance;
+- retry -> bez duplicate semantic acquisition;
+- rollback -> zero phantom knowledge;
+- snapshot/replay -> exact epistemic state;
+- holder-scoped context A nie zawiera B-only knowledge.
+
+Dalsze Phase 38–47:
+- FACT/BELIEF/NARRATIVE i GM/NPC/PC/player-visible/access separation;
+- historical truth queries są temporalne, nie present-state substitution;
 - Scheduler owns future evaluation points, not guaranteed outcomes;
-- retrieval is bounded/iterative and context is actor/time/visibility-safe;
-- cloud context, when later enabled, is minimal and sanitised rather than whole-save export.
+- retrieval jest bounded/iterative i context actor/time/visibility-safe;
+- cloud context, gdy później aktywny, jest minimalny i sanitised zamiast whole-save export.
 
 # FAZA D — GM ENGINE / HYBRID AI FOUNDATION
 - [ ] 48. AI Provider & Hybrid Local-First Inference Architecture
@@ -258,7 +316,13 @@ Już zamknięte przez Phase 1–36 pozostają historycznie zaakceptowane i nie s
 Przyszłe obowiązkowe gates obejmują co najmniej:
 - [ ] money conservation / ledger auditability where not yet fully covered
 - [ ] unique item / ownership integrity where not yet fully covered
-- [ ] NPC knowledge isolation and acquisition provenance
+- [ ] World Actor knowledge isolation + typed acquisition provenance + evidence lineage
+- [ ] FACT without acquisition does not become holder knowledge
+- [ ] institutional knowledge does not automatically become member knowledge
+- [ ] expertise/knowledge about a skill or technique does not grant executable capability
+- [ ] stale/contradictory/false information remains epistemically representable without mutating FACT
+- [ ] military fog-of-war/intelligence estimate is not omniscient world state
+- [ ] administration/market/science/medicine/investigation knowledge can be uncertain, delayed or wrong
 - [ ] temporal historical truth
 - [ ] cache/index delete/rebuild -> no data loss
 - [ ] AI provider/model/runtime replacement -> no campaign migration/data loss
@@ -271,11 +335,11 @@ Przyszłe obowiązkowe gates obejmują co najmniej:
 - [ ] reputation/rumor remains holder-scoped belief
 - [ ] `WORLD_WITHOUT_PLAYER` causal evolution + save/load/replay equality
 - [ ] `SAME_WORLD_TWO_CAMPAIGNS` divergence explainable by player actions + world processes + controlled randomness
-- [ ] background FACT does not automatically become player/NPC knowledge
+- [ ] background FACT does not automatically become player/NPC/organization knowledge
 - [ ] world-process/domain conservation for supported economy/population/resources/projects
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
-`Phase 37 — NPC Knowledge model + acquisition provenance`
+`Phase 37 — World Actor Knowledge, Expertise & Acquisition Provenance`
 
 Obowiązkowa sekwencja:
 `READ ARCHITECTURE + ROADMAP + MAPA PLIKÓW -> AUDIT FIRST -> classify COMPLETE/PARTIAL/MISSING/BLOCKED -> minimal implementation -> targeted tests -> compatibility -> full JVM -> PR -> exact-SHA CI -> coordinator acceptance`.
