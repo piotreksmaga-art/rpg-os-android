@@ -20,10 +20,7 @@ data class ProtectedConsumerContract(
     }
 }
 
-/**
- * Phase 38 Slice B fail-closed inventory. Repository tests scan production Kotlin sources for
- * protected-data markers and require every matching source path to be classified here.
- */
+/** Phase 38 Slice B: fail-closed registry for every discovered protected-information consumer. */
 object VisibilityConsumerInventory {
     private fun c(uid: String, path: String, capability: ProtectedConsumerCapability, vararg purposes: String) =
         ProtectedConsumerContract(uid, path, capability, purposes.toSet())
@@ -53,6 +50,8 @@ object VisibilityConsumerInventory {
             VisibilityPurposeKinds.SCENE_VISUALIZATION, VisibilityPurposeKinds.CHARACTER_VISUALIZATION),
         c("backend-client", "app/src/main/java/com/rpgos/app/BackendClient.kt", ProtectedConsumerCapability.PRESENTATION_AFTER_PROJECTION,
             VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING),
+        c("cloud-gm-backend", "backend/app.py", ProtectedConsumerCapability.PRESENTATION_AFTER_PROJECTION,
+            VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING),
         c("json-context-codec", "app/src/main/java/com/rpgos/app/JsonCodec.kt", ProtectedConsumerCapability.PRESENTATION_AFTER_PROJECTION,
             VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING,
             VisibilityPurposeKinds.SCENE_VISUALIZATION, VisibilityPurposeKinds.CHARACTER_VISUALIZATION),
@@ -73,12 +72,9 @@ object VisibilityConsumerInventory {
     )
 
     private val byPath = contracts.associateBy { it.sourcePath }
-
     fun contractForSource(sourcePath: String): ProtectedConsumerContract? = byPath[sourcePath]
-
     fun requireClassified(sourcePath: String): ProtectedConsumerContract =
         requireNotNull(contractForSource(sourcePath)) { "RPGOS-VISIBILITY:UNCLASSIFIED_PROTECTED_CONSUMER:$sourcePath" }
-
     fun validateUnique() {
         require(contracts.map { it.consumerUid }.distinct().size == contracts.size) { "RPGOS-VISIBILITY:DUPLICATE_CONSUMER_UID" }
         require(contracts.map { it.sourcePath }.distinct().size == contracts.size) { "RPGOS-VISIBILITY:DUPLICATE_CONSUMER_PATH" }
