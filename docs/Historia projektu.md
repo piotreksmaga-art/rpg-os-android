@@ -36,6 +36,37 @@ Historyczne główne acceptance points:
 
 Phase 35 findings `P35-AUD-001..003` oraz Phase 36 findings `P36-AUD-001..006` zostały naprawione, niezależnie zweryfikowane i ponownie przyjęte. Szczegółowe acceptance records pozostają w `docs/architecture/PHASE35_36_ACCEPTANCE.md` i wcześniejszych dokumentach fazowych.
 
+## Phase 37 — World Actor Knowledge acceptance — 2026-08-20
+
+Final audited candidate: `53aa66931926e92ed7cbe0d68deff4f4ee2378d6`.
+
+Final independent post-hardening audit verdict: **PASS**.
+
+Closed findings:
+- `P37-POST-AUD-001` — FIXED;
+- `P37-POST-AUD-002` — FIXED;
+- `P37-POST-AUD-003` — FIXED;
+- new findings: NONE.
+
+Audited GREEN evidence retained at green anchor `e7da683f9476fec669765f3d9718d05d878c73ca`:
+- targeted Phase37 validation — SUCCESS;
+- full JVM — SUCCESS;
+- JVM tests: `884`;
+- failures: `0`;
+- skipped: `0`.
+
+Coordinator integration:
+- current-master integration branch: `coordinator-phase37-final-integration`;
+- integration head: `f4887c471c11b383252d59c6d90fa145fdbbbaa0`;
+- PR #69 — merged;
+- master merge commit: `7538c3ca16b5e74133f13ce611821d0699c798d0`;
+- integration changed exactly the audited Phase37 application/test surface while preserving later documentation;
+- `app` subtree after integration was verified bit-for-bit identical to the final audited candidate subtree.
+
+Connector limitation at coordinator close: the available GitHub Actions commit-run wrapper did not surface a separate push-triggered workflow run for merge SHA `7538c3ca...`. No synthetic run ID or SUCCESS claim is recorded. Phase 37 coordinator acceptance therefore uses the final independent PASS audit, inspected 884/0/0 GREEN evidence on the exact audited app/test subtree, and verified bit-for-bit subtree identity after merge.
+
+Canonical accepted runtime through Phase 37 is recorded as `7538c3ca16b5e74133f13ce611821d0699c798d0`.
+
 ## Historia kierunku AI
 
 Pierwszy przyszły kierunek zakładał wymienny native/local AI-GM, bez lock-in na Bielik/PLLuM/Gemma, GGUF, llama.cpp, LiteRT-LM, ExecuTorch ani backend CPU/GPU/NPU. TEMP-GM/Termux/localhost pozostawały wyłącznie laboratorium R&D.
