@@ -3,16 +3,7 @@ package com.rpgos.app
 import android.database.sqlite.SQLiteDatabase
 import java.io.File
 
-/**
- * Single logical CampaignRepository required by the MASTER architecture.
- *
- * UI/application code should depend on this contract instead of coordinating
- * storage, campaign selection, backups and package managers independently.
- *
- * Authoritative gameplay writes are intentionally absent from this surface.
- * The only gameplay-authoritative commit API is [commitTurn], which consumes
- * an already-admitted canonical proposal and delegates to TurnTransaction.
- */
+/** Canonical campaign repository. Protected reads require explicit Phase38 audience + purpose. */
 interface CampaignRepository {
     fun bootstrap()
 
@@ -34,39 +25,39 @@ interface CampaignRepository {
     fun setActiveWorldPack(dirName: String)
     fun createCampaign(name: String): File
 
-    /** Read-only package databases; campaign writable database is deliberately not exposed. */
     fun openWorldDb(): SQLiteDatabase
     fun openCoreDb(): SQLiteDatabase
 
-    /** Sole supported NORMAL GAMEPLAY durable mutation entry on the repository facade. */
     fun commitTurn(
         identity: TurnTransactionIdentity,
         proposal: CanonicalCampaignMutationProposal,
         failureInjector: TurnFailureInjector = TurnFailureInjector.NONE
     ): TurnExecutionResult<TurnCommitAppliedResult>
 
-    fun buildContext(playerInput: String, chapter: Int): ContextBundle
-    fun fullCharacterPanel(): CharacterPanelSnapshot
+    fun buildContext(playerInput: String, chapter: Int, audience: AudienceContext, purpose: PurposeContext): ContextBundle
+    fun fullCharacterPanel(audience: AudienceContext, purpose: PurposeContext): CharacterPanelSnapshot
     fun status(): StatusSnapshot
     fun time(): TimeSnapshot
     fun chronicle(): List<ChronicleEntry>
 
     fun truthRecords(
+        audience: AudienceContext,
+        purpose: PurposeContext,
         kind: TruthKind? = null,
         subjectUid: String? = null,
         perspectiveUid: String? = null,
         limit: Int = 100
-    ): List<CampaignTruthRecord>
-    fun canonDivergences(): List<CanonDivergenceRecord>
+    ): VisibilityProjection<List<CampaignTruthRecord>>
+    fun canonDivergences(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<CanonDivergenceRecord>>
 
-    fun npcs(search: String = ""): List<NpcListItem>
-    fun npcDetail(uid: String): NpcDetail
-    fun relationEdges(): List<RelationEdge>
-    fun economies(): List<EconomySummary>
-    fun wars(): List<WarSummary>
-    fun relationships(): List<RelationshipItem>
-    fun organizations(): List<OrganizationItem>
-    fun politics(): List<PoliticalItem>
+    fun npcs(search: String, audience: AudienceContext, purpose: PurposeContext): List<NpcListItem>
+    fun npcDetail(uid: String, audience: AudienceContext, purpose: PurposeContext): NpcDetail
+    fun relationEdges(audience: AudienceContext, purpose: PurposeContext): List<RelationEdge>
+    fun economies(audience: AudienceContext, purpose: PurposeContext): List<EconomySummary>
+    fun wars(audience: AudienceContext, purpose: PurposeContext): List<WarSummary>
+    fun relationships(audience: AudienceContext, purpose: PurposeContext): List<RelationshipItem>
+    fun organizations(audience: AudienceContext, purpose: PurposeContext): List<OrganizationItem>
+    fun politics(audience: AudienceContext, purpose: PurposeContext): List<PoliticalItem>
 
     fun syncCheck(): SyncCheckResult
     fun dbTables(): List<DbTableInfo>
@@ -74,7 +65,7 @@ interface CampaignRepository {
 
     fun worldRegions(): List<WorldRegionItem>
     fun worldLocations(search: String = ""): List<WorldLocationItem>
-    fun activeWorldEvents(): List<WorldEventItem>
+    fun activeWorldEvents(audience: AudienceContext, purpose: PurposeContext): List<WorldEventItem>
     fun techniqueBrowser(search: String = ""): List<TechniqueBrowserItem>
     fun missionBrowser(): List<MissionBrowserItem>
 
