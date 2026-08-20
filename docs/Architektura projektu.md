@@ -323,7 +323,57 @@ World Actors mogą obejmować NPC, rodziny, klany, organizacje, gildie/firmy, mi
 
 World Processes mogą obejmować wojny, handel, migrację, politykę, faction expansion, research, budowę, epidemie, crime, economy, demografię, dyplomację, espionage itd. Proces zachowuje przyczyny, uczestników, zasoby, progress/state, constraints i następny evaluation point — nie precommitted fabularny outcome.
 
-### 15.2 LOD i multi-rate simulation
+### 15.2 Motivational Core, Life Continuity i autonomous agency
+Living World nie jest generatorem losowych wydarzeń. Jest symulatorem legalnych przyczyn świata. Zmiany powinny wynikać z aktorów, procesów, zasobów, wiedzy, możliwości, constraints i konsekwencji, a nie z arbitralnego wymagania fabularnego.
+
+Każdy istotny autonomiczny World Actor może posiadać trwały `MOTIVATIONAL CORE`, odrębny od Knowledge i od samej decyzji. Model może obejmować zależnie od rodzaju aktora:
+- needs / pressures;
+- desires;
+- dreams / aspirations;
+- ambitions;
+- fears / aversions;
+- values / moral constraints;
+- loyalties / obligations;
+- grudges / attachments;
+- short- i long-term goals;
+- active plans / commitments;
+- core drives / obsessions dla wyjątkowo trwałych motywacji.
+
+Motywacja nie jest pojedynczym `goal` ani statycznym tekstem z promptu. Może powstawać, wzmacniać się, słabnąć, zostać zaspokojona, porzucona, zastąpiona lub wejść w konflikt z inną motywacją. Aktor może jednocześnie chcieć władzy, bezpieczeństwa rodziny i zachowania reputacji; Decision Engine rozstrzyga konflikt na podstawie pełnego stanu, nie jednej etykiety.
+
+`KNOWLEDGE = WHAT ACTOR THINKS IS TRUE`.
+`MOTIVATION = WHAT ACTOR WANTS / AVOIDS`.
+`DECISION = WHAT ACTOR CHOOSES TO DO`.
+`ACTION/COMMIT = WHAT LEGALLY CHANGES THE WORLD`.
+
+Docelowa causal loop:
+`WORLD STATE -> OBSERVATION/KNOWLEDGE -> PERSONALITY/VALUES/NEEDS -> DESIRES/DREAMS -> GOALS -> PLANS -> OPPORTUNITY/THREAT -> DECISION -> ACTION -> CONSEQUENCES -> WORLD STATE`.
+
+Aktor nie otrzymuje omniscient najlepszego planu. Cele i plany powstają z jego własnej wiedzy/beliefs, expertise, resources, relationships, culture, organization constraints i dostępnych okazji. Błędna wiedza może więc legalnie prowadzić do błędnej decyzji.
+
+`World Actor Life Continuity` oznacza, że istotny aktor zachowuje między scenami i time skipami własną wiedzę, memory, relationships, personality, values, motivational state, goals, commitments i legalnie rozpoczęte plans/projects. Nie jest resetowany do archetypu po zejściu z ekranu.
+
+Autonomous goals mogą być wieloetapowe: dream/aspiration -> strategic goal -> subgoals -> plan -> actions. Porażka może prowadzić do retry, replanning, zmiany metody, rezygnacji albo zmiany samego marzenia, zgodnie z persisted state i committed causes.
+
+Motywacje mogą dotyczyć konkretnych ludzi, organizacji i świata: ochrony, przyjaźni, zemsty, zdobycia uznania, władzy, wiedzy, bogactwa, odkrycia, przetrwania, założenia rodziny, reformy państwa, przywrócenia osoby/bytu itd. World Pack może definiować własne typed motivation domains bez tworzenia równoległego Decision/Living World engine.
+
+Organizacje/państwa/armie mogą posiadać `INSTITUTIONAL AGENDA / STRATEGIC DRIVES`, ale nie są one automatycznie identyczne z prywatnymi motywacjami każdego członka. Wewnętrzne frakcje, konflikty interesów, succession i zdrady pozostają możliwe.
+
+Dla `ACTIVE_PLAYER_CHARACTER` Motivational Core może przechowywać zadeklarowane przez gracza values/desires/dreams i wyliczać presje/opcje, ale nie może autonomicznie generować ani commitować dobrowolnej decyzji PC. `ACTIVE_PLAYER_CHARACTER CONTROL AUTHORITY = USER ONLY` pozostaje nadrzędnym invariantem. Po legalnym relinquish/retirement former PC może używać tego samego motivational/decision/Living World pipeline jako autonomiczny World Actor.
+
+### 15.3 Information ecology, opportunities i consequence propagation
+Living World reaguje nie tylko na objective FACT, ale na epistemiczny obraz aktorów. Legalna pętla może mieć postać:
+`FACT -> observation -> information transmission -> belief/estimate -> decision -> action -> new FACT`.
+
+Informacja podróżuje zgodnie z kanałami i prędkością świata: rozmowa, posłaniec, dokument, raport, sieć handlowa/wywiadowcza, media, radio/internet, magia/telepatia lub inne World Pack-defined channels. Dwa regiony mogą przez długi czas posiadać różne obrazy tej samej sytuacji.
+
+`Opportunity/Threat detection` może tworzyć kandydatów do działania z połączenia goals + knowledge + current situation. Opportunity nie narzuca decyzji; jedynie staje się wejściem Decision Engine.
+
+Konsekwencje propagują się przez istniejące relacje i zależności. Śmierć, awans, bankructwo, odkrycie, wojna lub decyzja polityczna może wpływać na rodzinę, współpracowników, długi, ownership, supply chains, organizations, goals i inne World Processes. Skutek nie jest ograniczony do aktora stojącego aktualnie obok gracza.
+
+Collective phenomena mogą emergować z wielu legalnych mikro/makro procesów zamiast być losowym eventem: inflacja, migracja, niedobór, boom gospodarczy, bunt, epidemia, przestępczość, urban growth, zmiany kulturowe lub wojna. Domena zachowuje właściwe conservation/invariants i causal provenance.
+
+### 15.4 LOD i multi-rate simulation
 - `LOD0` — scena szczegółowa;
 - `LOD1` — lokalny region;
 - `LOD2` — organizacje/państwa strategicznie;
@@ -333,7 +383,7 @@ Scena może aktualizować się per action/turn, region per hour/day, strategic s
 
 Agregowane population/crowd mogą zostać później materializowane w szczegół zgodny z już committed strategiczną historią. Brak historycznej provenance pozostaje unknown.
 
-### 15.3 Causality, conservation i informacja
+### 15.5 Causality, conservation i informacja
 Wojny, gospodarka, projects, armies, population, resources i organizations pozostawiają spójne skutki. Domena stosuje właściwe conservation/invariant validation.
 
 Istotne background changes generują Event/Causal history; mikroaktywność może pozostać agregowana.
@@ -347,7 +397,26 @@ Quest/opportunity może wynikać z rzeczywistego world state/process zamiast z a
 
 Director może podnosić relevance albo proponować future candidates; nie tworzy committed wojny, kryzysu czy śmierci bez legalnego causal/domain basis.
 
-### 15.4 Persistent World i Character Succession — CANONICAL TARGET
+### 15.6 Living World evolution i obowiązek dokumentacji
+Living World jest świadomie projektowany jako system rozszerzalny. Można go dalej ulepszać, jeżeli nowe mechanizmy zwiększają wiarygodność, skalę, emergencję, różnorodność lub jakość symulacji bez naruszania istniejących authority/invariants.
+
+Każde materialne ulepszenie Living World MUSI zostać udokumentowane przed/razem z canonical acceptance. Dokumentacja ma opisać co najmniej:
+- problem/use case i zakres nowego mechanizmu;
+- ownership/source of truth i mutation authority;
+- nowe/zmienione invariants;
+- relacje z Knowledge, Memory, Personality, Motivation, Decision, Scheduler, Economy/World domains, Director i Player Agency;
+- deterministic vs controlled-random semantics oraz seed/provenance, jeżeli dotyczy;
+- LOD/performance/budget implications;
+- save/load/snapshot/replay/branching/migration compatibility;
+- failure/recovery behavior;
+- test matrix, w tym adversarial/regression cases;
+- wpływ na World Pack compatibility i extension surface.
+
+`LIVING WORLD IMPROVEMENT WITHOUT DOCUMENTED SEMANTIC CONTRACT = NOT CANONICAL`.
+
+Nie wolno „ulepszać” świata przez ukryte AI behavior, prompt-only semantics, nieudokumentowane heurystyki zmieniające authority albo przez generowanie historii bez committed causal evidence. Historia ewolucji Living World powinna być zachowywana w aktualnej architekturze/roadmapie oraz odpowiednich acceptance/audit/history records zgodnie z project protocol.
+
+### 15.7 Persistent World i Character Succession — CANONICAL TARGET
 Campaign World i aktualnie sterowana postać gracza są odrębnymi tożsamościami. `CAMPAIGN/WORLD != ACTIVE PLAYER CHARACTER`.
 
 Zmiana aktywnej postaci nie tworzy automatycznie nowego świata i nie resetuje historii kampanii. System ma docelowo pozwalać utworzyć nową postać w istniejącym Campaign World, zachowując committed reality, Event/Causal history, czas, NPC, organizacje, gospodarkę, przedmioty, własność, relacje, wiedzę holderów, World Processes, divergence i inne world-owned authority.

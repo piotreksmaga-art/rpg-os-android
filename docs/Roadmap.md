@@ -218,8 +218,18 @@ Phase 62 decyzje:
 
 Phase 63–64 Living World:
 - global invariant: **THE WORLD DOES NOT WAIT FOR THE PLAYER**;
+- Living World is a causal simulator, not a random event generator; material events require actor/process/domain basis;
 - WorldActor support for NPC/family/clan/organization/company/guild/city/state/army/world-specific actors;
+- persisted `Motivational Core`: needs/pressures, desires, dreams/aspirations, ambitions, fears/aversions, values, loyalties/obligations, goals, plans/commitments and optional core drives/obsessions;
+- motivations can form/change/weaken/resolve/conflict through committed causes; actor is not reset to archetype off-screen;
+- `World Actor Life Continuity`: knowledge + memory + relationships + personality + values + motivation + goals + commitments survive scenes/time skips according to authority;
+- causal loop: `WORLD STATE -> KNOWLEDGE -> PERSONALITY/VALUES/NEEDS -> DESIRES/DREAMS -> GOALS -> PLANS -> OPPORTUNITY/THREAT -> DECISION -> ACTION -> CONSEQUENCES -> WORLD STATE`;
 - long-running WorldProcess: wars, trade, politics, migration, research, construction, epidemics, crime, economy, demography, diplomacy, espionage itd.;
+- institutional agendas/strategic drives exist separately from every member's personal motivations;
+- information ecology: actors react to their holder-scoped beliefs/estimates, while information propagates with world-specific channels/delays/distortion;
+- opportunity/threat engine can surface legal action candidates from goals + knowledge + situation, but does not commit decisions itself;
+- consequence propagation follows relationships/dependencies/ownership/supply/organization/process links;
+- collective phenomena may emerge from many legal processes instead of arbitrary random events;
 - dynamic LOD0–3 + multi-rate simulation;
 - population/crowd aggregation and provenance-safe materialization;
 - world/domain conservation for supported resources/population/money/goods/armies/projects;
@@ -227,7 +237,10 @@ Phase 63–64 Living World:
 - background FACT does not automatically become PLAYER/NPC KNOWLEDGE;
 - legal information propagation using world-specific communication constraints;
 - opportunities/quests may emerge from world state/process;
-- local world simulation works without cloud.
+- former PC after explicit relinquish may use autonomous motivational/decision/Living World pipeline; active PC remains USER-controlled only;
+- local world simulation works without cloud;
+- Living World remains explicitly extensible: further improvements are allowed, but every material improvement must be documented with semantic contract, authority/invariants, replay/migration/performance impact and regression/adversarial tests before canonical acceptance;
+- `LIVING WORLD IMPROVEMENT WITHOUT DOCUMENTED SEMANTIC CONTRACT = NOT CANONICAL`.
 
 # FAZA F — DIRECTOR / JAKOŚĆ NARRACJI
 - [ ] 65. Director Engine + optional Cloud Director / candidate bundles
@@ -373,6 +386,14 @@ Przyszłe obowiązkowe gates obejmują co najmniej:
 - [ ] `SAME_WORLD_TWO_CAMPAIGNS` divergence explainable by player actions + world processes + controlled randomness
 - [ ] background FACT does not automatically become player/NPC/organization knowledge
 - [ ] world-process/domain conservation for supported economy/population/resources/projects
+- [ ] `WORLD_CAUSALITY_LOOP`: actor knowledge/motivation/goals/plans produce explainable decisions/actions/consequences without random-event fabrication
+- [ ] actor desires/dreams/goals can evolve through committed causes and survive off-screen/time-skip continuity
+- [ ] conflicting motivations can produce different legal decisions without rewriting personality/history
+- [ ] institutional agenda != every member personal desire/goal
+- [ ] information delay/distortion can change decisions while objective FACT remains unchanged
+- [ ] consequence propagation affects causally linked actors/processes without omniscient/global leakage
+- [ ] active PC motivational state never authorizes autonomous voluntary PC action
+- [ ] every material Living World enhancement has documented semantics, authority/invariants, LOD/performance, replay/migration compatibility and tests before acceptance
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
 `Phase 37 — World Actor Knowledge, Expertise & Acquisition Provenance`
