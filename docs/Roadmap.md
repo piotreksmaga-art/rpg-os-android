@@ -186,6 +186,20 @@ Wymagane docelowo:
 
 Konkretny model, provider, format i runtime są adapter/evidence candidates, nie canonical lock-in.
 
+Future Player Interaction acceptance, rozwijane wraz z Phase 43–54, 63–64 i 71–75, obejmuje:
+- typed `Player Interaction Orchestrator` nad istniejącym PlayerCommand/Turn pipeline, bez własnej mutation authority;
+- `PLAYER_ACTION_CANDIDATE != PLAYER_COMMAND != COMMIT`;
+- `Suggestions`: maksymalnie trzy domyślne propozycje, generowane tylko z PC-known/visible epistemic context; kliknięcie = explicit validated user command, brak kliknięcia = brak akcji;
+- manual input zawsze pozostaje dostępny i może zignorować wszystkie sugestie;
+- optional Assisted Mode automatycznie pokazuje sugestie, ale nadal nie wybiera za gracza;
+- `Continue`: kontynuacja już zatwierdzonej intencji/świata/NPC bez tworzenia nowej wolitywnej decyzji PC;
+- `Player Decision Point` + meaningful-interruption/soft-stop policy zatrzymuje auto-advance przed nowym ważnym wyborem PC;
+- `Undo Request` korzysta z replay/branch/reconstruction, nie z ręcznego partial rollback;
+- `UNDO CONFIRMATION INVARIANT`: cofnięcie committed tury wymaga osobnego świadomego potwierdzenia po pierwszym kliknięciu; większy rewind wymaga wyraźnego zakresu/confirm;
+- undo odtwarza pełny stan świata na canonical granicy, w tym knowledge/events/relations/resources/ownership/background consequences;
+- domyślny mobile/chat UX pozostaje minimalistyczny: pole tekstowe + `Cofnij` / `Kontynuuj` / `Sugestie`; zaawansowane opcje przez progressive disclosure/menu;
+- situation recap / `Co się dzieje?` respektuje PC knowledge/visibility i nie ujawnia internal GM context.
+
 # FAZA E — PAMIĘĆ I DŁUGOTERMINOWA SYMULACJA
 - [-] 55. Working Memory — AI provider/model is not durable owner
 - [-] 56. Episodic Memory — AI provider/model is not durable owner
@@ -394,6 +408,13 @@ Przyszłe obowiązkowe gates obejmują co najmniej:
 - [ ] consequence propagation affects causally linked actors/processes without omniscient/global leakage
 - [ ] active PC motivational state never authorizes autonomous voluntary PC action
 - [ ] every material Living World enhancement has documented semantics, authority/invariants, LOD/performance, replay/migration compatibility and tests before acceptance
+- [ ] suggestions use only active-PC epistemic/visible context; no hidden GM FACT leak through candidate actions
+- [ ] clicking a suggestion is explicit user authorization; generating/showing a suggestion alone never creates PlayerCommand/COMMIT
+- [ ] `CONTINUE_COMMAND` cannot invent new voluntary PC action and stops at the next meaningful Player Decision Point
+- [ ] Continue during travel/training/waiting respects previously authorized intent and interrupts on significant threat/opportunity/choice
+- [ ] `UNDO_CONFIRMATION`: first undo click/request cannot mutate committed state; separate confirmation is mandatory
+- [ ] confirmed undo reconstructs/branches whole canonical turn state, not partial tables; knowledge/events/relations/resources remain consistent
+- [ ] mobile default interaction remains usable with text input + three primary helpers (`Cofnij`, `Kontynuuj`, `Sugestie`) and progressive disclosure for advanced features
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
 `Phase 37 — World Actor Knowledge, Expertise & Acquisition Provenance`
