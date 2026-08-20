@@ -20,6 +20,8 @@ jobs:
         run: python3 tools/phase38_apply_slice_ab_patch.py
       - name: Migrate legacy protected-read tests
         run: python3 tools/phase38_migrate_legacy_context_tests.py
+      - name: Normalize final closure anchor
+        run: python3 tools/phase38_patch_anchor_fix.py
       - name: Apply final blocker closure
         run: python3 tools/phase38_final_closure_patch.py
       - name: Diff hygiene
