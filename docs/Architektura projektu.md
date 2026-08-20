@@ -277,7 +277,46 @@ Control transfer z `ACTIVE_PLAYER_CHARACTER` na innego aktora wymaga jawnej, zwa
 
 `ACTOR / ACTION / TARGET` muszą być zachowane strukturalnie. Provider conformance obejmuje player agency, direction, NPC knowledge isolation, FACT/BELIEF, stop point, invented abilities/dialogue, internal-context leakage i brak mutation authority.
 
-### 13.3 Workload routing i Cloud Director
+### 13.3 Player Interaction Orchestrator, Suggestions, Continue i Undo
+Interfejs gracza może być prosty jak komunikator, mimo że pipeline pod spodem pozostaje typed i rygorystyczny. Zwykły gracz powinien móc grać przez wpisanie wiadomości; opcjonalne skróty nie mogą zmieniać authority modelu.
+
+`PLAYER ACTION CANDIDATE != PLAYER COMMAND != COMMIT`.
+
+System rozróżnia co najmniej:
+- `TYPED_PLAYER_COMMAND` — ręcznie wpisana/wybrana przez użytkownika decyzja;
+- `SUGGESTED_PLAYER_COMMAND` — kandydat wygenerowany przez AI, który staje się PlayerCommand dopiero po jawnym kliknięciu/wyborze użytkownika;
+- `CONTINUE_COMMAND` — jawna decyzja użytkownika, by nie tworzyć teraz nowej wolitywnej akcji i pozwolić światu/NPC/już zatwierdzonym procesom działać do następnego Player Decision Point;
+- `UNDO_REQUEST` — jawne żądanie rekonstrukcji/branchingu do wcześniejszej committed granicy;
+- `MECHANICAL CONSEQUENCE` — skutek niezależny od woli;
+- `NARRATIVE DESCRIPTION` — prezentacja, bez authority.
+
+`Player Interaction Orchestrator` jest przyszłą warstwą wejściową pomiędzy UI a canonical PlayerCommand/Turn pipeline. Nie posiada samodzielnej mutation authority; klasyfikuje żądanie, uruchamia bounded helper workflows i przekazuje do canonical validatora wyłącznie jawnie autoryzowane przez użytkownika komendy.
+
+#### Suggestions
+UI może posiadać akcję `Sugestie`, domyślnie pokazującą maksymalnie trzy krótkie, różnorodne kandydaty działania. AI może `PROPOSE / EXPLAIN / SIMULATE OPTIONS`, ale nie może `SELECT / AUTHORIZE / COMMIT` wolitywnej decyzji PC. Kliknięcie propozycji jest explicit user authorization i semantycznie odpowiada wpisaniu tej samej komendy ręcznie. Gracz zawsze może zignorować sugestie i wpisać własną odpowiedź.
+
+Generator sugestii musi korzystać z `PLAYER CHARACTER EPISTEMIC CONTEXT`: wiedzy, obserwacji, pamięci i legalnie dostępnych informacji aktualnej PC. Nie dostaje omniscient GM/internal FACT tylko po to, by podpowiedzieć graczowi ruch; ukryta wiedza nie może wyciekać przez sugestię. Optional ranking może uwzględniać zadeklarowany styl, values/desires/dreams i historię wyborów PC, ale nie ogranicza legalnych własnych decyzji gracza.
+
+Tryb `ASSISTED` może automatycznie wyświetlać sugestie po każdej turze, lecz authority pozostaje identyczne: żadna propozycja nie staje się działaniem bez wyboru użytkownika.
+
+#### Continue i Player Decision Point
+`CONTINUE_COMMAND` oznacza: kontynuuj legalne skutki już podjętej decyzji, działania NPC/świata i rozpoczęte procesy, ale nie wymyślaj nowej wolitywnej decyzji PC. Może dynamicznie przyjąć UI label typu `Kontynuuj`, `Kontynuuj podróż`, `Kontynuuj trening`, `Czekaj dalej`, pozostając tym samym typed contractem.
+
+Living World/GM musi zatrzymać auto-advance przy `PLAYER DECISION POINT` — chwili, gdy dalszy istotny przebieg wymaga nowej dobrowolnej decyzji gracza. `Meaningful Interruption Policy` może uwzględniać significance/threat/opportunity/irreversibility, ale nie może służyć do pomijania ważnych wyborów PC. Soft stop powinien nastąpić przed znaczącą, nieautoryzowaną decyzją lub nieodwracalną konsekwencją zależną od woli PC.
+
+#### Undo / rewind
+`UNDO_REQUEST` nigdy nie jest pojedynczym przypadkowym write. `UNDO CONFIRMATION INVARIANT`: cofnięcie committed tury wymaga oddzielnego, świadomego potwierdzenia użytkownika po pierwszym żądaniu. Potwierdzenie powinno pokazać przynajmniej identyfikowalną ostatnią decyzję/granicę, która zostanie cofnięta.
+
+Undo działa na pełnej canonical granicy tury/branch/reconstruction, nie przez ręczne odwracanie kilku rekordów. Musi cofnąć spójnie world state, knowledge, NPC reactions, resources, ownership, relations, events i inne skutki tej linii. Preferowany model zachowuje porzuconą przyszłość jako branch/evidence zamiast destrukcyjnego kasowania Event history. Większe cofnięcie z historii tur wymaga jeszcze wyraźniejszego potwierdzenia.
+
+#### UX simplicity
+`COMPLEXITY BELONGS IN THE ENGINE, NOT IN THE PLAYER INTERACTION SURFACE`.
+
+Domyślna powierzchnia może ograniczać się do pola tekstowego oraz trzech akcji: `Cofnij`, `Kontynuuj`, `Sugestie`. Zaawansowane funkcje — historia tur, branching, knowledge view, goals, debug/advanced assistance — powinny być schowane za progressive disclosure/menu i nie zaśmiecać głównego ekranu. Maksymalna liczba jednocześnie prezentowanych sugestii powinna pozostać mała, domyślnie trzy.
+
+UI może oferować `Co się dzieje?`/situation recap, ale podsumowanie dla gracza/PC musi respektować Phase 37/38 visibility i nie ujawniać GM/internal secrets.
+
+### 13.4 Workload routing i Cloud Director
 Routing rozdziela co najmniej: workload policy, provider choice, ModelRouter i RuntimeBackendSelector. Deterministic work omija AI.
 
 Normalne tury preferują local path. Optional cloud może obsługiwać wybrane expensive/long-horizon workloads.
