@@ -3,7 +3,7 @@ on:
   pull_request:
     branches: [master]
 permissions:
-  contents: read
+  contents: write
 jobs:
   diagnose:
     runs-on: ubuntu-24.04
@@ -20,15 +20,36 @@ jobs:
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v4
         with: {gradle-version: '9.5.0', cache-read-only: true}
-      - run: |
+      - name: Materialize immutable A+B source candidate
+        shell: bash
+        run: |
+          set -euo pipefail
           gradle wrapper --gradle-version 9.5.0
           chmod +x gradlew
-          python3 tools/phase38_integrated_patch.py hardening
-          python3 tools/phase38_integrated_fixups.py hardening
-          python3 tools/phase38_ab_gate_fixups_robust2.py
-          python3 tools/phase38_contextbuilder_gate_fix.py
-          python3 tools/phase38_ab_fulljvm_compat_fix.py
-          git diff --check
+
+          if [ ! -f app/src/main/java/com/rpgos/app/Phase38ProtectedRead.kt ]; then
+            python3 tools/phase38_integrated_patch.py hardening
+            python3 tools/phase38_integrated_fixups.py hardening
+            python3 tools/phase38_ab_gate_fixups_robust2.py
+            python3 tools/phase38_contextbuilder_gate_fix.py
+            python3 tools/phase38_ab_fulljvm_compat_fix.py
+            git diff --check
+
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/src/main app/src/test backend
+            if ! git diff --cached --quiet; then
+              git commit -m "feat(p38): materialize A+B protected-read hardening"
+              git push origin HEAD:chat1-phase38-slice-ab-protected-read
+            fi
+          else
+            echo "A+B protected-read source already materialized at current HEAD"
+            git diff --check
+          fi
+
+          echo "IMMUTABLE_TESTED_SHA=$(git rev-parse HEAD)"
+          test -f app/src/main/java/com/rpgos/app/Phase38ProtectedRead.kt
+          git status --short
       - name: Targeted A+B gate
         shell: bash
         run: |
@@ -37,6 +58,7 @@ jobs:
           ./gradlew --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase38*' --stacktrace > /tmp/p38.log 2>&1
           rc=$?
           echo "P38_RC=$rc"
+          echo "TESTED_SHA=$(git rev-parse HEAD)"
           if [ "$rc" -ne 0 ]; then
             echo '=== KOTLIN/JAVA ERRORS ==='
             grep -E '(^e: file:| error: |Compilation error|Unresolved reference|overrides nothing|Cannot access|Type mismatch|No value passed|Too many arguments)' /tmp/p38.log | tail -n 240 || true
@@ -57,6 +79,7 @@ jobs:
           ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace > /tmp/full.log 2>&1
           rc=$?
           echo "FULL_RC=$rc"
+          echo "TESTED_SHA=$(git rev-parse HEAD)"
           if [ "$rc" -ne 0 ]; then
             echo '=== FULL JVM FAILURES ==='
             grep -E '(FAILED|AssertionError|expected:|but was:|There were failing tests|FAILURE: Build failed)' /tmp/full.log | tail -n 300 || true
