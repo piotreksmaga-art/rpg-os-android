@@ -1,0 +1,75 @@
+name: Phase37 Candidate Diagnostics
+
+on:
+  push:
+    branches: ["chat3-phase37-post-audit-hardening"]
+
+permissions:
+  contents: write
+
+jobs:
+  test-candidate:
+    if: contains(github.event.head_commit.message, 'trigger candidate diagnostics')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chat3-phase37-post-audit-hardening
+          fetch-depth: 0
+      - name: Verify audited base ancestry
+        run: git merge-base --is-ancestor 7d94c30ac47f23e44cbe7515a267512c3d6ad4de HEAD
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+          cache-read-only: true
+      - name: Targeted tests with diagnostics
+        id: targeted
+        shell: bash
+        run: |
+          set +e
+          gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase37WorldActorKnowledgeTest' --stacktrace > tools/phase37_targeted.log 2>&1
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          tail -n 240 tools/phase37_targeted.log
+          exit 0
+      - name: Full JVM if targeted green
+        id: full
+        if: steps.targeted.outputs.status == '0'
+        shell: bash
+        run: |
+          set +e
+          gradle --no-daemon :app:testDebugUnitTest --stacktrace > tools/phase37_full_jvm.log 2>&1
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          tail -n 160 tools/phase37_full_jvm.log
+          exit 0
+      - name: Write machine-readable result
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob, os, xml.etree.ElementTree as ET
+          total=fail=err=skip=0
+          for f in glob.glob('app/build/test-results/testDebugUnitTest/TEST-*.xml'):
+              r=ET.parse(f).getroot()
+              total += int(r.attrib.get('tests',0)); fail += int(r.attrib.get('failures',0)); err += int(r.attrib.get('errors',0)); skip += int(r.attrib.get('skipped',0))
+          targeted='${{ steps.targeted.outputs.status }}'
+          full='${{ steps.full.outputs.status }}'
+          with open('tools/phase37_test_result.txt','w') as o:
+              o.write(f'TARGETED_STATUS={targeted}\nFULL_STATUS={full}\nJVM_TEST_COUNT={total}\nJVM_FAILURES={fail+err}\nJVM_SKIPPED={skip}\n')
+          PY
+      - name: Commit temporary diagnostics
+        shell: bash
+        run: |
+          git config user.name "rpg-os-phase37-hardening-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git add -f tools/phase37_test_result.txt tools/phase37_targeted.log
+          if [ -f tools/phase37_full_jvm.log ]; then git add -f tools/phase37_full_jvm.log; fi
+          git commit -m "chore(p37): temporary candidate test diagnostics"
+          git push origin HEAD:chat3-phase37-post-audit-hardening
