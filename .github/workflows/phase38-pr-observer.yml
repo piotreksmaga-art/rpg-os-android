@@ -16,30 +16,24 @@ jobs:
         with:
           ref: chat1-phase38-slice-ab-protected-read
           fetch-depth: 0
-      - name: Apply existing Slice A+B integration patch
-        run: python3 tools/phase38_apply_slice_ab_patch.py
-      - name: Migrate legacy protected-read tests
-        run: python3 tools/phase38_migrate_legacy_context_tests.py
-      - name: Normalize final closure anchor
-        run: python3 tools/phase38_patch_anchor_fix.py
-      - name: Apply final blocker closure
-        run: python3 tools/phase38_final_closure_patch.py
-      - name: Diff hygiene
-        run: git diff --check
+      - run: python3 tools/phase38_apply_slice_ab_patch.py
+      - run: python3 tools/phase38_migrate_legacy_context_tests.py
+      - run: python3 tools/phase38_patch_anchor_fix.py
+      - run: python3 tools/phase38_final_closure_patch.py
+      - run: python3 tools/phase38_final_closure_fix2.py
+      - run: git diff --check
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - name: Android SDK
-        run: |
+      - run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5.0'
-      - name: Temporary Gradle wrapper
-        run: |
+      - run: |
           gradle wrapper --gradle-version 9.5.0
           chmod +x ./gradlew
       - name: Targeted Phase38 A+B
@@ -55,7 +49,8 @@ jobs:
           for f in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
               r=ET.parse(f).getroot();tests+=int(r.attrib.get('tests',0));fail+=int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0));skip+=int(r.attrib.get('skipped',0))
               for tc in r.findall('testcase'):
-                  bad=tc.find('failure') or tc.find('error')
+                  bad=tc.find('failure')
+                  if bad is None: bad=tc.find('error')
                   if bad is not None: failures.append(f"{tc.attrib.get('classname')}::{tc.attrib.get('name')} => {bad.attrib.get('message','')}")
           print(f'TARGETED_SUMMARY tests={tests} failures={fail} skipped={skip}')
           for item in failures: print('TARGETED_FAILURE '+item)
@@ -76,7 +71,8 @@ jobs:
           for f in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
               r=ET.parse(f).getroot();tests+=int(r.attrib.get('tests',0));fail+=int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0));skip+=int(r.attrib.get('skipped',0))
               for tc in r.findall('testcase'):
-                  bad=tc.find('failure') or tc.find('error')
+                  bad=tc.find('failure')
+                  if bad is None: bad=tc.find('error')
                   if bad is not None: failures.append(f"{tc.attrib.get('classname')}::{tc.attrib.get('name')} => {bad.attrib.get('message','')}")
           print(f'FULL_JVM_SUMMARY tests={tests} failures={fail} skipped={skip}')
           for item in failures: print('FULL_JVM_FAILURE '+item)
