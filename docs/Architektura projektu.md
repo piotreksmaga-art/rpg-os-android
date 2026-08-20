@@ -113,6 +113,51 @@ Core posiada mechanizmy uniwersalne. World Pack dostarcza canon, definitions i w
 
 World Pack nie kopiuje infrastruktury Core: transactions, events, memory, economy framework, snapshots, retrieval, NPC Brain, World Simulation, Save/Load.
 
+### 9.1 World Actor Mechanical Domain — CANONICAL FUTURE CONTRACT
+Combat, Living World i inne mechaniki potrzebują jednego uniwersalnego widoku rzeczywistych możliwości aktora. Core nie może utrzymywać osobnych, konkurencyjnych fizyk dla Playera i NPC. Zaakceptowany Player Domain Phase 1–36 pozostaje bez zmian; przyszły `WorldActorMechanicalView`/adapter udostępnia wspólny kontrakt nad istniejącym Player State, a NPC/monster/summon/vehicle/unit mogą posiadać native `WorldActorMechanicalState`.
+
+Minimalny kontrakt mechanicznego aktora obejmuje zależnie od świata: identity, dynamic attributes, resources, skills, executable abilities/techniques, innate traits, resistances, equipment, target components/anatomy, conditions, wounds/structural damage, cooldowns i effective modifiers. `KNOWLEDGE ABOUT ABILITY != EXECUTABLE ABILITY AUTHORITY`.
+
+`GENERATION TEMPLATE != CURRENT MECHANICAL STATE`. Po materializacji aktor posiada persistent canonical state i zmienia go wyłącznie przez legalny domain/transaction path: trening, rozwój, obrażenia, starzenie, equipment, learned abilities itd. Aktualny stan nie może być ponownie losowany z archetypu przy kolejnym spotkaniu.
+
+### 9.2 World Actor Generation & Materialization Framework
+Core dostarcza uniwersalny język generacji, nie world-specific zawartość. World Pack może komponować dowolne archetypes/definitions i reguły `REQUIRED`, `CONDITIONAL`, `WEIGHTED`, `FORBIDDEN`, dependencies/exclusions, rarity/population/uniqueness constraints oraz mechanical power envelopes. Core nie zna pojęć `GENIN`, `DRAGON`, `WITCHER` itd.
+
+Generacja używa controlled variance, korelacji i budget/envelope constraints zamiast niezależnego randomowania wszystkich statów. Hierarchiczny persistent seed rozdziela co najmniej mechanical/appearance/personality/knowledge/history randomness, aby zmiana jednego generatora nie zmieniała innych domen. Existing canonical facts zawsze mają pierwszeństwo przed generative defaults.
+
+Materialization może być lazy (`SEED_ONLY` / `PARTIAL_MECHANICAL` / `FULL_MECHANICAL`) dla skali Living World, ale musi być deterministic/replay-safe i conservation-safe. Actor promoted z population/group aggregate zachowuje wcześniejsze fakty, a aggregate traci odpowiadającego mu członka/zasoby.
+
+Zwykły actor power wynika z world context, roli, frakcji, rank/status, historii i World Pack constraints — nie z mocy aktualnego PC. Globalny invariant: `ENCOUNTER DIFFICULTY MUST EMERGE FROM WORLD STATE, NOT PLAYER POWER SCALING`. Director/AI nie może retconować statów ani generować perfect counter tylko dlatego, że zna kartę gracza. Wyjątek wymaga legalnej causal przyczyny w świecie; np. organizacja świadomie dobiera przeciwnika na podstawie własnej holder-scoped wiedzy o PC.
+
+### 9.3 Universal Combat Engine — CANONICAL FUTURE CONTRACT
+Combat Engine nie wybiera intencji aktora, nie generuje przeciwników i nie jest źródłem narracji. `DECISION ENGINE DECIDES; COMBAT ENGINE RESOLVES`. Jego zadanie: z legalnego `CombatIntent`/`CombatAction`, immutable relevant snapshotu, World Rules, przestrzeni, czasu i deterministic RNG evidence wyprowadzić `CombatResolution`/domain ChangeSets, które dopiero canonical transaction może commitować.
+
+Docelowy pipeline:
+`CombatIntent -> Action Construction -> Eligibility/Preconditions -> Spatial Feasibility -> Temporal Scheduling -> Detection/Perception -> Reaction/Interrupt Opportunities -> Action-Action Interaction/Clash -> Contest Resolution -> Effect Pipeline -> Target Components/Protection/Resistance -> Conditions/Resources/Movement -> Objective Evaluation -> Resolution Evidence -> Domain ChangeSets -> Validation -> TurnTransaction -> Events/Causal Graph/Ledgers -> COMMIT -> Knowledge acquisition/narration`.
+
+Core zapewnia abstrakcje, a World Pack definiuje konkretne reguły. Spatial model może używać exact coordinates, grid, zones, range bands, formation space lub world-defined resolvera. Timing nie zakłada wyłącznie rund; akcja może mieć fazy `DECLARE/PREPARE/COMMIT/EXECUTE/IMPACT/RECOVERY`, simultaneous actions, delayed effects, reactions i interrupts.
+
+Reaction jest legalna tylko gdy aktor posiada capability, wykrył/zna zagrożenie, ma czas i wymagany resource. `COUNTER CAPABILITY MUST PREEXIST`; `COUNTER SELECTION MUST USE ACTOR-AVAILABLE KNOWLEDGE`. Ukryta akcja istniejąca w FACT nie daje automatycznej reakcji targetowi.
+
+Effect resolution jest kompozycyjne i nie redukuje walki do jednego HP: damage/wounds, resources, status, displacement, equipment/structure damage, morale/cohesion, formation, environment i World Pack-defined effects. Optional `TargetComponentModel` obsługuje ciało, skrzydła smoka, moduły pojazdu, okręt itd. Mechanika zachowuje degree-of-effect i objective outcomes (kill/capture/delay/escape/protect/hold/break formation/survive/world-defined), nie tylko `winnerUid`.
+
+Combat supports LOD: `LOD0 strategic aggregate`, `LOD1 formations/units`, `LOD2 groups + important actors`, `LOD3 full individual tactical resolution`. Przejścia LOD zachowują manpower/resources/casualties/unique actors/equipment/important conditions i nie materializują dodatkowej authority. Lokalny rezultat LOD3 może propagować causal effect do LOD1/0, np. utrata generała -> command/morale effect.
+
+Mechanical fairness oznacza te same legalne reguły i brak hidden boost/rubber-banding, nie równe szanse. Easy, fair i suicidal encounters są legalne. Extreme mismatch może dawać deterministic outcome bounds zamiast obowiązkowego RNG; ekspert nie ma sztucznego fixed-percent critical failure bez world-rule przyczyny.
+
+Player Agency pozostaje nadrzędna: forced mechanical consequence (`knockback`, stun, unconsciousness itd.) nie jest voluntary PC action. Combat Engine nie może sam wybierać ruchu/dialogu/techniki aktualnego PC.
+
+### 9.4 Adaptive Turn Runtime & Response-Time Policy
+RPG OS optymalizuje perceived latency do jakości, nie do minimalnej liczby milisekund. Globalne cele: `MECHANICS LATENCY << AI LATENCY`, `SIMULATION COST scales with RELEVANT STATE, not TOTAL WORLD SIZE`, `NO SERIAL AI CALLS WITHOUT NECESSITY`, `PRECOMPUTE/PARALLELIZE work that does not require AI output`.
+
+`AdaptiveTurnRuntime` jest performance orchestrator, nie source of truth ani mutation authority. Zarządza workload estimation, AI-latency estimation, quality budgetem, parallel preparation, fast/deep paths i background-safe work. Praca jest klasyfikowana co najmniej jako `CRITICAL`, `REQUIRED`, `QUALITY`, `BACKGROUND`; deadline może ograniczyć tylko opcjonalną jakość, nigdy player agency, canonical validation, World Rules, transaction/replay safety ani data integrity.
+
+Domyślny `ResponseTimeMode.AUTO` dobiera budżet do modelu, urządzenia, thermal state i workload. Normalna interaktywna tura ma preferred target około `5 s`, lecz nie jest to correctness timeout. Szybszy model powinien pozwalać użyć wolnego budżetu na relevant retrieval, continuity/consistency, NPC/world evaluation, combat verification lub narrative repair zamiast sztucznego natychmiastowego zwrotu.
+
+Ustawienia aplikacji mogą oferować proste profile `AUTO` (default), `FAST`, `BALANCED`, `QUALITY`, `CUSTOM`; Custom może określać preferowane minimum czasu odpowiedzi. Przy ręcznie ustawionym minimum wolny czas jest zużywany `QUALITY FIRST -> IDLE ONLY LAST`. Auto nie musi sztucznie czekać do pełnych 5 s, jeśli kompletna odpowiedź jest gotowa i dalsza praca nie wnosi wartości.
+
+Background-safe praca może wykorzystywać czas czytania/myślenia gracza, ale `SPECULATION MAY PREPARE; SPECULATION MAY NOT COMMIT`. Performance/profile sprzętu może zmieniać ilość opcjonalnej pracy, nigdy canonical semantics/mechanical truth.
+
 ## 10. World Actor Knowledge / Epistemic State — CANONICAL TARGET
 Phase 37 buduje uniwersalny epistemiczny fundament świata, nie wyłącznie tabelę wiedzy NPC. System ma odpowiadać: **kto co wie, uważa, podejrzewa lub szacuje; z jakiego dowodu to wynika; kiedy informację uzyskał; jaka jest jej jakość, aktualność i dostępność**.
 

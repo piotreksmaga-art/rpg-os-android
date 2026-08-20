@@ -157,7 +157,7 @@ Dalsze Phase 38–47:
 # FAZA D — GM ENGINE / HYBRID AI FOUNDATION
 - [ ] 48. AI Provider & Hybrid Local-First Inference Architecture
 - [-] 49. Structured GM Output contract
-- [ ] 50. Mechanics Resolution integration
+- [ ] 50. Universal Mechanics & Combat Resolution integration
 - [-] 51. Consistency Validator
 - [ ] 52. Counterfactual Guard
 - [ ] 53. Repair Pass for proposal/narrative
@@ -186,6 +186,24 @@ Wymagane docelowo:
 
 Konkretny model, provider, format i runtime są adapter/evidence candidates, nie canonical lock-in.
 
+Phase 50 Universal Mechanics & Combat Resolution acceptance obejmuje co najmniej:
+- jeden `MechanicalActorView`/równoważny adapter contract dla Active PC, NPC, former PC, monster/summon/vehicle/unit/group bez przepisywania accepted Player Domain Phase 1–36;
+- persistent World Actor Mechanical State dla non-player actors: dynamic attributes/resources/skills/executable abilities/traits/resistances/equipment/components/conditions/wounds/cooldowns/modifiers;
+- `GENERATION TEMPLATE != CURRENT MECHANICAL STATE`; materialized actor nie jest rerollowany przy kolejnym encounter;
+- `ENCOUNTER DIFFICULTY MUST EMERGE FROM WORLD STATE, NOT PLAYER POWER SCALING`;
+- World Actor Generation Core: composable archetypes + REQUIRED/CONDITIONAL/WEIGHTED/FORBIDDEN rules + controlled variance + persistent hierarchical seed + power envelope + provenance;
+- ordinary generation nie dostaje Player mechanical power jako difficulty input; causal counter-selection może używać tylko legalnej holder-scoped wiedzy aktora/organizacji;
+- `CombatIntent != Outcome`; Decision Engine/validated player command wybiera intencję, Combat Engine tylko ją rozstrzyga;
+- immutable relevant Combat Snapshot + eligibility/preconditions + spatial/timing + detection + reaction/interrupt + clash + contest + effect + objectives + resolution evidence;
+- reaction wymaga capability + perception/knowledge + time + resource; hidden FACT nie daje automatycznej reakcji;
+- effects są typed/compositional i mogą obejmować HP/wounds/resources/status/movement/equipment/structure/morale/cohesion/formation/environment zamiast jednego damage number;
+- optional TargetComponentModel obsługuje anatomy oraz non-biological components;
+- deterministic/replay-safe RNG/evidence; same committed inputs/rules/random evidence -> same outcome;
+- Combat Engine nie zapisuje authority bezpośrednio: wynik -> domain ChangeSets -> validation -> TurnTransaction -> Event/Causal evidence -> COMMIT -> narration;
+- mechanical consequence pozostaje odrębna od voluntary PC action;
+- extreme mismatch może być rozstrzygany deterministic bounds, bez obowiązkowego fixed critical-success/failure percentage;
+- adversarial tests: no player scaling, no retroactive stat buff, no omniscient perfect counter, unavailable ability rejected, hidden attack cannot be auto-reacted to, rollback/retry/replay equality, outcome explainability.
+
 Future Player Interaction acceptance, rozwijane wraz z Phase 43–54, 63–64 i 71–75, obejmuje:
 - typed `Player Interaction Orchestrator` nad istniejącym PlayerCommand/Turn pipeline, bez własnej mutation authority;
 - `PLAYER_ACTION_CANDIDATE != PLAYER_COMMAND != COMMIT`;
@@ -209,8 +227,8 @@ Future Player Interaction acceptance, rozwijane wraz z Phase 43–54, 63–64 i 
 - [ ] 60. Time Skip Processor + Scheduler/WorldProcess orchestration
 - [-] 61. NPC Brain + persistent individuality/personality/values/goals/fears/emotional state/relationships
 - [-] 62. NPC Decision Engine + knowledge/memory/social-role constrained autonomy
-- [ ] 63. World Simulation LOD 0–3 + multi-rate WorldProcess engine
-- [ ] 64. Background-world causal simulation: organizations/economy/projects/demography/wars/knowledge propagation + controlled randomness
+- [ ] 63. World Simulation LOD 0–3 + World Actor mechanical materialization + Combat LOD integration
+- [ ] 64. Background-world causal simulation: organizations/economy/projects/demography/wars/knowledge propagation/conflict resolution + controlled randomness
 
 ## Acceptance direction Phase 55–64
 Memory pozostaje RPG OS-owned i odtwarzalna po zmianie modelu/runtime.
@@ -232,6 +250,13 @@ Phase 62 decyzje:
 
 Phase 63–64 Living World:
 - global invariant: **THE WORLD DOES NOT WAIT FOR THE PLAYER**;
+- World Actor Generation/materialization supports `SEED_ONLY/PARTIAL/FULL` LOD and existing canonical facts override generative defaults;
+- generic/population/group aggregates may be promoted to persistent actors deterministically with conservation of member count/resources/history;
+- Combat LOD is integrated with World Simulation: LOD0 strategic aggregate, LOD1 formations/units, LOD2 groups + important actors, LOD3 full individual tactical resolution;
+- LOD refinement/coarsening conserves manpower/resources/casualties/unique actors/equipment/important conditions; local combat results propagate causally back to larger-scale simulation;
+- army/fleet/group combat may retain important named actors as full mechanical actors while bulk members remain aggregate;
+- orders/command propagation may include latency, communication channel, failure/interception/distortion according to World Pack and Knowledge rules;
+- background conflict resolution uses the same canonical mechanical/world rules at an appropriate LOD instead of arbitrary event generation;
 - Living World is a causal simulator, not a random event generator; material events require actor/process/domain basis;
 - WorldActor support for NPC/family/clan/organization/company/guild/city/state/army/world-specific actors;
 - persisted `Motivational Core`: needs/pressures, desires, dreams/aspirations, ambitions, fears/aversions, values, loyalties/obligations, goals, plans/commitments and optional core drives/obsessions;
@@ -280,8 +305,8 @@ Phase 63–64 Living World:
 - [ ] 75. Replay Debugger
 - [-] 76. Integrity Test Suite
 - [-] 77. Long Campaign Stress Tests
-- [-] 78. Android performance profiling/optimization
-- [-] 79. AI workload / provider / model / runtime routing
+- [-] 78. Android performance profiling/optimization + Adaptive Turn Runtime
+- [-] 79. AI workload / provider / model / runtime routing + Response-Time Policy
 
 ## Acceptance direction Phase 71–79
 Persistent World / Character Succession w Phase 71 ma zagwarantować rozdzielenie Campaign World od aktualnej Player Character:
@@ -324,6 +349,14 @@ Wymagane m.in.:
 - provider/model/runtime switch and credential removal -> no campaign migration/data loss;
 - privacy/failover policy respected;
 - Phase 79 separates workload policy, provider execution choice, ModelRouter and RuntimeBackendSelector; deterministic tasks bypass AI.
+- Phase 78–79 implement `AdaptiveTurnRuntime`/equivalent performance orchestration without mutation authority: workload/AI-latency estimation, quality-budget allocation, parallel preparation, fast/deep paths and background-safe work;
+- performance classes at least `CRITICAL`, `REQUIRED`, `QUALITY`, `BACKGROUND`; correctness/player-agency/transaction/replay validation cannot be skipped to hit latency target;
+- default `ResponseTimeMode.AUTO`; normal interactive preferred target około 5 s, adaptively adjusted to model/device/thermal/workload rather than a hard correctness timeout;
+- user settings may expose simple `AUTO`/`FAST`/`BALANCED`/`QUALITY`/`CUSTOM`; Custom may define preferred minimum response time;
+- spare latency is spent `QUALITY FIRST -> IDLE ONLY LAST`; Auto may answer earlier when no useful quality work remains;
+- mechanics/storage/retrieval overhead should remain small relative to AI latency; serial AI calls require justification;
+- safe background computation may use player reading/thinking time, but speculative preparation has no COMMIT authority;
+- performance acceptance records P50/P90/P95/P99 total latency plus AI/mechanics/DB/retrieval overhead, background lag and thermal behavior on target Android hardware.
 
 # FAZA H — WORLD PACK HARDENING
 - [ ] 80. Naruto WorldRuleProvider integration test pack
@@ -415,6 +448,18 @@ Przyszłe obowiązkowe gates obejmują co najmniej:
 - [ ] `UNDO_CONFIRMATION`: first undo click/request cannot mutate committed state; separate confirmation is mandatory
 - [ ] confirmed undo reconstructs/branches whole canonical turn state, not partial tables; knowledge/events/relations/resources remain consistent
 - [ ] mobile default interaction remains usable with text input + three primary helpers (`Cofnij`, `Kontynuuj`, `Sugestie`) and progressive disclosure for advanced features
+- [ ] `WORLD_ACTOR_MECHANICAL_STATE`: same canonical combat-facing contract works for PC/NPC/former PC/monster/summon/vehicle/unit/group without creating a second Player physics
+- [ ] materialized actor mechanical state persists and cannot be rerolled from template after combat/history changes
+- [ ] ordinary NPC generation is independent of active-PC power; no hidden level scaling/rubber-banding
+- [ ] counter capability must preexist mechanically and counter selection must be justified by holder-available knowledge/perception
+- [ ] controlled generation respects required/conditional/weighted/forbidden World Pack constraints, power envelope, rarity/uniqueness and deterministic seed/provenance
+- [ ] CombatIntent does not imply success; Combat Engine resolves before narration/COMMIT
+- [ ] hidden/unperceived attack cannot create omniscient dodge/parry/counter
+- [ ] combat reaction/interrupt/clash/timing replay produces deterministic equality from stored evidence
+- [ ] Combat LOD refinement/coarsening conserves manpower/resources/casualties/unique actors/equipment/conditions
+- [ ] strategic/army combat can descend to individual important-actor combat and propagate results back without double counting
+- [ ] response-time `AUTO` adapts quality/workload while preserving canonical correctness; user-selected minimum never permits skipping required validation
+- [ ] available latency improves quality before idle waiting; speculative/background preparation never commits future player/world decisions
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
 `Phase 37 — World Actor Knowledge, Expertise & Acquisition Provenance`
