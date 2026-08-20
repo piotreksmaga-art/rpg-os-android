@@ -57,7 +57,8 @@ object RuntimePersistentWriterRegistry {
         "TURN_RECEIPTS",
         "EVENT_STORE",
         "CAUSAL_GRAPH",
-        "COMMITTED_REPLAY_MATERIAL"
+        "COMMITTED_REPLAY_MATERIAL",
+        "ACCESS_AUTHORITY"
     )
 
     val campaignRepositoryContracts: Map<String, PersistentWriterContract> = listOf(

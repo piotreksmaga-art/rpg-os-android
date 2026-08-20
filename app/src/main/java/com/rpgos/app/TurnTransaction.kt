@@ -203,7 +203,7 @@ internal object CanonicalPlayerChangeApplier{
             when(change.payload){
                 is StatChange,is ResourceChange,is SkillChange,is TechniqueChange,is InventoryChange,
                 is EquipmentChange,is FinancialChange,is OwnershipChange,is CampaignTruthChange,
-                is DevelopmentProjectChange,is KnowledgeAcquisitionChange -> Unit
+                is DevelopmentProjectChange,is KnowledgeAcquisitionChange,is AccessAuthorityChange -> Unit
                 else -> throw UnsupportedCanonicalChangeException(change.changeKindUid)
             }
         }
@@ -230,6 +230,7 @@ internal object CanonicalPlayerChangeApplier{
                 is CampaignTruthChange->applyTruth(db,identity,changeSet,change.changeUid,payload)
                 is KnowledgeAcquisitionChange->applyKnowledge(db,identity,changeSet,change.changeUid,payload)
                 is DevelopmentProjectChange->applyProject(db,identity,changeSet,change.changeUid,payload)
+                is AccessAuthorityChange->applyAccessAuthority(db,identity,changeSet,change.changeUid,payload)
                 else->throw UnsupportedCanonicalChangeException(change.changeKindUid)
             }
             applied+=change.changeUid
@@ -243,6 +244,10 @@ internal object CanonicalPlayerChangeApplier{
         changeSet.requestedEffectiveOrder?:error("RPGOS-TURN-APPLIER:MISSING_EFFECTIVE_ORDER")
 
     private fun provenance(identity:TurnTransactionIdentity,changeUid:String)="TURN:${identity.transactionUid}:$changeUid"
+
+    private fun applyAccessAuthority(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,changeUid:String,p:AccessAuthorityChange){
+        AccessAuthorityStore(db,identity.campaignUid).apply(identity,changeUid,p,effectiveOrder(changeSet))
+    }
 
     private fun applyStat(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeUid:String,p:StatChange){
         val store=StatResourceStore(db,identity.campaignUid)

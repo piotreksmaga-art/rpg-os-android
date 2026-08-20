@@ -15,6 +15,7 @@ data class RuntimeStateFamily(val uid:String,val layers:Set<RuntimeTruthLayer>,v
 object RuntimeTruthLayerRegistry {
     private fun f(uid:String,layer:RuntimeTruthLayer,vararg t:String)=RuntimeStateFamily(uid,setOf(layer),t.toSet())
     val families=listOf(
+        RuntimeStateFamily("ACCESS_AUTHORITY",setOf(RuntimeTruthLayer.AUTHORITATIVE,RuntimeTruthLayer.AUTHORITATIVE_DOMAIN_HISTORY),setOf(Phase38AccessAuthoritySchema.RECORDS)),
         f("CAMPAIGN_TRUTH",RuntimeTruthLayer.AUTHORITATIVE,"campaign_truth_records"),
         f("CANON_DIVERGENCE",RuntimeTruthLayer.AUTHORITATIVE,"campaign_canon_divergences"),
         f("ACTIVE_PLAYER_IDENTITY",RuntimeTruthLayer.AUTHORITATIVE,"active_player_ref"),

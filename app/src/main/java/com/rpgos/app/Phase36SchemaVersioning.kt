@@ -6,7 +6,7 @@ import java.util.UUID
 
 enum class SchemaFamilyUid {
     ENGINE, CAMPAIGN, WORLD_PACK, PLAYER, RECEIPT, EVENT, CAUSAL, SNAPSHOT, REPLAY,
-    CANON_DIVERGENCE, KNOWLEDGE, FINANCE, INVENTORY, OWNERSHIP, DEVELOPMENT_PROJECT
+    CANON_DIVERGENCE, KNOWLEDGE, FINANCE, INVENTORY, OWNERSHIP, DEVELOPMENT_PROJECT, ACCESS_AUTHORITY
 }
 
 enum class MigrationMateriality { STRUCTURAL_ADDITIVE, MATERIAL_DATA_MUTATION }
@@ -128,7 +128,8 @@ internal object Phase36SchemaVersioning {
         SchemaFamilyContract(SchemaFamilyUid.FINANCE, 1, 1, setOf(SchemaFamilyUid.PLAYER)),
         SchemaFamilyContract(SchemaFamilyUid.INVENTORY, 1, 1, setOf(SchemaFamilyUid.PLAYER)),
         SchemaFamilyContract(SchemaFamilyUid.OWNERSHIP, 1, 1, setOf(SchemaFamilyUid.INVENTORY)),
-        SchemaFamilyContract(SchemaFamilyUid.DEVELOPMENT_PROJECT, 1, 1, setOf(SchemaFamilyUid.PLAYER))
+        SchemaFamilyContract(SchemaFamilyUid.DEVELOPMENT_PROJECT, 1, 1, setOf(SchemaFamilyUid.PLAYER)),
+        SchemaFamilyContract(SchemaFamilyUid.ACCESS_AUTHORITY, Phase38AccessAuthoritySchema.VERSION, 1, setOf(SchemaFamilyUid.CAMPAIGN,SchemaFamilyUid.EVENT))
     )
 
     private fun productionGraph(eventFaultInjector: EventV1ToV2FaultInjector = EventV1ToV2FaultInjector.NONE) = VersionMigrationGraph(
@@ -190,6 +191,7 @@ internal object Phase36SchemaVersioning {
         // Phase35 repair semantics are preserved. Phase37 adds only structural epistemic tables; legacy rows are not rewritten.
         administrativeWrite(db, campaignUid) {
             Phase35CanonDivergenceSchema.ensureReady(db)
+            Phase38AccessAuthoritySchema.ensureReady(db)
             if (current(db, SchemaFamilyUid.KNOWLEDGE) == null) {
                 Phase37KnowledgeSchema.ensureReady(db)
             } else {

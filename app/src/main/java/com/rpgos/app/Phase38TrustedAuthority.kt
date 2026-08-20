@@ -51,16 +51,13 @@ internal object Phase38RuntimeAuthority {
     fun application(
         audience: AudienceContext,
         controlledSubjectUids: Set<String> = emptySet(),
-        cognitionResolver: TrustedCognitionResolver = TrustedCognitionResolver { _, _ -> emptySet() },
-        roleUids: Set<String> = emptySet(),
-        organizationUids: Set<String> = emptySet(),
-        clearanceUids: Set<String> = emptySet()
+        cognitionResolver: TrustedCognitionResolver = TrustedCognitionResolver { _, _ -> emptySet() }
     ): TrustedPrincipalContext? {
         val principal = audience.principal ?: return null
         if (audience.audienceKindUid in setOf(AudienceKinds.GM_RUNTIME, AudienceKinds.INTERNAL_SYSTEM, AudienceKinds.DEVELOPER_DIAGNOSTIC)) return null
         return TrustedPrincipalContext(
             audience.campaignUid, principal, audience.audienceKindUid,
-            controlledSubjectUids, roleUids, organizationUids, clearanceUids,
+            controlledSubjectUids, emptySet(), emptySet(), emptySet(),
             cognitionResolver.holdersFor(audience.campaignUid, principal)
         )
     }
