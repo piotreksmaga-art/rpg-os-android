@@ -120,6 +120,10 @@ internal object BundledCampaignPersistentFamilies {
     val OPERATIONAL_REPAIR_STATE = setOf(
         "rpgos_repair_log",
     )
+    /**
+     * Stable G32 family UID retained for compatibility. Phase 37 broadens the semantics from
+     * NPC-only legacy tables to World Actor epistemic state while keeping every legacy table.
+     */
     val NPC_KNOWLEDGE_STATE = setOf(
         "counterintelligence_cases",
         "deception_operations",
@@ -135,6 +139,11 @@ internal object BundledCampaignPersistentFamilies {
         "rumor_exposure",
         "secrets",
         "surveillance_targets",
+        "world_actor_knowledge_claims",
+        "world_actor_knowledge_acquisitions",
+        "world_actor_knowledge_evidence",
+        "world_actor_knowledge_states",
+        "world_actor_expertise",
     )
     val NARRATIVE_PLANNING_STATE = setOf(
         "callbacks",
