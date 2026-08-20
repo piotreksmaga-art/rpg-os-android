@@ -1,8 +1,7 @@
 name: Phase38 Slice C Gate
 on:
-  push:
-    branches: [chat1-phase38-slice-ab-protected-read]
-    paths: [.github/workflows/phase38-slice-c-ci.yml]
+  pull_request:
+    branches: [master]
 permissions:
   contents: write
 jobs:
@@ -37,7 +36,7 @@ jobs:
         run: |
           gradle wrapper --gradle-version 9.5.0
           chmod +x ./gradlew
-      - name: Apply immutable Slice C candidate
+      - name: Apply and publish immutable Slice C candidate
         id: c
         shell: bash
         run: |
@@ -53,6 +52,7 @@ jobs:
           sha=$(git rev-parse HEAD)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "SLICE_C_CANDIDATE_SHA=$sha"
+          git push origin HEAD:chat1-phase38-slice-ab-protected-read
           git status --short
       - name: A+B+C targeted
         shell: bash
@@ -105,8 +105,5 @@ jobs:
           fi
           test "$(git rev-parse HEAD)" = "${{ steps.c.outputs.sha }}"
           exit "$rc"
-      - name: Push green Slice C
-        run: |
-          set -euo pipefail
-          git push origin HEAD:chat1-phase38-slice-ab-protected-read
-          echo "SLICE_C_GREEN_SHA=${{ steps.c.outputs.sha }}"
+      - name: Confirm green Slice C
+        run: echo "SLICE_C_GREEN_SHA=${{ steps.c.outputs.sha }}"
