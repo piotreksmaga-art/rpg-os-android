@@ -244,7 +244,7 @@ Phase 63–64 Living World:
 - Chronicle remains projection from committed structured reality.
 
 # FAZA G — SAVE / DEBUG / SKALA
-- [-] 71. Save/Load integration
+- [-] 71. Save/Load integration + Persistent World / Character Succession
 - [ ] 72. Branching without full database duplication
 - [-] 73. Backup System
 - [-] 74. Observability metrics
@@ -254,6 +254,35 @@ Phase 63–64 Living World:
 - [-] 78. Android performance profiling/optimization
 - [-] 79. AI workload / provider / model / runtime routing
 
+## Acceptance direction Phase 71–79
+Persistent World / Character Succession w Phase 71 ma zagwarantować rozdzielenie Campaign World od aktualnej Player Character:
+- `CAMPAIGN/WORLD != ACTIVE PLAYER CHARACTER`;
+- użytkownik może rozpocząć nową postać w istniejącym świecie bez resetu committed history i world state;
+- poprzednia żyjąca postać może przejść do statusu autonomicznego World Actora/NPC zamiast znikać lub pozostawać zamrożona;
+- previous PC zachowuje własny authoritative stan, ownership, relacje, memory i holder-scoped knowledge;
+- new PC otrzymuje nową identity i własny Player/Knowledge state; nie dziedziczy automatycznie prywatnej wiedzy, memories, abilities, inventory ani relationship state starego PC;
+- `SAME HUMAN USER != SAME CHARACTER KNOWLEDGE HOLDER`;
+- NPC/organizations zachowują wiedzę i relacje dotyczące poprzedniej postaci po zmianie aktywnego PC;
+- World Processes, economy, wars, projects, organizations, canon divergence, Event/Causal history i czas pozostają ciągłe;
+- control transfer/retirement jest canonical committed operation z provenance i idempotency, nie flagą UI ani AI side effect;
+- unique ownership nie może zostać zdublowane podczas zmiany PC;
+- save/load/snapshot/replay/branching zachowują historię aktywnych/former PCs oraz dokładnie jeden spójny Campaign World;
+- former PC może zostać później spotkany przez nową postać i działać przez NPC Brain/Decision Engine/Living World zgodnie z własnym stanem;
+- death/retirement nie usuwa historycznych skutków byłej postaci.
+
+Obowiązkowe testy Phase 71 obejmują co najmniej:
+- `NEW_CHARACTER_SAME_WORLD`: old PC -> retire/control release -> new PC, World UID/history/state unchanged;
+- old PC pozostaje poprawnym World Actorem z własnym state/knowledge;
+- new PC nie posiada old-PC-only knowledge bez legalnej acquisition/bootstrap rule;
+- NPC A pamięta/rozpoznaje old PC, ale nie zna automatycznie new PC;
+- unique item/ownership nie duplikuje się przy zmianie PC;
+- former PC autonomicznie ewoluuje w Living World po utracie player control;
+- new PC może później spotkać former PC, a oba stany pozostają rozdzielone;
+- snapshot/save/load/replay przed i po character succession daje authoritative equality;
+- branch może zmienić wybór kolejnej PC bez przepisywania wspólnej historii przed branch point;
+- rollback/retry control-transfer nie tworzy dwóch ACTIVE_PLAYER_CHARACTER ani phantom succession.
+
+Wymagane m.in.:
 ## Acceptance direction Phase 71–79
 Wymagane m.in.:
 - save/load/replay authoritative equality;
@@ -334,6 +363,9 @@ Przyszłe obowiązkowe gates obejmują co najmniej:
 - [ ] personality adaptation requires committed cause/provenance
 - [ ] reputation/rumor remains holder-scoped belief
 - [ ] `WORLD_WITHOUT_PLAYER` causal evolution + save/load/replay equality
+- [ ] `NEW_CHARACTER_SAME_WORLD`: nowy PC zachowuje ten sam Campaign World/history, old PC pozostaje aktorem świata, brak automatic knowledge/state inheritance
+- [ ] former-PC -> autonomous World Actor continuity + later encounter with new PC
+- [ ] character succession preserves unique ownership, holder-scoped knowledge, NPC relations, save/load/replay and exactly one active PC
 - [ ] `SAME_WORLD_TWO_CAMPAIGNS` divergence explainable by player actions + world processes + controlled randomness
 - [ ] background FACT does not automatically become player/NPC/organization knowledge
 - [ ] world-process/domain conservation for supported economy/population/resources/projects
