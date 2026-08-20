@@ -18,6 +18,8 @@ jobs:
           fetch-depth: 0
       - name: Apply exact integration patch
         run: python3 tools/phase38_apply_slice_ab_patch.py
+      - name: Migrate legacy protected-read tests
+        run: python3 tools/phase38_migrate_legacy_context_tests.py
       - name: Diff hygiene
         run: git diff --check
       - uses: actions/setup-java@v5
