@@ -24,6 +24,13 @@ object JsonCodec {
         put("campaign_truth", JSONArray(context.campaignTruth.map(::JSONObject)))
         put("player_state", JSONObject(context.playerState))
         put("context_meta", JSONObject(context.contextMeta))
+        put("visibility_envelope", JSONObject().apply {
+            put("campaign_uid", context.visibilityEnvelope.campaignUid)
+            put("audience_kind_uid", context.visibilityEnvelope.audience.audienceKindUid)
+            put("purpose_uid", context.visibilityEnvelope.purpose.purposeUid)
+            put("maximum_disclosure", context.visibilityEnvelope.maximumDisclosure.name)
+            put("authority_uid", context.visibilityEnvelope.authorityUid)
+        })
     }
 
     fun parseStatePatch(obj: JSONObject): StatePatch {
