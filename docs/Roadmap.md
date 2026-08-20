@@ -20,13 +20,27 @@ Operational protocol: `docs/PROJECT_WORK_PROTOCOL.md`
 
 Globalny status zmienia koordynator po sprawdzeniu implementacji, integracji, persistence/migration safety, regresji, full JVM/build/CI i wymaganych audytów. Raport workera, sama klasa/tabela albo zielony pojedynczy test nie oznaczają COMPLETE.
 
+## Globalny invariant uniwersalności przyszłych faz
+Każda przyszła Core phase musi być projektowana jako world-agnostic i style-agnostic. Nie może być jakościowo uznana za gotową tylko dlatego, że działa w jednym/dwóch aktualnych World Packach. Naruto/Bleach/Wiedźmin/fantasy/sci-fi i inne światy są fixtures/adversarial cases, nie hardcoded modelem Core.
+
+`CORE DEFINES UNIVERSAL CONTRACTS; WORLD PACK DEFINES SEMANTICS/CONTENT`.
+
+Każdy przyszły Core acceptance audit sprawdza co najmniej:
+- brak world-specific hardcoded authority/ról/ras/ranków/abilities/senses/secrecy classes;
+- możliwość rozszerzenia przez typed/data-driven World Pack definitions bez tworzenia konkurencyjnego Core engine;
+- działanie dla różnych typów World Actor/holder/group/organization, jeżeli domena ma zastosowanie;
+- działanie w więcej niż jednym stylu gry i adversarial cases z odmienną metafizyką/technologią/information model;
+- fail-closed behavior dla unknown World Pack rule/extension.
+
+Wyjątek stanowią jawnie World-Pack-specific fazy integracyjne (obecnie Phase 80–84), których zadaniem jest test konkretnego packa przeciwko uniwersalnemu Core, a nie zmiana Core pod ten pack.
+
 ## Aktualny baseline
 - Canonical accepted runtime through Phase 37: `7538c3ca16b5e74133f13ce611821d0699c798d0`.
 - Phase 37 final independent post-hardening audit: PASS on candidate `53aa66931926e92ed7cbe0d68deff4f4ee2378d6`; `P37-POST-AUD-001..003` FIXED; no new findings.
 - Audited GREEN evidence: full JVM `884` tests / `0` failures / `0` skipped on the exact audited app/test subtree; integration PR #69 preserved that subtree bit-for-bit on current master.
 - Separate push-triggered exact-merge-SHA Actions run for `7538c3ca...` was not surfaced by the available connector at coordinator close; no run ID is invented. Acceptance is based on independent audit + exact subtree identity + inspected GREEN evidence.
 - Pełne historyczne SHA/CI/artifacts/findingi: `docs/Historia projektu.md` i phase acceptance records.
-- Następny implementacyjny gate: **Phase 38 — GM/NPC/PC/player-visible knowledge separation + belief/reputation/access visibility boundaries, AUDIT FIRST**.
+- Następny implementacyjny gate: **Phase 38 — Universal Visibility, Access & Audience Boundary, AUDIT FIRST**.
 - Phase 48 pozostaje NOT STARTED.
 - World Pack Creator pozostaje DEFERRED do czasu globalnego ACCEPTED Phase 1–84.
 
@@ -77,7 +91,7 @@ Accepted scope i historical evidence Phase 1–36 są zamrożone i zarchiwizowan
 
 # FAZA C — CZAS, WIEDZA I RETRIEVAL
 - [x] 37. World Actor Knowledge, Expertise & Acquisition Provenance
-- [-] 38. GM/NPC/PC/player-visible knowledge separation + belief/reputation/access visibility boundaries
+- [-] 38. Universal Visibility, Access & Audience Boundary — GM/NPC/PC/player/access/perception/disclosure isolation
 - [-] 39. Temporal Engine historical truth
 - [-] 40. Scheduler — evaluation points/deadlines, not precommitted outcomes
 - [-] 41. Structured SQL Retriever
@@ -148,9 +162,64 @@ Minimalne acceptance tests Phase 37 obejmują co najmniej:
 - snapshot/replay -> exact epistemic state;
 - holder-scoped context A nie zawiera B-only knowledge.
 
-Dalsze Phase 38–47:
-- FACT/BELIEF/NARRATIVE i GM/NPC/PC/player-visible/access separation;
-- historical truth queries są temporalne, nie present-state substitution;
+Wymagane dla Phase 38 — Universal Visibility, Access & Audience Boundary:
+- world-agnostic `AudienceContext` + `PurposeContext`; każdy protected read ma jawnego odbiorcę i cel;
+- `FACT != KNOWLEDGE != ACCESS != PERCEPTION != INTERPRETATION != DISCLOSURE != PRESENTATION`;
+- Core nie zna world-specific roles/ranks/senses/secrecy classes; World Pack dostarcza typed definitions/rules, ale nie własny Visibility Engine;
+- campaign-qualified `VisibilitySubject/SubjectPropertyRef`, holder/actor/organization/role/grant/carrier/policy bindings; global immutable scope jest explicit;
+- composable generic `AccessPolicy` primitives + explicit temporal `AccessGrant/Revocation` z provenance;
+- `AUTHORIZED ACCESS != EFFECTIVE ACCESS`; legalny i nielegalny/bypass dostęp są reprezentowalne bez robienia z Phase38 law engine;
+- `ACCESS != AVAILABILITY != DECODE != COMPREHENSION != ACQUISITION`;
+- institutional/role access nie kopiuje automatycznie personal KnowledgeState; revocation usuwa dostęp, nie wcześniejszą memory/acquisition;
+- generic InformationCarrier + reach/open/decode/comprehend/copy/share semantics i World Pack-defined carrier kinds;
+- policy access oraz observational perception są osobnymi resolverami pod wspólnym Phase38 boundary;
+- perception działa na signal/evidence + capability/conditions, nie na omniscient identity; wspiera disguise/illusion/stealth/camouflage/decoy/false credentials bez hidden-FACT correction;
+- detection/location/recognition/classification/interpretation/understanding pozostają osobnymi etapami; Phase37 expertise może wpływać na interpretację, nie tworzy obserwacji;
+- disclosure jest granularne (`DENY`/existence/category/qualitative/approximate/range/summary/redacted/detailed/full lub data-driven equivalent), nie boolean;
+- uncertainty/confidence/precision/freshness/completeness są zachowywane przez projection;
+- `WORLD ACTOR != KNOWLEDGE HOLDER != HUMAN PLAYER`; shared minds, possession, party/multi-character i World Pack-defined cognition są representable bez kopiowania authority;
+- `PC_INTERNAL != PLAYER_VISIBLE`; jawna game-mode policy może dać graczowi narrative/strategic disclosure większe niż wiedza PC bez tworzenia PC acquisition;
+- Audience composition dla multi-character/party może być single holder/union/explicit shared/world-defined, ale knowledge holders pozostają rozdzieleni;
+- reputation jest holder/group/institution-scoped belief/assessment z evidence, nie globalnym score;
+- protected ContextBuilder/AI/UI consumers otrzymują już zredagowaną `VisibilityProjection`; raw hidden data nie trafia do promptu/UI tylko z instrukcją „nie pokazuj”;
+- `PROMPT INSTRUCTION IS NOT ACCESS CONTROL`; prompt injection/world text nie może eskalować audience;
+- Player Suggestions, Continue, recap, NPC dialogue/decision, Combat reactions, Local AI i Cloud AI używają dozwolonego audience+purpose projection;
+- World/Combat physics może używać hidden FACT do mechanicznego skutku, ale NPC/PC volitional decision nie może używać hidden FACT bez legalnej perception/knowledge;
+- local/cloud mogą mieć różne formaty contextu, ale cloud semantic entitlement nie może być szersze;
+- authoritative access bindings/grants/revocations są snapshot/replay/branch/undo-safe; derived visibility/perception decisions są deterministic/replay-safe, gdy wpływają na committed history;
+- Phase38 jest temporal-ready dla Phase39, ale nie implementuje pełnego historical query engine;
+- on-demand/batch/LOD-aware evaluation; brak globalnej macierzy actor x fact; cache ma bezpieczną invalidację;
+- repository-wide `Visibility Consumer Inventory`/równoważny fail-closed gate klasyfikuje każdy protected information consumer; nieklasyfikowany raw-query bypass -> CI FAIL;
+- unknown/corrupt/cross-campaign policy/grant/role/audience/disclosure -> DENY/typed error, nigdy fallback PUBLIC;
+- legacy `visibility/hidden/gm/...` jest compatibility inputem do validated adaptera, nie canonical authority;
+- authorized debug explainability pokazuje WHY allow/deny/partial bez leakowania tej internal explanation do niewłaściwego audience.
+
+Minimalne adversarial acceptance tests Phase 38 obejmują co najmniej:
+- GM/WORLD internal może czytać hidden FACT zgodnie z purpose; NPC/PC/player-facing projection nie;
+- NPC A nie uzyska B-only private knowledge przez ContextBuilder/AI/raw consumer path;
+- organization/role/clearance/grant działa tylko dla właściwej campaign i aktualnego bindingu;
+- membership/role access != personal acquisition; revoke access != delete memory;
+- carrier dostępny, ale encrypted/unknown language/no capability -> brak full content disclosure;
+- formalnie unauthorized spy/hacker/telepathic/world-defined bypass może uzyskać effective access tylko przez legalny world-rule resolution, nie przez policy spoofing;
+- disguise/illusion/decoy powoduje observer belief/evidence zgodne z perceived signal, a hidden objective identity nie poprawia projection;
+- hidden/unperceived combat action nie tworzy NPC ReactionOpportunity;
+- stale military/market/report knowledge nie zostaje odświeżone current FACT-em przez visibility projection;
+- partial estimate/range pozostaje partial i uncertain;
+- strategic/cutscene/player disclosure może być widoczne użytkownikowi bez nadania knowledge aktywnemu PC, jeśli jawna game-mode policy to dopuszcza;
+- split-party/controlled multi-character view nie miesza KnowledgeState postaci;
+- shared/hive holder model działa bez miliona duplikowanych personal acquisitions;
+- player suggestion nie ujawnia hidden GM/world fact; `Continue` nie zdradza hidden Living World process;
+- UI nie otrzymuje hidden raw fields do client-side ukrycia;
+- local i cloud player/NPC contexts obey ten sam semantic access envelope;
+- prompt injection w carrier/NPC text nie eskaluje projection authority;
+- cross-campaign holder/carrier/role/grant/policy ref -> FAIL;
+- unknown policy/disclosure/World Pack extension -> fail closed;
+- snapshot/replay/undo odtwarza grants/revocations/disclosures/perception evidence bez phantom visibility/knowledge;
+- repository-wide inventory test wykrywa nowy consumer omijający Phase38;
+- multi-world suite obejmuje co najmniej skrajnie odmienne modele: ordinary sensory world, high-tech/remote sensing, supernatural/telepathic, collective/shared-mind oraz strategy/management view — bez hardcoded gałęzi Core.
+
+Dalsze Phase 39–47:
+- historical truth/visibility queries są temporalne, nie present-state substitution;
 - Scheduler owns future evaluation points/deadlines, not guaranteed outcomes;
 - retrieval jest bounded/iterative i context actor/time/visibility-safe;
 - cloud context, gdy później aktywny, jest minimalny i sanitised zamiast whole-save export.

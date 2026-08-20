@@ -13,6 +13,22 @@ Przy konflikcie obowiązuje kolejno:
 
 Nie implementuj architektury z pamięci. Najpierw sprawdź repozytorium.
 
+## 0.1 Globalny Invariant Uniwersalności — OBOWIĄZUJE WSZYSTKIE PRZYSZŁE FAZY
+RPG OS jest uniwersalnym Core dla dowolnego uniwersum, World Packa, gatunku gry, stylu rozgrywki i rodzaju odgrywanej postaci. **Każda przyszła faza, mechanizm, domena, API, schema, resolver, AI boundary i acceptance contract MUSI być projektowany najpierw jako rozwiązanie world-agnostic.**
+
+Nie wolno projektować Core pod jeden lub dwa aktualnie używane World Packi ani traktować Naruto, Bleach, Wiedźmina, fantasy, sci-fi, strategii, horroru czy jakiegokolwiek innego świata jako ukrytego modelu referencyjnego Core. Przykłady z konkretnych światów są wyłącznie testami/fixtures; nie mogą stać się hardcoded authority, nazwą domeny ani warunkiem działania Core.
+
+Globalne zasady:
+- `CORE DEFINES UNIVERSAL CONTRACTS; WORLD PACK DEFINES SEMANTICS AND CONTENT`;
+- `WORLD PACK MAY EXTEND DATA/RULE DEFINITIONS; IT MAY NOT REPLACE CORE AUTHORITY ENGINES`;
+- future feature musi działać dla różnych typów aktorów: pojedynczej postaci, grupy, organizacji, państwa, armii, pojazdu, bytu nieludzkiego, kolektywu, AI/world-defined actor itd., jeżeli dana domena ma do nich zastosowanie;
+- future feature musi uwzględniać różne style gry: character RPG, tactical/strategy, management, trading, science/research, medicine, investigation, espionage/politics, exploration i World Pack-defined styles;
+- world-specific role, race, rank, ability, sense, secrecy class, resource, organization lub metafizyka jest `UID/definition/rule` dostarczanym przez World Pack, nie `if/else` zaszytym w Core;
+- jeżeli rozwiązanie działa tylko w jednym/dwóch obecnych World Packach, faza jest jakościowo NIEGOTOWA do canonical acceptance, chyba że sama faza jest jawnie World-Pack-specific (np. Phase 80–84 integration packs);
+- acceptance nowych Core phases MUSI zawierać multi-world / multi-style adversarial cases potwierdzające brak ukrytego world lock-in.
+
+Ten invariant ma pierwszeństwo przed wygodą implementacyjną późniejszych faz i nie może zostać osłabiony przez prompt, AI provider, UI ani World Pack.
+
 ## 1. Misja i granica odpowiedzialności
 RPG OS jest uniwersalnym systemem operacyjnym dla bardzo długich kampanii RPG: setki tysięcy tur, miliony eventów i słów, lata rozgrywki, bez utraty stanu, historii, progresji, przedmiotów, pieniędzy, własności, wiedzy, chronologii i campaign divergence.
 
@@ -268,6 +284,93 @@ Canonical acquisitions uczestniczą w Single Truth Mutation Path, TurnTransactio
 Retry tej samej logicznej acquisition nie tworzy duplikatu; rollback nie pozostawia phantom knowledge; snapshot/replay odtwarza ten sam epistemic state.
 
 ContextBuilder nie jest authority wiedzy. Docelowo pobiera holder-scoped `KnowledgeContextProjection`/typed Knowledge API zamiast definiować własną semantykę bezpośrednimi SQL query.
+
+### 10.9 Phase 38 — Universal Visibility, Access & Audience Boundary — CANONICAL FUTURE CONTRACT
+Phase 38 jest drugim filarem epistemicznym po Phase 37. Phase 37 odpowiada `WHO KNOWS/THINKS WHAT AND WHY`; Phase 38 odpowiada `WHO MAY ACCESS / PERCEIVE / UNDERSTAND / RECEIVE WHICH INFORMATION FOR WHICH PURPOSE`. Nie tworzy nowej prawdy ani nowej wiedzy; buduje fail-closed projections nad authoritative state i Phase-37 epistemic state.
+
+Globalny invariant:
+`FACT != KNOWLEDGE != ACCESS != PERCEPTION != INTERPRETATION != DISCLOSURE != PRESENTATION`.
+`DATA EXISTS` nigdy nie oznacza automatycznie `THIS AUDIENCE MAY SEE/USE IT`.
+
+#### 10.9.1 World-agnostic Core / World Pack boundary
+Core Phase 38 zna wyłącznie generic concepts: `AudienceContext`, `PurposeContext`, `VisibilitySubject/PropertyRef`, `AccessPolicy`, `AccessGrant/Revocation`, `Role/Organization/Clearance/Capability bindings`, `InformationCarrier`, `Signal`, `PerceptionAttempt`, `DisclosureLevel`, `VisibilityDecision/Projection` i provenance. Core nie zna nazw ról, klas tajności, zmysłów, technologii, magii ani metafizyki konkretnego świata.
+
+World Pack może definiować role, organizations, clearance levels, carrier kinds, signal/detection channels, comprehension capabilities, protection/bypass rules i world-specific policies, ale **nie może implementować konkurencyjnego Visibility/Access Engine**. Unknown/unsupported world rule failuje zamknięcie zamiast awansować do PUBLIC.
+
+#### 10.9.2 Audience i purpose są obowiązkowe
+Chroniony odczyt posiada jawny `AudienceContext` związany co najmniej z campaign, audience kind oraz odpowiednimi holder/actor/organization/role/grant/capability bindings. `PurposeContext` ogranicza minimalny potrzebny widok, np. world simulation, actor decision, combat decision, dialogue, planning, player narration, player UI, player suggestion lub authorized debug.
+
+Nie istnieje jeden omniscient `ContextBundle`, z którego consumer ma sam usuwać sekrety. Raw authoritative stores -> Phase38 projection -> purpose filter -> consumer context.
+
+`WORLD_INTERNAL`, `GM_INTERNAL`, `ACTOR_INTERNAL`, `PC_INTERNAL`, `PLAYER_VISIBLE`, `ORGANIZATION/ROLE_CONTEXT`, `PUBLIC` są różnymi audience semantics, nie kopiami prawdy. Projection privilege może pozostać równy lub maleć; nie może implicit eskalować do szerszego audience.
+
+#### 10.9.3 Policy access i effective access są rozdzielone
+`AUTHORIZED TO ACCESS != CAN EFFECTIVELY OBTAIN`. Formalny role/clearance/grant nie jest jedyną drogą informacji: świat może pozwalać na theft, interception, physical/technical bypass, social engineering, telepathy, magical/technical penetration albo World Pack-defined mechanisms. Phase 38 musi reprezentować legalność/authorization oddzielnie od faktycznego effective access; konsekwencje prawne/moralne należą do odpowiednich domen świata.
+
+Pipeline dostępu rozróżnia co najmniej: `AUTHORIZED -> REACHABLE/AVAILABLE -> OPEN/DECODE -> COMPREHEND -> DISCLOSE/OBSERVE -> possible Phase37 acquisition`. `ACCESS != ACQUISITION`; dostęp do biblioteki/bazy/archiwum nie daje wiedzy o całej zawartości.
+
+#### 10.9.4 PolicyAccessResolver i PerceptionResolver
+Pod wspólnym `VisibilityAuthorityService` istnieją co najmniej dwa typy rozstrzygnięć:
+- policy/carrier access — role, organization, grant, clearance, ownership, credentials, protection/bypass, availability;
+- observational perception — signal emission, channel compatibility, detection capability, conditions, attention/capacity hooks, recognition/interpretation.
+
+Perception operuje na signals/evidence, nie na omniscient objective identity. Dzięki temu disguise, illusion, stealth, camouflage, decoy, encryption i false credentials mogą działać bez automatycznego poprawiania obserwatora hidden FACT-em.
+
+`DETECT != LOCATE != RECOGNIZE != CLASSIFY != INTERPRET != UNDERSTAND`. Expertise Phase 37 może poprawiać recognition/interpretation, lecz nie generuje sygnału ani wiedzy z niczego.
+
+#### 10.9.5 Granular subjects i disclosure
+Chroniony subject może być FACT/claim/evidence/carrier/event/entity/location/effect/resource/army/project/stat/property albo World Pack-defined ref. Ochrona może działać na pojedynczej właściwości (`SubjectPropertyRef`), ponieważ odbiorca może znać istnienie obiektu bez jego lokalizacji, właściciela, siły, celu lub innych pól.
+
+Disclosure nie jest boolean. Core wspiera semantyczne poziomy typu `DENY`, `EXISTENCE_ONLY`, `CATEGORY/QUALITATIVE`, `APPROXIMATE/RANGE`, `SUMMARY`, `REDACTED`, `DETAILED`, `FULL` lub równoważny data-driven contract. Projection zachowuje uncertainty/confidence/precision/completeness/freshness zamiast zamieniać szacunek w dokładny FACT.
+
+`NOT_VISIBLE`, `UNKNOWN`, `KNOWN_ABSENT`, `REDACTED`, `ACCESS_DENIED` i `UNRESOLVED` nie są synonimami.
+
+#### 10.9.6 Holder, actor i player są odrębnymi tożsamościami
+`WORLD ACTOR != KNOWLEDGE HOLDER != HUMAN PLAYER`. Jeden shared/hive mind może być jednym holderem dla wielu aktorów; possession, split party, multi-character control i World Pack-defined cognition mogą wiązać audience z wieloma holderami bez kopiowania ich acquisitions.
+
+`PC_INTERNAL != PLAYER_VISIBLE`. Domyślny character-RPG player view jest ograniczony przez PC knowledge/perception, ale jawna game-mode/world policy może legalnie pokazać graczowi więcej (np. strategic UI, controlled-party union, spectator/cutscene disclosure) **bez nadawania tej wiedzy PC**. Player disclosure i PC acquisition muszą pozostawać osobnymi semantykami.
+
+Former PC po legalnym control transfer staje się zwykłym World Actorem/holderem; nowy PC nie dziedziczy jego prywatnego visibility/knowledge state.
+
+#### 10.9.7 Organization, role, clearance i grants
+Institutional knowledge nie staje się osobistą pamięcią członków. Role/clearance/grant może udostępnić institutional view; dopiero rzeczywiste observation/read/briefing może utworzyć Phase37 acquisition. Revocation usuwa przyszły dostęp, nie kasuje osobistej wiedzy zdobytej wcześniej.
+
+Canonical access grants/revocations/role/clearance bindings są campaign-qualified, temporal-ready i posiadają provenance/cause. Global immutable definitions są jawne; `campaignUid=null` nie oznacza automatycznie globalności.
+
+#### 10.9.8 InformationCarrier i communication
+Carrier jest generic nośnikiem informacji, nie hardcoded dokumentem: może być materialny, cyfrowy, biologiczny, magiczny, sygnałowy lub World Pack-defined. Możliwe poziomy interakcji obejmują istnienie/lokalizację/reach/open/decode/comprehend/copy/share zgodnie z rules świata.
+
+Authorization nie gwarantuje availability: zerwana komunikacja, brak nośnika, zniszczony carrier, brak klucza/języka/capability albo opóźnienie raportu mogą blokować aktualny dostęp. Zniszczenie carriera nie usuwa wcześniejszej osobistej acquisition holdera.
+
+#### 10.9.9 Reputation i public belief
+Reputation nie jest omniscient globalnym score. Jest holder/group/institution-scoped assessment/belief o subject i typed dimension, z confidence/evidence/lineage. Różne populacje/frakcje mogą legalnie posiadać przeciwne reputacje tej samej osoby. Group/population holders i LOD aggregation mogą ograniczać koszt bez materializowania wiedzy każdego mieszkańca.
+
+#### 10.9.10 Context, AI, UI i anti-leak boundary
+`PROMPT INSTRUCTION IS NOT ACCESS CONTROL`. Sekret nie może trafiać do promptu/NPC brain/player suggestions/UI tylko z instrukcją „nie ujawniaj”. Consumer otrzymuje już zminimalizowaną/redacted `VisibilityProjection`.
+
+Presentation layer nie otrzymuje hidden raw fields tylko po to, by ukryć je wizualnie. Player suggestions, `Continue`, situation recap, dialogue, NPC decision, Combat reaction, local AI i cloud AI muszą używać odpowiedniego audience+purpose projection. Cloud może mieć inny format/compression, ale nie szersze semantic entitlement.
+
+World Simulation/Combat physics może używać hidden FACT do rozstrzygnięcia rzeczywistych skutków; aktor Decision Engine nie może używać tego FACT do dobrowolnej decyzji bez legalnej perception/knowledge. `PHYSICS MAY KNOW; VOLITION MAY NOT CHEAT`.
+
+#### 10.9.11 Persistence, replay i temporal readiness
+Authoritative są co najmniej trwałe grants/revocations/bindings oraz inne world-state changes wpływające na access. `VisibilityDecision`, `VisibilityProjection` i większość query-time perception views mogą być derived, ale każde losowe/nieodwracalne perception result wpływające na historię musi być replay-safe przez Event/evidence/RNG provenance.
+
+Phase 38 jest temporal-ready dla Phase 39: później musi dać się odtworzyć, kto miał legalny/effective access lub player disclosure w czasie T. Snapshot/load/replay/branch/undo zachowują access-authority state i nie pozostawiają wiedzy/disclosure z cofniętej linii.
+
+#### 10.9.12 Performance i LOD
+Visibility jest oceniane on-demand/batch dla relevant subjects/audiences, nie materializowane jako globalna macierz `all actors x all facts`. System wspiera group audience/aggregate, batch evaluation, cache/derived projections z bezpieczną invalidacją i lazy detail. Koszt skaluje się z relevant state, nie całym światem.
+
+#### 10.9.13 Visibility Consumer Inventory — GLOBAL GUARD
+Każdy runtime subsystem/UI/AI path konsumujący protected information musi być jawnie sklasyfikowany jako `ProtectedInformationConsumer`/równoważny wpis z dozwolonym audience/purpose/projection source. Brak klasyfikacji lub bezpośredni protected raw-query bypass failuje repository-wide validation/CI.
+
+World Pack, plugin, UI ani przyszła faza nie może ominąć Phase38 przez własną tabelę/flagę `visible`, raw SQL ani prompt. Ten inventory jest odpowiednikiem writer-inventory guardu dla odczytów chronionych informacji.
+
+#### 10.9.14 Fail-closed i explainability
+Unknown audience/policy/role/grant/disclosure/cross-campaign ref/corrupted lineage/projection schema -> `DENY` lub typed corruption/error, nigdy fallback PUBLIC. Same-name/legacy `hidden`, `gm`, `visibility` fields są compatibility inputami do validated adaptera, nie canonical authority.
+
+Authorized debug może wyjaśnić `WHY ALLOW/DENY/PARTIAL` przez policy/role/grant/capability/evidence bez przekazywania samej internal explanation niewłaściwemu audience.
+
+Phase 38 nie implementuje jeszcze pełnego Living World, Decision Engine, Combat Engine, rumor propagation, Temporal Engine ani World Pack Creator. Dostarcza uniwersalny boundary, z którego te systemy korzystają.
 
 ## 11. Temporal Engine, Scheduler i Time Skip
 Stan historyczny może posiadać `validFrom/validUntil` lub równoważny temporal contract. Retrieval musi odpowiadać „co było prawdą wtedy?”, nie automatycznie używać teraźniejszości.
