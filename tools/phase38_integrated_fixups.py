@@ -175,8 +175,7 @@ def c():
     # Access resolver is the sole builder that injects canonical role/org/clearance state.
     rel='app/src/main/java/com/rpgos/app/Phase38AccessAuthority.kt'; f=p(rel); s=f.read_text(encoding='utf-8')
     s=s.replace('''        return Phase38RuntimeAuthority.application(audience,controls,cognitionResolver,roles,orgs,clearances)
-''','''        val principal=audience.principal?:return null
-        if(audience.audienceKindUid in setOf(AudienceKinds.GM_RUNTIME,AudienceKinds.INTERNAL_SYSTEM,AudienceKinds.DEVELOPER_DIAGNOSTIC))return null
+''','''        if(audience.audienceKindUid in setOf(AudienceKinds.GM_RUNTIME,AudienceKinds.INTERNAL_SYSTEM,AudienceKinds.DEVELOPER_DIAGNOSTIC))return null
         return TrustedPrincipalContext(audience.campaignUid,principal,audience.audienceKindUid,controls,roles,orgs,clearances,cognitionResolver.holdersFor(audience.campaignUid,principal))
 ''')
     f.write_text(s,encoding='utf-8')

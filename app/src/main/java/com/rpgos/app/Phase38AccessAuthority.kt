@@ -89,7 +89,6 @@ class UniversalAccessAuthority(private val store:AccessAuthorityStore){
         val orgs=records.filter{it.kindUid==AccessBindingKind.ORGANIZATION.name}.map{it.valueUid}.toSet()
         val clearances=records.filter{it.kindUid==AccessBindingKind.CLEARANCE.name}.map{it.valueUid}.toSet()
         val controls=records.filter{it.kindUid==AccessBindingKind.CONTROL.name}.mapNotNull{it.subjectUid}.toSet()
-        val principal=audience.principal?:return null
         if(audience.audienceKindUid in setOf(AudienceKinds.GM_RUNTIME,AudienceKinds.INTERNAL_SYSTEM,AudienceKinds.DEVELOPER_DIAGNOSTIC))return null
         return TrustedPrincipalContext(audience.campaignUid,principal,audience.audienceKindUid,controls,roles,orgs,clearances,cognitionResolver.holdersFor(audience.campaignUid,principal))
     }
