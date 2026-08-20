@@ -21,8 +21,21 @@ data class ContextBundle(
     val campaignTruth: List<Map<String, Any?>> = emptyList(),
     val canonDivergences: List<CanonDivergenceRecord> = emptyList(),
     val playerState: Map<String, Any?> = emptyMap(),
-    val contextMeta: Map<String, Any?> = emptyMap()
-)
+    val contextMeta: Map<String, Any?> = emptyMap(),
+    val visibilityEnvelope: VisibilityProjectionEnvelope
+) {
+    fun reduceDisclosureTo(level: DisclosureLevel): ContextBundle =
+        copy(visibilityEnvelope = visibilityEnvelope.reduceTo(level))
+
+    fun requireNotEscalatedFrom(upstream: VisibilityProjectionEnvelope) {
+        require(upstream.campaignUid == visibilityEnvelope.campaignUid && upstream.audience == visibilityEnvelope.audience && upstream.purpose == visibilityEnvelope.purpose) {
+            "RPGOS-VISIBILITY:PROJECTION_IDENTITY_CHANGED"
+        }
+        if (!upstream.maximumDisclosure.canReduceTo(visibilityEnvelope.maximumDisclosure)) {
+            throw VisibilityAuthorityFailure.Escalation()
+        }
+    }
+}
 
 data class PatchOperation(val op:String,val table:String,val key:Map<String,Any?>,val values:Map<String,Any?>)
 data class StatePatch(val transactionId:String,val operations:List<PatchOperation>,val chapterManifest:Map<String,Any?> = emptyMap(),val requiresValidation:Boolean = true)
