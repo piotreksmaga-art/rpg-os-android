@@ -1,0 +1,46 @@
+name: Phase38 A+B Diagnostic
+on:
+  pull_request:
+    branches: [master]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chat1-phase38-slice-ab-protected-read
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: android-actions/setup-android@v3
+      - run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '9.5.0', cache-read-only: true}
+      - run: |
+          gradle wrapper --gradle-version 9.5.0
+          chmod +x gradlew
+          python3 tools/phase38_integrated_patch.py hardening
+          python3 tools/phase38_integrated_fixups.py hardening
+          git diff --check
+      - name: Compile and targeted diagnostic
+        shell: bash
+        run: |
+          set +e
+          ./gradlew --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase38*' --stacktrace > /tmp/p38.log 2>&1
+          rc=$?
+          echo "P38_RC=$rc"
+          if [ "$rc" -ne 0 ]; then
+            echo '=== KOTLIN/JAVA ERRORS ==='
+            grep -E '(^e: file:| error: |Compilation error|Unresolved reference|overrides nothing|Cannot access|Type mismatch|No value passed|Too many arguments)' /tmp/p38.log | tail -n 200 || true
+            echo '=== TEST FAILURES ==='
+            grep -E '(FAILED|AssertionError|expected:|but was:|There were failing tests|FAILURE: Build failed)' /tmp/p38.log | tail -n 200 || true
+            echo '=== LOG TAIL ==='
+            tail -n 180 /tmp/p38.log
+          else
+            grep -E 'BUILD SUCCESSFUL' /tmp/p38.log | tail -n 5 || true
+          fi
+          exit "$rc"
