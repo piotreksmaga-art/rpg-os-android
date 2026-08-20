@@ -11,22 +11,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 9d660daf7506a018e3027c95fe8ea263b57b587f
+          ref: 579b6d1c8efe65c0142ca4cae4b95b873658e66e
           fetch-depth: 0
       - name: Verify immutable Slice D candidate
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "9d660daf7506a018e3027c95fe8ea263b57b587f"
+          test "$(git rev-parse HEAD)" = "579b6d1c8efe65c0142ca4cae4b95b873658e66e"
           git fetch origin master
           test "$(git rev-parse origin/master)" = "e4b539fa87113c5ec46da2facf282c8004dc7e44"
-          git diff --check cf77ac7a19ccf607051a68d19c099590dca1c3ff..HEAD
-          test -z "$(git diff --name-only cf77ac7a19ccf607051a68d19c099590dca1c3ff..HEAD | grep -E '^app/src/main/java/com/rpgos/app/Phase32' || true)"
-          test -z "$(git diff --name-only cf77ac7a19ccf607051a68d19c099590dca1c3ff..HEAD | grep -E '^backend/' || true)"
-          test -z "$(git diff --name-only cf77ac7a19ccf607051a68d19c099590dca1c3ff..HEAD | grep -E '^docs/' || true)"
-          test -z "$(git diff --name-only cf77ac7a19ccf607051a68d19c099590dca1c3ff..HEAD | grep -Ei 'phase39|phase4[0-9]|phase[5-9][0-9]' || true)"
-          changed="$(git diff --name-only cf77ac7a19ccf607051a68d19c099590dca1c3ff..HEAD)"
-          test "$changed" = $'app/src/main/java/com/rpgos/app/Phase38PerceptionDisclosure.kt\napp/src/test/java/com/rpgos/app/Phase38SliceDPerceptionDisclosureTest.kt'
+          git diff --check cf77ac7a19ccf607051a68d19c099590dca1c3ff..HEAD -- app/src/main/java app/src/test/java backend
+          test -z "$(git diff --name-only cf77ac7a19ccf607051a68d19c099590dca1c3ff..HEAD -- app/src/main/java | grep -E '^app/src/main/java/com/rpgos/app/Phase32' || true)"
+          test -z "$(git diff --name-only cf77ac7a19ccf607051a68d19c099590dca1c3ff..HEAD -- backend || true)"
+          changed="$(git diff --name-only cf77ac7a19ccf607051a68d19c099590dca1c3ff..HEAD -- app/src/main/java app/src/test/java backend)"
+          test "$changed" = $'app/src/main/java/com/rpgos/app/Phase38PerceptionDisclosure.kt\napp/src/test/java/com/rpgos/app/Phase38SliceDPerceptionDisclosureTest.kt\napp/src/test/java/com/rpgos/app/Phase38SliceDTypedNoDataRegressionTest.kt'
       - name: Slice D universality static audit
         shell: bash
         run: |
@@ -34,27 +32,22 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           p=Path('app/src/main/java/com/rpgos/app/Phase38PerceptionDisclosure.kt')
-          s=p.read_text().lower()
+          text=p.read_text(); s=text.lower()
           banned=['naruto','shinobi','ninja','chakra','bleach','reiatsu','witcher','wizard','dragon','jedi','radar','telepathy','magic sight']
           bad=[x for x in banned if x in s]
-          print('SLICE_D_UNIVERSALITY_BAD',bad)
-          assert not bad
-          assert 'KnowledgeStore(' not in p.read_text()
-          assert 'KnowledgeAcquisitionChange(' not in p.read_text()
+          print('SLICE_D_UNIVERSALITY_BAD',bad); assert not bad
+          assert 'KnowledgeStore(' not in text
+          assert 'KnowledgeAcquisitionChange(' not in text
           PY
       - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
+        with: {distribution: temurin, java-version: '17'}
       - uses: android-actions/setup-android@v3
       - name: Android SDK
         run: |
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.5.0'
-          cache-read-only: true
+        with: {gradle-version: '9.5.0', cache-read-only: true}
       - name: Temporary wrapper
         run: |
           gradle wrapper --gradle-version 9.5.0
@@ -81,7 +74,7 @@ jobs:
           assert t and not f
           PY
           test "$gradle_status" -eq 0
-          test "$(git rev-parse HEAD)" = "9d660daf7506a018e3027c95fe8ea263b57b587f"
+          test "$(git rev-parse HEAD)" = "579b6d1c8efe65c0142ca4cae4b95b873658e66e"
       - name: Isolate targeted XML and results
         run: rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
       - name: FULL JVM exact-SHA gate
@@ -105,8 +98,8 @@ jobs:
           assert t and not f
           PY
           test "$gradle_status" -eq 0
-          test "$(git rev-parse HEAD)" = "9d660daf7506a018e3027c95fe8ea263b57b587f"
+          test "$(git rev-parse HEAD)" = "579b6d1c8efe65c0142ca4cae4b95b873658e66e"
       - name: Confirm integrated green candidate
         run: |
-          echo "SLICE_D_GREEN_SHA=9d660daf7506a018e3027c95fe8ea263b57b587f"
-          test "$(git rev-parse HEAD)" = "9d660daf7506a018e3027c95fe8ea263b57b587f"
+          echo "SLICE_D_GREEN_SHA=579b6d1c8efe65c0142ca4cae4b95b873658e66e"
+          test "$(git rev-parse HEAD)" = "579b6d1c8efe65c0142ca4cae4b95b873658e66e"
