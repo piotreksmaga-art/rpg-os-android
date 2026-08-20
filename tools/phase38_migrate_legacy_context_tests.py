@@ -39,8 +39,8 @@ replace("app/src/test/java/com/rpgos/app/Phase32TruthTypeEndToEndTest.kt",
         'ContextBuilder(db,world).build("inspect truth",1,VisibilityAudienceFactory.diagnostic("C1"),PurposeContext("C1",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION))')
 
 # Phase38 strict canonical reads correctly treat missing required schema as corruption.
-# Older focused tests intentionally build partial databases. Complete the empty presentation-read
-# schema required by ContextBuilder rather than weakening production fail-closed behavior.
+# Older focused tests intentionally build partial databases. Complete only the minimal canonical
+# schema required by the accepted protected readers; production remains fail-closed.
 fixture = Path("app/src/test/java/com/rpgos/app/Phase38LegacyContextFixtureSchema.kt")
 fixture.write_text('''package com.rpgos.app
 
@@ -55,10 +55,31 @@ internal object Phase38LegacyContextFixtureSchema {
         db.execSQL("CREATE TABLE IF NOT EXISTS future_world_pressure(pressure_uid TEXT,target_type TEXT,target_uid TEXT,starts_day INTEGER,peaks_day INTEGER,pressure_type TEXT,magnitude REAL,summary TEXT,hidden INTEGER DEFAULT 0)")
         db.execSQL("CREATE TABLE IF NOT EXISTS chapter_manifests_v2(chapter INTEGER,title TEXT,active_threads_json TEXT,decisions_json TEXT,consequences_json TEXT,quests_json TEXT,continuity_warnings_json TEXT)")
         db.execSQL("CREATE TABLE IF NOT EXISTS npc_memories_v2(memory_uid TEXT,entity_uid TEXT,memory_type TEXT,subject_uid TEXT,chapter INTEGER,day INTEGER,importance REAL,emotional_valence REAL,accuracy REAL,summary TEXT,active INTEGER DEFAULT 1)")
-        db.execSQL("CREATE TABLE IF NOT EXISTS organization_memberships_v3(organization_uid TEXT,character_uid TEXT,unit_uid TEXT,position_uid TEXT,role_title TEXT,status TEXT)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS organization_memberships_v3(organization_uid TEXT,character_uid TEXT,unit_uid TEXT,position_uid TEXT,role_title TEXT,status TEXT,loyalty REAL)")
+        if (!hasColumn(db, "organization_memberships_v3", "loyalty")) {
+            db.execSQL("ALTER TABLE organization_memberships_v3 ADD COLUMN loyalty REAL")
+        }
         db.execSQL("CREATE TABLE IF NOT EXISTS timeline_events(timeline_uid TEXT,name TEXT)")
         db.execSQL("CREATE TABLE IF NOT EXISTS active_world_events(timeline_uid TEXT,event_type TEXT,status TEXT,public_summary TEXT,gm_summary TEXT,started_day INTEGER)")
     }
+
+    fun ensure(saveDb: SQLiteDatabase, worldDb: SQLiteDatabase) {
+        ensure(saveDb)
+        ensureWorld(worldDb)
+    }
+
+    fun ensureWorld(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS canon_constraints_v2(constraint_uid TEXT,subject_type TEXT,subject_uid TEXT,constraint_key TEXT,constraint_value TEXT,canon_scope TEXT,notes TEXT,status TEXT)")
+    }
+
+    private fun hasColumn(db: SQLiteDatabase, table: String, column: String): Boolean =
+        db.rawQuery("PRAGMA table_info($table)", null).use { cursor ->
+            val nameIndex = cursor.getColumnIndex("name")
+            while (cursor.moveToNext()) {
+                if (nameIndex >= 0 && cursor.getString(nameIndex).equals(column, ignoreCase = true)) return@use true
+            }
+            false
+        }
 }
 ''')
 
@@ -71,25 +92,25 @@ replace("app/src/test/java/com/rpgos/app/TechniqueContextBuilderTest.kt",
         'run { Phase38LegacyContextFixtureSchema.ensure(db); ContextBuilder(db, db).build("status",1,VisibilityAudienceFactory.player(campaignId),PurposeContext(campaignId,VisibilityPurposeKinds.GAMEPLAY_NARRATION)) }')
 replace("app/src/test/java/com/rpgos/app/Phase32ContextBuilderTruthReadTest.kt",
         'ContextBuilder(save,world).build("look",1,VisibilityAudienceFactory.diagnostic("C"),PurposeContext("C",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION))',
-        'run { Phase38LegacyContextFixtureSchema.ensure(save); ContextBuilder(save,world).build("look",1,VisibilityAudienceFactory.diagnostic("C"),PurposeContext("C",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }')
+        'run { Phase38LegacyContextFixtureSchema.ensure(save, world); ContextBuilder(save,world).build("look",1,VisibilityAudienceFactory.diagnostic("C"),PurposeContext("C",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }')
 replace("app/src/test/java/com/rpgos/app/Phase32ContextBuilderTruthReadTest.kt",
         'ContextBuilder(save,world).build("look again",2,VisibilityAudienceFactory.diagnostic("C"),PurposeContext("C",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION))',
-        'run { Phase38LegacyContextFixtureSchema.ensure(save); ContextBuilder(save,world).build("look again",2,VisibilityAudienceFactory.diagnostic("C"),PurposeContext("C",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }')
+        'run { Phase38LegacyContextFixtureSchema.ensure(save, world); ContextBuilder(save,world).build("look again",2,VisibilityAudienceFactory.diagnostic("C"),PurposeContext("C",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }')
 replace("app/src/test/java/com/rpgos/app/Phase32ContextCanonicalDomainsTest.kt",
         'ContextBuilder(save,world).build("inspect canonical domains",1,VisibilityAudienceFactory.diagnostic("C"),PurposeContext("C",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION))',
-        'run { Phase38LegacyContextFixtureSchema.ensure(save); ContextBuilder(save,world).build("inspect canonical domains",1,VisibilityAudienceFactory.diagnostic("C"),PurposeContext("C",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }')
+        'run { Phase38LegacyContextFixtureSchema.ensure(save, world); ContextBuilder(save,world).build("inspect canonical domains",1,VisibilityAudienceFactory.diagnostic("C"),PurposeContext("C",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }')
 replace("app/src/test/java/com/rpgos/app/Phase32ContextCanonicalDomainsTest.kt",
         'ContextBuilder(save,world).build("rebuild canonical domains",2,VisibilityAudienceFactory.diagnostic("C"),PurposeContext("C",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION))',
-        'run { Phase38LegacyContextFixtureSchema.ensure(save); ContextBuilder(save,world).build("rebuild canonical domains",2,VisibilityAudienceFactory.diagnostic("C"),PurposeContext("C",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }')
+        'run { Phase38LegacyContextFixtureSchema.ensure(save, world); ContextBuilder(save,world).build("rebuild canonical domains",2,VisibilityAudienceFactory.diagnostic("C"),PurposeContext("C",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }')
 replace("app/src/test/java/com/rpgos/app/Phase32LegacyUnknownProjectionTest.kt",
         '.build("inspect legacy history",1,VisibilityAudienceFactory.diagnostic("C1"),PurposeContext("C1",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION))',
-        '.let { builder -> Phase38LegacyContextFixtureSchema.ensure(db); builder.build("inspect legacy history",1,VisibilityAudienceFactory.diagnostic("C1"),PurposeContext("C1",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }')
+        '.let { builder -> Phase38LegacyContextFixtureSchema.ensure(db, world); builder.build("inspect legacy history",1,VisibilityAudienceFactory.diagnostic("C1"),PurposeContext("C1",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }')
 replace("app/src/test/java/com/rpgos/app/Phase32OwnershipIsolationTest.kt",
         'ContextBuilder(db,world).build("inspect",1,VisibilityAudienceFactory.diagnostic("C1"),PurposeContext("C1",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION))',
-        'run { Phase38LegacyContextFixtureSchema.ensure(db); ContextBuilder(db,world).build("inspect",1,VisibilityAudienceFactory.diagnostic("C1"),PurposeContext("C1",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }')
+        'run { Phase38LegacyContextFixtureSchema.ensure(db, world); ContextBuilder(db,world).build("inspect",1,VisibilityAudienceFactory.diagnostic("C1"),PurposeContext("C1",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }')
 replace("app/src/test/java/com/rpgos/app/Phase32TruthTypeEndToEndTest.kt",
         'ContextBuilder(db,world).build("inspect truth",1,VisibilityAudienceFactory.diagnostic("C1"),PurposeContext("C1",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION))',
-        'run { Phase38LegacyContextFixtureSchema.ensure(db); ContextBuilder(db,world).build("inspect truth",1,VisibilityAudienceFactory.diagnostic("C1"),PurposeContext("C1",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }')
+        'run { Phase38LegacyContextFixtureSchema.ensure(db, world); ContextBuilder(db,world).build("inspect truth",1,VisibilityAudienceFactory.diagnostic("C1"),PurposeContext("C1",VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)) }')
 
 # This regression reaches ContextBuilder through LocalGameStore. Complete its setup fixture and
 # reinstall the canonical guard set at the explicit test-setup boundary so requireReady remains valid.
