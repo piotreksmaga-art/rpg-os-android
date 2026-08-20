@@ -265,7 +265,15 @@ Credentials/auth state nie należą do Campaign State, Save, Chronicle ani World
 ### 13.2 Player agency
 `VOLITIONAL PLAYER ACTION SOURCE = USER / VALIDATED PLAYER COMMAND ONLY`.
 
-AI nie dopisuje graczowi dobrowolnych ruchów, wypowiedzi, ataków, wyborów celu ani zdolności. Mechanika może narzucić konsekwencje niezależne od woli, np. stun/knockback/utrata przytomności.
+`ACTIVE_PLAYER_CHARACTER CONTROL AUTHORITY = USER ONLY`.
+
+AI/MG, Director, NPC Brain, World Simulation, Scheduler, cloud/local provider ani żaden inny autonomiczny subsystem nie może przejąć kontroli nad aktualnie graną postacią, wygenerować za nią dobrowolnej decyzji ani zamienić proposal/narracji w akcję PC bez zwalidowanego inputu użytkownika.
+
+AI nie dopisuje graczowi dobrowolnych ruchów, wypowiedzi, ataków, wyborów celu, użycia techniki/przedmiotu, akceptacji/odrzucenia zadania, zmiany celu, relacji, planu ani transferu kontroli. Mechanika może narzucić wyłącznie konsekwencje niezależne od woli, np. stun, knockback, utrata przytomności, forced movement lub inne jawnie zdefiniowane World Rule effects; taki skutek pozostaje `MECHANICAL CONSEQUENCE != VOLITIONAL PLAYER ACTION`.
+
+System musi structurally rozróżniać co najmniej `PLAYER_COMMAND`, `NPC/WORLD ACTION`, `MECHANICAL CONSEQUENCE` i `NARRATIVE DESCRIPTION`. Brak inputu użytkownika nie może być interpretowany jako zgoda na działanie aktualnego PC.
+
+Control transfer z `ACTIVE_PLAYER_CHARACTER` na innego aktora wymaga jawnej, zwalidowanej komendy użytkownika i canonical committed transition. AI/MG nie może samodzielnie przełączyć aktywnego PC, retired/relinquish obecnej postaci ani oddać jej pod NPC autonomy.
 
 `ACTOR / ACTION / TARGET` muszą być zachowane strukturalnie. Provider conformance obejmuje player agency, direction, NPC knowledge isolation, FACT/BELIEF, stop point, invented abilities/dialogue, internal-context leakage i brak mutation authority.
 

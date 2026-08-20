@@ -177,6 +177,8 @@ Wymagane docelowo:
 - allowlisted `GmToolGateway`, no raw writable DB / no COMMIT authority;
 - cloud context minimization/privacy boundary i credentials poza Campaign State;
 - `VOLITIONAL PLAYER ACTION SOURCE = USER / VALIDATED PLAYER COMMAND ONLY`;
+- `ACTIVE_PLAYER_CHARACTER CONTROL AUTHORITY = USER ONLY`; AI/MG/Director/NPC Brain/World Simulation nie wykonują dobrowolnych akcji, dialogu, wyborów ani control transfer za aktualnego PC;
+- brak user input/odpowiedzi nie oznacza zgody; `MECHANICAL CONSEQUENCE != VOLITIONAL PLAYER ACTION`;
 - structural ACTOR/ACTION/TARGET preservation;
 - provider conformance: agency, direction, knowledge isolation, FACT/BELIEF, stop point, invented ability/dialogue, internal-context leak, structured output, mutation boundary;
 - AI crash/cancel/process-death -> no partial committed turn;
@@ -265,6 +267,7 @@ Persistent World / Character Succession w Phase 71 ma zagwarantować rozdzieleni
 - NPC/organizations zachowują wiedzę i relacje dotyczące poprzedniej postaci po zmianie aktywnego PC;
 - World Processes, economy, wars, projects, organizations, canon divergence, Event/Causal history i czas pozostają ciągłe;
 - control transfer/retirement jest canonical committed operation z provenance i idempotency, nie flagą UI ani AI side effect;
+- transfer/relinquish bieżącego `ACTIVE_PLAYER_CHARACTER` wymaga jawnej validated user command; MG/AI nie może samodzielnie odebrać graczowi kontroli ani przekazać aktualnej postaci do NPC autonomy;
 - unique ownership nie może zostać zdublowane podczas zmiany PC;
 - save/load/snapshot/replay/branching zachowują historię aktywnych/former PCs oraz dokładnie jeden spójny Campaign World;
 - former PC może zostać później spotkany przez nową postać i działać przez NPC Brain/Decision Engine/Living World zgodnie z własnym stanem;
@@ -282,8 +285,6 @@ Obowiązkowe testy Phase 71 obejmują co najmniej:
 - branch może zmienić wybór kolejnej PC bez przepisywania wspólnej historii przed branch point;
 - rollback/retry control-transfer nie tworzy dwóch ACTIVE_PLAYER_CHARACTER ani phantom succession.
 
-Wymagane m.in.:
-## Acceptance direction Phase 71–79
 Wymagane m.in.:
 - save/load/replay authoritative equality;
 - branch history sharing without full DB duplication;
@@ -356,6 +357,9 @@ Przyszłe obowiązkowe gates obejmują co najmniej:
 - [ ] cache/index delete/rebuild -> no data loss
 - [ ] AI provider/model/runtime replacement -> no campaign migration/data loss
 - [ ] local AI player-agency + actor/action/target conformance
+- [ ] `ACTIVE_PLAYER_CHARACTER_CONTROL`: AI/MG/Director/NPC/World Simulation cannot generate or commit voluntary PC action without validated user command
+- [ ] silence/missing user input never becomes consent; forced mechanical consequence remains typed separately from player volition
+- [ ] character control transfer requires explicit validated user request + atomic commit; no autonomous relinquish/retirement by MG
 - [ ] provider crash/cancel/process death -> no partial committed turn
 - [ ] cloud failure -> local continuation
 - [ ] cloud/Director candidate cannot mutate authority or rewrite past COMMIT
