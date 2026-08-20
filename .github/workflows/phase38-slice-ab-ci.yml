@@ -25,6 +25,8 @@ jobs:
         run: python3 tools/phase38_apply_slice_ab_patch.py
       - name: Migrate legacy protected-read tests
         run: python3 tools/phase38_migrate_legacy_context_tests.py
+      - name: Normalize final closure anchor
+        run: python3 tools/phase38_patch_anchor_fix.py
       - name: Apply final blocker closure
         run: python3 tools/phase38_final_closure_patch.py
       - name: Diff hygiene before gates
@@ -53,8 +55,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import glob, xml.etree.ElementTree as ET
-          tests=fail=skip=0
-          failures=[]
+          tests=fail=skip=0; failures=[]
           for f in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
               r=ET.parse(f).getroot();tests+=int(r.attrib.get('tests',0));fail+=int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0));skip+=int(r.attrib.get('skipped',0))
               for tc in r.findall('testcase'):
@@ -73,8 +74,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import glob, xml.etree.ElementTree as ET
-          tests=fail=skip=0
-          failures=[]
+          tests=fail=skip=0; failures=[]
           for f in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
               r=ET.parse(f).getroot();tests+=int(r.attrib.get('tests',0));fail+=int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0));skip+=int(r.attrib.get('skipped',0))
               for tc in r.findall('testcase'):
