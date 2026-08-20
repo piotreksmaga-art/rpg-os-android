@@ -21,11 +21,12 @@ Operational protocol: `docs/PROJECT_WORK_PROTOCOL.md`
 Globalny status zmienia koordynator po sprawdzeniu implementacji, integracji, persistence/migration safety, regresji, full JVM/build/CI i wymaganych audytów. Raport workera, sama klasa/tabela albo zielony pojedynczy test nie oznaczają COMPLETE.
 
 ## Aktualny baseline
-- Canonical accepted runtime through Phase 36: `4d5a114fc9f08141d75ae79f998a3400866b52ba`.
-- Exact acceptance CI: `Validate RPG OS ALPHA`, run #801 / `32309493128` — SUCCESS.
-- Późniejsze commity dokumentacyjne nie zmieniają accepted runtime SHA.
+- Canonical accepted runtime through Phase 37: `7538c3ca16b5e74133f13ce611821d0699c798d0`.
+- Phase 37 final independent post-hardening audit: PASS on candidate `53aa66931926e92ed7cbe0d68deff4f4ee2378d6`; `P37-POST-AUD-001..003` FIXED; no new findings.
+- Audited GREEN evidence: full JVM `884` tests / `0` failures / `0` skipped on the exact audited app/test subtree; integration PR #69 preserved that subtree bit-for-bit on current master.
+- Separate push-triggered exact-merge-SHA Actions run for `7538c3ca...` was not surfaced by the available connector at coordinator close; no run ID is invented. Acceptance is based on independent audit + exact subtree identity + inspected GREEN evidence.
 - Pełne historyczne SHA/CI/artifacts/findingi: `docs/Historia projektu.md` i phase acceptance records.
-- Następny implementacyjny gate: **Phase 37 — World Actor Knowledge, Expertise & Acquisition Provenance, AUDIT FIRST**.
+- Następny implementacyjny gate: **Phase 38 — GM/NPC/PC/player-visible knowledge separation + belief/reputation/access visibility boundaries, AUDIT FIRST**.
 - Phase 48 pozostaje NOT STARTED.
 - World Pack Creator pozostaje DEFERRED do czasu globalnego ACCEPTED Phase 1–84.
 
@@ -75,7 +76,7 @@ Globalny status zmienia koordynator po sprawdzeniu implementacji, integracji, pe
 Accepted scope i historical evidence Phase 1–36 są zamrożone i zarchiwizowane. Future changes nie reinterpretują ich retroaktywnie.
 
 # FAZA C — CZAS, WIEDZA I RETRIEVAL
-- [-] 37. World Actor Knowledge, Expertise & Acquisition Provenance
+- [x] 37. World Actor Knowledge, Expertise & Acquisition Provenance
 - [-] 38. GM/NPC/PC/player-visible knowledge separation + belief/reputation/access visibility boundaries
 - [-] 39. Temporal Engine historical truth
 - [-] 40. Scheduler — evaluation points/deadlines, not precommitted outcomes
@@ -150,7 +151,7 @@ Minimalne acceptance tests Phase 37 obejmują co najmniej:
 Dalsze Phase 38–47:
 - FACT/BELIEF/NARRATIVE i GM/NPC/PC/player-visible/access separation;
 - historical truth queries są temporalne, nie present-state substitution;
-- Scheduler owns future evaluation points, not guaranteed outcomes;
+- Scheduler owns future evaluation points/deadlines, not guaranteed outcomes;
 - retrieval jest bounded/iterative i context actor/time/visibility-safe;
 - cloud context, gdy później aktywny, jest minimalny i sanitised zamiast whole-save export.
 
@@ -401,7 +402,7 @@ R&D może być prowadzone równolegle przed Phase 48 wyłącznie bez canonical i
 Frontend może rozwijać funkcjonalność równolegle, ale zachowuje zaakceptowany język wizualny i nie wykonuje niepowiązanego globalnego redesignu.
 
 # CROSS-CUTTING GATES / TESTS
-Już zamknięte przez Phase 1–36 pozostają historycznie zaakceptowane i nie są ponownie otwierane bez nowego findingu.
+Już zamknięte przez Phase 1–37 pozostają historycznie zaakceptowane i nie są ponownie otwierane bez nowego findingu.
 
 Przyszłe obowiązkowe gates obejmują co najmniej:
 - [ ] money conservation / ledger auditability where not yet fully covered
@@ -462,12 +463,12 @@ Przyszłe obowiązkowe gates obejmują co najmniej:
 - [ ] available latency improves quality before idle waiting; speculative/background preparation never commits future player/world decisions
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
-`Phase 37 — World Actor Knowledge, Expertise & Acquisition Provenance`
+`Phase 38 — GM/NPC/PC/player-visible knowledge separation + belief/reputation/access visibility boundaries`
 
 Obowiązkowa sekwencja:
 `READ ARCHITECTURE + ROADMAP + MAPA PLIKÓW -> AUDIT FIRST -> classify COMPLETE/PARTIAL/MISSING/BLOCKED -> minimal implementation -> targeted tests -> compatibility -> full JVM -> PR -> exact-SHA CI -> coordinator acceptance`.
 
-Do acceptance Phase 37: **AUDIT FIRST / NOT GLOBALLY ACCEPTED**.
+Do acceptance Phase 38: **AUDIT FIRST / NOT GLOBALLY ACCEPTED**.
 
 Future Hybrid AI, NPC individuality, Living World i post-roadmap WPC nie zmieniają tej kolejności.
 
