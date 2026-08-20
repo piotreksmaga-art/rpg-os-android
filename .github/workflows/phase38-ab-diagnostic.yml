@@ -26,8 +26,9 @@ jobs:
           python3 tools/phase38_integrated_patch.py hardening
           python3 tools/phase38_integrated_fixups.py hardening
           python3 tools/phase38_ab_gate_fixups_robust2.py
+          python3 tools/phase38_contextbuilder_gate_fix.py
           git diff --check
-      - name: Compile and targeted diagnostic
+      - name: Targeted A+B gate
         shell: bash
         run: |
           set +e
@@ -45,5 +46,23 @@ jobs:
           else
             python3 -c "import glob,xml.etree.ElementTree as E; rs=[E.parse(x).getroot() for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml')]; t=sum(int(r.attrib.get('tests',0)) for r in rs); f=sum(int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0)) for r in rs); s=sum(int(r.attrib.get('skipped',0)) for r in rs); print(f'AB_TARGETED tests={t} failures={f} skipped={s}'); assert t and not f"
             grep -E 'BUILD SUCCESSFUL' /tmp/p38.log | tail -n 5 || true
+          fi
+          exit "$rc"
+      - name: Full JVM A+B gate
+        shell: bash
+        run: |
+          set +e
+          rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
+          ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace > /tmp/full.log 2>&1
+          rc=$?
+          echo "FULL_RC=$rc"
+          if [ "$rc" -ne 0 ]; then
+            echo '=== FULL JVM FAILURES ==='
+            grep -E '(FAILED|AssertionError|expected:|but was:|There were failing tests|FAILURE: Build failed)' /tmp/full.log | tail -n 300 || true
+            echo '=== FULL JVM LOG TAIL ==='
+            tail -n 260 /tmp/full.log
+          else
+            python3 -c "import glob,xml.etree.ElementTree as E; rs=[E.parse(x).getroot() for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml')]; t=sum(int(r.attrib.get('tests',0)) for r in rs); f=sum(int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0)) for r in rs); s=sum(int(r.attrib.get('skipped',0)) for r in rs); print(f'AB_FULL_JVM tests={t} failures={f} skipped={s}'); assert t and not f"
+            grep -E 'BUILD SUCCESSFUL' /tmp/full.log | tail -n 5 || true
           fi
           exit "$rc"
