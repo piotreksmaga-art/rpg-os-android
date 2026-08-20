@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   patch-and-test:
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[p37-patch]')
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[p37-patch]') || (github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'reopened'))
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -81,6 +81,7 @@ jobs:
             app/src/main/java/com/rpgos/app/PlayerDomainEngine.kt \
             app/src/main/java/com/rpgos/app/CampaignSnapshotSystem.kt \
             app/src/main/java/com/rpgos/app/ContextBuilder.kt \
+            app/src/test/java/com/rpgos/app/Phase32RepositoryWideWriterSourceInventoryTest.kt \
             app/src/test/java/com/rpgos/app/Phase37WorldActorKnowledgeTest.kt
           git commit -m "feat(p37): finalize canonical world-actor knowledge integration"
           git push origin HEAD:chat1-phase37-world-actor-knowledge
