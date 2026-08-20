@@ -67,4 +67,18 @@ replace_once(p,
             VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
     )''')
 
+# Preserve accepted Phase37 reconciliation semantics in normal active-player gameplay context:
+# unresolved legacy evidence remains visible as non-canonical evidence and is never promoted to authority.
+p='app/src/main/java/com/rpgos/app/ContextBuilder.kt'
+replace_once(p,
+'''        val techniques=if(playerUid!=null){val r=TechniqueStore(saveDb,campaignRef.campaignId).reconciled(playerUid);r.techniques.map{i->val t=i.playerTechnique;linkedMapOf<String,Any?>("entity_uid" to t.characterUid,"technique_uid" to t.techniqueUid,"mastery" to t.baseMastery,"progress_value" to t.progressValue,"canonical" to true)}}else emptyList()
+''',
+'''        val techniques=if(playerUid!=null){val r=TechniqueStore(saveDb,campaignRef.campaignId).reconciled(playerUid);r.techniques.map{i->val t=i.playerTechnique;linkedMapOf<String,Any?>("entity_uid" to t.characterUid,"technique_uid" to t.techniqueUid,"mastery" to t.baseMastery,"progress_value" to t.progressValue,"canonical" to true)}+r.unresolvedLegacy.map{l->linkedMapOf<String,Any?>("entity_uid" to l.characterUid,"technique_uid" to l.legacyTechniqueUid,"mastery_raw" to l.masteryRaw,"xp_raw" to l.xpRaw,"learned_chapter_raw" to l.learnedChapterRaw,"last_used_chapter_raw" to l.lastUsedChapterRaw,"usage_count_raw" to l.usageCountRaw,"success_count_raw" to l.successCountRaw,"failure_count_raw" to l.failureCountRaw,"is_equipped_raw" to l.isEquippedRaw,"notes_raw" to l.notesRaw,"display_name" to l.displayName,"category" to l.category,"legacy_chakra_cost_override_raw" to l.chakraCostOverrideRaw,"legacy_base_chakra_cost_raw" to l.baseChakraCostRaw,"authority_source" to "LEGACY_UNRESOLVED","canonical" to false)}}else emptyList()
+''')
+replace_once(p,
+'''        val inventory=if(playerUid!=null){val r=InventoryStore(saveDb,campaignRef.campaignId).reconciled(playerUid);r.stacks.map{i->linkedMapOf<String,Any?>("entity_uid" to i.stack.characterUid,"item_definition_uid" to i.stack.itemDefinitionUid,"quantity" to i.stack.quantity,"canonical" to true)}+r.uniqueItems.map{i->linkedMapOf<String,Any?>("entity_uid" to i.entry.characterUid,"item_definition_uid" to i.instance.itemDefinitionUid,"item_instance_uid" to i.entry.itemInstanceUid,"canonical" to true)}}else emptyList()
+''',
+'''        val inventory=if(playerUid!=null){val r=InventoryStore(saveDb,campaignRef.campaignId).reconciled(playerUid);r.stacks.map{i->linkedMapOf<String,Any?>("entity_uid" to i.stack.characterUid,"item_definition_uid" to i.stack.itemDefinitionUid,"quantity" to i.stack.quantity,"canonical" to true)}+r.uniqueItems.map{i->linkedMapOf<String,Any?>("entity_uid" to i.entry.characterUid,"item_definition_uid" to i.instance.itemDefinitionUid,"item_instance_uid" to i.entry.itemInstanceUid,"canonical" to true)}+r.unresolvedLegacy.map{e->linkedMapOf<String,Any?>("entity_uid" to e.characterUid,"legacy_evidence_uid" to e.evidenceUid,"item_name" to e.itemName,"row_count" to e.rowCount,"raw_fields" to e.rawFields,"authority_source" to "LEGACY_UNRESOLVED","canonical" to false)}}else emptyList()
+''')
+
 print('Phase38 final closure fix2 applied')
