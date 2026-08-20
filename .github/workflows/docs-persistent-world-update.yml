@@ -1,0 +1,32 @@
+name: Persistent World Docs Update
+
+on:
+  push:
+    branches: ["docs-persistent-world-character-succession"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-docs:
+    if: contains(github.event.head_commit.message, 'temporary persistent-world docs workflow')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: docs-persistent-world-character-succession
+          fetch-depth: 0
+      - name: Apply deterministic documentation update
+        run: python3 tools/apply_persistent_world_docs.py
+      - name: Verify diff
+        run: |
+          git diff --check
+          git diff -- docs/Architektura\ projektu.md docs/Roadmap.md
+      - name: Commit documentation
+        run: |
+          git config user.name "rpg-os-docs-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git add -- "docs/Architektura projektu.md" "docs/Roadmap.md"
+          git commit -m "docs: add persistent world character succession contract"
+          git push origin HEAD:docs-persistent-world-character-succession
