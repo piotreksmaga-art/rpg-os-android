@@ -1,27 +1,42 @@
-name: Phase38 Slice C Exact SHA Observable Gate
+name: Phase38 Slice D Exact SHA Observable Gate
 on:
   pull_request:
     branches: [master]
 permissions:
   contents: read
 jobs:
-  validate-slice-c:
+  validate-slice-d:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: chat1-phase38-slice-ab-protected-read
+          ref: 9d660daf7506a018e3027c95fe8ea263b57b587f
           fetch-depth: 0
-      - name: Capture immutable validation SHA
-        id: sha
+      - name: Verify immutable Slice D candidate
         shell: bash
         run: |
           set -euo pipefail
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "VALIDATION_SHA=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "9d660daf7506a018e3027c95fe8ea263b57b587f"
           git fetch origin master
           test "$(git rev-parse origin/master)" = "e4b539fa87113c5ec46da2facf282c8004dc7e44"
-          git diff --quiet 2a894b614e74c1888ad901b666fd923e4bd15d32..HEAD -- app/src/main/java app/src/test/java backend
+          git diff --check cf77ac7a19ccf607051a68d19c099590dca1c3ff..HEAD
+          test -z "$(git diff --name-only cf77ac7a19ccf607051a68d19c099590dca1c3ff..HEAD | grep -E '^app/src/main/java/com/rpgos/app/Phase32' || true)"
+          test -z "$(git diff --name-only cf77ac7a19ccf607051a68d19c099590dca1c3ff..HEAD | grep -E '^backend/' || true)"
+          test -z "$(git diff --name-only cf77ac7a19ccf607051a68d19c099590dca1c3ff..HEAD | grep -E '^docs/' || true)"
+          changed="$(git diff --name-only cf77ac7a19ccf607051a68d19c099590dca1c3ff..HEAD)"
+          test "$changed" = $'app/src/main/java/com/rpgos/app/Phase38PerceptionDisclosure.kt\napp/src/test/java/com/rpgos/app/Phase38SliceDPerceptionDisclosureTest.kt'
+      - name: Slice D universality static audit
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app/src/main/java/com/rpgos/app/Phase38PerceptionDisclosure.kt')
+          text=p.read_text(); s=text.lower()
+          banned=['naruto','shinobi','ninja','chakra','bleach','reiatsu','witcher','wizard','dragon','jedi','radar','telepathy','magic sight']
+          bad=[x for x in banned if x in s]
+          print('SLICE_D_UNIVERSALITY_BAD',bad); assert not bad
+          assert 'KnowledgeStore(' not in text
+          assert 'KnowledgeAcquisitionChange(' not in text
+          PY
       - uses: actions/setup-java@v5
         with: {distribution: temurin, java-version: '17'}
       - uses: android-actions/setup-android@v3
@@ -35,32 +50,52 @@ jobs:
         run: |
           gradle wrapper --gradle-version 9.5.0
           chmod +x ./gradlew
-      - name: Phase38 targeted exact-SHA gate
+      - name: TARGETED exact-SHA gate
         shell: bash
         run: |
           set -euo pipefail
           rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
+          set +e
           ./gradlew --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase38*' --stacktrace
+          gradle_status=$?
+          set -e
           python3 - <<'PY'
           import glob,xml.etree.ElementTree as E
-          rs=[E.parse(x).getroot() for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml')]
-          t=sum(int(r.attrib.get('tests',0)) for r in rs); f=sum(int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0)) for r in rs); s=sum(int(r.attrib.get('skipped',0)) for r in rs)
-          print(f'SLICE_C_TARGETED tests={t} failures={f} skipped={s}'); assert t and not f
+          t=f=s=0;bad=[]
+          for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
+              r=E.parse(x).getroot();t+=int(r.attrib.get('tests',0));f+=int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0));s+=int(r.attrib.get('skipped',0))
+              for tc in r.findall('testcase'):
+                  q=tc.find('failure') or tc.find('error')
+                  if q is not None: bad.append(f"{tc.attrib.get('classname')}::{tc.attrib.get('name')} {q.attrib.get('message','')}")
+          print(f'SLICE_D_TARGETED tests={t} failures={f} skipped={s}')
+          for x in bad: print('SLICE_D_TARGETED_FAILURE',x)
+          assert t and not f
           PY
-          test "$(git rev-parse HEAD)" = "${{ steps.sha.outputs.sha }}"
-      - name: Isolate targeted XML
+          test "$gradle_status" -eq 0
+          test "$(git rev-parse HEAD)" = "9d660daf7506a018e3027c95fe8ea263b57b587f"
+      - name: Isolate targeted XML and results
         run: rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
-      - name: Full JVM exact-SHA gate
+      - name: FULL JVM exact-SHA gate
         shell: bash
         run: |
           set -euo pipefail
+          set +e
           ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace
+          gradle_status=$?
+          set -e
           python3 - <<'PY'
           import glob,xml.etree.ElementTree as E
-          rs=[E.parse(x).getroot() for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml')]
-          t=sum(int(r.attrib.get('tests',0)) for r in rs); f=sum(int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0)) for r in rs); s=sum(int(r.attrib.get('skipped',0)) for r in rs)
-          print(f'SLICE_C_FULL tests={t} failures={f} skipped={s}'); assert t and not f
+          t=f=s=0;bad=[]
+          for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
+              r=E.parse(x).getroot();t+=int(r.attrib.get('tests',0));f+=int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0));s+=int(r.attrib.get('skipped',0))
+              for tc in r.findall('testcase'):
+                  q=tc.find('failure') or tc.find('error')
+                  if q is not None: bad.append(f"{tc.attrib.get('classname')}::{tc.attrib.get('name')} {q.attrib.get('message','')}")
+          print(f'SLICE_D_FULL tests={t} failures={f} skipped={s}')
+          for x in bad: print('SLICE_D_FULL_FAILURE',x)
+          assert t and not f
           PY
-          test "$(git rev-parse HEAD)" = "${{ steps.sha.outputs.sha }}"
-      - name: Confirm exact-SHA green
-        run: echo "SLICE_C_GREEN_SHA=${{ steps.sha.outputs.sha }}"
+          test "$gradle_status" -eq 0
+          test "$(git rev-parse HEAD)" = "9d660daf7506a018e3027c95fe8ea263b57b587f"
+      - name: Confirm integrated green candidate
+        run: echo "SLICE_D_GREEN_SHA=9d660daf7506a018e3027c95fe8ea263b57b587f"
