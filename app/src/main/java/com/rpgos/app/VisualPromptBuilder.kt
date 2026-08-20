@@ -1,22 +1,23 @@
 package com.rpgos.app
 
 class VisualPromptBuilder {
+    private fun requireVisualProjection(context: ContextBundle, purpose: String) {
+        context.visibilityEnvelope.requirePurpose(purpose)
+        require(context.visibilityEnvelope.maximumDisclosure != DisclosureLevel.DENY) { "RPGOS-VISIBILITY:VISUAL_CONTEXT_DENIED" }
+    }
+
     fun buildScenePrompt(
         playerInput: String,
         context: ContextBundle,
         style: String = "cinematic RPG scene illustration"
     ): String {
-        context.visibilityEnvelope.requirePurpose(VisibilityPurposeKinds.SCENE_VISUALIZATION)
-        require(context.visibilityEnvelope.maximumDisclosure != DisclosureLevel.DENY) { "RPGOS-VISIBILITY:VISUAL_CONTEXT_DENIED" }
+        requireVisualProjection(context, VisibilityPurposeKinds.SCENE_VISUALIZATION)
         val time = context.time.entries.joinToString(", ") { "${it.key}: ${it.value}" }
         val scene = context.scene.entries.joinToString(", ") { "${it.key}: ${it.value}" }
         val actors = context.relevantNpcs.take(6).joinToString("; ") { row ->
             row["name"]?.toString() ?: row["character_uid"]?.toString() ?: "world actor"
         }
-        val worldPresentation = context.scene["world_presentation"]?.toString()?.takeIf { it.isNotBlank() }
-            ?: context.contextMeta["world_presentation"]?.toString()?.takeIf { it.isNotBlank() }
-            ?: "Use only the world presentation information disclosed in this projection."
-
+        val worldPresentation = worldPresentation(context)
         return """
             Create a scene illustration for an RPG campaign.
             World presentation: $worldPresentation
@@ -35,26 +36,41 @@ class VisualPromptBuilder {
         traits: List<String>,
         equipment: List<String>,
         worldNotes: String,
+        context: ContextBundle,
         style: String = "detailed RPG character concept art"
-    ): String = """
-        Create character concept art for: $name.
-        Traits: ${traits.joinToString(", ")}.
-        Equipment: ${equipment.joinToString(", ")}.
-        World continuity notes supplied for this visualization: $worldNotes.
-        Style: $style.
-        Full-body or three-quarter view, neutral readable pose, consistent costume details, no text labels.
-    """.trimIndent()
+    ): String {
+        requireVisualProjection(context, VisibilityPurposeKinds.CHARACTER_VISUALIZATION)
+        return """
+            Create character concept art for: $name.
+            World presentation: ${worldPresentation(context)}
+            Traits disclosed for this visualization: ${traits.joinToString(", ")}.
+            Equipment disclosed for this visualization: ${equipment.joinToString(", ")}.
+            World continuity notes disclosed for this visualization: $worldNotes.
+            Style: $style.
+            Full-body or three-quarter view, neutral readable pose, consistent costume details, no text labels.
+        """.trimIndent()
+    }
 
     fun buildLocationPrompt(
         name: String,
         description: String,
         era: String,
+        context: ContextBundle,
         style: String = "cinematic environment concept art"
-    ): String = """
-        Create environment concept art for the RPG location "$name".
-        Description: $description.
-        Era: $era.
-        Style: $style.
-        Wide establishing shot, strong environmental storytelling, no people unless needed for scale, no text labels.
-    """.trimIndent()
+    ): String {
+        requireVisualProjection(context, VisibilityPurposeKinds.LOCATION_VISUALIZATION)
+        return """
+            Create environment concept art for the RPG location "$name".
+            World presentation: ${worldPresentation(context)}
+            Description disclosed for this visualization: $description.
+            Era disclosed for this visualization: $era.
+            Style: $style.
+            Wide establishing shot, strong environmental storytelling, no people unless needed for scale, no text labels.
+        """.trimIndent()
+    }
+
+    private fun worldPresentation(context: ContextBundle): String =
+        context.scene["world_presentation"]?.toString()?.takeIf { it.isNotBlank() }
+            ?: context.contextMeta["world_presentation"]?.toString()?.takeIf { it.isNotBlank() }
+            ?: "Use only the world presentation information disclosed in this projection."
 }
