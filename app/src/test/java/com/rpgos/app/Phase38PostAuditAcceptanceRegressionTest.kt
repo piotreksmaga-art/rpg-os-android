@@ -36,18 +36,18 @@ class Phase38PostAuditAcceptanceRegressionTest {
         val campaignUid = publicRepository.activeCampaignRef().campaignId
         val diagnosticPurpose = PurposeContext(campaignUid, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
 
-        // Reuse a protected marker already supplied by the normal bundled World Pack. This avoids
-        // introducing unrelated canonical mutation into a read-boundary acceptance regression.
+        // Reuse a protected marker already supplied by the normal bundled World Pack. Use only the
+        // real canon_constraints_v2 columns; the bundled schema has no fixture-level status column.
         val worldConstraintMarker = LocalGameStore(context).openWorldDb().use { db ->
             db.rawQuery(
-                "SELECT constraint_uid,constraint_key,constraint_value FROM canon_constraints_v2 WHERE status='active' OR status IS NULL ORDER BY constraint_uid LIMIT 1",
+                "SELECT constraint_uid,subject_type,subject_uid,constraint_key,constraint_value,canon_scope,notes FROM canon_constraints_v2 ORDER BY constraint_uid LIMIT 1",
                 null
             ).use { c ->
                 assertTrue("bundled production World Pack must provide a canon constraint acceptance marker", c.moveToFirst())
                 mapOf<String, Any?>(
-                    "constraint_uid" to c.getString(0),
-                    "constraint_key" to c.getString(1),
-                    "constraint_value" to c.getString(2)
+                    "constraint_uid" to c.getString(c.getColumnIndexOrThrow("constraint_uid")),
+                    "constraint_key" to c.getString(c.getColumnIndexOrThrow("constraint_key")),
+                    "constraint_value" to c.getString(c.getColumnIndexOrThrow("constraint_value"))
                 )
             }
         }
