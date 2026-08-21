@@ -33,14 +33,11 @@ class WorldReader(
         activeEventsProjection(audience, purpose).value ?: emptyList()
 
     fun activeEventsProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<WorldEventItem>> {
-        val diagnostic = audience.audienceKindUid == AudienceKinds.DEVELOPER_DIAGNOSTIC && purpose.purposeUid == VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION
-        val subjectKind = if (diagnostic) VisibilitySubjectKinds.WORLD_EVENT_GM_DETAIL else VisibilitySubjectKinds.PUBLIC_WORLD_EVENT
-        val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(audience.campaignUid, subjectKind, "ACTIVE_WORLD_EVENTS"))
+        val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(audience.campaignUid, VisibilitySubjectKinds.PUBLIC_WORLD_EVENT, "ACTIVE_WORLD_EVENTS"))
         return visibility.projectList(request) {
             val out = mutableListOf<WorldEventItem>()
-            val summaryExpr = if (diagnostic) "COALESCE(a.public_summary,a.gm_summary,'')" else "COALESCE(a.public_summary,'')"
             saveDb.rawQuery(
-                """SELECT COALESCE(t.name,a.event_type),a.status,$summaryExpr
+                """SELECT COALESCE(t.name,a.event_type),a.status,COALESCE(a.public_summary,'')
                    FROM active_world_events a
                    LEFT JOIN timeline_events t ON t.timeline_uid=a.timeline_uid
                    WHERE a.status='active'
