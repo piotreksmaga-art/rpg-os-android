@@ -7,6 +7,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+import java.lang.reflect.Modifier
 
 @RunWith(RobolectricTestRunner::class) @Config(sdk=[34])
 class Phase38PostAuditHardeningTest {
@@ -16,6 +17,11 @@ class Phase38PostAuditHardeningTest {
     }
     private fun player(campaign:String="C")=VisibilityAudienceFactory.player(campaign)
     private fun purpose(campaign:String="C")=PurposeContext(campaign,VisibilityPurposeKinds.PLAYER_UI)
+    private fun assertNoCallerVisibleConstructor(type:Class<*>){
+        val sourceConstructors=type.declaredConstructors.filterNot{it.isSynthetic}
+        assertTrue("expected a concrete source constructor for ${type.simpleName}",sourceConstructors.isNotEmpty())
+        assertTrue("all source constructors must remain private for ${type.simpleName}",sourceConstructors.all{Modifier.isPrivate(it.modifiers)})
+    }
 
     @Test fun accessMutationValidatorRejectsOperationKindAndBadDelegation(){
         assertTrue(runCatching{AccessAuthorityChange(AccessOperation.GRANT,"X","ENTITY","A",AccessBindingKind.ROLE.name,"ROLE",validFromOrder=1)}.isFailure)
@@ -93,8 +99,8 @@ class Phase38PostAuditHardeningTest {
     }
 
     @Test fun perceptionInputsRequireRuntimeIssuerAndGatewayRejectsUntrustedDescriptor(){
-        assertTrue(java.lang.reflect.Modifier.isPrivate(PerceptionSignal::class.java.declaredConstructors.single().modifiers))
-        assertTrue(java.lang.reflect.Modifier.isPrivate(PerceptionCapability::class.java.declaredConstructors.single().modifiers))
+        assertNoCallerVisibleConstructor(PerceptionSignal::class.java)
+        assertNoCallerVisibleConstructor(PerceptionCapability::class.java)
         val fixture=Phase38TrustedTestAuthority.playerCharacter("C","PC")
         val cap=Phase38PerceptionRuntimeAuthority.issueCapability(fixture.trusted,PerceptionCapabilityRef("C","CAP"),fixture.trusted.principal,setOf("CH"),0.1,DisclosureLevel.DISCLOSE_FULL)
         val sig=Phase38PerceptionRuntimeAuthority.issueSignal("C",PerceptionSignalRef("C","SIG"),"K",1.0,mapOf("presence" to true),PerceptionUncertainty(1.0,1.0,1.0))
