@@ -82,6 +82,15 @@ class ProtectedReadGateway(
     }
 }
 
+private fun <T:Any> ProtectedReadResult<T?>.withoutNullPayload():ProtectedReadResult<T> = when(this){
+    is ProtectedReadResult.Allow -> value?.let{ProtectedReadResult.Allow(it,disclosure,reasonCode)} ?: ProtectedReadResult.NoData
+    is ProtectedReadResult.Deny -> this
+    is ProtectedReadResult.NoData -> this
+    is ProtectedReadResult.NotDisclosed -> this
+    is ProtectedReadResult.Unknown -> this
+    is ProtectedReadResult.Corruption -> this
+}
+
 internal fun <T> ProtectedReadResult<T>.toVisibilityProjection(request:VisibilityRequest):VisibilityProjection<T> = when(this){
     is ProtectedReadResult.Allow -> VisibilityProjection(request,VisibilityDecision(disclosure,reasonCode),value,
         if(value is Collection<*> && value.isEmpty()) ProjectionDataState.NO_DATA else ProjectionDataState.DISCLOSED)
@@ -139,7 +148,7 @@ class ProtectedCampaignReadRepository private constructor(
 
     fun playerState(audience:AudienceContext,purpose:PurposeContext,playerUid:String):ProtectedReadResult<PlayerStateSnapshot> = withSaveDb{db->
         val request=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,VisibilitySubjectKinds.PLAYER_STATE,playerUid))
-        gateway(db).read(request){PlayerStateStore(db,campaignUid).load()?.takeIf{it.activePlayer.playerUid==playerUid}}
+        gateway(db).read(request){PlayerStateStore(db,campaignUid).load()?.takeIf{it.activePlayer.playerUid==playerUid}}.withoutNullPayload()
     }
 
     fun truth(audience:AudienceContext,purpose:PurposeContext,limit:Int=100):ProtectedReadResult<List<CampaignTruthRecord>> =
