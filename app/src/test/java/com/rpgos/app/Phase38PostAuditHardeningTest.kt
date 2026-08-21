@@ -42,30 +42,45 @@ class Phase38PostAuditHardeningTest {
         db.close()
     }
 
-    @Test fun persistedRoleClearanceGrantRevocationExpiryAndCampaignIsolationFlowThroughGateway(){
-        val db=SQLiteDatabase.create(null);Phase38AccessAuthoritySchema.ensureReady(db)
-        val a=player();val reads=ProtectedCampaignReadRepository.borrowed(db,"C"){null}
-        val roleReq=AccessRequirement("ROLE-POLICY",requiredRoleUids=setOf("R"))
-        fun read(req:AccessRequirement,uid:String="S")=reads.policyRows(a,purpose(),VisibilitySubjectKinds.RELATIONSHIP_DATA,uid,req){listOf("SECRET")}
-        assertTrue(read(roleReq) is ProtectedReadResult.Deny)
-        apply(db,"C",1,AccessAuthorityChange(AccessOperation.UPSERT_BINDING,"R1",AudienceKinds.PLAYER,"HUMAN_PLAYER",AccessBindingKind.ROLE.name,"R",validFromOrder=1))
-        assertTrue(read(roleReq) is ProtectedReadResult.Allow)
-        val clearanceReq=AccessRequirement("CLR-POLICY",requiredClearanceUids=setOf("C2"))
-        assertTrue(read(clearanceReq) is ProtectedReadResult.Deny)
-        apply(db,"C",2,AccessAuthorityChange(AccessOperation.UPSERT_BINDING,"CL1",AudienceKinds.PLAYER,"HUMAN_PLAYER",AccessBindingKind.CLEARANCE.name,"C2",validFromOrder=2))
-        assertTrue(read(clearanceReq) is ProtectedReadResult.Allow)
-        val grantReq=AccessRequirement("SECRET-POLICY",explicitGrantRequired=true,carrier=InformationCarrierRef("C",VisibilitySubjectKinds.RELATIONSHIP_DATA,"S"))
-        apply(db,"C",3,AccessAuthorityChange(AccessOperation.SET_CARRIER_ACCESS,"G1",AudienceKinds.PLAYER,"HUMAN_PLAYER",AccessGrantKind.EXPLICIT.name,"SECRET-POLICY",VisibilitySubjectKinds.RELATIONSHIP_DATA,"S",3))
-        assertTrue(read(grantReq) is ProtectedReadResult.Allow)
-        apply(db,"C",4,AccessAuthorityChange(AccessOperation.REVOKE_GRANT,"G2",AudienceKinds.PLAYER,"HUMAN_PLAYER",AccessGrantKind.EXPLICIT.name,"SECRET-POLICY",VisibilitySubjectKinds.RELATIONSHIP_DATA,"S",4))
-        assertTrue(read(grantReq) is ProtectedReadResult.Deny)
-        apply(db,"C",5,AccessAuthorityChange(AccessOperation.GRANT,"TMP",AudienceKinds.PLAYER,"HUMAN_PLAYER",AccessGrantKind.TEMPORARY.name,"TEMP-P",validFromOrder=5,validUntilOrder=5))
-        apply(db,"C",6,AccessAuthorityChange(AccessOperation.UPSERT_BINDING,"ADV",AudienceKinds.PLAYER,"HUMAN_PLAYER",AccessBindingKind.ORGANIZATION.name,"ORG",validFromOrder=6))
-        assertTrue(read(AccessRequirement("TEMP-P",explicitGrantRequired=true)) is ProtectedReadResult.Deny)
-        assertTrue(read(AccessRequirement("UNRELATED",explicitGrantRequired=true)) is ProtectedReadResult.Deny)
-        val cross=AccessRequirement("X",explicitGrantRequired=true,carrier=InformationCarrierRef("C2",VisibilitySubjectKinds.RELATIONSHIP_DATA,"S"))
-        assertTrue(read(cross) is ProtectedReadResult.Deny)
-        db.close()
+    @Test fun persistedAuthorityChangesFlowThroughNormalDomainReaders(){
+        val save=SQLiteDatabase.create(null)
+        val world=SQLiteDatabase.create(null)
+        Phase38AccessAuthoritySchema.ensureReady(save)
+        save.execSQL("CREATE TABLE relationships_v2(entity_a_uid TEXT,entity_b_uid TEXT,other_entity_uid TEXT,relationship_type TEXT,relationship_score REAL)")
+        save.execSQL("INSERT INTO relationships_v2 VALUES('A','B','B','ALLY',75.0)")
+        save.execSQL("CREATE TABLE country_economies(country_uid TEXT,treasury TEXT,prosperity TEXT,stability TEXT)")
+        save.execSQL("INSERT INTO country_economies VALUES('LAND','100','80','90')")
+        save.execSQL("CREATE TABLE political_entities(political_uid TEXT,display_name TEXT,legitimacy TEXT,influence TEXT,stability TEXT)")
+        save.execSQL("INSERT INTO political_entities VALUES('P','Council','70','60','50')")
+        world.execSQL("CREATE TABLE organization_definitions_v3(organization_uid TEXT,name TEXT,organization_type TEXT,active_status TEXT)")
+        world.execSQL("INSERT INTO organization_definitions_v3 VALUES('ORG','Order','FACTION','ACTIVE')")
+        val audience=player();val purpose=purpose()
+        val npc=NpcWorldDashboardReader(world,save);val social=SocialReader(world,save)
+
+        assertTrue(npc.relationEdges(audience,purpose).isEmpty())
+        apply(save,"C",1,AccessAuthorityChange(AccessOperation.UPSERT_BINDING,"R1",AudienceKinds.PLAYER,"HUMAN_PLAYER",AccessBindingKind.ROLE.name,ProtectedSubjectAccessRegistry.RELATIONSHIP_READ_ROLE_UID,validFromOrder=1))
+        assertEquals(1,npc.relationEdges(audience,purpose).size)
+
+        assertTrue(npc.economies(audience,purpose).isEmpty())
+        apply(save,"C",2,AccessAuthorityChange(AccessOperation.UPSERT_BINDING,"CL1",AudienceKinds.PLAYER,"HUMAN_PLAYER",AccessBindingKind.CLEARANCE.name,ProtectedSubjectAccessRegistry.ECONOMY_READ_CLEARANCE_UID,validFromOrder=2))
+        assertEquals(1,npc.economies(audience,purpose).size)
+
+        apply(save,"C",3,AccessAuthorityChange(AccessOperation.UPSERT_BINDING,"ORG-MEMBER",AudienceKinds.PLAYER,"HUMAN_PLAYER",AccessBindingKind.ORGANIZATION.name,"ORG",validFromOrder=3))
+        assertTrue("organization membership alone must not disclose an unrelated protected collection",social.organizations(audience,purpose).isEmpty())
+        apply(save,"C",4,AccessAuthorityChange(AccessOperation.SET_CARRIER_ACCESS,"G1",AudienceKinds.PLAYER,"HUMAN_PLAYER",AccessGrantKind.EXPLICIT.name,ProtectedSubjectAccessRegistry.ORGANIZATION_READ_POLICY_UID,VisibilitySubjectKinds.ORGANIZATION_DATA,"ORGANIZATIONS",4))
+        assertEquals(1,social.organizations(audience,purpose).size)
+        apply(save,"C",5,AccessAuthorityChange(AccessOperation.REVOKE_GRANT,"G2",AudienceKinds.PLAYER,"HUMAN_PLAYER",AccessGrantKind.EXPLICIT.name,ProtectedSubjectAccessRegistry.ORGANIZATION_READ_POLICY_UID,VisibilitySubjectKinds.ORGANIZATION_DATA,"ORGANIZATIONS",5))
+        assertTrue(social.organizations(audience,purpose).isEmpty())
+
+        apply(save,"C2",6,AccessAuthorityChange(AccessOperation.SET_CARRIER_ACCESS,"CROSS",AudienceKinds.PLAYER,"HUMAN_PLAYER",AccessGrantKind.EXPLICIT.name,ProtectedSubjectAccessRegistry.ORGANIZATION_READ_POLICY_UID,VisibilitySubjectKinds.ORGANIZATION_DATA,"ORGANIZATIONS",0))
+        assertTrue("cross-campaign grant must never authorize campaign C",social.organizations(audience,purpose).isEmpty())
+
+        apply(save,"C",7,AccessAuthorityChange(AccessOperation.SET_CARRIER_ACCESS,"TMP",AudienceKinds.PLAYER,"HUMAN_PLAYER",AccessGrantKind.TEMPORARY.name,ProtectedSubjectAccessRegistry.POLITICS_READ_POLICY_UID,VisibilitySubjectKinds.POLITICS_DATA,"POLITICS",7,7))
+        assertEquals(1,social.politics(audience,purpose).size)
+        apply(save,"C",8,AccessAuthorityChange(AccessOperation.UPSERT_BINDING,"ADV",AudienceKinds.PLAYER,"HUMAN_PLAYER",AccessBindingKind.ORGANIZATION.name,"OTHER",validFromOrder=8))
+        assertTrue("expired grant must not authorize",social.politics(audience,purpose).isEmpty())
+
+        save.close();world.close()
     }
 
     @Test fun fullToDetailedReductionPhysicallyRemovesExactProtectedPayload(){
@@ -100,6 +115,16 @@ class Phase38PostAuditHardeningTest {
         assertTrue(panel.contains("ProtectedReadResult<PlayerStateSnapshot>"));assertFalse(panel.contains("visibility.project(request)"))
         val store=source("app/src/main/java/com/rpgos/app/LocalGameStore.kt")
         assertTrue(store.contains("reads.playerState(audience,purpose,playerUid)"))
+        val protected=source("app/src/main/java/com/rpgos/app/Phase38ProtectedRead.kt")
+        assertTrue(protected.contains("ProtectedSubjectAccessRegistry.requirementFor(request.subject)"))
+        assertFalse(protected.contains("read(request:VisibilityRequest,requirement:AccessRequirement"))
+        val npc=source("app/src/main/java/com/rpgos/app/NpcWorldDashboardReader.kt")
+        val social=source("app/src/main/java/com/rpgos/app/SocialReader.kt")
+        val world=source("app/src/main/java/com/rpgos/app/WorldReader.kt")
+        assertTrue(npc.contains(".policyRows("));assertTrue(npc.contains(".protectedRows("))
+        assertTrue(social.contains(".policyRows("))
+        assertFalse(npc.contains("val diagnostic = audience.audienceKindUid"))
+        assertFalse(world.contains("val diagnostic = audience.audienceKindUid"))
         val view=source("app/src/main/java/com/rpgos/app/RpgOsViewModel.kt")
         assertTrue(view.contains("prepareSource(source.visualUid, source.uri)"));assertTrue(view.contains("sourceImageSha256 = prepared.sha256"));assertTrue(view.contains("editPrepared"))
         val edit=source("app/src/main/java/com/rpgos/app/ImageEditBackendClient.kt")
