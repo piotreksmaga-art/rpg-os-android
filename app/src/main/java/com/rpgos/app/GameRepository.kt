@@ -22,7 +22,6 @@ interface CampaignRepository {
     fun setActiveWorldPack(dirName: String)
     fun createCampaign(name: String): File
 
-
     fun commitTurn(
         identity: TurnTransactionIdentity,
         proposal: CanonicalCampaignMutationProposal,
@@ -45,14 +44,14 @@ interface CampaignRepository {
     ): VisibilityProjection<List<CampaignTruthRecord>>
     fun canonDivergences(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<CanonDivergenceRecord>>
 
-    fun npcs(search: String, audience: AudienceContext, purpose: PurposeContext): List<NpcListItem>
-    fun npcDetail(uid: String, audience: AudienceContext, purpose: PurposeContext): NpcDetail
-    fun relationEdges(audience: AudienceContext, purpose: PurposeContext): List<RelationEdge>
-    fun economies(audience: AudienceContext, purpose: PurposeContext): List<EconomySummary>
-    fun wars(audience: AudienceContext, purpose: PurposeContext): List<WarSummary>
-    fun relationships(audience: AudienceContext, purpose: PurposeContext): List<RelationshipItem>
-    fun organizations(audience: AudienceContext, purpose: PurposeContext): List<OrganizationItem>
-    fun politics(audience: AudienceContext, purpose: PurposeContext): List<PoliticalItem>
+    fun npcsProjection(search: String, audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<NpcListItem>>
+    fun npcDetailProjection(uid: String, audience: AudienceContext, purpose: PurposeContext): NpcDetailProtectedProjection
+    fun relationEdgesProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<RelationEdge>>
+    fun economiesProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<EconomySummary>>
+    fun warsProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<WarSummary>>
+    fun relationshipsProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<RelationshipItem>>
+    fun organizationsProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<OrganizationItem>>
+    fun politicsProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<PoliticalItem>>
 
     fun syncCheck(): SyncCheckResult
     fun dbTables(): List<DbTableInfo>
@@ -60,7 +59,7 @@ interface CampaignRepository {
 
     fun worldRegions(): List<WorldRegionItem>
     fun worldLocations(search: String = ""): List<WorldLocationItem>
-    fun activeWorldEvents(audience: AudienceContext, purpose: PurposeContext): List<WorldEventItem>
+    fun activeWorldEventsProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<WorldEventItem>>
     fun techniqueBrowser(search: String = ""): List<TechniqueBrowserItem>
     fun missionBrowser(): List<MissionBrowserItem>
 

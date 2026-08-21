@@ -7,6 +7,8 @@ class WorldReader(
     private val saveDb: SQLiteDatabase,
     private val visibility: VisibilityAuthorityService = VisibilityAuthorityService()
 ) {
+    private fun protectedReads(campaignUid:String)=ProtectedCampaignReadRepository.borrowed(saveDb,campaignUid){null}
+
     fun regions(): List<WorldRegionItem> {
         val out = mutableListOf<WorldRegionItem>()
         worldDb.rawQuery(
@@ -29,12 +31,15 @@ class WorldReader(
         return out
     }
 
+    /** Presentation/legacy adapter. Canonical application callers use activeEventsProjection. */
     fun activeEvents(audience: AudienceContext, purpose: PurposeContext): List<WorldEventItem> =
         activeEventsProjection(audience, purpose).value ?: emptyList()
 
     fun activeEventsProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<WorldEventItem>> {
-        val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(audience.campaignUid, VisibilitySubjectKinds.PUBLIC_WORLD_EVENT, "ACTIVE_WORLD_EVENTS"))
-        return visibility.projectList(request) {
+        val subjectKind=VisibilitySubjectKinds.PUBLIC_WORLD_EVENT
+        val subjectUid="ACTIVE_WORLD_EVENTS"
+        val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(audience.campaignUid, subjectKind, subjectUid))
+        return protectedReads(audience.campaignUid).protectedRows(audience,purpose,subjectKind,subjectUid) {
             val out = mutableListOf<WorldEventItem>()
             saveDb.rawQuery(
                 """SELECT COALESCE(t.name,a.event_type),a.status,COALESCE(a.public_summary,'')
@@ -45,6 +50,6 @@ class WorldReader(
                 null
             ).use { c -> while (c.moveToNext()) out += WorldEventItem(c.getString(0), c.getString(1), c.getString(2)) }
             out
-        }
+        }.toVisibilityProjection(request)
     }
 }

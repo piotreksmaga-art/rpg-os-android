@@ -34,6 +34,11 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     internal fun infrastructureOpenWorldDb(): SQLiteDatabase = store.openWorldDb()
     internal fun infrastructureOpenCoreDb(): SQLiteDatabase = store.openCoreDb()
 
+    private fun requireActiveVisibility(audience:AudienceContext,purpose:PurposeContext) {
+        val campaign=activeCampaignRef().campaignId
+        if(audience.campaignUid!=campaign||purpose.campaignUid!=campaign) throw VisibilityAuthorityFailure.CrossCampaign()
+    }
+
     override fun commitTurn(
         identity: TurnTransactionIdentity,
         proposal: CanonicalCampaignMutationProposal,
@@ -80,20 +85,47 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         return protectedReads().canonDivergences(audience,purpose).toVisibilityProjection(request)
     }
 
-    override fun npcs(search: String, audience: AudienceContext, purpose: PurposeContext): List<NpcListItem> = store.npcs(search, audience, purpose)
-    override fun npcDetail(uid: String, audience: AudienceContext, purpose: PurposeContext): NpcDetail = store.npcDetail(uid, audience, purpose)
-    override fun relationEdges(audience: AudienceContext, purpose: PurposeContext): List<RelationEdge> = store.relationEdges(audience, purpose)
-    override fun economies(audience: AudienceContext, purpose: PurposeContext): List<EconomySummary> = store.economies(audience, purpose)
-    override fun wars(audience: AudienceContext, purpose: PurposeContext): List<WarSummary> = store.wars(audience, purpose)
-    override fun relationships(audience: AudienceContext, purpose: PurposeContext): List<RelationshipItem> = store.relationships(audience, purpose)
-    override fun organizations(audience: AudienceContext, purpose: PurposeContext): List<OrganizationItem> = store.organizations(audience, purpose)
-    override fun politics(audience: AudienceContext, purpose: PurposeContext): List<PoliticalItem> = store.politics(audience, purpose)
+    override fun npcsProjection(search:String,audience:AudienceContext,purpose:PurposeContext):VisibilityProjection<List<NpcListItem>> {
+        requireActiveVisibility(audience,purpose)
+        return infrastructureOpenWorldDb().use{world->openGameplaySaveDb().use{save->NpcWorldDashboardReader(world,save).npcsProjection(search,audience,purpose)}}
+    }
+    override fun npcDetailProjection(uid:String,audience:AudienceContext,purpose:PurposeContext):NpcDetailProtectedProjection {
+        requireActiveVisibility(audience,purpose)
+        return infrastructureOpenWorldDb().use{world->openGameplaySaveDb().use{save->NpcWorldDashboardReader(world,save).npcDetailProjection(uid,audience,purpose)}}
+    }
+    override fun relationEdgesProjection(audience:AudienceContext,purpose:PurposeContext):VisibilityProjection<List<RelationEdge>> {
+        requireActiveVisibility(audience,purpose)
+        return infrastructureOpenWorldDb().use{world->openGameplaySaveDb().use{save->NpcWorldDashboardReader(world,save).relationEdgesProjection(audience,purpose)}}
+    }
+    override fun economiesProjection(audience:AudienceContext,purpose:PurposeContext):VisibilityProjection<List<EconomySummary>> {
+        requireActiveVisibility(audience,purpose)
+        return infrastructureOpenWorldDb().use{world->openGameplaySaveDb().use{save->NpcWorldDashboardReader(world,save).economiesProjection(audience,purpose)}}
+    }
+    override fun warsProjection(audience:AudienceContext,purpose:PurposeContext):VisibilityProjection<List<WarSummary>> {
+        requireActiveVisibility(audience,purpose)
+        return infrastructureOpenWorldDb().use{world->openGameplaySaveDb().use{save->NpcWorldDashboardReader(world,save).warsProjection(audience,purpose)}}
+    }
+    override fun relationshipsProjection(audience:AudienceContext,purpose:PurposeContext):VisibilityProjection<List<RelationshipItem>> {
+        requireActiveVisibility(audience,purpose)
+        return infrastructureOpenWorldDb().use{world->openGameplaySaveDb().use{save->SocialReader(world,save).relationshipsProjection(audience,purpose)}}
+    }
+    override fun organizationsProjection(audience:AudienceContext,purpose:PurposeContext):VisibilityProjection<List<OrganizationItem>> {
+        requireActiveVisibility(audience,purpose)
+        return infrastructureOpenWorldDb().use{world->openGameplaySaveDb().use{save->SocialReader(world,save).organizationsProjection(audience,purpose)}}
+    }
+    override fun politicsProjection(audience:AudienceContext,purpose:PurposeContext):VisibilityProjection<List<PoliticalItem>> {
+        requireActiveVisibility(audience,purpose)
+        return infrastructureOpenWorldDb().use{world->openGameplaySaveDb().use{save->SocialReader(world,save).politicsProjection(audience,purpose)}}
+    }
     override fun syncCheck(): SyncCheckResult = store.syncCheck()
     override fun dbTables(): List<DbTableInfo> = store.dbTables()
     override fun diagnostics(contextSummary: String): DiagnosticsSnapshot = store.diagnostics(contextSummary)
     override fun worldRegions(): List<WorldRegionItem> = store.worldRegions()
     override fun worldLocations(search: String): List<WorldLocationItem> = store.worldLocations(search)
-    override fun activeWorldEvents(audience: AudienceContext, purpose: PurposeContext): List<WorldEventItem> = store.activeWorldEvents(audience, purpose)
+    override fun activeWorldEventsProjection(audience:AudienceContext,purpose:PurposeContext):VisibilityProjection<List<WorldEventItem>> {
+        requireActiveVisibility(audience,purpose)
+        return infrastructureOpenWorldDb().use{world->openGameplaySaveDb().use{save->WorldReader(world,save).activeEventsProjection(audience,purpose)}}
+    }
     override fun techniqueBrowser(search: String): List<TechniqueBrowserItem> = store.techniqueBrowser(search)
     override fun missionBrowser(): List<MissionBrowserItem> = store.missionBrowser()
     override fun visualLibrary(): List<VisualRecord> = store.visualLibrary()
