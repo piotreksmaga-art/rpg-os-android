@@ -102,6 +102,35 @@ class Phase38PostAuditAcceptanceRegressionTest {
         assertEquals(worldConstraintMarker["constraint_value"], trustedMarker["constraint_value"])
     }
 
+    @Test fun productionCanonConstraintsReadMatchesCanonicalSevenColumnWorldSchema() {
+        val concrete = UnifiedGameRepository(context)
+        concrete.bootstrap()
+        val campaignUid = concrete.activeCampaignRef().campaignId
+        val diagnosticAudience = VisibilityAudienceFactory.diagnostic(campaignUid)
+        val diagnosticPurpose = PurposeContext(campaignUid, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
+        val runtimeIssued = Phase38RuntimeAuthority.privileged(diagnosticAudience, Phase38RuntimeAuthority.PRIV_DIAGNOSTIC)
+
+        LocalGameStore(context).openWorldDb().use { db ->
+            db.rawQuery("PRAGMA table_info(canon_constraints_v2)", null).use { c ->
+                val columns = mutableListOf<String>()
+                while (c.moveToNext()) columns += c.getString(c.getColumnIndexOrThrow("name"))
+                assertEquals(
+                    listOf("constraint_uid", "subject_type", "subject_uid", "constraint_key", "constraint_value", "canon_scope", "notes"),
+                    columns
+                )
+            }
+        }
+
+        val bundle = concrete.infrastructureBuildTrustedContext(
+            "P38-CANON-SCHEMA", 1, diagnosticAudience, diagnosticPurpose, runtimeIssued
+        )
+        assertTrue("production canon-constraints read must execute against the canonical seven-column schema", bundle.canonConstraints.isNotEmpty())
+        assertEquals(
+            setOf("constraint_uid", "subject_type", "subject_uid", "constraint_key", "constraint_value", "canon_scope", "notes"),
+            bundle.canonConstraints.first().keys
+        )
+    }
+
     @Test fun unknownProtectedPolicyFailsClosedBeforeTrustedResolutionAccessAuthorityOrPhase37Acquisition() {
         SQLiteDatabase.create(null).use { phase37Db ->
             val campaignUid = "C-P38-UNKNOWN"
