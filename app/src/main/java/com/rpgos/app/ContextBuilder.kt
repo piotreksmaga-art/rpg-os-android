@@ -2,7 +2,7 @@ package com.rpgos.app
 
 import android.database.sqlite.SQLiteDatabase
 
-class ContextBuilder(
+class ContextBuilder internal constructor(
     private val saveDb: SQLiteDatabase,
     private val worldDb: SQLiteDatabase,
     private val visibility: VisibilityAuthorityService = VisibilityAuthorityService(),
