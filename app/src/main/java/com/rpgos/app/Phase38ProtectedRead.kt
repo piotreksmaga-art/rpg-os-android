@@ -18,7 +18,13 @@ sealed interface ProtectedReadResult<out T> {
 
 enum class ProtectedSubjectAccessMode { PUBLIC_OPEN, CONTROL_AUTHORITY, COGNITION_AUTHORITY, PRIVILEGED_AUTHORITY, POLICY_AUTHORITY, UNKNOWN }
 
+/** Canonical declaration of how every Phase38 protected subject is authorized. */
 object ProtectedSubjectAccessRegistry {
+    const val RELATIONSHIP_READ_ROLE_UID = "RPGOS-P38-ROLE-RELATIONSHIP-READ"
+    const val ECONOMY_READ_CLEARANCE_UID = "RPGOS-P38-CLEARANCE-ECONOMY-READ"
+    const val ORGANIZATION_READ_POLICY_UID = "RPGOS-P38-POLICY-ORGANIZATION-READ"
+    const val POLITICS_READ_POLICY_UID = "RPGOS-P38-POLICY-POLITICS-READ"
+
     private val publicKinds = setOf(
         VisibilitySubjectKinds.PUBLIC_WORLD_EVENT, VisibilitySubjectKinds.PUBLIC_WORLD_ACTOR_PROFILE,
         VisibilitySubjectKinds.PUBLIC_WAR_SUMMARY, VisibilitySubjectKinds.WORLD_PRESENTATION
@@ -34,6 +40,7 @@ object ProtectedSubjectAccessRegistry {
         VisibilitySubjectKinds.RELATIONSHIP_DATA, VisibilitySubjectKinds.ECONOMY_DATA,
         VisibilitySubjectKinds.POLITICS_DATA, VisibilitySubjectKinds.ORGANIZATION_DATA
     )
+
     fun modeFor(subjectKindUid:String):ProtectedSubjectAccessMode = when(subjectKindUid){
         in publicKinds -> ProtectedSubjectAccessMode.PUBLIC_OPEN
         VisibilitySubjectKinds.PLAYER_STATE -> ProtectedSubjectAccessMode.CONTROL_AUTHORITY
@@ -41,6 +48,29 @@ object ProtectedSubjectAccessRegistry {
         in privilegedKinds -> ProtectedSubjectAccessMode.PRIVILEGED_AUTHORITY
         in policyKinds -> ProtectedSubjectAccessMode.POLICY_AUTHORITY
         else -> ProtectedSubjectAccessMode.UNKNOWN
+    }
+
+    /** Trusted runtime policy. Callers choose a subject, never the authority requirement for it. */
+    fun requirementFor(subject:VisibilitySubjectRef):AccessRequirement? = when(subject.subjectKindUid){
+        VisibilitySubjectKinds.RELATIONSHIP_DATA -> AccessRequirement(
+            policyUid="RPGOS-P38-POLICY-RELATIONSHIP-READ",
+            requiredRoleUids=setOf(RELATIONSHIP_READ_ROLE_UID)
+        )
+        VisibilitySubjectKinds.ECONOMY_DATA -> AccessRequirement(
+            policyUid="RPGOS-P38-POLICY-ECONOMY-READ",
+            requiredClearanceUids=setOf(ECONOMY_READ_CLEARANCE_UID)
+        )
+        VisibilitySubjectKinds.ORGANIZATION_DATA -> AccessRequirement(
+            policyUid=ORGANIZATION_READ_POLICY_UID,
+            explicitGrantRequired=true,
+            carrier=InformationCarrierRef(subject.campaignUid,subject.subjectKindUid,subject.subjectUid)
+        )
+        VisibilitySubjectKinds.POLITICS_DATA -> AccessRequirement(
+            policyUid=POLITICS_READ_POLICY_UID,
+            explicitGrantRequired=true,
+            carrier=InformationCarrierRef(subject.campaignUid,subject.subjectKindUid,subject.subjectUid)
+        )
+        else -> null
     }
 }
 
@@ -53,18 +83,19 @@ class ProtectedReadGateway(
     private val principalResolver:TrustedPrincipalResolver,
     private val accessResolver:TrustedAccessResolver?=null
 ){
-    fun <T> read(request:VisibilityRequest,requirement:AccessRequirement?=null,read:()->T):ProtectedReadResult<T>{
+    fun <T> read(request:VisibilityRequest,read:()->T):ProtectedReadResult<T>{
         val mode=ProtectedSubjectAccessRegistry.modeFor(request.subject.subjectKindUid)
         if(mode==ProtectedSubjectAccessMode.UNKNOWN)return ProtectedReadResult.Unknown("UNKNOWN_ACCESS_POLICY")
         val trusted=principalResolver.resolve(request.audience)
         var effectiveAccess:EffectiveAccessDecision?=null
         if(mode==ProtectedSubjectAccessMode.POLICY_AUTHORITY){
-            val policy=requirement?:return ProtectedReadResult.Unknown("ACCESS_POLICY_REQUIRED")
+            val policy=ProtectedSubjectAccessRegistry.requirementFor(request.subject)
+                ?:return ProtectedReadResult.Unknown("ACCESS_POLICY_REQUIRED")
             val principal=trusted?:return ProtectedReadResult.Deny("TRUSTED_PRINCIPAL_REQUIRED")
             val resolver=accessResolver?:return ProtectedReadResult.Deny("ACCESS_AUTHORITY_UNAVAILABLE")
             effectiveAccess=try{resolver.effectiveAccess(request,principal,policy)}catch(failure:Throwable){return ProtectedReadResult.Corruption("ACCESS_AUTHORITY_CORRUPTION",failure)}
             if(!effectiveAccess.accessible)return ProtectedReadResult.Deny("ACCESS_AUTHORITY_DENIED:${effectiveAccess.reasonCode}")
-        } else if(requirement!=null) return ProtectedReadResult.Unknown("ACCESS_POLICY_NOT_APPLICABLE")
+        }
         return try{
             val projection=visibility.project(request,trusted,effectiveAccess,read)
             when(projection.dataState){
@@ -134,7 +165,7 @@ class ProtectedCampaignReadRepository private constructor(
     }
 
     private fun gateway(db:SQLiteDatabase):ProtectedReadGateway{
-        val access=TrustedAccessResolver{request,trusted,requirement->
+        val access=TrustedAccessResolver{_,trusted,requirement->
             if(!Phase38AccessAuthoritySchema.isReady(db))EffectiveAccessDecision(false,"ACCESS_SCHEMA_NOT_READY")
             else{
                 val authority=UniversalAccessAuthority(AccessAuthorityStore(db,campaignUid))
@@ -171,14 +202,23 @@ class ProtectedCampaignReadRepository private constructor(
 
     internal fun <T> diagnosticRows(audience:AudienceContext,purpose:PurposeContext,subjectUid:String,read:()->List<T>):ProtectedReadResult<List<T>> = withSaveDb{db->
         val request=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,VisibilitySubjectKinds.DIAGNOSTIC_CONTEXT,subjectUid))
-        gateway(db).read(request,read=read)
+        gateway(db).read(request,read)
+    }
+
+    internal fun <T> protectedRows(
+        audience:AudienceContext,purpose:PurposeContext,subjectKindUid:String,subjectUid:String,read:()->List<T>
+    ):ProtectedReadResult<List<T>> = withSaveDb{db->
+        val request=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,subjectKindUid,subjectUid))
+        gateway(db).read(request,read)
     }
 
     internal fun <T> policyRows(
-        audience:AudienceContext,purpose:PurposeContext,subjectKindUid:String,subjectUid:String,requirement:AccessRequirement,read:()->List<T>
+        audience:AudienceContext,purpose:PurposeContext,subjectKindUid:String,subjectUid:String,read:()->List<T>
     ):ProtectedReadResult<List<T>> = withSaveDb{db->
         val request=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,subjectKindUid,subjectUid))
-        gateway(db).read(request,requirement,read)
+        if(ProtectedSubjectAccessRegistry.modeFor(subjectKindUid)!=ProtectedSubjectAccessMode.POLICY_AUTHORITY)
+            return@withSaveDb ProtectedReadResult.Unknown("ACCESS_POLICY_NOT_APPLICABLE")
+        gateway(db).read(request,read)
     }
 
     companion object{
