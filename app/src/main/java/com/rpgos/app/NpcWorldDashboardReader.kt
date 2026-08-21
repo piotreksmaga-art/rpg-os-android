@@ -7,6 +7,8 @@ class NpcWorldDashboardReader(
     private val saveDb: SQLiteDatabase,
     private val visibility: VisibilityAuthorityService = VisibilityAuthorityService()
 ) {
+    private fun protectedReads(campaignUid:String)=ProtectedCampaignReadRepository.borrowed(saveDb,campaignUid){null}
+
     fun npcs(search: String, audience: AudienceContext, purpose: PurposeContext): List<NpcListItem> =
         npcsProjection(search, audience, purpose).value ?: emptyList()
 
@@ -41,11 +43,11 @@ class NpcWorldDashboardReader(
 
         fun privateRows(kind: String, sql: String): List<String> {
             val req = VisibilityRequest(audience, purpose, VisibilitySubjectRef(audience.campaignUid, kind, uid))
-            return visibility.projectList(req) {
+            return protectedReads(audience.campaignUid).protectedRows(audience,purpose,kind,uid) {
                 val out = mutableListOf<String>()
                 saveDb.rawQuery(sql, arrayOf(uid)).use { c -> while (c.moveToNext()) out += c.getString(0) }
                 out
-            }.value ?: emptyList()
+            }.toVisibilityProjection(req).value ?: emptyList()
         }
         val memories = privateRows(VisibilitySubjectKinds.WORLD_ACTOR_PRIVATE_MEMORY, "SELECT summary FROM npc_memories_v2 WHERE entity_uid=? ORDER BY importance DESC,chapter DESC LIMIT 50")
         val beliefs = privateRows(VisibilitySubjectKinds.WORLD_ACTOR_PRIVATE_BELIEF, "SELECT content_summary FROM npc_beliefs WHERE entity_uid=? ORDER BY confidence DESC LIMIT 50")
@@ -60,14 +62,14 @@ class NpcWorldDashboardReader(
 
     fun relationEdgesProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<RelationEdge>> {
         val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(audience.campaignUid, VisibilitySubjectKinds.RELATIONSHIP_DATA, "RELATION_EDGES"))
-        return visibility.projectList(request) {
+        return protectedReads(audience.campaignUid).policyRows(audience,purpose,VisibilitySubjectKinds.RELATIONSHIP_DATA,"RELATION_EDGES") {
             val out = mutableListOf<RelationEdge>()
             saveDb.rawQuery("""SELECT entity_a_uid,entity_b_uid,relationship_type,relationship_score
                                FROM relationships_v2 ORDER BY ABS(relationship_score) DESC LIMIT 300""", null).use { c ->
                 while (c.moveToNext()) out += RelationEdge(c.getString(0), c.getString(1), c.getString(2), c.getFloat(3))
             }
             out
-        }
+        }.toVisibilityProjection(request)
     }
 
     fun economies(audience: AudienceContext, purpose: PurposeContext): List<EconomySummary> =
@@ -75,26 +77,23 @@ class NpcWorldDashboardReader(
 
     fun economiesProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<EconomySummary>> {
         val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(audience.campaignUid, VisibilitySubjectKinds.ECONOMY_DATA, "ECONOMIES"))
-        return visibility.projectList(request) {
+        return protectedReads(audience.campaignUid).policyRows(audience,purpose,VisibilitySubjectKinds.ECONOMY_DATA,"ECONOMIES") {
             val out = mutableListOf<EconomySummary>()
             saveDb.rawQuery("SELECT country_uid,treasury,prosperity,stability FROM country_economies ORDER BY treasury DESC", null).use { c ->
                 while (c.moveToNext()) out += EconomySummary(c.getString(0), c.getString(1), c.getString(2), c.getString(3))
             }
             out
-        }
+        }.toVisibilityProjection(request)
     }
 
     fun wars(audience: AudienceContext, purpose: PurposeContext): List<WarSummary> =
         warsProjection(audience, purpose).value ?: emptyList()
 
     fun warsProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<WarSummary>> {
-        val diagnostic = audience.audienceKindUid == AudienceKinds.DEVELOPER_DIAGNOSTIC && purpose.purposeUid == VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION
-        val kind = if (diagnostic) VisibilitySubjectKinds.WORLD_EVENT_GM_DETAIL else VisibilitySubjectKinds.PUBLIC_WAR_SUMMARY
-        val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(audience.campaignUid, kind, "WARS"))
+        val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(audience.campaignUid, VisibilitySubjectKinds.PUBLIC_WAR_SUMMARY, "WARS"))
         return visibility.projectList(request) {
             val out = mutableListOf<WarSummary>()
-            val summaryExpr = if (diagnostic) "COALESCE(a.public_summary,a.gm_summary,'')" else "COALESCE(a.public_summary,'')"
-            saveDb.rawQuery("""SELECT COALESCE(t.name,a.event_type),a.status,$summaryExpr
+            saveDb.rawQuery("""SELECT COALESCE(t.name,a.event_type),a.status,COALESCE(a.public_summary,'')
                                FROM active_world_events a LEFT JOIN timeline_events t ON t.timeline_uid=a.timeline_uid
                                WHERE a.event_type LIKE '%war%' OR a.event_type LIKE '%military%'""", null).use { c ->
                 while (c.moveToNext()) out += WarSummary(c.getString(0), c.getString(1), c.getString(2))
