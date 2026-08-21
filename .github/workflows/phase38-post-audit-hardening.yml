@@ -1,10 +1,7 @@
 name: Phase38 Post-Audit Hardening Gate
 on:
-  push:
-    branches: [chat1-phase38-post-audit-hardening]
-    paths:
-      - tools/phase38_post_audit_hardening.py
-      - .github/workflows/phase38-post-audit-hardening.yml
+  pull_request:
+    branches: [master]
 permissions:
   contents: write
 jobs:
