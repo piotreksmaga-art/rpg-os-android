@@ -4,9 +4,10 @@ import android.database.sqlite.SQLiteDatabase
 
 class SocialReader(
     private val worldDb: SQLiteDatabase,
-    private val saveDb: SQLiteDatabase,
-    private val visibility: VisibilityAuthorityService = VisibilityAuthorityService()
+    private val saveDb: SQLiteDatabase
 ) {
+    private fun protectedReads(campaignUid:String)=ProtectedCampaignReadRepository.borrowed(saveDb,campaignUid){null}
+
     fun relationships(audience: AudienceContext, purpose: PurposeContext): List<RelationshipItem> =
         relationshipsProjection(audience, purpose).value ?: emptyList()
 
@@ -54,6 +55,6 @@ class SocialReader(
         read: () -> List<T>
     ): VisibilityProjection<List<T>> {
         val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(audience.campaignUid, subjectKind, uid))
-        return visibility.projectList(request, read)
+        return protectedReads(audience.campaignUid).policyRows(audience,purpose,subjectKind,uid,read).toVisibilityProjection(request)
     }
 }
