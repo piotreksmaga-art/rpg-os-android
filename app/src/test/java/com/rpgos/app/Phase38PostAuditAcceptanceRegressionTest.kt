@@ -37,7 +37,7 @@ class Phase38PostAuditAcceptanceRegressionTest {
         val diagnosticPurpose = PurposeContext(campaignUid, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
 
         // Reuse a protected marker already supplied by the normal bundled World Pack. Use only the
-        // real canon_constraints_v2 columns; the bundled schema has no fixture-level status column.
+        // real canon_constraints_v2 columns required by the production ContextBundle projection.
         val worldConstraintMarker = LocalGameStore(context).openWorldDb().use { db ->
             db.rawQuery(
                 "SELECT constraint_uid,subject_type,subject_uid,constraint_key,constraint_value,canon_scope,notes FROM canon_constraints_v2 ORDER BY constraint_uid LIMIT 1",
@@ -102,33 +102,31 @@ class Phase38PostAuditAcceptanceRegressionTest {
         assertEquals(worldConstraintMarker["constraint_value"], trustedMarker["constraint_value"])
     }
 
-    @Test fun productionCanonConstraintsReadMatchesCanonicalSevenColumnWorldSchema() {
+    @Test fun productionCanonConstraintsReadMatchesCurrentWorldSchemaContract() {
         val concrete = UnifiedGameRepository(context)
         concrete.bootstrap()
         val campaignUid = concrete.activeCampaignRef().campaignId
         val diagnosticAudience = VisibilityAudienceFactory.diagnostic(campaignUid)
         val diagnosticPurpose = PurposeContext(campaignUid, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
         val runtimeIssued = Phase38RuntimeAuthority.privileged(diagnosticAudience, Phase38RuntimeAuthority.PRIV_DIAGNOSTIC)
+        val projectedColumns = setOf("constraint_uid", "subject_type", "subject_uid", "constraint_key", "constraint_value", "canon_scope", "notes")
 
         LocalGameStore(context).openWorldDb().use { db ->
             db.rawQuery("PRAGMA table_info(canon_constraints_v2)", null).use { c ->
                 val columns = mutableListOf<String>()
                 while (c.moveToNext()) columns += c.getString(c.getColumnIndexOrThrow("name"))
-                assertEquals(
-                    listOf("constraint_uid", "subject_type", "subject_uid", "constraint_key", "constraint_value", "canon_scope", "notes"),
-                    columns
-                )
+                assertTrue("canon_constraints_v2 must contain every production projection column", columns.containsAll(projectedColumns))
+                assertTrue("current bundled World Pack schema must retain optional source provenance", "source_uid" in columns)
+                assertFalse("canon_constraints_v2 must not reintroduce nonexistent status authority", "status" in columns)
             }
         }
 
         val bundle = concrete.infrastructureBuildTrustedContext(
             "P38-CANON-SCHEMA", 1, diagnosticAudience, diagnosticPurpose, runtimeIssued
         )
-        assertTrue("production canon-constraints read must execute against the canonical seven-column schema", bundle.canonConstraints.isNotEmpty())
-        assertEquals(
-            setOf("constraint_uid", "subject_type", "subject_uid", "constraint_key", "constraint_value", "canon_scope", "notes"),
-            bundle.canonConstraints.first().keys
-        )
+        assertTrue("production canon-constraints read must execute against the current canonical schema", bundle.canonConstraints.isNotEmpty())
+        assertEquals(projectedColumns, bundle.canonConstraints.first().keys)
+        assertFalse("ContextBundle canon constraint projection must not synthesize status", bundle.canonConstraints.first().containsKey("status"))
     }
 
     @Test fun unknownProtectedPolicyFailsClosedBeforeTrustedResolutionAccessAuthorityOrPhase37Acquisition() {
