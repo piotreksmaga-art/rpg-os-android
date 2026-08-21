@@ -16,7 +16,8 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun activePlayerRef(): ActivePlayerRef? = store.activePlayerRef()
     override fun setActivePlayer(playerUid: String): ActivePlayerRef = store.setActivePlayer(playerUid)
     internal fun infrastructurePlayerState(): PlayerStateSnapshot? = store.playerState()
-    override fun protectedReads(): ProtectedCampaignReadRepository = ProtectedCampaignReadRepository(::openGameplaySaveDb, activeCampaignRef().campaignId, ::activePlayerRef)
+    override fun protectedReads(): ProtectedCampaignReadRepository =
+        ProtectedCampaignReadRepository.owned(::openGameplaySaveDb, activeCampaignRef().campaignId, ::activePlayerRef)
     override fun statDefinitions(): List<StatDefinition> = store.statDefinitions()
     override fun resourceDefinitions(): List<ResourceDefinition> = store.resourceDefinitions()
     override fun registerStatDefinitions(worldPackUid: String, definitions: List<StatDefinition>) = store.registerStatDefinitions(worldPackUid, definitions)
