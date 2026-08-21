@@ -4,7 +4,8 @@ import android.database.sqlite.SQLiteDatabase
 
 class SocialReader(
     private val worldDb: SQLiteDatabase,
-    private val saveDb: SQLiteDatabase
+    private val saveDb: SQLiteDatabase,
+    private val visibility: VisibilityAuthorityService = VisibilityAuthorityService()
 ) {
     private fun protectedReads(campaignUid:String)=ProtectedCampaignReadRepository.borrowed(saveDb,campaignUid){null}
 
