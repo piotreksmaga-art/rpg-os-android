@@ -78,6 +78,23 @@ class Phase38PostHardWorldActorPerceptionTest {
         assertEquals(DisclosureLevel.DISCLOSE_FULL.name,disclosed["perception_disclosure"])
     }
 
+    @Test fun nonCharacterSubjectDoesNotRequireCharacterProfileEnrichment() {
+        val a=actor("ACTOR-NON-CHARACTER-SUBJECT")
+        issueEvidence(name="P38-NON-CHARACTER-X",summary="P38-NON-CHARACTER-SUMMARY")
+        concrete.infrastructureIssueWorldActorEventCapability(a)
+        val bundle=build(a,"P38-POST-HARD-AUD-001-NON-CHARACTER")
+        assertTrue(bundle.activeWorldEvents.any { it["subject_uid"]=="P38-NON-CHARACTER-X" })
+        assertTrue("PUBLIC_WORLD_EVENT disclosure must not require character-profile enrichment",bundle.relevantNpcs.isEmpty())
+    }
+
+    @Test fun typedUidCollisionDoesNotEstablishProfileDomainIdentity() {
+        val eventSubject=VisibilitySubjectRef(campaignUid,VisibilitySubjectKinds.PUBLIC_WORLD_EVENT,"X")
+        val profileSubject=VisibilitySubjectRef(campaignUid,VisibilitySubjectKinds.PUBLIC_WORLD_ACTOR_PROFILE,"X")
+        assertNotEquals("same textual UID must not collapse distinct typed subjects",eventSubject,profileSubject)
+        assertEquals(eventSubject.subjectUid,profileSubject.subjectUid)
+        assertNotEquals(eventSubject.subjectKindUid,profileSubject.subjectKindUid)
+    }
+
     @Test fun aud001C_callerOwnedStrongerCapabilityObjectCannotAlterProductionSources() {
         val a=actor("ACTOR-A")
         issueEvidence()

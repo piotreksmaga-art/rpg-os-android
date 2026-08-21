@@ -84,3 +84,31 @@ jobs:
           test "$(git rev-parse HEAD)" = "${{ steps.materialize.outputs.sha }}"
           test "$(git rev-parse origin/master)" = "e4b539fa87113c5ec46da2facf282c8004dc7e44"
           echo "P38_FINDING001_TARGETED_GREEN_SHA=${{ steps.materialize.outputs.sha }}"
+      - name: Isolate targeted results
+        run: rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
+      - name: Full JVM
+        shell: bash
+        run: |
+          set +e
+          ./gradlew --no-daemon :app:testDebugUnitTest --stacktrace > /tmp/p38-full.log 2>&1
+          rc=$?
+          echo "FULL_RC=$rc TESTED_SHA=$(git rev-parse HEAD)"
+          if [ "$rc" -eq 0 ]; then
+            python3 - <<'PY'
+          import glob,xml.etree.ElementTree as ET
+          t=f=s=0
+          for x in glob.glob('app/build/test-results/testDebugUnitTest/*.xml'):
+              r=ET.parse(x).getroot();t+=int(r.attrib.get('tests',0));f+=int(r.attrib.get('failures',0))+int(r.attrib.get('errors',0));s+=int(r.attrib.get('skipped',0))
+          print(f'P38_FULL tests={t} failures={f} skipped={s}');assert t and f==0
+          PY
+          else
+            grep -E '(^e: file:|FAILED|AssertionError|expected:|but was:|Compilation error|Unresolved reference|Cannot access|Type mismatch|There were failing tests|FAILURE: Build failed)' /tmp/p38-full.log | tail -n 500 || true
+            tail -n 360 /tmp/p38-full.log
+          fi
+          test "$(git rev-parse HEAD)" = "${{ steps.materialize.outputs.sha }}"
+          exit "$rc"
+      - name: Confirm immutable full candidate
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ steps.materialize.outputs.sha }}"
+          test "$(git rev-parse origin/master)" = "e4b539fa87113c5ec46da2facf282c8004dc7e44"
+          echo "P38_FINDING001_FULL_GREEN_SHA=${{ steps.materialize.outputs.sha }}"

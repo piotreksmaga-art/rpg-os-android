@@ -63,15 +63,19 @@ class ContextBuilder internal constructor(
         val missions = if(worldActorReasoning) emptyList() else queryMany(saveDb,"SELECT mission_uid,title,mission_rank,status,objective_summary,reward_ryo,deadline_day,location_uid,consequence_on_failure FROM missions_v3 WHERE status IN ('available','active','assigned') ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'assigned' THEN 1 ELSE 2 END,reward_ryo DESC LIMIT 20")
         val pressures = if(worldActorReasoning) emptyList() else queryMany(saveDb,"SELECT pressure_uid,target_type,target_uid,starts_day,peaks_day,pressure_type,magnitude,summary FROM future_world_pressure WHERE hidden=0 ORDER BY magnitude DESC LIMIT 20")
         val objectiveWorldEvents = WorldReader(worldDb,saveDb,visibility).activeEvents(audience,purpose)
+        val disclosedWorldEventSubjects = mutableListOf<VisibilitySubjectRef>()
         val activeWorldEvents: List<Map<String,Any?>> = if(worldActorReasoning){
             val runtime = worldActorPerceptionRuntime
             val trusted = trustedPrincipal
             if(runtime == null || trusted == null) emptyList() else objectiveWorldEvents.mapNotNull { objective ->
                 val projected = runtime.projectWorldEvent(audience,trusted,objective)
-                if(projected.decision.dataState != ProjectionDataState.DISCLOSED) null else linkedMapOf<String,Any?>().apply {
-                    putAll(projected.presentationPayload())
-                    put("subject_uid", projected.subject.subjectUid)
-                    put("perception_disclosure", projected.decision.level.name)
+                if(projected.decision.dataState != ProjectionDataState.DISCLOSED) null else {
+                    disclosedWorldEventSubjects += projected.subject
+                    linkedMapOf<String,Any?>().apply {
+                        putAll(projected.presentationPayload())
+                        put("subject_uid", projected.subject.subjectUid)
+                        put("perception_disclosure", projected.decision.level.name)
+                    }
                 }
             }
         } else objectiveWorldEvents.map { e -> mapOf("name" to e.name,"status" to e.status,"summary" to e.summary) }
@@ -81,7 +85,10 @@ class ContextBuilder internal constructor(
         }
 
         val relevantNpcIds=LinkedHashSet<String>()
-        activeWorldEvents.forEach { (it["subject_uid"] as? String)?.let(relevantNpcIds::add) }
+        disclosedWorldEventSubjects.asSequence()
+            .filter { it.subjectKindUid == VisibilitySubjectKinds.PUBLIC_WORLD_ACTOR_PROFILE }
+            .map { it.subjectUid }
+            .forEach(relevantNpcIds::add)
         val npcRows=mutableListOf<Map<String,Any?>>()
         for(id in relevantNpcIds.take(16)){
             val req=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignRef.campaignId,VisibilitySubjectKinds.PUBLIC_WORLD_ACTOR_PROFILE,id))
