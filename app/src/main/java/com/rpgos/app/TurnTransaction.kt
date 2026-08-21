@@ -203,7 +203,8 @@ internal object CanonicalPlayerChangeApplier{
             when(change.payload){
                 is StatChange,is ResourceChange,is SkillChange,is TechniqueChange,is InventoryChange,
                 is EquipmentChange,is FinancialChange,is OwnershipChange,is CampaignTruthChange,
-                is DevelopmentProjectChange,is KnowledgeAcquisitionChange,is AccessAuthorityChange -> Unit
+                is DevelopmentProjectChange,is KnowledgeAcquisitionChange -> Unit
+                is AccessAuthorityChange -> AccessAuthorityChangeValidator.requireValid(change.payload)
                 else -> throw UnsupportedCanonicalChangeException(change.changeKindUid)
             }
         }

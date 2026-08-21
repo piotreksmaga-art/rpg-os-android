@@ -35,8 +35,8 @@ class Phase38SliceDPerceptionDisclosureTest {
         ceiling: DisclosureLevel = DisclosureLevel.DISCLOSE_FULL,
         owner: VisibilityPrincipalRef = fixture.trusted.principal,
         campaignUid: String = campaign
-    ) = PerceptionCapability(
-        campaignUid, PerceptionCapabilityRef(campaignUid, "CAP-${owner.uid}-$channel"), owner,
+    ) = Phase38PerceptionRuntimeAuthority.issueCapability(
+        fixture.trusted, PerceptionCapabilityRef(campaignUid, "CAP-${owner.uid}-$channel"), owner,
         setOf(channel), minimum, ceiling
     )
 
@@ -65,7 +65,7 @@ class Phase38SliceDPerceptionDisclosureTest {
         campaignUid: String = campaign,
         uncertainty: PerceptionUncertainty = PerceptionUncertainty(0.85, 0.70, 0.60, 10.0, 20.0, setOf("candidate-a", "candidate-b"), 50L),
         presentedUid: String = "PRESENTED-B"
-    ) = PerceptionSignal(
+    ) = Phase38PerceptionRuntimeAuthority.issueSignal(
         campaignUid, PerceptionSignalRef(campaignUid, "SIG-1"), kind, quality, evidence, uncertainty,
         VisibilitySubjectRef(campaignUid, "OBSERVED_SUBJECT", presentedUid), mapOf("source" to "fixture")
     )

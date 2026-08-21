@@ -41,6 +41,7 @@ object VisibilitySubjectKinds {
     const val PHASE37_HOLDER_KNOWLEDGE = "PHASE37_HOLDER_KNOWLEDGE"
     const val PLAYER_STATE = "PLAYER_STATE"
     const val WORLD_PRESENTATION = "WORLD_PRESENTATION"
+    const val DIAGNOSTIC_CONTEXT = "DIAGNOSTIC_CONTEXT"
 }
 
 data class VisibilityPrincipalRef(val kindUid: String, val uid: String) {
@@ -137,7 +138,7 @@ data class VisibilityProjection<T>(
     init {
         if (decision.level == DisclosureLevel.DENY) {
             require(value == null)
-            require(dataState in setOf(ProjectionDataState.DENIED, ProjectionDataState.NOT_DISCLOSED, ProjectionDataState.UNKNOWN))
+            require(dataState in setOf(ProjectionDataState.DENIED, ProjectionDataState.NOT_DISCLOSED, ProjectionDataState.UNKNOWN, ProjectionDataState.CORRUPTION))
         }
     }
 
@@ -173,15 +174,19 @@ class VisibilityAuthorityService {
     private val protectedKinds = setOf(
         VisibilitySubjectKinds.WORLD_ACTOR_PRIVATE_MEMORY, VisibilitySubjectKinds.WORLD_ACTOR_PRIVATE_BELIEF,
         VisibilitySubjectKinds.WORLD_ACTOR_PRIVATE_SCHEDULE, VisibilitySubjectKinds.WORLD_ACTOR_PRIVATE_DECISION,
-        VisibilitySubjectKinds.RELATIONSHIP_DATA, VisibilitySubjectKinds.ECONOMY_DATA,
-        VisibilitySubjectKinds.POLITICS_DATA, VisibilitySubjectKinds.ORGANIZATION_DATA,
         VisibilitySubjectKinds.CAMPAIGN_TRUTH, VisibilitySubjectKinds.CANON_DIVERGENCE,
-        VisibilitySubjectKinds.HIDDEN_PRESSURE, VisibilitySubjectKinds.WORLD_EVENT_GM_DETAIL
+        VisibilitySubjectKinds.HIDDEN_PRESSURE, VisibilitySubjectKinds.WORLD_EVENT_GM_DETAIL, VisibilitySubjectKinds.DIAGNOSTIC_CONTEXT
+    )
+    private val accessControlledKinds = setOf(
+        VisibilitySubjectKinds.RELATIONSHIP_DATA, VisibilitySubjectKinds.ECONOMY_DATA,
+        VisibilitySubjectKinds.POLITICS_DATA, VisibilitySubjectKinds.ORGANIZATION_DATA
     )
 
     fun decide(request: VisibilityRequest): VisibilityDecision = decide(request, null)
 
-    fun decide(request: VisibilityRequest, trusted: TrustedPrincipalContext?): VisibilityDecision {
+    fun decide(request: VisibilityRequest, trusted: TrustedPrincipalContext?): VisibilityDecision = decide(request, trusted, null)
+
+    fun decide(request: VisibilityRequest, trusted: TrustedPrincipalContext?, effectiveAccess: EffectiveAccessDecision?): VisibilityDecision {
         validate(request)
         if (trusted != null && trusted.campaignUid != request.audience.campaignUid) throw VisibilityAuthorityFailure.CrossCampaign()
         if (trusted != null && trusted.principal != request.audience.principal) return deny("TRUSTED_PRINCIPAL_MISMATCH")
@@ -218,6 +223,7 @@ class VisibilityAuthorityService {
             return if (explicitlyMapped && p == VisibilityPurposeKinds.WORLD_ACTOR_REASONING) full("EXPLICIT_COGNITION_MAPPING") else deny("KNOWLEDGE_NOT_MAPPED_TO_AUDIENCE")
         }
 
+        if (s in accessControlledKinds) return if (effectiveAccess?.accessible == true) full("TRUSTED_ACCESS_AUTHORITY") else deny("ACCESS_AUTHORITY_REQUIRED")
         if (s in protectedKinds) return deny("PROTECTED_SUBJECT")
         return deny("UNKNOWN_PROTECTED_SUBJECT")
     }
@@ -232,8 +238,10 @@ class VisibilityAuthorityService {
 
     fun <T> project(request: VisibilityRequest, read: () -> T): VisibilityProjection<T> = project(request, null, read)
 
-    fun <T> project(request: VisibilityRequest, trusted: TrustedPrincipalContext?, read: () -> T): VisibilityProjection<T> {
-        val decision = decide(request, trusted)
+    fun <T> project(request: VisibilityRequest, trusted: TrustedPrincipalContext?, read: () -> T): VisibilityProjection<T> = project(request, trusted, null, read)
+
+    fun <T> project(request: VisibilityRequest, trusted: TrustedPrincipalContext?, effectiveAccess: EffectiveAccessDecision?, read: () -> T): VisibilityProjection<T> {
+        val decision = decide(request, trusted, effectiveAccess)
         if (decision.level == DisclosureLevel.DENY) {
             val state = when (decision.reasonCode) {
                 "UNKNOWN_AUDIENCE", "UNKNOWN_PURPOSE", "UNKNOWN_PROTECTED_SUBJECT" -> ProjectionDataState.UNKNOWN

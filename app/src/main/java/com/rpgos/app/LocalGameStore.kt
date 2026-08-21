@@ -107,9 +107,19 @@ internal class LocalGameStore(private val context: Context) {
         if (audience.campaignUid != campaignId || purpose.campaignUid != campaignId) throw VisibilityAuthorityFailure.CrossCampaign()
         openGameplaySaveDb().use { save ->
             openWorldDb().use { world ->
-                return ContextBuilder(save, world).build(playerInput, chapter, audience, purpose)
+                val reads=ProtectedCampaignReadRepository.borrowed(save,campaignId){ActivePlayerStore(save,campaignId).active()}
+                return ContextBuilder(save, world, protectedReadsOverride=reads).build(playerInput, chapter, audience, purpose)
             }
         }
+    }
+
+    internal fun buildTrustedContext(playerInput:String,chapter:Int,audience:AudienceContext,purpose:PurposeContext,trusted:TrustedPrincipalContext):ContextBundle {
+        val campaignId=selection.activeCampaignRef().campaignId
+        if(audience.campaignUid!=campaignId||purpose.campaignUid!=campaignId||trusted.campaignUid!=campaignId)throw VisibilityAuthorityFailure.CrossCampaign()
+        openGameplaySaveDb().use{save->openWorldDb().use{world->
+            val reads=ProtectedCampaignReadRepository.borrowedTrusted(save,campaignId,{ActivePlayerStore(save,campaignId).active()},trusted)
+            return ContextBuilder(save,world,protectedReadsOverride=reads).build(playerInput,chapter,audience,purpose)
+        }}
     }
 
     internal fun activeCampaignId(): String = selection.activeCampaignRef().campaignId
@@ -131,7 +141,7 @@ internal class LocalGameStore(private val context: Context) {
     fun registerResourceDefinitions(worldPackUid: String, definitions: List<ResourceDefinition>) = withAdminReadyDb { db, campaignUid -> StatResourceStore(db, campaignUid).registerResourceDefinitions(worldPackUid, definitions) }
     fun playerStats(): List<PlayerStat> { openGameplaySaveDb().use { db -> val campaignId = selection.activeCampaignRef().campaignId; val playerUid = ActivePlayerStore(db, campaignId).active()?.playerUid ?: return emptyList(); return StatResourceStore(db, campaignId).playerStats(playerUid) } }
     fun playerResources(): List<PlayerResource> { openGameplaySaveDb().use { db -> val campaignId = selection.activeCampaignRef().campaignId; val playerUid = ActivePlayerStore(db, campaignId).active()?.playerUid ?: return emptyList(); return StatResourceStore(db, campaignId).playerResources(playerUid) } }
-    fun fullCharacterPanel(audience: AudienceContext, purpose: PurposeContext): CharacterPanelSnapshot { val campaign=activeCampaignId();if(audience.campaignUid!=campaign||purpose.campaignUid!=campaign)throw VisibilityAuthorityFailure.CrossCampaign();openGameplaySaveDb().use { db -> val playerUid = ActivePlayerStore(db, campaign).active()?.playerUid; return CharacterPanelReader(db, playerUid).load(audience,purpose) } }
+    fun fullCharacterPanel(audience: AudienceContext, purpose: PurposeContext): CharacterPanelSnapshot { val campaign=activeCampaignId();if(audience.campaignUid!=campaign||purpose.campaignUid!=campaign)throw VisibilityAuthorityFailure.CrossCampaign();openGameplaySaveDb().use { db -> val active=ActivePlayerStore(db,campaign).active();val playerUid=active?.playerUid?:return CharacterPanelSnapshot.unresolved();val reads=ProtectedCampaignReadRepository.borrowed(db,campaign){active};val authorized=reads.playerState(audience,purpose,playerUid);return CharacterPanelReader(db,playerUid).load(audience,purpose,authorized) } }
     fun npcs(search:String,audience:AudienceContext,purpose:PurposeContext):List<NpcListItem>{ requireActiveVisibility(audience,purpose);openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).npcs(search,audience,purpose)}} }
     fun npcDetail(uid:String,audience:AudienceContext,purpose:PurposeContext):NpcDetail{ requireActiveVisibility(audience,purpose);openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).npcDetail(uid,audience,purpose)}} }
     fun relationEdges(audience:AudienceContext,purpose:PurposeContext):List<RelationEdge>{ requireActiveVisibility(audience,purpose);openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).relationEdges(audience,purpose)}} }

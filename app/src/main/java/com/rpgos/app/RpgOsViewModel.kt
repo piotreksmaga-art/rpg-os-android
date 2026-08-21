@@ -382,6 +382,8 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             runCatching {
                 _imageStatus.value = "Edycja obrazu..."
+                val editClient = ImageEditBackendClient(contextApp, _settings.value.backendUrl)
+                val prepared = editClient.prepareSource(source.visualUid, source.uri)
                 val editEnvelope = VisibilityAuthorityService().envelope(
                     playerAudience(),
                     playerPurpose(VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION)
@@ -392,16 +394,18 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                     "VISUAL",
                     source.visualUid,
                     instruction,
-                    VisualInputOrigins.USER_STANDALONE
+                    VisualInputOrigins.CAMPAIGN_PROJECTION,
+                    sourceVisualUid = source.visualUid,
+                    sourceImageSha256 = prepared.sha256
                 )
-                val result = ImageEditBackendClient(contextApp, _settings.value.backendUrl).edit(
+                val result = editClient.editPrepared(
                     ImageEditRequest(
                         sourceVisualUid = source.visualUid,
                         sourceUri = source.uri,
                         title = source.title + "_edit",
                         instruction = instruction,
                         authorization = editAuthorization
-                    )
+                    ), prepared
                 )
                 val uri = GalleryService(contextApp).saveGeneratedImage(
                     result,

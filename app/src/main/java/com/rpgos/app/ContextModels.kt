@@ -58,6 +58,13 @@ object ContextBundleDisclosureProjector {
             canonConstraints=emptyList(),retrievedLongTermMemory=emptyList(),npcMemories=emptyList(),campaignTruth=emptyList(),canonDivergences=emptyList(),
             playerState=emptyMap(),contextMeta=source.contextMeta + ("disclosure_reduced" to true),visibilityEnvelope=env
         )
+        if (level.rank <= DisclosureLevel.DETAILED.rank) return source.copy(
+            activeThreads=source.activeThreads.map { it.filterKeys { key -> key in setOf("thread_uid","title","status") } },
+            npcKnowledge=source.npcKnowledge.map { it.filterKeys { key -> key in setOf("subject_uid","predicate","epistemic_state") } },
+            canonConstraints=emptyList(),retrievedLongTermMemory=emptyList(),npcMemories=emptyList(),campaignTruth=emptyList(),canonDivergences=emptyList(),playerState=emptyMap(),
+            recentChronicle=source.recentChronicle.map { it.filterKeys { key -> key in setOf("chapter","title") } },
+            contextMeta=source.contextMeta.filterKeys { it !in setOf("campaign_truth_state","player_state_state") } + ("disclosure_reduced" to true),visibilityEnvelope=env
+        )
         return source.copy(visibilityEnvelope=env, contextMeta=source.contextMeta + ("disclosure_reduced" to true))
     }
 }

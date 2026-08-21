@@ -22,14 +22,7 @@ class ContextBuilder(
         val activePlayerRef = ActivePlayerStore(saveDb,campaignRef.campaignId).active()
         val playerUid = activePlayerRef?.playerUid
         val protectedReads = protectedReadsOverride ?: ProtectedCampaignReadRepository.borrowed(saveDb, campaignRef.campaignId) { activePlayerRef }
-        val trustedPrincipal = Phase38RuntimeAuthority.application(
-            audience,
-            controlledSubjectUids = if (audience.audienceKindUid == AudienceKinds.PLAYER && playerUid != null) setOf(playerUid) else emptySet(),
-            cognitionResolver = TrustedCognitionResolver { campaign, principal ->
-                if (purpose.purposeUid == VisibilityPurposeKinds.WORLD_ACTOR_REASONING && principal.uid.isNotBlank())
-                    setOf(KnowledgeHolderRef(KnowledgeHolderKinds.CHARACTER, principal.uid, campaign)) else emptySet()
-            }
-        )
+        val trustedPrincipal = protectedReads.trustedPrincipal(audience)
         val playerStateRead: ProtectedReadResult<PlayerStateSnapshot> = if (playerUid != null) {
             protectedReads.playerState(audience, purpose, playerUid)
         } else ProtectedReadResult.NoData
@@ -55,15 +48,21 @@ class ContextBuilder(
         }
 
         val playerFacing = audience.audienceKindUid == AudienceKinds.PLAYER
-        val diagnostic = audience.audienceKindUid == AudienceKinds.DEVELOPER_DIAGNOSTIC && purpose.purposeUid == VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION
-        val threads = if (diagnostic) queryMany(saveDb,"SELECT thread_uid,title,thread_type,status,priority,last_advanced_chapter,description FROM story_threads WHERE status='active' ORDER BY priority DESC,last_advanced_chapter DESC LIMIT 20") else emptyList()
+        val trustedDiagnostic = purpose.purposeUid == VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION &&
+            trustedPrincipal?.isPrivileged(Phase38RuntimeAuthority.PRIV_DIAGNOSTIC) == true
+        fun diagnosticRows(uid:String, read:()->List<Map<String,Any?>>):List<Map<String,Any?>> =
+            if(!trustedDiagnostic) emptyList() else when(val result=protectedReads.diagnosticRows(audience,purpose,uid,read)){
+                is ProtectedReadResult.Allow -> result.value
+                else -> emptyList()
+            }
+        val threads = diagnosticRows("STORY_THREADS") { queryMany(saveDb,"SELECT thread_uid,title,thread_type,status,priority,last_advanced_chapter,description FROM story_threads WHERE status='active' ORDER BY priority DESC,last_advanced_chapter DESC LIMIT 20") }
         val missions = queryMany(saveDb,"SELECT mission_uid,title,mission_rank,status,objective_summary,reward_ryo,deadline_day,location_uid,consequence_on_failure FROM missions_v3 WHERE status IN ('available','active','assigned') ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'assigned' THEN 1 ELSE 2 END,reward_ryo DESC LIMIT 20")
         val pressures = queryMany(saveDb,"SELECT pressure_uid,target_type,target_uid,starts_day,peaks_day,pressure_type,magnitude,summary FROM future_world_pressure WHERE hidden=0 ORDER BY magnitude DESC LIMIT 20")
         val activeWorldEvents = WorldReader(worldDb,saveDb,visibility).activeEvents(audience,purpose).map { e -> mapOf("name" to e.name,"status" to e.status,"summary" to e.summary) }
-        val chronicle = if(diagnostic) queryMany(saveDb,"SELECT chapter,title,active_threads_json,decisions_json,consequences_json,quests_json,continuity_warnings_json FROM chapter_manifests_v2 ORDER BY chapter DESC LIMIT 10") else queryMany(saveDb,"SELECT chapter,title FROM chapter_manifests_v2 ORDER BY chapter DESC LIMIT 10")
-        val longTermMemory = if(diagnostic) protectedPrivateRows(audience,purpose,VisibilitySubjectKinds.WORLD_ACTOR_PRIVATE_MEMORY,"ALL_MEMORIES") {
+        val chronicle = if(trustedDiagnostic) diagnosticRows("CHRONICLE_FULL") { queryMany(saveDb,"SELECT chapter,title,active_threads_json,decisions_json,consequences_json,quests_json,continuity_warnings_json FROM chapter_manifests_v2 ORDER BY chapter DESC LIMIT 10") } else queryMany(saveDb,"SELECT chapter,title FROM chapter_manifests_v2 ORDER BY chapter DESC LIMIT 10")
+        val longTermMemory = diagnosticRows("ALL_MEMORIES") {
             queryMany(saveDb,"SELECT memory_uid,entity_uid,memory_type,subject_uid,chapter,day,importance,emotional_valence,accuracy,summary FROM npc_memories_v2 WHERE active=1 ORDER BY importance DESC,chapter DESC LIMIT 30")
-        } else emptyList()
+        }
 
         val relevantNpcIds=LinkedHashSet<String>()
         activeWorldEvents.forEach { (it["subject_uid"] as? String)?.let(relevantNpcIds::add) }
@@ -82,7 +81,7 @@ class ContextBuilder(
             }
         }
 
-        val constraints=if(diagnostic)queryMany(worldDb,"SELECT constraint_uid,subject_type,subject_uid,constraint_key,constraint_value,canon_scope,notes FROM canon_constraints_v2 WHERE status='active' OR status IS NULL LIMIT 40")else emptyList()
+        val constraints=diagnosticRows("CANON_CONSTRAINTS") { queryMany(worldDb,"SELECT constraint_uid,subject_type,subject_uid,constraint_key,constraint_value,canon_scope,notes FROM canon_constraints_v2 WHERE status='active' OR status IS NULL LIMIT 40") }
         val skills=if(playerUid!=null && playerStateAuthorized){val r=SkillStore(saveDb,campaignRef.campaignId).reconciled(playerUid);r.skills.map{i->val s=i.playerSkill;linkedMapOf<String,Any?>("entity_uid" to s.characterUid,"skill_uid" to s.skillUid,"mastery" to s.baseMastery,"progress_value" to s.progressValue,"canonical" to true)}}else emptyList()
         val techniques=if(playerUid!=null && playerStateAuthorized){val r=TechniqueStore(saveDb,campaignRef.campaignId).reconciled(playerUid);r.techniques.map{i->val t=i.playerTechnique;linkedMapOf<String,Any?>("entity_uid" to t.characterUid,"technique_uid" to t.techniqueUid,"mastery" to t.baseMastery,"progress_value" to t.progressValue,"canonical" to true)}+r.unresolvedLegacy.map{l->linkedMapOf<String,Any?>("entity_uid" to l.characterUid,"technique_uid" to l.legacyTechniqueUid,"mastery_raw" to l.masteryRaw,"xp_raw" to l.xpRaw,"learned_chapter_raw" to l.learnedChapterRaw,"last_used_chapter_raw" to l.lastUsedChapterRaw,"usage_count_raw" to l.usageCountRaw,"success_count_raw" to l.successCountRaw,"failure_count_raw" to l.failureCountRaw,"is_equipped_raw" to l.isEquippedRaw,"notes_raw" to l.notesRaw,"display_name" to l.displayName,"category" to l.category,"legacy_chakra_cost_override_raw" to l.chakraCostOverrideRaw,"legacy_base_chakra_cost_raw" to l.baseChakraCostRaw,"authority_source" to "LEGACY_UNRESOLVED","canonical" to false)}}else emptyList()
         val inventory=if(playerUid!=null && playerStateAuthorized){val r=InventoryStore(saveDb,campaignRef.campaignId).reconciled(playerUid);r.stacks.map{i->linkedMapOf<String,Any?>("entity_uid" to i.stack.characterUid,"item_definition_uid" to i.stack.itemDefinitionUid,"quantity" to i.stack.quantity,"canonical" to true)}+r.uniqueItems.map{i->linkedMapOf<String,Any?>("entity_uid" to i.entry.characterUid,"item_definition_uid" to i.instance.itemDefinitionUid,"item_instance_uid" to i.entry.itemInstanceUid,"canonical" to true)}+r.unresolvedLegacy.map{e->linkedMapOf<String,Any?>("entity_uid" to e.characterUid,"legacy_evidence_uid" to e.evidenceUid,"item_name" to e.itemName,"row_count" to e.rowCount,"raw_fields" to e.rawFields,"authority_source" to "LEGACY_UNRESOLVED","canonical" to false)}}else emptyList()
@@ -93,7 +92,10 @@ class ContextBuilder(
             is ProtectedReadResult.Allow -> campaignTruthRead.value
             else -> emptyList()
         }
-        val canonDivergences = if(diagnostic) CanonDivergenceStore(saveDb,campaignRef.campaignId).list() else emptyList()
+        val canonDivergences = if(trustedDiagnostic) when(val result=protectedReads.canonDivergences(audience,purpose)){
+            is ProtectedReadResult.Allow -> result.value
+            else -> emptyList()
+        } else emptyList()
         val playerState = when (playerStateRead) {
             is ProtectedReadResult.Allow -> playerStateRead.value.toContextMap()
             else -> emptyMap()
@@ -108,11 +110,6 @@ class ContextBuilder(
         )
         return ContextBundle(status,scene,time,threads,npcRows,knowledgeRows,missions,pressures,constraints,chronicle,longTermMemory,skills,techniques,inventory,organizations,activeWorldEvents,
             npcMemories=emptyList(),campaignTruth=campaignTruth,canonDivergences=canonDivergences,playerState=playerState,contextMeta=meta,visibilityEnvelope=envelope)
-    }
-
-    private fun protectedPrivateRows(audience:AudienceContext,purpose:PurposeContext,kind:String,uid:String,read:()->List<Map<String,Any?>>):List<Map<String,Any?>> {
-        val req=VisibilityRequest(audience,purpose,VisibilitySubjectRef(audience.campaignUid,kind,uid))
-        return visibility.project(req,read).value ?: emptyList()
     }
 
     private fun emptyDeniedBundle(playerInput:String,chapter:Int,envelope:VisibilityProjectionEnvelope)=ContextBundle(

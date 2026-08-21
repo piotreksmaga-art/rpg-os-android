@@ -43,6 +43,8 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
 
     override fun buildContext(playerInput: String, chapter: Int, audience: AudienceContext, purpose: PurposeContext): ContextBundle =
         store.buildContext(playerInput, chapter, audience, purpose)
+    internal fun infrastructureBuildTrustedContext(playerInput:String,chapter:Int,audience:AudienceContext,purpose:PurposeContext,trusted:TrustedPrincipalContext):ContextBundle =
+        store.buildTrustedContext(playerInput,chapter,audience,purpose,trusted)
     override fun fullCharacterPanel(audience: AudienceContext, purpose: PurposeContext): CharacterPanelSnapshot =
         store.fullCharacterPanel(audience, purpose)
     override fun status(): StatusSnapshot = store.status()
@@ -59,15 +61,13 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     ): VisibilityProjection<List<CampaignTruthRecord>> {
         val campaign = activeCampaignRef().campaignId
         val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(campaign, VisibilitySubjectKinds.CAMPAIGN_TRUTH, "CAMPAIGN_TRUTH_RECORDS"))
-        return visibility.projectList(request) {
-            openGameplaySaveDb().use { db -> CampaignTruthStore(db, campaign).active(kind, subjectUid, perspectiveUid, limit) }
-        }
+        return protectedReads().truthFiltered(audience,purpose,kind,subjectUid,perspectiveUid,limit).toVisibilityProjection(request)
     }
 
     override fun canonDivergences(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<CanonDivergenceRecord>> {
         val campaign = activeCampaignRef().campaignId
         val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(campaign, VisibilitySubjectKinds.CANON_DIVERGENCE, "CANON_DIVERGENCES"))
-        return visibility.projectList(request) { store.canonDivergences() }
+        return protectedReads().canonDivergences(audience,purpose).toVisibilityProjection(request)
     }
 
     override fun npcs(search: String, audience: AudienceContext, purpose: PurposeContext): List<NpcListItem> = store.npcs(search, audience, purpose)

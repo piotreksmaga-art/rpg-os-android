@@ -38,7 +38,7 @@ data class PerceptionUncertainty(
 }
 
 /** presentedSubject is evidence-facing identity/classification, never a hidden canonical origin. */
-data class PerceptionSignal(
+class PerceptionSignal private constructor(
     val campaignUid: String,
     val ref: PerceptionSignalRef,
     val signalKindUid: String,
@@ -55,10 +55,17 @@ data class PerceptionSignal(
         require(evidence.keys.none { it.isBlank() } && observationMetadata.keys.none { it.isBlank() })
         presentedSubject?.let { require(it.campaignUid == campaignUid) }
     }
+    companion object {
+        internal fun issue(
+            campaignUid:String, ref:PerceptionSignalRef, signalKindUid:String, quality:Double,
+            evidence:Map<String,Any?>, uncertainty:PerceptionUncertainty,
+            presentedSubject:VisibilitySubjectRef?, observationMetadata:Map<String,String>
+        ) = PerceptionSignal(campaignUid,ref,signalKindUid,quality,evidence,uncertainty,presentedSubject,observationMetadata)
+    }
 }
 
 /** Thresholds are data supplied by the world rules. Core never assigns meaning to channel UIDs. */
-data class PerceptionCapability(
+class PerceptionCapability private constructor(
     val campaignUid: String,
     val ref: PerceptionCapabilityRef,
     val observer: VisibilityPrincipalRef,
@@ -75,6 +82,30 @@ data class PerceptionCapability(
         channelUids.isNotEmpty() && channelUids.none { it.isBlank() } &&
             minimumDetectionQuality.isFinite() && minimumDetectionQuality in 0.0..1.0 &&
             maximumDisclosure != DisclosureLevel.DENY
+    companion object {
+        internal fun issue(
+            campaignUid:String, ref:PerceptionCapabilityRef, observer:VisibilityPrincipalRef,
+            channelUids:Set<String>, minimumDetectionQuality:Double, maximumDisclosure:DisclosureLevel
+        ) = PerceptionCapability(campaignUid,ref,observer,channelUids,minimumDetectionQuality,maximumDisclosure)
+    }
+}
+
+/** Runtime-owned issuer. Callers can request observation but cannot manufacture signal/capability authority. */
+internal object Phase38PerceptionRuntimeAuthority {
+    fun issueSignal(
+        campaignUid:String, ref:PerceptionSignalRef, signalKindUid:String, quality:Double,
+        evidence:Map<String,Any?>, uncertainty:PerceptionUncertainty,
+        presentedSubject:VisibilitySubjectRef?=null, observationMetadata:Map<String,String> = emptyMap()
+    ):PerceptionSignal = PerceptionSignal.issue(
+        campaignUid,ref,signalKindUid,quality,evidence.toMap(),uncertainty,presentedSubject,observationMetadata.toMap()
+    )
+    fun issueCapability(
+        trusted:TrustedPrincipalContext, ref:PerceptionCapabilityRef, observer:VisibilityPrincipalRef,
+        channelUids:Set<String>, minimumDetectionQuality:Double, maximumDisclosure:DisclosureLevel
+    ):PerceptionCapability {
+        require(ref.campaignUid==trusted.campaignUid&&observer==trusted.principal){"RPGOS-P38-PERCEPTION:CAPABILITY_AUTHORITY_MISMATCH"}
+        return PerceptionCapability.issue(trusted.campaignUid,ref,observer,channelUids.toSet(),minimumDetectionQuality,maximumDisclosure)
+    }
 }
 
 data class PerceptionInterference(
@@ -159,7 +190,7 @@ data class PerceptionWorldRules(
             interpretationRules.all { (kind, rule) -> kind == rule.signalKindUid && rule.isWellFormed() }
 }
 
-data class PerceptionContext(
+data class PerceptionContext internal constructor(
     val campaignUid: String,
     val trustedObserver: TrustedPrincipalContext,
     val capabilities: List<PerceptionCapability>,
@@ -217,7 +248,26 @@ data class InterpretationResult(
     val confidence: Double = 0.0
 )
 
-class PerceptionResolver {
+fun interface TrustedPerceptionSignalSource { fun signal(campaignUid:String,signalRef:PerceptionSignalRef):PerceptionSignal? }
+fun interface TrustedPerceptionCapabilitySource { fun capabilities(campaignUid:String,principal:VisibilityPrincipalRef):List<PerceptionCapability> }
+
+class PerceptionRuntimeGateway internal constructor(
+    private val principalResolver:TrustedPrincipalResolver,
+    private val signalSource:TrustedPerceptionSignalSource,
+    private val capabilitySource:TrustedPerceptionCapabilitySource
+){
+    fun evaluate(audience:AudienceContext,signalRef:PerceptionSignalRef,rules:PerceptionWorldRules,interference:List<PerceptionInterference> = emptyList(),expertise:List<PerceptionExpertise> = emptyList()):PerceptionDecision{
+        if(audience.campaignUid!=signalRef.campaignUid)throw VisibilityAuthorityFailure.CrossCampaign()
+        val principal=requireNotNull(audience.principal){"RPGOS-P38-PERCEPTION:PRINCIPAL_REQUIRED"}
+        val trusted=principalResolver.resolve(audience)?:return PerceptionDecision(audience.campaignUid,principal,signalRef,null,PerceptionResultState.DENIED,"TRUSTED_OBSERVER_REQUIRED")
+        val signal=signalSource.signal(audience.campaignUid,signalRef)?:return PerceptionDecision(audience.campaignUid,principal,signalRef,null,PerceptionResultState.NO_DATA,"NO_SIGNAL")
+        val capabilities=capabilitySource.capabilities(audience.campaignUid,principal)
+        val context=PerceptionContext(audience.campaignUid,trusted,capabilities,rules,interference,expertise)
+        return PerceptionResolver().evaluate(PerceptionRequest(context,signal))
+    }
+}
+
+class PerceptionResolver internal constructor() {
     fun evaluate(request: PerceptionRequest): PerceptionDecision {
         val c = request.context
         val signal = request.signal ?: return PerceptionDecision(

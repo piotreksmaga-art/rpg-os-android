@@ -29,11 +29,14 @@ class CharacterPanelReader(
     private val playerUid: String? = null,
     private val visibility: VisibilityAuthorityService = VisibilityAuthorityService()
 ) {
-    fun load(audience: AudienceContext, purpose: PurposeContext): CharacterPanelSnapshot {
+    @Deprecated("PLAYER_STATE authorization must come from ProtectedCampaignReadRepository")
+    fun load(audience: AudienceContext, purpose: PurposeContext): CharacterPanelSnapshot = CharacterPanelSnapshot.unresolved()
+
+    fun load(audience: AudienceContext, purpose: PurposeContext, playerStateRead: ProtectedReadResult<PlayerStateSnapshot>): CharacterPanelSnapshot {
         val uid = playerUid?.trim().orEmpty()
-        if (uid.isBlank()) return CharacterPanelSnapshot.unresolved()
-        val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(audience.campaignUid, VisibilitySubjectKinds.PLAYER_STATE, uid))
-        return visibility.project(request) { loadProjectedPlayerState(uid, audience, purpose) }.value ?: CharacterPanelSnapshot.unresolved()
+        if (uid.isBlank() || playerStateRead !is ProtectedReadResult.Allow) return CharacterPanelSnapshot.unresolved()
+        if (playerStateRead.value.activePlayer.playerUid != uid || playerStateRead.value.activePlayer.campaignId != audience.campaignUid) return CharacterPanelSnapshot.unresolved()
+        return loadProjectedPlayerState(uid, audience, purpose)
     }
 
     private fun loadProjectedPlayerState(uid: String, audience: AudienceContext, purpose: PurposeContext): CharacterPanelSnapshot {
