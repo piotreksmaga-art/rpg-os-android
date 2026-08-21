@@ -52,7 +52,7 @@ jobs:
           s = path.read_text()
           start = s.index('perception_path="app/src/main/java/com/rpgos/app/Phase38PerceptionDisclosure.kt"')
           end = s.index('# Update Slice-D fixture helpers to use runtime-issued objects.', start)
-          replacement = r'''perception_path="app/src/main/java/com/rpgos/app/Phase38PerceptionDisclosure.kt"
+          replacement = r"""perception_path="app/src/main/java/com/rpgos/app/Phase38PerceptionDisclosure.kt"
           s=text(perception_path)
           s=s.replace("data class PerceptionSignal(\n", "class PerceptionSignal private constructor(\n",1)
           old='''        presentedSubject?.let { require(it.campaignUid == campaignUid) }
@@ -138,7 +138,7 @@ jobs:
           s=s.replace(anchor,gateway+anchor,1)
           write(perception_path,s)
           
-          '''
+          """
           s = s[:start] + replacement + s[end:]
           s = s.replace(
               'val sig=Phase38PerceptionRuntimeAuthority.issueSignal("C",PerceptionSignalRef("C","SIG"),"K",1.0,mapOf("presence" to true))',
