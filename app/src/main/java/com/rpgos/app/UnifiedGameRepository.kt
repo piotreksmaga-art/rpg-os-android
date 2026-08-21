@@ -46,6 +46,15 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         store.buildContext(playerInput, chapter, audience, purpose)
     internal fun infrastructureBuildTrustedContext(playerInput:String,chapter:Int,audience:AudienceContext,purpose:PurposeContext,trusted:TrustedPrincipalContext):ContextBundle =
         store.buildTrustedContext(playerInput,chapter,audience,purpose,trusted)
+    internal fun infrastructureIssueWorldActorEventSignal(
+        event:WorldEventItem,evidence:Map<String,Any?>,quality:Double=1.0,
+        uncertainty:PerceptionUncertainty=PerceptionUncertainty(1.0,1.0,1.0),presentedSubject:VisibilitySubjectRef?=null
+    ):PerceptionSignal = store.issueWorldActorEventSignal(event,evidence,quality,uncertainty,presentedSubject)
+    internal fun infrastructureIssueWorldActorEventCapability(
+        audience:AudienceContext,minimumDetectionQuality:Double=0.0,
+        maximumDisclosure:DisclosureLevel=DisclosureLevel.DISCLOSE_FULL,capabilityUid:String="WORLD_EVENT:${audience.principal?.kindUid}:${audience.principal?.uid}"
+    ):PerceptionCapability = store.issueWorldActorEventCapability(audience,minimumDetectionQuality,maximumDisclosure,capabilityUid)
+    internal fun infrastructureClearWorldActorPerception() = store.clearWorldActorPerception()
     override fun fullCharacterPanel(audience: AudienceContext, purpose: PurposeContext): CharacterPanelSnapshot =
         store.fullCharacterPanel(audience, purpose)
     override fun status(): StatusSnapshot = store.status()

@@ -6,7 +6,8 @@ class ContextBuilder(
     private val saveDb: SQLiteDatabase,
     private val worldDb: SQLiteDatabase,
     private val visibility: VisibilityAuthorityService = VisibilityAuthorityService(),
-    private val protectedReadsOverride: ProtectedCampaignReadRepository? = null
+    private val protectedReadsOverride: ProtectedCampaignReadRepository? = null,
+    private val worldActorPerceptionRuntime: Phase38WorldActorPerceptionRuntime? = null
 ) {
     fun build(playerInput: String, chapter: Int, audience: AudienceContext, purpose: PurposeContext): ContextBundle {
         if (audience.campaignUid != purpose.campaignUid) throw VisibilityAuthorityFailure.CrossCampaign()
@@ -56,9 +57,24 @@ class ContextBuilder(
                 else -> emptyList()
             }
         val threads = diagnosticRows("STORY_THREADS") { queryMany(saveDb,"SELECT thread_uid,title,thread_type,status,priority,last_advanced_chapter,description FROM story_threads WHERE status='active' ORDER BY priority DESC,last_advanced_chapter DESC LIMIT 20") }
-        val missions = queryMany(saveDb,"SELECT mission_uid,title,mission_rank,status,objective_summary,reward_ryo,deadline_day,location_uid,consequence_on_failure FROM missions_v3 WHERE status IN ('available','active','assigned') ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'assigned' THEN 1 ELSE 2 END,reward_ryo DESC LIMIT 20")
-        val pressures = queryMany(saveDb,"SELECT pressure_uid,target_type,target_uid,starts_day,peaks_day,pressure_type,magnitude,summary FROM future_world_pressure WHERE hidden=0 ORDER BY magnitude DESC LIMIT 20")
-        val activeWorldEvents = WorldReader(worldDb,saveDb,visibility).activeEvents(audience,purpose).map { e -> mapOf("name" to e.name,"status" to e.status,"summary" to e.summary) }
+        val worldActorReasoning = audience.audienceKindUid == AudienceKinds.WORLD_ACTOR && purpose.purposeUid == VisibilityPurposeKinds.WORLD_ACTOR_REASONING
+        // Missions/future pressure are objective/system domains, not perception. Until a canonical
+        // actor knowledge/access carrier exists for them they are category F and stay out of actor reasoning.
+        val missions = if(worldActorReasoning) emptyList() else queryMany(saveDb,"SELECT mission_uid,title,mission_rank,status,objective_summary,reward_ryo,deadline_day,location_uid,consequence_on_failure FROM missions_v3 WHERE status IN ('available','active','assigned') ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'assigned' THEN 1 ELSE 2 END,reward_ryo DESC LIMIT 20")
+        val pressures = if(worldActorReasoning) emptyList() else queryMany(saveDb,"SELECT pressure_uid,target_type,target_uid,starts_day,peaks_day,pressure_type,magnitude,summary FROM future_world_pressure WHERE hidden=0 ORDER BY magnitude DESC LIMIT 20")
+        val objectiveWorldEvents = WorldReader(worldDb,saveDb,visibility).activeEvents(audience,purpose)
+        val activeWorldEvents: List<Map<String,Any?>> = if(worldActorReasoning){
+            val runtime = worldActorPerceptionRuntime
+            val trusted = trustedPrincipal
+            if(runtime == null || trusted == null) emptyList() else objectiveWorldEvents.mapNotNull { objective ->
+                val projected = runtime.projectWorldEvent(audience,trusted,objective)
+                if(projected.decision.dataState != ProjectionDataState.DISCLOSED) null else linkedMapOf<String,Any?>().apply {
+                    putAll(projected.presentationPayload())
+                    put("subject_uid", projected.subject.subjectUid)
+                    put("perception_disclosure", projected.decision.level.name)
+                }
+            }
+        } else objectiveWorldEvents.map { e -> mapOf("name" to e.name,"status" to e.status,"summary" to e.summary) }
         val chronicle = if(trustedDiagnostic) diagnosticRows("CHRONICLE_FULL") { queryMany(saveDb,"SELECT chapter,title,active_threads_json,decisions_json,consequences_json,quests_json,continuity_warnings_json FROM chapter_manifests_v2 ORDER BY chapter DESC LIMIT 10") } else queryMany(saveDb,"SELECT chapter,title FROM chapter_manifests_v2 ORDER BY chapter DESC LIMIT 10")
         val longTermMemory = diagnosticRows("ALL_MEMORIES") {
             queryMany(saveDb,"SELECT memory_uid,entity_uid,memory_type,subject_uid,chapter,day,importance,emotional_valence,accuracy,summary FROM npc_memories_v2 WHERE active=1 ORDER BY importance DESC,chapter DESC LIMIT 30")

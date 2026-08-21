@@ -16,6 +16,7 @@ internal class LocalGameStore(private val context: Context) {
     private val saveDir: File get() = File(baseDir, "saves/${selection.activeCampaignDirName()}")
     private val worldDir: File get() = File(baseDir, "worldpacks/${selection.activeWorldPackDirName()}")
     private val coreDir = File(baseDir, "core")
+    private val worldActorPerceptionRuntime = Phase38WorldActorPerceptionRuntime()
 
     /** The single production initialization owner. No public authoritative writer is ready before this returns. */
     fun bootstrap() {
@@ -108,7 +109,7 @@ internal class LocalGameStore(private val context: Context) {
         openGameplaySaveDb().use { save ->
             openWorldDb().use { world ->
                 val reads=ProtectedCampaignReadRepository.borrowed(save,campaignId){ActivePlayerStore(save,campaignId).active()}
-                return ContextBuilder(save, world, protectedReadsOverride=reads).build(playerInput, chapter, audience, purpose)
+                return ContextBuilder(save, world, protectedReadsOverride=reads, worldActorPerceptionRuntime=worldActorPerceptionRuntime).build(playerInput, chapter, audience, purpose)
             }
         }
     }
@@ -118,9 +119,37 @@ internal class LocalGameStore(private val context: Context) {
         if(audience.campaignUid!=campaignId||purpose.campaignUid!=campaignId||trusted.campaignUid!=campaignId)throw VisibilityAuthorityFailure.CrossCampaign()
         openGameplaySaveDb().use{save->openWorldDb().use{world->
             val reads=ProtectedCampaignReadRepository.borrowedTrusted(save,campaignId,{ActivePlayerStore(save,campaignId).active()},trusted)
-            return ContextBuilder(save,world,protectedReadsOverride=reads).build(playerInput,chapter,audience,purpose)
+            return ContextBuilder(save,world,protectedReadsOverride=reads,worldActorPerceptionRuntime=worldActorPerceptionRuntime).build(playerInput,chapter,audience,purpose)
         }}
     }
+
+    internal fun issueWorldActorEventSignal(
+        event:WorldEventItem,
+        evidence:Map<String,Any?>,
+        quality:Double=1.0,
+        uncertainty:PerceptionUncertainty=PerceptionUncertainty(1.0,1.0,1.0),
+        presentedSubject:VisibilitySubjectRef?=null
+    ):PerceptionSignal = worldActorPerceptionRuntime.issueWorldEventSignal(
+        activeCampaignId(),event,evidence,quality,uncertainty,presentedSubject
+    )
+
+    internal fun issueWorldActorEventCapability(
+        audience:AudienceContext,
+        minimumDetectionQuality:Double=0.0,
+        maximumDisclosure:DisclosureLevel=DisclosureLevel.DISCLOSE_FULL,
+        capabilityUid:String="WORLD_EVENT:${audience.principal?.kindUid}:${audience.principal?.uid}"
+    ):PerceptionCapability {
+        requireActiveVisibility(audience,PurposeContext(audience.campaignUid,VisibilityPurposeKinds.WORLD_ACTOR_REASONING))
+        require(audience.audienceKindUid==AudienceKinds.WORLD_ACTOR){"RPGOS-P38-PERCEPTION:WORLD_ACTOR_REQUIRED"}
+        openGameplaySaveDb().use { db ->
+            val active=ActivePlayerStore(db,activeCampaignId()).active()
+            val reads=ProtectedCampaignReadRepository.borrowed(db,activeCampaignId()){active}
+            val trusted=requireNotNull(reads.trustedPrincipal(audience)){"RPGOS-P38-PERCEPTION:TRUSTED_OBSERVER_REQUIRED"}
+            return worldActorPerceptionRuntime.issueWorldEventCapability(trusted,minimumDetectionQuality,maximumDisclosure,capabilityUid)
+        }
+    }
+
+    internal fun clearWorldActorPerception() = worldActorPerceptionRuntime.clearCampaign(activeCampaignId())
 
     internal fun activeCampaignId(): String = selection.activeCampaignRef().campaignId
     private fun requireActiveVisibility(audience:AudienceContext,purpose:PurposeContext){
