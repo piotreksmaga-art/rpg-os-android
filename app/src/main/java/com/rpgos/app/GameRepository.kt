@@ -60,6 +60,11 @@ interface CampaignRepository {
     fun worldRegions(): List<WorldRegionItem>
     fun worldLocations(search: String = ""): List<WorldLocationItem>
     fun activeWorldEventsProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<WorldEventItem>>
+
+    /** Legacy/presentation compatibility only. Canonical protected state is activeWorldEventsProjection. */
+    fun activeWorldEvents(audience: AudienceContext, purpose: PurposeContext): List<WorldEventItem> =
+        activeWorldEventsProjection(audience, purpose).value ?: emptyList()
+
     fun techniqueBrowser(search: String = ""): List<TechniqueBrowserItem>
     fun missionBrowser(): List<MissionBrowserItem>
 
