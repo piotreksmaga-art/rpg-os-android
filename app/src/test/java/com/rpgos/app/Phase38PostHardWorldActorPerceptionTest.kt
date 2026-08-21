@@ -141,8 +141,8 @@ class Phase38PostHardWorldActorPerceptionTest {
 
     @Test fun actorReasoningDoesNotReceiveObjectiveMissionPressureOrPrivilegedTruthDomains() {
         val bundle=build(actor("ACTOR-F-CHECK"),"P38-POST-HARD-CATEGORY-F")
-        assertTrue(bundle.activeMissions.isEmpty())
-        assertTrue(bundle.activePressures.isEmpty())
+        assertTrue(bundle.missions.isEmpty())
+        assertTrue(bundle.worldPressures.isEmpty())
         assertTrue(bundle.campaignTruth.isEmpty())
         assertTrue(bundle.canonDivergences.isEmpty())
         assertTrue(bundle.canonConstraints.isEmpty())
