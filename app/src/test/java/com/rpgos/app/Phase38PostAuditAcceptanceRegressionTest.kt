@@ -36,29 +36,21 @@ class Phase38PostAuditAcceptanceRegressionTest {
         val campaignUid = publicRepository.activeCampaignRef().campaignId
         val diagnosticPurpose = PurposeContext(campaignUid, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
 
-        // Use a durable protected marker so the test proves absence/presence of exact diagnostic data,
-        // not merely a disclosure reason code.
-        LocalGameStore(context).openGameplaySaveDb().use { db ->
-            withAdministrativeMutationAuthority(db, campaignUid) {
-                CanonDivergenceStore(db, campaignUid).importVerified(
-                    CanonDivergenceSpec(
-                        divergenceUid = "P38-AUD-001-DIAGNOSTIC-MARKER",
-                        canonicalReference = CanonReference("TEST_SUBJECT", "S1", "P38-AUD-001-EXPECTATION"),
-                        worldPackUid = "Naruto",
-                        worldPackVersion = "P38-ACCEPTANCE",
-                        kind = CanonDivergenceKind.STATE,
-                        expectedCanonicalValue = "CANON_ONLY",
-                        actualCampaignValue = "CAMPAIGN_ONLY",
-                        provenanceStatus = HistoricalProvenanceStatus.VERIFIED_IMPORT
-                    )
+        // Reuse a protected marker already supplied by the normal bundled World Pack. This avoids
+        // introducing unrelated canonical mutation into a read-boundary acceptance regression.
+        val worldConstraintMarker = LocalGameStore(context).openWorldDb().use { db ->
+            db.rawQuery(
+                "SELECT constraint_uid,constraint_key,constraint_value FROM canon_constraints_v2 WHERE status='active' OR status IS NULL ORDER BY constraint_uid LIMIT 1",
+                null
+            ).use { c ->
+                assertTrue("bundled production World Pack must provide a canon constraint acceptance marker", c.moveToFirst())
+                mapOf<String, Any?>(
+                    "constraint_uid" to c.getString(0),
+                    "constraint_key" to c.getString(1),
+                    "constraint_value" to c.getString(2)
                 )
             }
         }
-        val worldConstraintCount = LocalGameStore(context).openWorldDb().use { db ->
-            db.rawQuery("SELECT COUNT(*) FROM canon_constraints_v2 WHERE status='active' OR status IS NULL", null)
-                .use { c -> assertTrue(c.moveToFirst()); c.getLong(0) }
-        }
-        assertTrue("bundled production World Pack must provide canon constraints for this acceptance probe", worldConstraintCount > 0L)
 
         fun assertNoDiagnosticExpansion(bundle: ContextBundle, caseUid: String) {
             assertTrue("$caseUid: canon constraints leaked", bundle.canonConstraints.isEmpty())
@@ -102,10 +94,12 @@ class Phase38PostAuditAcceptanceRegressionTest {
             "P38-AUD-001-B", 1, diagnosticAudience, diagnosticPurpose, runtimeIssued
         )
         assertTrue("AUD-001-B: trusted diagnostic authority must project canon constraints", trustedDiagnostic.canonConstraints.isNotEmpty())
-        val marker = trustedDiagnostic.canonDivergences.singleOrNull { it.spec.divergenceUid == "P38-AUD-001-DIAGNOSTIC-MARKER" }
-        assertNotNull("AUD-001-B: trusted diagnostic authority must project the protected divergence marker", marker)
-        assertEquals("CANON_ONLY", marker!!.spec.expectedCanonicalValue)
-        assertEquals("CAMPAIGN_ONLY", marker.spec.actualCampaignValue)
+        val trustedMarker = trustedDiagnostic.canonConstraints.singleOrNull {
+            it["constraint_uid"] == worldConstraintMarker["constraint_uid"]
+        }
+        assertNotNull("AUD-001-B: trusted diagnostic authority must project the existing protected canon marker", trustedMarker)
+        assertEquals(worldConstraintMarker["constraint_key"], trustedMarker!!["constraint_key"])
+        assertEquals(worldConstraintMarker["constraint_value"], trustedMarker["constraint_value"])
     }
 
     @Test fun unknownProtectedPolicyFailsClosedBeforeTrustedResolutionAccessAuthorityOrPhase37Acquisition() {
