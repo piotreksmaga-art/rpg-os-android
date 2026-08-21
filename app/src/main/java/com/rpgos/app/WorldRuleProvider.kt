@@ -369,6 +369,7 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
         is RuntimeChange -> "RUNTIME_CHANGE"
         is DevelopmentProjectChange -> "DEVELOPMENT_PROJECT_CHANGE"
         is KnowledgeAcquisitionChange -> "KNOWLEDGE_ACQUISITION_CHANGE"
+        is AccessAuthorityChange -> "ACCESS_AUTHORITY_CHANGE"
     }
     record(payloadType) {
         field("CHANGE_UID", change.changeUid)
@@ -447,6 +448,19 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
                 field("PROJECT_UID", payload.projectUid); field("WORK_RESULT_KIND_UID", payload.workResultKindUid)
                 longField("PROGRESS_DELTA", payload.progressDelta.units)
                 list("EVIDENCE_REFS", payload.evidenceRefs) { ref -> domainRef("EVIDENCE_REF", ref) }
+            }
+            is AccessAuthorityChange -> {
+                field("OPERATION", payload.operation.name)
+                field("RECORD_UID", payload.recordUid)
+                field("PRINCIPAL_KIND_UID", payload.principalKindUid)
+                field("PRINCIPAL_UID", payload.principalUid)
+                field("BINDING_OR_GRANT_KIND_UID", payload.bindingOrGrantKindUid)
+                field("VALUE_UID", payload.valueUid)
+                nullableField("SUBJECT_KIND_UID", payload.subjectKindUid)
+                nullableField("SUBJECT_UID", payload.subjectUid)
+                longField("VALID_FROM_ORDER", payload.validFromOrder)
+                nullableLongField("VALID_UNTIL_ORDER", payload.validUntilOrder)
+                nullableField("DELEGATED_BY_PRINCIPAL_UID", payload.delegatedByPrincipalUid)
             }
             is KnowledgeAcquisitionChange -> {
                 section("CLAIM") {

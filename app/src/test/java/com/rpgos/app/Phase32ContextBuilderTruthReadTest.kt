@@ -62,7 +62,12 @@ class Phase32ContextBuilderTruthReadTest {
                 val expectedPlayerState = PlayerStateStore(save, "C").load()?.toContextMap()
                 assertNotNull(expectedPlayerState)
 
-                val bundle = ContextBuilder(save, world).build("look", 1)
+                Phase38LegacyContextFixtureSchema.ensure(save, world)
+                val trustedInitialContext = Phase38TrustedTestAuthority.diagnosticContextBuilder(save, world, "C")
+                val bundle = trustedInitialContext.builder.build(
+                    "look", 1, trustedInitialContext.audience,
+                    PurposeContext("C", VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
+                )
                 assertEquals(expectedTruth, bundle.campaignTruth)
                 assertEquals(expectedPlayerState, bundle.playerState)
                 assertEquals("FACT", bundle.campaignTruth.single()["truth_kind"])
@@ -94,7 +99,12 @@ class Phase32ContextBuilderTruthReadTest {
                 assertEquals(expectedTruth, truthStore.activeForContext())
                 assertEquals(expectedPlayerState, PlayerStateStore(save, "C").load()?.toContextMap())
 
-                val rebuilt = ContextBuilder(save, world).build("look again", 2)
+                Phase38LegacyContextFixtureSchema.ensure(save, world)
+                val trustedRebuiltContext = Phase38TrustedTestAuthority.diagnosticContextBuilder(save, world, "C")
+                val rebuilt = trustedRebuiltContext.builder.build(
+                    "look again", 2, trustedRebuiltContext.audience,
+                    PurposeContext("C", VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
+                )
                 assertEquals(expectedTruth, rebuilt.campaignTruth)
                 assertEquals(expectedPlayerState, rebuilt.playerState)
             }

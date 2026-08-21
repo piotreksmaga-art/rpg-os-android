@@ -33,6 +33,8 @@ class Phase32BuildContextNoRepairRegressionTest {
         campaignDbFile = File(campaignDir, "campaign.db")
         SQLiteDatabase.openOrCreateDatabase(campaignDbFile, null).use { db ->
             Phase32ProductionReadyTestFixture.setup(db, campaignUid)
+            Phase38LegacyContextFixtureSchema.ensure(db)
+            GameplayMutationDatabaseGuards.ensureInstalled(db)
             assertFalse(tableExists(db, "rpgos_repair_log"))
         }
 
@@ -62,7 +64,9 @@ class Phase32BuildContextNoRepairRegressionTest {
             )
         }
 
-        val bundle = LocalGameStore(context).buildContext("inspect", 1)
+        val audience = VisibilityAudienceFactory.player(campaignUid)
+        val purpose = PurposeContext(campaignUid, VisibilityPurposeKinds.GAMEPLAY_NARRATION)
+        val bundle = LocalGameStore(context).buildContext("inspect", 1, audience, purpose)
         assertEquals(campaignUid, bundle.contextMeta["campaign_id"])
 
         SQLiteDatabase.openDatabase(

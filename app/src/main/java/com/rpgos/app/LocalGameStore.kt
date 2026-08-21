@@ -16,6 +16,7 @@ internal class LocalGameStore(private val context: Context) {
     private val saveDir: File get() = File(baseDir, "saves/${selection.activeCampaignDirName()}")
     private val worldDir: File get() = File(baseDir, "worldpacks/${selection.activeWorldPackDirName()}")
     private val coreDir = File(baseDir, "core")
+    private val worldActorPerceptionRuntime = Phase38WorldActorPerceptionRuntime()
 
     /** The single production initialization owner. No public authoritative writer is ready before this returns. */
     fun bootstrap() {
@@ -102,17 +103,58 @@ internal class LocalGameStore(private val context: Context) {
     fun openWorldDb(): SQLiteDatabase = SQLiteDatabase.openDatabase(File(worldDir, "world.db").absolutePath, null, SQLiteDatabase.OPEN_READONLY)
     fun openCoreDb(): SQLiteDatabase = SQLiteDatabase.openDatabase(File(coreDir, "rpg_core.db").absolutePath, null, SQLiteDatabase.OPEN_READONLY)
 
-    fun buildContext(playerInput: String, chapter: Int): ContextBundle {
+    fun buildContext(playerInput: String, chapter: Int, audience: AudienceContext, purpose: PurposeContext): ContextBundle {
+        val campaignId = selection.activeCampaignRef().campaignId
+        if (audience.campaignUid != campaignId || purpose.campaignUid != campaignId) throw VisibilityAuthorityFailure.CrossCampaign()
         openGameplaySaveDb().use { save ->
             openWorldDb().use { world ->
-                val base = ContextBuilder(save, world).build(playerInput, chapter)
-                val campaignId = selection.activeCampaignRef().campaignId
-                val truth = CampaignTruthStore(save, campaignId).activeForContext(limit = 80)
-                val state = PlayerStateStore(save, campaignId).load()
-                val divergences = CanonDivergenceStore(save, campaignId).list()
-                return base.copy(campaignTruth = truth, canonDivergences = divergences, playerState = state?.toContextMap() ?: emptyMap(), contextMeta = base.contextMeta + mapOf("campaign_truth_records" to truth.size, "canon_divergences" to divergences.size, "player_state_contract" to (state != null), "active_player_uid" to state?.activePlayer?.playerUid))
+                val reads=ProtectedCampaignReadRepository.borrowed(save,campaignId){ActivePlayerStore(save,campaignId).active()}
+                return ContextBuilder(save, world, protectedReadsOverride=reads, worldActorPerceptionRuntime=worldActorPerceptionRuntime).build(playerInput, chapter, audience, purpose)
             }
         }
+    }
+
+    internal fun buildTrustedContext(playerInput:String,chapter:Int,audience:AudienceContext,purpose:PurposeContext,trusted:TrustedPrincipalContext):ContextBundle {
+        val campaignId=selection.activeCampaignRef().campaignId
+        if(audience.campaignUid!=campaignId||purpose.campaignUid!=campaignId||trusted.campaignUid!=campaignId)throw VisibilityAuthorityFailure.CrossCampaign()
+        openGameplaySaveDb().use{save->openWorldDb().use{world->
+            val reads=ProtectedCampaignReadRepository.borrowedTrusted(save,campaignId,{ActivePlayerStore(save,campaignId).active()},trusted)
+            return ContextBuilder(save,world,protectedReadsOverride=reads,worldActorPerceptionRuntime=worldActorPerceptionRuntime).build(playerInput,chapter,audience,purpose)
+        }}
+    }
+
+    internal fun issueWorldActorEventSignal(
+        event:WorldEventItem,
+        evidence:Map<String,Any?>,
+        quality:Double=1.0,
+        uncertainty:PerceptionUncertainty=PerceptionUncertainty(1.0,1.0,1.0),
+        presentedSubject:VisibilitySubjectRef?=null
+    ):PerceptionSignal = worldActorPerceptionRuntime.issueWorldEventSignal(
+        activeCampaignId(),event,evidence,quality,uncertainty,presentedSubject
+    )
+
+    internal fun issueWorldActorEventCapability(
+        audience:AudienceContext,
+        minimumDetectionQuality:Double=0.0,
+        maximumDisclosure:DisclosureLevel=DisclosureLevel.DISCLOSE_FULL,
+        capabilityUid:String="WORLD_EVENT:${audience.principal?.kindUid}:${audience.principal?.uid}"
+    ):PerceptionCapability {
+        requireActiveVisibility(audience,PurposeContext(audience.campaignUid,VisibilityPurposeKinds.WORLD_ACTOR_REASONING))
+        require(audience.audienceKindUid==AudienceKinds.WORLD_ACTOR){"RPGOS-P38-PERCEPTION:WORLD_ACTOR_REQUIRED"}
+        openGameplaySaveDb().use { db ->
+            val active=ActivePlayerStore(db,activeCampaignId()).active()
+            val reads=ProtectedCampaignReadRepository.borrowed(db,activeCampaignId()){active}
+            val trusted=requireNotNull(reads.trustedPrincipal(audience)){"RPGOS-P38-PERCEPTION:TRUSTED_OBSERVER_REQUIRED"}
+            return worldActorPerceptionRuntime.issueWorldEventCapability(trusted,minimumDetectionQuality,maximumDisclosure,capabilityUid)
+        }
+    }
+
+    internal fun clearWorldActorPerception() = worldActorPerceptionRuntime.clearCampaign(activeCampaignId())
+
+    internal fun activeCampaignId(): String = selection.activeCampaignRef().campaignId
+    private fun requireActiveVisibility(audience:AudienceContext,purpose:PurposeContext){
+        val campaign=activeCampaignId()
+        if(audience.campaignUid!=campaign||purpose.campaignUid!=campaign)throw VisibilityAuthorityFailure.CrossCampaign()
     }
 
     fun canonDivergences(): List<CanonDivergenceRecord> = openGameplaySaveDb().use { db ->
@@ -128,19 +170,19 @@ internal class LocalGameStore(private val context: Context) {
     fun registerResourceDefinitions(worldPackUid: String, definitions: List<ResourceDefinition>) = withAdminReadyDb { db, campaignUid -> StatResourceStore(db, campaignUid).registerResourceDefinitions(worldPackUid, definitions) }
     fun playerStats(): List<PlayerStat> { openGameplaySaveDb().use { db -> val campaignId = selection.activeCampaignRef().campaignId; val playerUid = ActivePlayerStore(db, campaignId).active()?.playerUid ?: return emptyList(); return StatResourceStore(db, campaignId).playerStats(playerUid) } }
     fun playerResources(): List<PlayerResource> { openGameplaySaveDb().use { db -> val campaignId = selection.activeCampaignRef().campaignId; val playerUid = ActivePlayerStore(db, campaignId).active()?.playerUid ?: return emptyList(); return StatResourceStore(db, campaignId).playerResources(playerUid) } }
-    fun fullCharacterPanel(): CharacterPanelSnapshot { openGameplaySaveDb().use { db -> val playerUid = ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active()?.playerUid; return CharacterPanelReader(db, playerUid).load() } }
-    fun npcs(search:String=""):List<NpcListItem>{ openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).npcs(search)}} }
-    fun npcDetail(uid:String):NpcDetail{ openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).npcDetail(uid)}} }
-    fun relationEdges():List<RelationEdge>{ openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).relationEdges()}} }
-    fun economies():List<EconomySummary>{ openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).economies()}} }
-    fun wars():List<WarSummary>{ openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).wars()}} }
+    fun fullCharacterPanel(audience: AudienceContext, purpose: PurposeContext): CharacterPanelSnapshot { val campaign=activeCampaignId();if(audience.campaignUid!=campaign||purpose.campaignUid!=campaign)throw VisibilityAuthorityFailure.CrossCampaign();openGameplaySaveDb().use { db -> val active=ActivePlayerStore(db,campaign).active();val playerUid=active?.playerUid?:return CharacterPanelSnapshot.unresolved();val reads=ProtectedCampaignReadRepository.borrowed(db,campaign){active};val authorized=reads.playerState(audience,purpose,playerUid);return CharacterPanelReader(db,playerUid).load(audience,purpose,authorized) } }
+    fun npcs(search:String,audience:AudienceContext,purpose:PurposeContext):List<NpcListItem>{ requireActiveVisibility(audience,purpose);openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).npcs(search,audience,purpose)}} }
+    fun npcDetail(uid:String,audience:AudienceContext,purpose:PurposeContext):NpcDetail{ requireActiveVisibility(audience,purpose);openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).npcDetail(uid,audience,purpose)}} }
+    fun relationEdges(audience:AudienceContext,purpose:PurposeContext):List<RelationEdge>{ requireActiveVisibility(audience,purpose);openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).relationEdges(audience,purpose)}} }
+    fun economies(audience:AudienceContext,purpose:PurposeContext):List<EconomySummary>{ requireActiveVisibility(audience,purpose);openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).economies(audience,purpose)}} }
+    fun wars(audience:AudienceContext,purpose:PurposeContext):List<WarSummary>{ requireActiveVisibility(audience,purpose);openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).wars(audience,purpose)}} }
     fun syncCheck():SyncCheckResult{ openCoreDb().use{core->openWorldDb().use{world->openGameplaySaveDb().use{save-> return SyncManager().check(core,world,save) }}} }
     fun dbTables():List<DbTableInfo>{ openCoreDb().use{core->openGameplaySaveDb().use{save->return DatabaseExplorer(core,save).tables()}} }
     fun visualLibrary(): List<VisualRecord> { openGameplaySaveDb().use { return VisualLibrary(it).list() } }
     fun addVisual(title: String, kind: String, uri: String, chapter: Int?, relatedEntityUid: String?, relatedLocationUid: String?, prompt: String?, revisedPrompt: String?, sourceVisualUid: String? = null): String { openGameplaySaveDb().use { return VisualLibrary(it).add(title, kind, uri, chapter, relatedEntityUid, relatedLocationUid, prompt, revisedPrompt, sourceVisualUid) } }
-    fun relationships(): List<RelationshipItem> { openWorldDb().use { world -> openGameplaySaveDb().use { save -> return SocialReader(world, save).relationships() } } }
-    fun organizations(): List<OrganizationItem> { openWorldDb().use { world -> openGameplaySaveDb().use { save -> return SocialReader(world, save).organizations() } } }
-    fun politics(): List<PoliticalItem> { openWorldDb().use { world -> openGameplaySaveDb().use { save -> return SocialReader(world, save).politics() } } }
+    fun relationships(audience:AudienceContext,purpose:PurposeContext): List<RelationshipItem> { requireActiveVisibility(audience,purpose);openWorldDb().use { world -> openGameplaySaveDb().use { save -> return SocialReader(world, save).relationships(audience,purpose) } } }
+    fun organizations(audience:AudienceContext,purpose:PurposeContext): List<OrganizationItem> { requireActiveVisibility(audience,purpose);openWorldDb().use { world -> openGameplaySaveDb().use { save -> return SocialReader(world, save).organizations(audience,purpose) } } }
+    fun politics(audience:AudienceContext,purpose:PurposeContext): List<PoliticalItem> { requireActiveVisibility(audience,purpose);openWorldDb().use { world -> openGameplaySaveDb().use { save -> return SocialReader(world, save).politics(audience,purpose) } } }
 
     fun diagnostics(contextSummary: String): DiagnosticsSnapshot {
         val sot = openCoreDb().use { db -> try { db.rawQuery("SELECT COUNT(*) FROM source_of_truth_registry", null).use { if (it.moveToFirst()) it.getInt(0) else 0 } } catch (_: Exception) { 0 } }
@@ -150,7 +192,7 @@ internal class LocalGameStore(private val context: Context) {
 
     fun worldRegions(): List<WorldRegionItem> { openWorldDb().use { world -> openGameplaySaveDb().use { save -> return WorldReader(world, save).regions() } } }
     fun worldLocations(search: String = ""): List<WorldLocationItem> { openWorldDb().use { world -> openGameplaySaveDb().use { save -> return WorldReader(world, save).locations(search) } } }
-    fun activeWorldEvents(): List<WorldEventItem> { openWorldDb().use { world -> openGameplaySaveDb().use { save -> return WorldReader(world, save).activeEvents() } } }
+    fun activeWorldEvents(audience:AudienceContext,purpose:PurposeContext): List<WorldEventItem> { requireActiveVisibility(audience,purpose);openWorldDb().use { world -> openGameplaySaveDb().use { save -> return WorldReader(world, save).activeEvents(audience,purpose) } } }
 
     fun restoreBackup(path: String): String {
         val safety = RestoreManager(context).restoreBackup(selection.activeCampaignDirName(), path)

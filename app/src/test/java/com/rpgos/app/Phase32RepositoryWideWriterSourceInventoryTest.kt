@@ -30,6 +30,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "OwnershipStore.kt",
             "Phase35CanonDivergence.kt",
             "Phase37WorldActorKnowledge.kt",
+            "Phase38AccessAuthority.kt",
             "Phase9Store.kt",
             "ProgressionProfileStore.kt",
             "SkillStore.kt",

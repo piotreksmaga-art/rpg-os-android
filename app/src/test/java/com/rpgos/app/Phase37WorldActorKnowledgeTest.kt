@@ -486,7 +486,8 @@ class Phase37WorldActorKnowledgeTest {
             ?: error("ContextBuilder source not found")
         val code = source.readText()
         assertTrue(code.contains("KnowledgeContextProjection"))
-        assertTrue(code.contains("KnowledgeContextHolderDiscovery"))
+        assertTrue(code.contains("trustedPrincipal?.cognitionHolders"))
+        assertTrue(code.contains("PHASE37_HOLDER_KNOWLEDGE"))
         assertFalse(code.contains("FROM information_knowledge"))
         assertFalse(code.contains("JOIN information_facts"))
     }

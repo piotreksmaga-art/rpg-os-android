@@ -24,12 +24,26 @@ class ImageBackendClient(
                 "Backend nie jest skonfigurowany."
             }
 
+            val expectedPurpose = when(requestData.kind) {
+                "scene" -> VisibilityPurposeKinds.SCENE_VISUALIZATION
+                "character" -> VisibilityPurposeKinds.CHARACTER_VISUALIZATION
+                "location" -> VisibilityPurposeKinds.LOCATION_VISUALIZATION
+                else -> error("RPGOS-VISIBILITY:UNSUPPORTED_VISUAL_KIND")
+            }
+            requestData.authorization.requireRequest(VisualSemanticRequest(
+                requestData.authorization.campaignUid, requestData.authorization.audienceKindUid, requestData.authorization.audienceUid,
+                expectedPurpose, requestData.authorization.subjectKindUid, requestData.authorization.subjectUid,
+                requestData.authorization.requestUid, VisualRequestKinds.GENERATE, requestData.prompt,
+                relatedEntityUid = requestData.relatedEntityUid
+            ))
             val json = JSONObject().apply {
                 put("kind", requestData.kind)
                 put("title", requestData.title)
                 put("prompt", requestData.prompt)
                 put("related_entity_uid", requestData.relatedEntityUid)
                 put("chapter", requestData.chapter)
+                put("campaign_uid", requestData.authorization.campaignUid)
+                put("visibility_envelope", requestData.authorization.toJson())
             }
 
             val req = Request.Builder()
