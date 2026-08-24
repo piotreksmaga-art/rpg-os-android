@@ -3,6 +3,7 @@ package com.rpgos.app
 enum class ProtectedConsumerCapability {
     TRUSTED_GATEWAY,
     PROJECTION_AUTHORITY,
+    PROJECTION_DATA_SOURCE,
     PROJECTED_CONSUMER,
     DIAGNOSTIC_PROJECTED_CONSUMER,
     AUTHORITY_INTERNAL,
@@ -52,6 +53,10 @@ object VisibilityConsumerInventory {
             VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("npc-world-dashboard", "app/src/main/java/com/rpgos/app/NpcWorldDashboardReader.kt", ProtectedConsumerCapability.PROJECTED_CONSUMER,
             VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
+        c("canon-character-projection-source", "app/src/main/java/com/rpgos/app/CanonCharacterProjectionReader.kt", ProtectedConsumerCapability.PROJECTION_DATA_SOURCE,
+            VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING,
+            VisibilityPurposeKinds.SCENE_VISUALIZATION, VisibilityPurposeKinds.CHARACTER_VISUALIZATION, VisibilityPurposeKinds.LOCATION_VISUALIZATION,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("social-reader", "app/src/main/java/com/rpgos/app/SocialReader.kt", ProtectedConsumerCapability.PROJECTED_CONSUMER,
             VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("character-panel-reader", "app/src/main/java/com/rpgos/app/CharacterPanel.kt", ProtectedConsumerCapability.PROJECTED_CONSUMER,
@@ -113,7 +118,7 @@ object VisibilityConsumerInventory {
 
     val protectedMarkers: Set<String> = setOf(
         "gm_summary","npc_memories_v2","npc_beliefs","npc_schedules","npc_decisions",
-        "CampaignTruthStore(","KnowledgeContextProjection(","campaign_truth","canon_diverg",
+        "CampaignTruthStore(","KnowledgeContextProjection(","campaign_truth","canon_diverg","canon_characters_v2",
         "hidden_pressure","world_pressures","country_economies","relationships_v2",
         "visibility_envelope","Phase38VisualAuthorization","/v1/images/generate","/v1/images/edit"
     )

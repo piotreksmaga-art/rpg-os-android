@@ -65,4 +65,13 @@ class CanonCharacterProjectionReaderTest {
             }
         }
     }
+
+    @Test fun rawProjectionSourceIsExplicitlyClassifiedByRepositoryWideGuard() {
+        val path = "app/src/main/java/com/rpgos/app/CanonCharacterProjectionReader.kt"
+        val contract = VisibilityConsumerInventory.requireClassified(path)
+
+        assertEquals(ProtectedConsumerCapability.PROJECTION_DATA_SOURCE, contract.capability)
+        assertTrue(VisibilityConsumerInventory.looksProtected("SELECT * FROM canon_characters_v2"))
+        VisibilityConsumerInventory.validateUnique()
+    }
 }
