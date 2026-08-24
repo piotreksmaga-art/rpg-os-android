@@ -333,6 +333,35 @@ Indeks techniczny wspierający `docs/Architektura projektu.md` i `docs/Roadmap.m
 - ACCEPTED MASTER: `7538c3ca16b5e74133f13ce611821d0699c798d0`
 - NOTE: separate push-triggered exact-merge-SHA run was not surfaced by the available connector; no synthetic CI ID is recorded.
 
+## Phase 38 — Universal Visibility, Access & Audience Boundary
+- PRIMARY: `app/src/main/java/com/rpgos/app/Phase38Visibility.kt`
+- PRIMARY: `app/src/main/java/com/rpgos/app/Phase38TrustedAuthority.kt`
+- PRIMARY: `app/src/main/java/com/rpgos/app/Phase38ProtectedRead.kt`
+- PRIMARY: `app/src/main/java/com/rpgos/app/Phase38AccessAuthority.kt`
+- PRIMARY: `app/src/main/java/com/rpgos/app/Phase38PerceptionDisclosure.kt`
+- PRIMARY: `app/src/main/java/com/rpgos/app/Phase38WorldActorPerceptionRuntime.kt`
+- PRIMARY: `app/src/main/java/com/rpgos/app/Phase38VisualAuthorization.kt`
+- PRIMARY: `app/src/main/java/com/rpgos/app/Phase38VisibilityConsumerInventory.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/CanonCharacterProjectionReader.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/ContextBuilder.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/NpcWorldDashboardReader.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/SocialReader.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/WorldReader.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/CampaignEventStore.kt`
+- SUPPORTING: `app/src/main/java/com/rpgos/app/CampaignSnapshotSystem.kt`
+- TEST: `app/src/test/java/com/rpgos/app/Phase38VisibilityBoundaryTest.kt`
+- TEST: `app/src/test/java/com/rpgos/app/Phase38AccessAuthorityTest.kt`
+- TEST: `app/src/test/java/com/rpgos/app/Phase38AccessPersistenceTest.kt`
+- TEST: `app/src/test/java/com/rpgos/app/Phase38SliceDPerceptionDisclosureTest.kt`
+- TEST: `app/src/test/java/com/rpgos/app/Phase38PostHardWorldActorPerceptionTest.kt`
+- TEST: `app/src/test/java/com/rpgos/app/Phase38TypedHighLevelResultTest.kt`
+- TEST: `app/src/test/java/com/rpgos/app/Phase38FinalClosureTest.kt`
+- TEST: `app/src/test/java/com/rpgos/app/CanonCharacterProjectionReaderTest.kt`
+- DOC: `docs/architecture/PHASE38_ACCEPTANCE.md`
+- FINAL CODE-BEARING CANDIDATE: `db2f836fe3575204d045e5d3a861e07bb61cd5a9`
+- EXACT-SHA GREEN: Phase 38 `117/0/0`; full JVM `1004/0/0`; run `32776574352`, job `97588891710`
+- INTEGRATION PR: #75
+
 ## Kluczowe wspólne dokumenty i runtime assets
 - `docs/Architektura projektu.md`
 - `docs/Roadmap.md`
@@ -342,6 +371,7 @@ Indeks techniczny wspierający `docs/Architektura projektu.md` i `docs/Roadmap.m
 - `docs/PARALLEL_WORK_COORDINATION.md`
 - `docs/architecture/CHAT_COORDINATION_POLICY.md`
 - `docs/architecture/PHASE35_36_ACCEPTANCE.md`
+- `docs/architecture/PHASE38_ACCEPTANCE.md`
 - `.github/workflows/build-alpha.yml`
 - `.github/workflows/publish-alpha.yml`
 - `app/src/main/assets/rpg_core.db`

@@ -435,6 +435,14 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
         },
         conflicts = { setOf("CAMPAIGN_TRUTH:${it.truthUid}") }
     ),
+    PlayerChangeKinds.ACCESS_AUTHORITY to simpleCodec(
+        AccessAuthorityChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
+        setOf("operation","recordUid","principalKindUid","principalUid","bindingOrGrantKindUid","valueUid","subjectKindUid","subjectUid","validFromOrder","validUntilOrder","delegatedByPrincipalUid"),
+        encode = { pcsObj("operation" to pcsJ(it.operation.name),"recordUid" to pcsJ(it.recordUid),"principalKindUid" to pcsJ(it.principalKindUid),"principalUid" to pcsJ(it.principalUid),"bindingOrGrantKindUid" to pcsJ(it.bindingOrGrantKindUid),"valueUid" to pcsJ(it.valueUid),"subjectKindUid" to pcsJn(it.subjectKindUid),"subjectUid" to pcsJn(it.subjectUid),"validFromOrder" to pcsJ(it.validFromOrder),"validUntilOrder" to (it.validUntilOrder?.let(::JsonPrimitive)?:JsonNull),"delegatedByPrincipalUid" to pcsJn(it.delegatedByPrincipalUid)) },
+        decode = { AccessAuthorityChange(enumValue(it.pcsReqString("operation"),"INVALID_ACCESS_OPERATION"),it.pcsReqString("recordUid"),it.pcsReqString("principalKindUid"),it.pcsReqString("principalUid"),it.pcsReqString("bindingOrGrantKindUid"),it.pcsReqString("valueUid"),it.pcsOptString("subjectKindUid"),it.pcsOptString("subjectUid"),it.pcsReqLong("validFromOrder"),it.pcsOptLong("validUntilOrder"),it.pcsOptString("delegatedByPrincipalUid")) },
+        validate = { AccessAuthorityChangeValidator.errors(it) },
+        conflicts = { setOf("ACCESS:${it.principalKindUid}:${it.principalUid}:${it.recordUid}:${it.validFromOrder}") }
+    ),
     PlayerChangeKinds.CONDITION to simpleCodec(
         ConditionChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
         setOf("subject", "conditionUid", "operation"),

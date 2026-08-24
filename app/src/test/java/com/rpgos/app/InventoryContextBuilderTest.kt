@@ -23,7 +23,7 @@ class InventoryContextBuilderTest{
    val hasLegacy=save.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name='character_inventory'",null).use{it.moveToFirst()}
    if(!hasLegacy) save.execSQL("CREATE TABLE character_inventory(entity_uid TEXT,item_name TEXT)")
    save.execSQL("INSERT INTO character_inventory(entity_uid,item_name) VALUES('P','Legacy unresolved')")
-   val bundle=ContextBuilder(save,world).build("look",1);assertEquals(1002,bundle.playerInventory.size);assertTrue(bundle.playerInventory.any{it["item_definition_uid"]=="I1000"});assertTrue(bundle.playerInventory.any{it["canonical"]==false&&it["item_name"]=="Legacy unresolved"})
+   val bundle=run { Phase38LegacyContextFixtureSchema.ensure(save); ContextBuilder(save,world).build("look",1,VisibilityAudienceFactory.player("C"),PurposeContext("C",VisibilityPurposeKinds.GAMEPLAY_NARRATION)) };assertEquals(1002,bundle.playerInventory.size);assertTrue(bundle.playerInventory.any{it["item_definition_uid"]=="I1000"});assertTrue(bundle.playerInventory.any{it["canonical"]==false&&it["item_name"]=="Legacy unresolved"})
   }}
  }
 }

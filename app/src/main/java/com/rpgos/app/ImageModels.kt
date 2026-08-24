@@ -5,7 +5,8 @@ data class ImageGenerationRequest(
     val title: String,
     val prompt: String,
     val relatedEntityUid: String? = null,
-    val chapter: Int? = null
+    val chapter: Int? = null,
+    val authorization: Phase38VisualAuthorization
 )
 
 data class GeneratedImageResult(

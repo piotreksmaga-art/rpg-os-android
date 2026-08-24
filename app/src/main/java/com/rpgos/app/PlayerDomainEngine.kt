@@ -825,6 +825,12 @@ internal fun draftReferences(draft: PlayerResolutionDraft): List<DomainRef> = bu
                     }
                 }
             }
+            is AccessAuthorityChange -> {
+                add(DomainRef(payload.principalKindUid, payload.principalUid))
+                if (payload.subjectKindUid != null && payload.subjectUid != null) {
+                    add(DomainRef(payload.subjectKindUid, payload.subjectUid))
+                }
+            }
         }
     }
     draft.eventIntents.forEach { intent ->

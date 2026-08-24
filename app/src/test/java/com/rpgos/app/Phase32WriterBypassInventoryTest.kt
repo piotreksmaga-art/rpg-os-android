@@ -24,6 +24,7 @@ class Phase32WriterBypassInventoryTest {
         ADMINISTRATIVE,
         PRESENTATION_ONLY,
         READ_ONLY_NON_AUTHORITATIVE,
+        PROTECTED_PROJECTED_READ,
         GAMEPLAY_UNREACHABLE
     }
 
@@ -36,42 +37,39 @@ class Phase32WriterBypassInventoryTest {
         "activeCampaignRef" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "activePlayerRef" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "setActivePlayer" to WriterReachability.ADMINISTRATIVE,
-        "playerState" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
+        "protectedReads" to WriterReachability.PROTECTED_PROJECTED_READ,
         "statDefinitions" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "resourceDefinitions" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "registerStatDefinitions" to WriterReachability.ADMINISTRATIVE,
         "registerResourceDefinitions" to WriterReachability.ADMINISTRATIVE,
-        "playerStats" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "playerResources" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "activeCampaignDirName" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "activeWorldPackDirName" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "setActiveCampaign" to WriterReachability.ADMINISTRATIVE,
         "setActiveWorldPack" to WriterReachability.ADMINISTRATIVE,
         "createCampaign" to WriterReachability.ADMINISTRATIVE,
-        "openWorldDb" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "openCoreDb" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "commitTurn" to WriterReachability.CANONICAL_TURN,
-        "buildContext" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "fullCharacterPanel" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
+        "buildContext" to WriterReachability.PROTECTED_PROJECTED_READ,
+        "fullCharacterPanel" to WriterReachability.PROTECTED_PROJECTED_READ,
         "status" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "time" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "chronicle" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "truthRecords" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "canonDivergences" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "npcs" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "npcDetail" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "relationEdges" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "economies" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "wars" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "relationships" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "organizations" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "politics" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
+        "truthRecords" to WriterReachability.PROTECTED_PROJECTED_READ,
+        "canonDivergences" to WriterReachability.PROTECTED_PROJECTED_READ,
+        "npcsProjection" to WriterReachability.PROTECTED_PROJECTED_READ,
+        "npcDetailProjection" to WriterReachability.PROTECTED_PROJECTED_READ,
+        "relationEdgesProjection" to WriterReachability.PROTECTED_PROJECTED_READ,
+        "economiesProjection" to WriterReachability.PROTECTED_PROJECTED_READ,
+        "warsProjection" to WriterReachability.PROTECTED_PROJECTED_READ,
+        "relationshipsProjection" to WriterReachability.PROTECTED_PROJECTED_READ,
+        "organizationsProjection" to WriterReachability.PROTECTED_PROJECTED_READ,
+        "politicsProjection" to WriterReachability.PROTECTED_PROJECTED_READ,
         "syncCheck" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "dbTables" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "diagnostics" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "worldRegions" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "worldLocations" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
-        "activeWorldEvents" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
+        "activeWorldEventsProjection" to WriterReachability.PROTECTED_PROJECTED_READ,
+        "activeWorldEvents" to WriterReachability.PROTECTED_PROJECTED_READ,
         "techniqueBrowser" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "missionBrowser" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "visualLibrary" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
@@ -110,6 +108,23 @@ class Phase32WriterBypassInventoryTest {
         assertEquals(1, repositoryEntryPoints.values.count { it == WriterReachability.CANONICAL_TURN })
         assertEquals(WriterReachability.CANONICAL_TURN, repositoryEntryPoints.getValue("commitTurn"))
         assertEquals(WriterReachability.PRESENTATION_ONLY, repositoryEntryPoints.getValue("addVisual"))
+        setOf(
+            "protectedReads",
+            "buildContext",
+            "fullCharacterPanel",
+            "truthRecords",
+            "canonDivergences",
+            "npcsProjection",
+            "npcDetailProjection",
+            "relationEdgesProjection",
+            "economiesProjection",
+            "warsProjection",
+            "relationshipsProjection",
+            "organizationsProjection",
+            "politicsProjection",
+            "activeWorldEventsProjection",
+            "activeWorldEvents"
+        ).forEach { assertEquals(WriterReachability.PROTECTED_PROJECTED_READ, repositoryEntryPoints.getValue(it)) }
 
         assertFalse(actual.contains("applyPatch"))
     }
@@ -120,9 +135,19 @@ class Phase32WriterBypassInventoryTest {
             .filter { Modifier.isPublic(it.modifiers) && !it.isSynthetic && it.returnType == SQLiteDatabase::class.java }
             .map { it.name }
             .toSet()
-        assertEquals(setOf("openWorldDb", "openCoreDb"), sqliteReturning)
-        assertEquals(WriterReachability.READ_ONLY_NON_AUTHORITATIVE, repositoryEntryPoints.getValue("openWorldDb"))
-        assertEquals(WriterReachability.READ_ONLY_NON_AUTHORITATIVE, repositoryEntryPoints.getValue("openCoreDb"))
+        assertTrue("normal CampaignRepository must expose no raw SQLiteDatabase handle", sqliteReturning.isEmpty())
+        val publicNames = CampaignRepository::class.java.declaredMethods
+            .filter { Modifier.isPublic(it.modifiers) && !it.isSynthetic }
+            .map { it.name }
+            .toSet()
+        assertFalse(publicNames.contains("openWorldDb"))
+        assertFalse(publicNames.contains("openCoreDb"))
+        assertFalse(publicNames.contains("playerState"))
+        assertFalse(publicNames.contains("playerStats"))
+        assertFalse(publicNames.contains("playerResources"))
+        assertEquals(WriterReachability.PROTECTED_PROJECTED_READ, repositoryEntryPoints.getValue("protectedReads"))
+        val protectedReadsMethod = CampaignRepository::class.java.declaredMethods.single { it.name == "protectedReads" }
+        assertEquals(ProtectedCampaignReadRepository::class.java, protectedReadsMethod.returnType)
     }
 
     @Test

@@ -146,7 +146,12 @@ class Phase32ContextCanonicalDomainsTest {
                 val projectBefore = DevelopmentProjectStore(save, "C").project("PROJECT-G32-CONTEXT")
                 val ledgerBefore = tableCount(save, "financial_ledger_transactions")
 
-                val bundle = ContextBuilder(save, world).build("inspect canonical domains", 1)
+                Phase38LegacyContextFixtureSchema.ensure(save, world)
+                val trustedInitialContext = Phase38TrustedTestAuthority.diagnosticContextBuilder(save, world, "C")
+                val bundle = trustedInitialContext.builder.build(
+                    "inspect canonical domains", 1, trustedInitialContext.audience,
+                    PurposeContext("C", VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
+                )
                 assertTrue(bundle.campaignTruth.any { it["truth_uid"] == "TRUTH-G32-CONTEXT-DOMAINS" && it["object_value"] == "canonical" })
                 assertTrue(bundle.playerState.isNotEmpty())
                 assertEquals("P1", (bundle.playerState["active_player"] as Map<*, *>)["player_uid"])
@@ -211,7 +216,12 @@ class Phase32ContextCanonicalDomainsTest {
                 assertEquals(projectBefore, DevelopmentProjectStore(save, "C").project("PROJECT-G32-CONTEXT"))
                 assertEquals(ledgerBefore, tableCount(save, "financial_ledger_transactions"))
 
-                val rebuilt = ContextBuilder(save, world).build("rebuild canonical domains", 2)
+                Phase38LegacyContextFixtureSchema.ensure(save, world)
+                val trustedRebuiltContext = Phase38TrustedTestAuthority.diagnosticContextBuilder(save, world, "C")
+                val rebuilt = trustedRebuiltContext.builder.build(
+                    "rebuild canonical domains", 2, trustedRebuiltContext.audience,
+                    PurposeContext("C", VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
+                )
                 assertTrue(rebuilt.campaignTruth.any { it["truth_uid"] == "TRUTH-G32-CONTEXT-DOMAINS" && it["object_value"] == "canonical" })
                 @Suppress("UNCHECKED_CAST")
                 val rebuiltOwnership = rebuilt.playerStatus["ownership"] as List<Map<String, Any?>>

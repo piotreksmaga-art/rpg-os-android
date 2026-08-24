@@ -36,6 +36,7 @@ data class ExactLongDelta private constructor(val units: Long) {
 
 sealed interface PlayerDomainChangePayload
 
+// Phase38 access authority is a first-class canonical domain, distinct from campaign truth.
 data class StatChange(
     val subject: DomainRef,
     val statUid: String,
@@ -171,6 +172,7 @@ object PlayerChangeKinds {
     const val CONDITION = "RPGOS-CHANGE:CONDITION"
     const val RUNTIME = "RPGOS-CHANGE:RUNTIME_COUNTER"
     const val DEVELOPMENT_PROJECT = "RPGOS-CHANGE:DEVELOPMENT_PROJECT_WORK"
+    const val ACCESS_AUTHORITY = "RPGOS-CHANGE:ACCESS_AUTHORITY"
 }
 
 class PlayerDomainChange private constructor(
