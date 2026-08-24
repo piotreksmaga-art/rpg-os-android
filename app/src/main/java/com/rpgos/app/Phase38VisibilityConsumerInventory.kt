@@ -22,9 +22,29 @@ data class ProtectedConsumerContract(
     val capability: ProtectedConsumerCapability,
     val allowedPurposeUids: Set<String>
 ) {
+    val allowedAudienceKindUids: Set<String> = buildSet {
+        if (VisibilityPurposeKinds.PLAYER_UI in allowedPurposeUids) addAll(setOf(AudienceKinds.PLAYER, AudienceKinds.PLAYER_CHARACTER))
+        if (VisibilityPurposeKinds.GAMEPLAY_NARRATION in allowedPurposeUids) addAll(setOf(AudienceKinds.PLAYER, AudienceKinds.GM_RUNTIME))
+        if (VisibilityPurposeKinds.WORLD_ACTOR_REASONING in allowedPurposeUids) add(AudienceKinds.WORLD_ACTOR)
+        if (allowedPurposeUids.any { it in setOf(VisibilityPurposeKinds.SCENE_VISUALIZATION, VisibilityPurposeKinds.CHARACTER_VISUALIZATION, VisibilityPurposeKinds.LOCATION_VISUALIZATION, VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION) })
+            addAll(setOf(AudienceKinds.PLAYER, AudienceKinds.PLAYER_CHARACTER))
+        if (VisibilityPurposeKinds.INTERNAL_SIMULATION in allowedPurposeUids) addAll(setOf(AudienceKinds.INTERNAL_SYSTEM, AudienceKinds.GM_RUNTIME))
+        if (VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION in allowedPurposeUids) add(AudienceKinds.DEVELOPER_DIAGNOSTIC)
+    }
+    val projectionSourceUid: String = when(capability) {
+        ProtectedConsumerCapability.TRUSTED_GATEWAY -> "PROTECTED_READ_GATEWAY"
+        ProtectedConsumerCapability.PROJECTION_AUTHORITY -> "VISIBILITY_AUTHORITY"
+        ProtectedConsumerCapability.PROJECTION_DATA_SOURCE -> "RAW_ADAPTER_REQUIRES_PROJECTION"
+        ProtectedConsumerCapability.PROJECTED_CONSUMER, ProtectedConsumerCapability.DIAGNOSTIC_PROJECTED_CONSUMER -> "PROTECTED_READ_PROJECTION"
+        ProtectedConsumerCapability.PRESENTATION_AFTER_PROJECTION -> "VISIBILITY_PROJECTION_ENVELOPE"
+        ProtectedConsumerCapability.AUTHORITY_INTERNAL -> "CANONICAL_AUTHORITY_INTERNAL"
+        ProtectedConsumerCapability.ADMINISTRATIVE_WRITE_ONLY, ProtectedConsumerCapability.AUTHORITY_METADATA -> "NO_PROTECTED_READ"
+    }
     init {
         require(consumerUid.isNotBlank() && sourcePath.isNotBlank())
         require(allowedPurposeUids.isNotEmpty())
+        require(allowedAudienceKindUids.isNotEmpty())
+        require(projectionSourceUid.isNotBlank())
     }
 }
 
@@ -48,9 +68,12 @@ object VisibilityConsumerInventory {
             VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("local-game-store", "app/src/main/java/com/rpgos/app/LocalGameStore.kt", ProtectedConsumerCapability.PROJECTED_CONSUMER,
             VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.SCENE_VISUALIZATION,
-            VisibilityPurposeKinds.CHARACTER_VISUALIZATION, VisibilityPurposeKinds.LOCATION_VISUALIZATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
+            VisibilityPurposeKinds.CHARACTER_VISUALIZATION, VisibilityPurposeKinds.LOCATION_VISUALIZATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("world-reader", "app/src/main/java/com/rpgos/app/WorldReader.kt", ProtectedConsumerCapability.PROJECTED_CONSUMER,
-            VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
+            VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING,
+            VisibilityPurposeKinds.SCENE_VISUALIZATION, VisibilityPurposeKinds.CHARACTER_VISUALIZATION, VisibilityPurposeKinds.LOCATION_VISUALIZATION,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("npc-world-dashboard", "app/src/main/java/com/rpgos/app/NpcWorldDashboardReader.kt", ProtectedConsumerCapability.PROJECTED_CONSUMER,
             VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("canon-character-projection-source", "app/src/main/java/com/rpgos/app/CanonCharacterProjectionReader.kt", ProtectedConsumerCapability.PROJECTION_DATA_SOURCE,
@@ -113,7 +136,8 @@ object VisibilityConsumerInventory {
             VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("protected-read-gateway", "app/src/main/java/com/rpgos/app/Phase38ProtectedRead.kt", ProtectedConsumerCapability.TRUSTED_GATEWAY,
             VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING,
-            VisibilityPurposeKinds.CHARACTER_VISUALIZATION, VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
+            VisibilityPurposeKinds.SCENE_VISUALIZATION, VisibilityPurposeKinds.CHARACTER_VISUALIZATION, VisibilityPurposeKinds.LOCATION_VISUALIZATION,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("visibility-consumer-inventory", "app/src/main/java/com/rpgos/app/Phase38VisibilityConsumerInventory.kt", ProtectedConsumerCapability.AUTHORITY_METADATA,
             VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION)
     )
@@ -195,5 +219,8 @@ object VisibilityConsumerInventory {
     fun validateUnique() {
         require(contracts.map { it.consumerUid }.distinct().size == contracts.size) { "RPGOS-VISIBILITY:DUPLICATE_CONSUMER_UID" }
         require(contracts.map { it.sourcePath }.distinct().size == contracts.size) { "RPGOS-VISIBILITY:DUPLICATE_CONSUMER_PATH" }
+        require(contracts.all { it.allowedAudienceKindUids.isNotEmpty() && it.allowedPurposeUids.isNotEmpty() && it.projectionSourceUid.isNotBlank() }) {
+            "RPGOS-VISIBILITY:INCOMPLETE_CONSUMER_CONTRACT"
+        }
     }
 }
