@@ -90,9 +90,10 @@ class ContextBuilder internal constructor(
             .map { it.subjectUid }
             .forEach(relevantNpcIds::add)
         val npcRows=mutableListOf<Map<String,Any?>>()
+        val canonCharacters=CanonCharacterProjectionReader(worldDb)
         for(id in relevantNpcIds.take(16)){
             val req=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignRef.campaignId,VisibilitySubjectKinds.PUBLIC_WORLD_ACTOR_PROFILE,id))
-            visibility.project(req){queryOne(worldDb,"SELECT character_uid,name,sex,clan_uid,village_uid,rank_title,affiliation_summary FROM canon_characters_v2 WHERE character_uid=? LIMIT 1",arrayOf(id))}.value?.takeIf{it.isNotEmpty()}?.let(npcRows::add)
+            visibility.project(req){canonCharacters.profileRow(id)}.value?.takeIf{it.isNotEmpty()}?.let(npcRows::add)
         }
 
         val knowledgeRows = mutableListOf<Map<String,Any?>>()

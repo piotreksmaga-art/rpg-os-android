@@ -1,6 +1,7 @@
 package com.rpgos.app
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -63,22 +64,51 @@ class Phase38TypedHighLevelResultTest {
         assertEquals(ProjectionDataState.NO_DATA,repository.npcsProjection("__P38_AUD002_NO_MATCH_2__",audience,purpose).dataState)
     }
 
-    @Test fun authorizedCorruptionRemainsTypedInNpcDetailInsteadOfBecomingAbsence() {
-        val columns=concrete.infrastructureOpenWorldDb().use { db ->
-            db.rawQuery("PRAGMA table_info(canon_characters_v2)",null).use { c ->
+    @Test fun bundledWorldPackMissingOptionalProfileColumnsRemainsCompatible() {
+        val (columns,existingUid)=concrete.infrastructureOpenWorldDb().use { db ->
+            val names=db.rawQuery("PRAGMA table_info(canon_characters_v2)",null).use { c ->
                 buildList { while(c.moveToNext()) add(c.getString(c.getColumnIndexOrThrow("name"))) }
             }
+            val uid=db.rawQuery("SELECT character_uid FROM canon_characters_v2 ORDER BY character_uid LIMIT 1",null).use { c ->
+                assertTrue(c.moveToFirst())
+                c.getString(0)
+            }
+            names to uid
         }
-        assertFalse("legacy bundled World Pack fixture intentionally has no sex column",columns.contains("sex"))
+        assertFalse(columns.contains("sex"))
+        assertFalse(columns.contains("affiliation_summary"))
+        assertFalse(columns.contains("status"))
 
-        val detail=repository.npcDetailProjection("__P38_AUD002_CORRUPT_PROFILE__",audience,purpose)
-        assertEquals(ProjectionDataState.CORRUPTION,detail.profile.dataState)
-        assertNull(detail.profile.value)
+        val list=repository.npcsProjection("",audience,purpose)
+        assertEquals(ProjectionDataState.DISCLOSED,list.dataState)
+        assertTrue(list.value!!.isNotEmpty())
+        assertTrue(list.value!!.all { it.status.isEmpty() })
+
+        val detail=repository.npcDetailProjection(existingUid,audience,purpose)
+        assertEquals(ProjectionDataState.DISCLOSED,detail.profile.dataState)
+        val fields=detail.profile.value!!.associate { it.key to it.value }
+        assertEquals(existingUid,fields["character_uid"])
+        assertEquals("",fields["sex"])
+        assertEquals("",fields["affiliation_summary"])
+        assertEquals("",fields["status"])
         assertEquals(ProjectionDataState.DENIED,detail.memories.dataState)
         assertEquals(ProjectionDataState.DENIED,detail.beliefs.dataState)
         assertEquals(ProjectionDataState.DENIED,detail.schedules.dataState)
         assertEquals(ProjectionDataState.DENIED,detail.decisions.dataState)
-        assertTrue("presentation conversion may flatten only after typed states exist",detail.toPresentation().fields.isEmpty())
+    }
+
+    @Test fun missingRequiredCanonCharacterColumnRemainsTypedCorruption() {
+        SQLiteDatabase.create(null).use { world ->
+            SQLiteDatabase.create(null).use { save ->
+                world.execSQL("CREATE TABLE canon_characters_v2(character_uid TEXT PRIMARY KEY, status TEXT)")
+                world.execSQL("INSERT INTO canon_characters_v2(character_uid,status) VALUES('BROKEN','active')")
+                val projection=NpcWorldDashboardReader(world,save).npcsProjection(
+                    "",VisibilityAudienceFactory.player("C"),PurposeContext("C",VisibilityPurposeKinds.PLAYER_UI)
+                )
+                assertEquals(ProjectionDataState.CORRUPTION,projection.dataState)
+                assertNull(projection.value)
+            }
+        }
     }
 
     @Test fun unknownAndNotDisclosedRemainDistinctThroughCanonicalFacade() {
@@ -92,6 +122,7 @@ class Phase38TypedHighLevelResultTest {
         val unknownRequest=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,unknownKind,"UNKNOWN-SUBJECT"))
         assertEquals(ProjectionDataState.UNKNOWN,unknown.toVisibilityProjection(unknownRequest).dataState)
 
+        if(repository.activePlayerRef()==null) repository.setActivePlayer("CHAR-NARUTO")
         val playerUid=requireNotNull(repository.activePlayerRef()?.playerUid)
         val notNecessaryPurpose=PurposeContext(campaignUid,VisibilityPurposeKinds.INTERNAL_SIMULATION)
         val notDisclosed=repository.protectedReads().playerState(audience,notNecessaryPurpose,playerUid)

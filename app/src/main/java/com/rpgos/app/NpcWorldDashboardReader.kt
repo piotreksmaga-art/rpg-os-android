@@ -30,6 +30,7 @@ class NpcWorldDashboardReader(
     private val saveDb: SQLiteDatabase,
     private val visibility: VisibilityAuthorityService = VisibilityAuthorityService()
 ) {
+    private val canonCharacters = CanonCharacterProjectionReader(worldDb)
     private fun protectedReads(campaignUid:String)=ProtectedCampaignReadRepository.borrowed(saveDb,campaignUid){null}
 
     private fun <T> protectedProjection(
@@ -49,28 +50,12 @@ class NpcWorldDashboardReader(
 
     fun npcsProjection(search: String, audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<NpcListItem>> =
         protectedProjection(audience,purpose,VisibilitySubjectKinds.PUBLIC_WORLD_ACTOR_PROFILE,"WORLD_ACTOR_LIST") {
-            val out = mutableListOf<NpcListItem>()
-            val sql = if (search.isBlank())
-                """SELECT character_uid,name,COALESCE(clan_uid,''),COALESCE(village_uid,''),COALESCE(status,'')
-                   FROM canon_characters_v2 ORDER BY name LIMIT 1000"""
-            else
-                """SELECT character_uid,name,COALESCE(clan_uid,''),COALESCE(village_uid,''),COALESCE(status,'')
-                   FROM canon_characters_v2 WHERE lower(name) LIKE lower(?) ORDER BY name LIMIT 1000"""
-            val args = if (search.isBlank()) null else arrayOf("%$search%")
-            worldDb.rawQuery(sql, args).use { c ->
-                while (c.moveToNext()) out += NpcListItem(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4))
-            }
-            out
+            canonCharacters.list(search)
         }
 
     fun npcDetailProjection(uid:String,audience:AudienceContext,purpose:PurposeContext):NpcDetailProtectedProjection {
         val profile=protectedProjection(audience,purpose,VisibilitySubjectKinds.PUBLIC_WORLD_ACTOR_PROFILE,uid) {
-            val fields=mutableListOf<StatLine>()
-            worldDb.rawQuery("""SELECT character_uid,name,sex,COALESCE(clan_uid,''),COALESCE(village_uid,''),COALESCE(rank_title,''),COALESCE(affiliation_summary,''),COALESCE(status,'')
-                FROM canon_characters_v2 WHERE character_uid=?""",arrayOf(uid)).use { c ->
-                if(c.moveToFirst()) for(i in c.columnNames.indices) fields += StatLine(c.columnNames[i],if(c.isNull(i)) "—" else c.getString(i))
-            }
-            fields
+            canonCharacters.profileFields(uid)
         }
         fun privateRows(kind:String,sql:String):VisibilityProjection<List<String>> = protectedProjection(audience,purpose,kind,uid) {
             val out=mutableListOf<String>()
