@@ -166,10 +166,11 @@ class ProtectedCampaignReadRepository private constructor(
 
     private fun gateway(db:SQLiteDatabase):ProtectedReadGateway{
         val access=TrustedAccessResolver{_,trusted,requirement->
-            if(!Phase38AccessAuthoritySchema.isReady(db))EffectiveAccessDecision(false,"ACCESS_SCHEMA_NOT_READY")
+            if(!Phase38AccessAuthoritySchema.isReady(db))EffectiveAccessDecision.denied("ACCESS_SCHEMA_NOT_READY")
             else{
                 val authority=UniversalAccessAuthority(AccessAuthorityStore(db,campaignUid))
-                authority.effectiveAccess(authority.authorize(trusted,requirement))
+                val authorization=authority.authorize(trusted,requirement)
+                authority.effectiveAccess(trusted,requirement,authorization)
             }
         }
         return ProtectedReadGateway(visibility,resolver(db),access)

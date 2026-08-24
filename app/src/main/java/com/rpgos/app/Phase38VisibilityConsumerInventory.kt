@@ -93,6 +93,8 @@ object VisibilityConsumerInventory {
             VisibilityPurposeKinds.INTERNAL_SIMULATION),
         c("turn-transaction", "app/src/main/java/com/rpgos/app/TurnTransaction.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
             VisibilityPurposeKinds.INTERNAL_SIMULATION),
+        c("phase38-access-authority", "app/src/main/java/com/rpgos/app/Phase38AccessAuthority.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("unified-repository", "app/src/main/java/com/rpgos/app/UnifiedGameRepository.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
             VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("image-generate-request-model", "app/src/main/java/com/rpgos/app/ImageModels.kt", ProtectedConsumerCapability.PRESENTATION_AFTER_PROJECTION,
@@ -119,10 +121,14 @@ object VisibilityConsumerInventory {
     val protectedMarkers: Set<String> = setOf(
         "gm_summary","npc_memories_v2","npc_beliefs","npc_schedules","npc_decisions",
         "CampaignTruthStore(","KnowledgeContextProjection(","campaign_truth","canon_diverg","canon_characters_v2",
-        "hidden_pressure","world_pressures","country_economies","relationships_v2",
+        "hidden_pressure","world_pressures","country_economies","relationships_v2","InformationCarrierRef",
+        "Phase38AccessRuntimeAuthority.issuePath(","AuthorizationDecision.allow(","EffectiveAccessDecision.granted(",
         "visibility_envelope","Phase38VisualAuthorization","/v1/images/generate","/v1/images/edit"
     )
-    private val forbiddenDirectSymbols = listOf("CampaignTruthStore(", "PlayerStateStore(", "KnowledgeStore(", ".openWorldDb()", ".openCoreDb()")
+    private val forbiddenDirectSymbols = listOf(
+        "CampaignTruthStore(", "PlayerStateStore(", "KnowledgeStore(", ".openWorldDb()", ".openCoreDb()",
+        "Phase38AccessRuntimeAuthority.issuePath(", "AuthorizationDecision.allow(", "EffectiveAccessDecision.granted("
+    )
     fun hasForbiddenDirectProtectedEntryPoint(source: String): Boolean = forbiddenDirectSymbols.any(source::contains)
 
     private fun trustedGatewayBody(source: String): IntRange? {

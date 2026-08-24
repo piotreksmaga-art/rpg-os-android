@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 enum class AccessBindingKind { ROLE, ORGANIZATION, CLEARANCE, CONTROL, COGNITION }
 enum class AccessGrantKind { EXPLICIT, DELEGATED, TEMPORARY, WORLD_RULE }
 enum class AccessOperation { UPSERT_BINDING, REVOKE_BINDING, GRANT, REVOKE_GRANT, SET_CARRIER_ACCESS, BIND_COGNITION }
+enum class CarrierAccessStage { REACHABLE, AVAILABLE, OPENED, DECODED, COMPREHENDED }
 
 data class InformationCarrierRef(val campaignUid:String,val carrierKindUid:String,val carrierUid:String){init{require(campaignUid.isNotBlank()&&carrierKindUid.isNotBlank()&&carrierUid.isNotBlank())}}
 data class AccessRequirement(
@@ -13,12 +14,57 @@ data class AccessRequirement(
     val requiredOrganizationUids:Set<String> = emptySet(),
     val requiredClearanceUids:Set<String> = emptySet(),
     val explicitGrantRequired:Boolean=false,
-    val carrier:InformationCarrierRef?=null
-){init{require(policyUid.isNotBlank());requiredRoleUids.forEach{require(it.isNotBlank())};requiredOrganizationUids.forEach{require(it.isNotBlank())};requiredClearanceUids.forEach{require(it.isNotBlank())}}}
+    val carrier:InformationCarrierRef?=null,
+    val requiredCarrierStages:Set<CarrierAccessStage> = emptySet()
+){init{
+    require(policyUid.isNotBlank())
+    requiredRoleUids.forEach{require(it.isNotBlank())};requiredOrganizationUids.forEach{require(it.isNotBlank())};requiredClearanceUids.forEach{require(it.isNotBlank())}
+    require(carrier != null || requiredCarrierStages.isEmpty()) { "RPGOS-P38-ACCESS:CARRIER_REQUIRED_FOR_STAGED_ACCESS" }
+}}
 
-data class AccessPath(val mechanismUid:String,val evidenceUid:String,val authorized:Boolean,val effectiveNow:Boolean){init{require(mechanismUid.isNotBlank()&&evidenceUid.isNotBlank())}}
-data class AuthorizationDecision(val authorized:Boolean,val reasonCode:String)
-data class EffectiveAccessDecision(val accessible:Boolean,val reasonCode:String,val path:AccessPath?=null)
+private val ACCESS_PATH_SEAL = Any()
+class AccessPath private constructor(
+    val campaignUid:String,
+    val principal:VisibilityPrincipalRef,
+    val carrier:InformationCarrierRef,
+    val mechanismUid:String,
+    val evidenceUid:String,
+    val worldRulePermitsAccess:Boolean,
+    val resolvedStages:Set<CarrierAccessStage>,
+    seal:Any
+){
+    init{
+        require(seal===ACCESS_PATH_SEAL)
+        require(campaignUid.isNotBlank()&&campaignUid==carrier.campaignUid)
+        require(mechanismUid.isNotBlank()&&evidenceUid.isNotBlank())
+    }
+    internal companion object{
+        fun issue(campaignUid:String,principal:VisibilityPrincipalRef,carrier:InformationCarrierRef,mechanismUid:String,evidenceUid:String,worldRulePermitsAccess:Boolean,resolvedStages:Set<CarrierAccessStage>)=
+            AccessPath(campaignUid,principal,carrier,mechanismUid,evidenceUid,worldRulePermitsAccess,resolvedStages.toSet(),ACCESS_PATH_SEAL)
+    }
+}
+
+/** Trusted runtime issuer. A caller may request access, but cannot manufacture an effective bypass. */
+internal object Phase38AccessRuntimeAuthority{
+    fun issuePath(trusted:TrustedPrincipalContext,carrier:InformationCarrierRef,mechanismUid:String,evidenceUid:String,worldRulePermitsAccess:Boolean,resolvedStages:Set<CarrierAccessStage>):AccessPath{
+        require(trusted.campaignUid==carrier.campaignUid){"RPGOS-P38-ACCESS:CROSS_CAMPAIGN_CARRIER_PATH"}
+        return AccessPath.issue(trusted.campaignUid,trusted.principal,carrier,mechanismUid,evidenceUid,worldRulePermitsAccess,resolvedStages)
+    }
+}
+class AuthorizationDecision private constructor(val authorized:Boolean,val reasonCode:String){
+    init{require(reasonCode.isNotBlank())}
+    internal companion object{
+        fun allow(reasonCode:String="AUTHORIZED")=AuthorizationDecision(true,reasonCode)
+        fun deny(reasonCode:String)=AuthorizationDecision(false,reasonCode)
+    }
+}
+class EffectiveAccessDecision private constructor(val accessible:Boolean,val reasonCode:String,val path:AccessPath?,val resolvedStages:Set<CarrierAccessStage>){
+    init{require(reasonCode.isNotBlank())}
+    internal companion object{
+        fun granted(reasonCode:String,path:AccessPath?=null,resolvedStages:Set<CarrierAccessStage> = emptySet())=EffectiveAccessDecision(true,reasonCode,path,resolvedStages.toSet())
+        fun denied(reasonCode:String,path:AccessPath?=null,resolvedStages:Set<CarrierAccessStage> = emptySet())=EffectiveAccessDecision(false,reasonCode,path,resolvedStages.toSet())
+    }
+}
 
 data class AccessAuthorityChange(
     val operation:AccessOperation,
@@ -188,21 +234,32 @@ class UniversalAccessAuthority(private val store:AccessAuthorityStore){
     }
 
     fun authorize(trusted:TrustedPrincipalContext,requirement:AccessRequirement,atOrder:Long=store.currentCanonicalOrder()):AuthorizationDecision{
-        if(requirement.carrier?.campaignUid != null && requirement.carrier.campaignUid != trusted.campaignUid)return AuthorizationDecision(false,"CROSS_CAMPAIGN_CARRIER")
-        if(requirement.requiredRoleUids.any{it !in trusted.roleUids})return AuthorizationDecision(false,"ROLE_REQUIRED")
-        if(requirement.requiredOrganizationUids.any{it !in trusted.organizationUids})return AuthorizationDecision(false,"ORGANIZATION_REQUIRED")
-        if(requirement.requiredClearanceUids.any{it !in trusted.clearanceUids})return AuthorizationDecision(false,"CLEARANCE_REQUIRED")
+        if(requirement.carrier?.campaignUid != null && requirement.carrier.campaignUid != trusted.campaignUid)return AuthorizationDecision.deny("CROSS_CAMPAIGN_CARRIER")
+        if(requirement.requiredRoleUids.any{it !in trusted.roleUids})return AuthorizationDecision.deny("ROLE_REQUIRED")
+        if(requirement.requiredOrganizationUids.any{it !in trusted.organizationUids})return AuthorizationDecision.deny("ORGANIZATION_REQUIRED")
+        if(requirement.requiredClearanceUids.any{it !in trusted.clearanceUids})return AuthorizationDecision.deny("CLEARANCE_REQUIRED")
         val grantKinds=AccessGrantKind.entries.map(AccessGrantKind::name).toSet()
         val hasExplicit=store.effective(trusted.principal,atOrder).any{ record ->
             record.operation in setOf(AccessOperation.GRANT,AccessOperation.SET_CARRIER_ACCESS) && record.kindUid in grantKinds && record.valueUid==requirement.policyUid &&
                 (requirement.carrier == null || (record.subjectKindUid==requirement.carrier.carrierKindUid&&record.subjectUid==requirement.carrier.carrierUid))
         }
-        if(requirement.explicitGrantRequired&&!hasExplicit)return AuthorizationDecision(false,"EXPLICIT_GRANT_REQUIRED")
-        return AuthorizationDecision(true,"AUTHORIZED")
+        if(requirement.explicitGrantRequired&&!hasExplicit)return AuthorizationDecision.deny("EXPLICIT_GRANT_REQUIRED")
+        return AuthorizationDecision.allow()
     }
-    fun effectiveAccess(authorization:AuthorizationDecision,path:AccessPath?=null):EffectiveAccessDecision{
-        if(authorization.authorized)return EffectiveAccessDecision(true,"AUTHORIZED_ACCESS",path)
-        if(path?.effectiveNow==true)return EffectiveAccessDecision(true,"EFFECTIVE_BYPASS:${path.mechanismUid}",path)
-        return EffectiveAccessDecision(false,"NO_EFFECTIVE_ACCESS",path)
+    fun effectiveAccess(trusted:TrustedPrincipalContext,requirement:AccessRequirement,authorization:AuthorizationDecision,path:AccessPath?=null):EffectiveAccessDecision{
+        val carrier=requirement.carrier
+        if(requirement.requiredCarrierStages.isEmpty()){
+            if(authorization.authorized)return EffectiveAccessDecision.granted("AUTHORIZED_ACCESS")
+            return EffectiveAccessDecision.denied("NO_EFFECTIVE_ACCESS")
+        }
+        if(carrier==null)return EffectiveAccessDecision.denied("CARRIER_REQUIRED")
+        if(path==null)return EffectiveAccessDecision.denied("CARRIER_PATH_REQUIRED")
+        if(path.campaignUid!=trusted.campaignUid||path.principal!=trusted.principal||path.carrier!=carrier)
+            return EffectiveAccessDecision.denied("CARRIER_PATH_BINDING_MISMATCH",path,path.resolvedStages)
+        val missing=requirement.requiredCarrierStages-path.resolvedStages
+        if(missing.isNotEmpty())return EffectiveAccessDecision.denied("CARRIER_STAGE_REQUIRED:${missing.map{it.name}.sorted().joinToString(",")}",path,path.resolvedStages)
+        if(authorization.authorized)return EffectiveAccessDecision.granted("AUTHORIZED_EFFECTIVE_ACCESS",path,path.resolvedStages)
+        if(path.worldRulePermitsAccess)return EffectiveAccessDecision.granted("EFFECTIVE_WORLD_RULE_ACCESS:${path.mechanismUid}",path,path.resolvedStages)
+        return EffectiveAccessDecision.denied("NO_EFFECTIVE_ACCESS",path,path.resolvedStages)
     }
 }

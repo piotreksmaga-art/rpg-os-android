@@ -159,7 +159,7 @@ class Phase38PostAuditAcceptanceRegressionTest {
                 },
                 TrustedAccessResolver { _, _, _ ->
                     accessAuthorityResolutions++
-                    EffectiveAccessDecision(true, "TEST_WOULD_ALLOW_IF_INCORRECTLY_REACHED")
+                    EffectiveAccessDecision.granted("TEST_WOULD_ALLOW_IF_INCORRECTLY_REACHED")
                 }
             )
             val request = VisibilityRequest(

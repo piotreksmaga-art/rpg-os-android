@@ -421,12 +421,12 @@ class Phase38SliceDPerceptionDisclosureTest {
     }
 
     @Test fun formalAccessAndPerceptionRemainSeparate() {
-        val authorizedArchive = AuthorizationDecision(true, "AUTHORIZED")
+        val authorizedArchive = AuthorizationDecision.allow()
         val unread = resolver.evaluate(PerceptionRequest(context(), null))
         assertTrue(authorizedArchive.authorized)
         assertEquals(PerceptionResultState.NO_DATA, unread.state)
 
-        val deniedFormalAccess = AuthorizationDecision(false, "DENIED")
+        val deniedFormalAccess = AuthorizationDecision.deny("DENIED")
         val openSignal = resolver.evaluate(PerceptionRequest(context(), signal()))
         assertFalse(deniedFormalAccess.authorized)
         assertTrue(openSignal.detected)
