@@ -67,6 +67,30 @@ Connector limitation at coordinator close: the available GitHub Actions commit-r
 
 Canonical accepted runtime through Phase 37 is recorded as `7538c3ca16b5e74133f13ce611821d0699c798d0`.
 
+## Phase 38 — Universal Visibility, Access & Audience Boundary acceptance — 2026-08-24
+
+Final code-bearing candidate: `db2f836fe3575204d045e5d3a861e07bb61cd5a9`.
+
+Final audit verdict: **PASS / COMPLETE**.
+
+Exact-SHA GREEN evidence:
+- GitHub Actions run `32776574352`, job `97588891710` — SUCCESS;
+- Phase 38 targeted: `117` tests / `0` failures / `0` skipped;
+- full JVM: `1004` tests / `0` failures / `0` skipped;
+- both test commands and immutable confirmation steps reported exact SHA `db2f836f...`.
+
+Acceptance domknęło wcześniejszy protected-read/perception hardening oraz końcowe findingi wykryte w pełnej kompatybilności i audycie architektury:
+- canonical World Pack NPC schema compatibility bez maskowania brakujących identity columns;
+- typed high-level result states i presentation-only legacy adapters;
+- zapieczętowany carrier/effective-access pipeline z reach/availability/open/decode/comprehend;
+- brak caller-forgeable AccessPath/AuthorizationDecision/EffectiveAccessDecision;
+- event-bearing AccessAuthorityChange i jawny rollback/snapshot/revoke/replay test bez phantom visibility;
+- aktualny G32 writer inventory i kompletny Visibility Consumer Inventory z audience/purpose/projection source.
+
+Szczegółowy zakres, findingi i dowody: `docs/architecture/PHASE38_ACCEPTANCE.md`.
+
+Canonical next gate po Phase 38: Phase 39 — Temporal Engine historical truth.
+
 ## Historia kierunku AI
 
 Pierwszy przyszły kierunek zakładał wymienny native/local AI-GM, bez lock-in na Bielik/PLLuM/Gemma, GGUF, llama.cpp, LiteRT-LM, ExecuTorch ani backend CPU/GPU/NPU. TEMP-GM/Termux/localhost pozostawały wyłącznie laboratorium R&D.

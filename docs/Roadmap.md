@@ -35,12 +35,11 @@ Każdy przyszły Core acceptance audit sprawdza co najmniej:
 Wyjątek stanowią jawnie World-Pack-specific fazy integracyjne (obecnie Phase 80–84), których zadaniem jest test konkretnego packa przeciwko uniwersalnemu Core, a nie zmiana Core pod ten pack.
 
 ## Aktualny baseline
-- Canonical accepted runtime through Phase 37: `7538c3ca16b5e74133f13ce611821d0699c798d0`.
-- Phase 37 final independent post-hardening audit: PASS on candidate `53aa66931926e92ed7cbe0d68deff4f4ee2378d6`; `P37-POST-AUD-001..003` FIXED; no new findings.
-- Audited GREEN evidence: full JVM `884` tests / `0` failures / `0` skipped on the exact audited app/test subtree; integration PR #69 preserved that subtree bit-for-bit on current master.
-- Separate push-triggered exact-merge-SHA Actions run for `7538c3ca...` was not surfaced by the available connector at coordinator close; no run ID is invented. Acceptance is based on independent audit + exact subtree identity + inspected GREEN evidence.
-- Pełne historyczne SHA/CI/artifacts/findingi: `docs/Historia projektu.md` i phase acceptance records.
-- Następny implementacyjny gate: **Phase 38 — Universal Visibility, Access & Audience Boundary, AUDIT FIRST**.
+- Canonical accepted runtime through Phase 38: code-bearing SHA `db2f836fe3575204d045e5d3a861e07bb61cd5a9`.
+- Phase 38 final audit: PASS; protected projection, trusted perception, sealed carrier/effective-access, persistence/replay oraz repository-wide consumer inventory findings są zamknięte.
+- Exact-SHA GREEN evidence: Phase 38 `117/0/0`, full JVM `1004/0/0`, Actions run `32776574352`, job `97588891710`.
+- Acceptance record: `docs/architecture/PHASE38_ACCEPTANCE.md`; pełne historyczne SHA/CI/artifacts/findingi pozostają w `docs/Historia projektu.md` i phase acceptance records.
+- Następny implementacyjny gate: **Phase 39 — Temporal Engine historical truth, AUDIT FIRST**.
 - Phase 48 pozostaje NOT STARTED.
 - World Pack Creator pozostaje DEFERRED do czasu globalnego ACCEPTED Phase 1–84.
 
@@ -91,7 +90,7 @@ Accepted scope i historical evidence Phase 1–36 są zamrożone i zarchiwizowan
 
 # FAZA C — CZAS, WIEDZA I RETRIEVAL
 - [x] 37. World Actor Knowledge, Expertise & Acquisition Provenance
-- [-] 38. Universal Visibility, Access & Audience Boundary — GM/NPC/PC/player/access/perception/disclosure isolation
+- [x] 38. Universal Visibility, Access & Audience Boundary — GM/NPC/PC/player/access/perception/disclosure isolation
 - [-] 39. Temporal Engine historical truth
 - [-] 40. Scheduler — evaluation points/deadlines, not precommitted outcomes
 - [-] 41. Structured SQL Retriever
@@ -121,7 +120,7 @@ Wymagane dla Phase 37:
 - personal knowledge, institutional knowledge i role-accessible knowledge są rozdzielone;
 - wiedza instytucji nie przecieka automatycznie do wszystkich jej członków;
 - dokumenty/raporty/archiwa/notatki/mapy mogą być nośnikami evidence bez bycia autonomicznymi decision actors;
-- access/secrecy metadata przygotowują Phase 38, ale pełne GM/NPC/PC/player-visible enforcement pozostaje Phase 38;
+- access/secrecy metadata Phase 37 są konsumowane przez zaakceptowany Phase 38 GM/NPC/PC/player-visible boundary;
 - model jest temporal-ready dla późniejszego pytania „co holder wiedział wtedy?”, pełny historical query engine pozostaje Phase 39;
 - canonical acquisition korzysta z Single Truth Mutation Path / TurnTransaction / Event-Causal evidence / idempotency / rollback / snapshot/replay / schema safety;
 - AI, raw SQL, ContextBuilder i generic StatePatch nie posiadają authority do tworzenia legalnego canonical acquisition;
@@ -532,12 +531,12 @@ Przyszłe obowiązkowe gates obejmują co najmniej:
 - [ ] available latency improves quality before idle waiting; speculative/background preparation never commits future player/world decisions
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
-`Phase 38 — GM/NPC/PC/player-visible knowledge separation + belief/reputation/access visibility boundaries`
+`Phase 39 — Temporal Engine historical truth`
 
 Obowiązkowa sekwencja:
 `READ ARCHITECTURE + ROADMAP + MAPA PLIKÓW -> AUDIT FIRST -> classify COMPLETE/PARTIAL/MISSING/BLOCKED -> minimal implementation -> targeted tests -> compatibility -> full JVM -> PR -> exact-SHA CI -> coordinator acceptance`.
 
-Do acceptance Phase 38: **AUDIT FIRST / NOT GLOBALLY ACCEPTED**.
+Phase 38: **GLOBALLY ACCEPTED / COMPLETE** na code-bearing SHA `db2f836fe3575204d045e5d3a861e07bb61cd5a9`; exact-SHA run `32776574352` — SUCCESS.
 
 Future Hybrid AI, NPC individuality, Living World i post-roadmap WPC nie zmieniają tej kolejności.
 

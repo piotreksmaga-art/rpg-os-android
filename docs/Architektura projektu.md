@@ -272,7 +272,7 @@ Domena mechaniki rozstrzyga rzeczywistość; Knowledge Engine przechowuje tylko 
 ### 10.7 Organization, role i access metadata
 Wiedza może należeć do organizacji/urzędu i być udostępniana przez rolę, clearance lub legalny sharing. Zmiana stanowiska może zmienić dostęp do institutional records, ale nie kopiuje prywatnych memories poprzednika.
 
-Phase 37 przechowuje metadata potrzebne do access/visibility, np. `PUBLIC`, `PRIVATE`, `SECRET`, `CLASSIFIED`, `ROLE_RESTRICTED`, `ORGANIZATION_RESTRICTED`, `WORLD_SPECIFIC`; pełne egzekwowanie GM/NPC/PC/player-visible granic należy do Phase 38.
+Phase 37 przechowuje metadata potrzebne do access/visibility, np. `PUBLIC`, `PRIVATE`, `SECRET`, `CLASSIFIED`, `ROLE_RESTRICTED`, `ORGANIZATION_RESTRICTED`, `WORLD_SPECIFIC`; ich GM/NPC/PC/player-visible egzekwowanie zapewnia zaakceptowany Phase 38 boundary.
 
 Player-visible, PC-known, NPC-known i GM/internal context nie są synonimami.
 
@@ -285,7 +285,7 @@ Retry tej samej logicznej acquisition nie tworzy duplikatu; rollback nie pozosta
 
 ContextBuilder nie jest authority wiedzy. Docelowo pobiera holder-scoped `KnowledgeContextProjection`/typed Knowledge API zamiast definiować własną semantykę bezpośrednimi SQL query.
 
-### 10.9 Phase 38 — Universal Visibility, Access & Audience Boundary — CANONICAL FUTURE CONTRACT
+### 10.9 Phase 38 — Universal Visibility, Access & Audience Boundary — ACCEPTED CONTRACT
 Phase 38 jest drugim filarem epistemicznym po Phase 37. Phase 37 odpowiada `WHO KNOWS/THINKS WHAT AND WHY`; Phase 38 odpowiada `WHO MAY ACCESS / PERCEIVE / UNDERSTAND / RECEIVE WHICH INFORMATION FOR WHICH PURPOSE`. Nie tworzy nowej prawdy ani nowej wiedzy; buduje fail-closed projections nad authoritative state i Phase-37 epistemic state.
 
 Globalny invariant:
