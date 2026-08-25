@@ -42,6 +42,8 @@ object VisibilitySubjectKinds {
     const val PLAYER_STATE = "PLAYER_STATE"
     const val WORLD_PRESENTATION = "WORLD_PRESENTATION"
     const val DIAGNOSTIC_CONTEXT = "DIAGNOSTIC_CONTEXT"
+    const val ACCESS_AUTHORITY_HISTORY = "ACCESS_AUTHORITY_HISTORY"
+    const val CAUSAL_RELATION = "CAUSAL_RELATION"
 }
 
 data class VisibilityPrincipalRef(val kindUid: String, val uid: String) {
@@ -179,7 +181,8 @@ class VisibilityAuthorityService {
     )
     private val accessControlledKinds = setOf(
         VisibilitySubjectKinds.RELATIONSHIP_DATA, VisibilitySubjectKinds.ECONOMY_DATA,
-        VisibilitySubjectKinds.POLITICS_DATA, VisibilitySubjectKinds.ORGANIZATION_DATA
+        VisibilitySubjectKinds.POLITICS_DATA, VisibilitySubjectKinds.ORGANIZATION_DATA,
+        VisibilitySubjectKinds.CAUSAL_RELATION
     )
 
     fun decide(request: VisibilityRequest): VisibilityDecision = decide(request, null)
@@ -221,6 +224,18 @@ class VisibilityAuthorityService {
                     it.holderKindUid == holder.holderKindUid && it.holderUid == holder.holderUid
             } == true
             return if (explicitlyMapped && p == VisibilityPurposeKinds.WORLD_ACTOR_REASONING) full("EXPLICIT_COGNITION_MAPPING") else deny("KNOWLEDGE_NOT_MAPPED_TO_AUDIENCE")
+        }
+
+        if (s == VisibilitySubjectKinds.ACCESS_AUTHORITY_HISTORY) {
+            val targetKind = request.subject.propertyUid ?: return deny("ACCESS_HISTORY_PRINCIPAL_KIND_REQUIRED")
+            val target = VisibilityPrincipalRef(targetKind, request.subject.subjectUid)
+            val self = trusted?.principal == target
+            val purposeAllowed = when(a) {
+                AudienceKinds.PLAYER, AudienceKinds.PLAYER_CHARACTER -> p in setOf(VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION)
+                AudienceKinds.WORLD_ACTOR -> p == VisibilityPurposeKinds.WORLD_ACTOR_REASONING
+                else -> false
+            }
+            return if(self && purposeAllowed) full("OWN_ACCESS_AUTHORITY_HISTORY") else deny("ACCESS_AUTHORITY_HISTORY_NOT_AUTHORIZED")
         }
 
         if (s in accessControlledKinds) return if (effectiveAccess?.accessible == true) full("TRUSTED_ACCESS_AUTHORITY") else deny("ACCESS_AUTHORITY_REQUIRED")
