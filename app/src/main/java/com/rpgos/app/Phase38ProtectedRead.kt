@@ -16,7 +16,10 @@ sealed interface ProtectedReadResult<out T> {
     data class Corruption(val reasonCode:String,val error:Throwable):ProtectedReadResult<Nothing>{override val stateUid="CORRUPTION"}
 }
 
-enum class ProtectedSubjectAccessMode { PUBLIC_OPEN, CONTROL_AUTHORITY, COGNITION_AUTHORITY, PRIVILEGED_AUTHORITY, POLICY_AUTHORITY, UNKNOWN }
+enum class ProtectedSubjectAccessMode {
+    PUBLIC_OPEN, CONTROL_AUTHORITY, COGNITION_AUTHORITY, PRIVILEGED_AUTHORITY,
+    PRINCIPAL_AUTHORITY, POLICY_AUTHORITY, POLICY_OR_PRIVILEGED_AUTHORITY, UNKNOWN
+}
 
 /** Canonical declaration of how every Phase38 protected subject is authorized. */
 object ProtectedSubjectAccessRegistry {
@@ -24,6 +27,7 @@ object ProtectedSubjectAccessRegistry {
     const val ECONOMY_READ_CLEARANCE_UID = "RPGOS-P38-CLEARANCE-ECONOMY-READ"
     const val ORGANIZATION_READ_POLICY_UID = "RPGOS-P38-POLICY-ORGANIZATION-READ"
     const val POLITICS_READ_POLICY_UID = "RPGOS-P38-POLICY-POLITICS-READ"
+    const val CAUSAL_RELATION_READ_POLICY_UID = "RPGOS-P38-POLICY-CAUSAL-RELATION-READ"
 
     private val publicKinds = setOf(
         VisibilitySubjectKinds.PUBLIC_WORLD_EVENT, VisibilitySubjectKinds.PUBLIC_WORLD_ACTOR_PROFILE,
@@ -45,6 +49,8 @@ object ProtectedSubjectAccessRegistry {
         in publicKinds -> ProtectedSubjectAccessMode.PUBLIC_OPEN
         VisibilitySubjectKinds.PLAYER_STATE -> ProtectedSubjectAccessMode.CONTROL_AUTHORITY
         VisibilitySubjectKinds.PHASE37_HOLDER_KNOWLEDGE -> ProtectedSubjectAccessMode.COGNITION_AUTHORITY
+        VisibilitySubjectKinds.ACCESS_AUTHORITY_HISTORY -> ProtectedSubjectAccessMode.PRINCIPAL_AUTHORITY
+        VisibilitySubjectKinds.CAUSAL_RELATION -> ProtectedSubjectAccessMode.POLICY_OR_PRIVILEGED_AUTHORITY
         in privilegedKinds -> ProtectedSubjectAccessMode.PRIVILEGED_AUTHORITY
         in policyKinds -> ProtectedSubjectAccessMode.POLICY_AUTHORITY
         else -> ProtectedSubjectAccessMode.UNKNOWN
@@ -70,6 +76,11 @@ object ProtectedSubjectAccessRegistry {
             explicitGrantRequired=true,
             carrier=InformationCarrierRef(subject.campaignUid,subject.subjectKindUid,subject.subjectUid)
         )
+        VisibilitySubjectKinds.CAUSAL_RELATION -> AccessRequirement(
+            policyUid=CAUSAL_RELATION_READ_POLICY_UID,
+            explicitGrantRequired=true,
+            carrier=InformationCarrierRef(subject.campaignUid,subject.subjectKindUid,subject.subjectUid)
+        )
         else -> null
     }
 }
@@ -88,7 +99,9 @@ class ProtectedReadGateway(
         if(mode==ProtectedSubjectAccessMode.UNKNOWN)return ProtectedReadResult.Unknown("UNKNOWN_ACCESS_POLICY")
         val trusted=principalResolver.resolve(request.audience)
         var effectiveAccess:EffectiveAccessDecision?=null
-        if(mode==ProtectedSubjectAccessMode.POLICY_AUTHORITY){
+        val privilegedProjection = mode==ProtectedSubjectAccessMode.POLICY_OR_PRIVILEGED_AUTHORITY &&
+            trusted!=null && visibility.decide(request,trusted).level!=DisclosureLevel.DENY
+        if(mode in setOf(ProtectedSubjectAccessMode.POLICY_AUTHORITY,ProtectedSubjectAccessMode.POLICY_OR_PRIVILEGED_AUTHORITY) && !privilegedProjection){
             val policy=ProtectedSubjectAccessRegistry.requirementFor(request.subject)
                 ?:return ProtectedReadResult.Unknown("ACCESS_POLICY_REQUIRED")
             val principal=trusted?:return ProtectedReadResult.Deny("TRUSTED_PRINCIPAL_REQUIRED")
@@ -131,6 +144,23 @@ internal fun <T> ProtectedReadResult<T>.toVisibilityProjection(request:Visibilit
     is ProtectedReadResult.Unknown -> VisibilityProjection(request,VisibilityDecision(DisclosureLevel.DENY,reasonCode),null,ProjectionDataState.UNKNOWN)
     is ProtectedReadResult.Corruption -> VisibilityProjection(request,VisibilityDecision(DisclosureLevel.DENY,reasonCode),null,ProjectionDataState.CORRUPTION)
 }
+
+data class ProjectedCausalEndpoint(
+    val state:ProjectionDataState,
+    val eventUid:String?=null,
+    val subjectKindUid:String?=null,
+    val subjectUid:String?=null
+)
+
+data class ProjectedCausalRelation(
+    val relationUid:String,
+    val relationClassUid:String,
+    val relationKindUid:String,
+    val source:ProjectedCausalEndpoint,
+    val target:ProjectedCausalEndpoint,
+    val committedOrder:Long?,
+    val semanticFingerprint:String
+)
 
 @TrustedProtectedReadGateway
 class ProtectedCampaignReadRepository private constructor(
@@ -201,6 +231,65 @@ class ProtectedCampaignReadRepository private constructor(
         gateway(db).read(request){CanonDivergenceStore(db,campaignUid).list()}
     }
 
+    internal fun accessAuthorityHistory(
+        audience:AudienceContext,purpose:PurposeContext,target:VisibilityPrincipalRef,atOrder:Long
+    ):ProtectedReadResult<List<AccessAuthorityRecord>> = withSaveDb{db->
+        val request=VisibilityRequest(audience,purpose,VisibilitySubjectRef(
+            campaignUid,VisibilitySubjectKinds.ACCESS_AUTHORITY_HISTORY,target.uid,propertyUid=target.kindUid
+        ))
+        when(val result=gateway(db).read(request){AccessAuthorityStore(db,campaignUid).effective(target,atOrder)}){
+            is ProtectedReadResult.Allow -> if(result.value.isEmpty()) ProtectedReadResult.NoData else result
+            else -> result
+        }
+    }
+
+    internal fun causalTraversal(
+        audience:AudienceContext,purpose:PurposeContext,query:CanonicalCausalTraversalQuery
+    ):ProtectedReadResult<List<ProjectedCausalRelation>> = withSaveDb{db->
+        val rows=try{CampaignCausalGraph(db,campaignUid).traverseBounded(query)}
+        catch(failure:VisibilityAuthorityFailure.CrossCampaign){throw failure}
+        catch(failure:Throwable){return@withSaveDb ProtectedReadResult.Corruption("CAUSAL_OWNER_READ_FAILURE",failure)}
+        if(rows.isEmpty())return@withSaveDb ProtectedReadResult.NoData
+        val g=gateway(db)
+        val out=mutableListOf<ProjectedCausalRelation>()
+        var disclosure=DisclosureLevel.DISCLOSE_FULL
+        var reason="CAUSAL_RELATION_PROJECTED"
+        for(row in rows){
+            val relationRequest=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,VisibilitySubjectKinds.CAUSAL_RELATION,row.relationUid))
+            when(val relation=g.read(relationRequest){row}){
+                is ProtectedReadResult.Allow -> {
+                    disclosure=relation.disclosure;reason=relation.reasonCode
+                    out+=ProjectedCausalRelation(
+                        row.relationUid,row.relationClass.name,row.relationKindUid,
+                        projectEndpoint(g,audience,purpose,row.source),
+                        projectEndpoint(g,audience,purpose,row.target),
+                        row.committedOrder,row.semanticFingerprint
+                    )
+                }
+                is ProtectedReadResult.Deny -> return@withSaveDb relation
+                is ProtectedReadResult.NotDisclosed -> return@withSaveDb relation
+                is ProtectedReadResult.Unknown -> return@withSaveDb relation
+                is ProtectedReadResult.Corruption -> return@withSaveDb relation
+                is ProtectedReadResult.NoData -> return@withSaveDb relation
+            }
+        }
+        ProtectedReadResult.Allow(out,disclosure,reason)
+    }
+
+    private fun projectEndpoint(
+        g:ProtectedReadGateway,audience:AudienceContext,purpose:PurposeContext,endpoint:CanonicalCausalEndpointRef
+    ):ProjectedCausalEndpoint{
+        val request=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,endpoint.subject.kindUid,endpoint.subject.uid))
+        return when(val result=g.read(request){endpoint}){
+            is ProtectedReadResult.Allow -> ProjectedCausalEndpoint(ProjectionDataState.DISCLOSED,endpoint.eventUid,endpoint.subject.kindUid,endpoint.subject.uid)
+            is ProtectedReadResult.NoData -> ProjectedCausalEndpoint(ProjectionDataState.NO_DATA)
+            is ProtectedReadResult.Deny -> ProjectedCausalEndpoint(ProjectionDataState.DENIED)
+            is ProtectedReadResult.NotDisclosed -> ProjectedCausalEndpoint(ProjectionDataState.NOT_DISCLOSED)
+            is ProtectedReadResult.Unknown -> ProjectedCausalEndpoint(ProjectionDataState.UNKNOWN)
+            is ProtectedReadResult.Corruption -> ProjectedCausalEndpoint(ProjectionDataState.CORRUPTION)
+        }
+    }
+
     internal fun <T> diagnosticRows(audience:AudienceContext,purpose:PurposeContext,subjectUid:String,read:()->List<T>):ProtectedReadResult<List<T>> = withSaveDb{db->
         val request=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,VisibilitySubjectKinds.DIAGNOSTIC_CONTEXT,subjectUid))
         gateway(db).read(request,read)
@@ -217,7 +306,7 @@ class ProtectedCampaignReadRepository private constructor(
         audience:AudienceContext,purpose:PurposeContext,subjectKindUid:String,subjectUid:String,read:()->List<T>
     ):ProtectedReadResult<List<T>> = withSaveDb{db->
         val request=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,subjectKindUid,subjectUid))
-        if(ProtectedSubjectAccessRegistry.modeFor(subjectKindUid)!=ProtectedSubjectAccessMode.POLICY_AUTHORITY)
+        if(ProtectedSubjectAccessRegistry.modeFor(subjectKindUid) !in setOf(ProtectedSubjectAccessMode.POLICY_AUTHORITY,ProtectedSubjectAccessMode.POLICY_OR_PRIVILEGED_AUTHORITY))
             return@withSaveDb ProtectedReadResult.Unknown("ACCESS_POLICY_NOT_APPLICABLE")
         gateway(db).read(request,read)
     }
