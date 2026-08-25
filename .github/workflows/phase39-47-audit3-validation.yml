@@ -1,0 +1,112 @@
+name: Phase39-47 Audit3 Validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "codex/phase-39-47" ]
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Install Android SDK 36
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Run focused Phase39-47 suites
+        shell: bash
+        run: |
+          rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
+          set +e
+          gradle --no-daemon :app:testDebugUnitTest \
+            --tests 'com.rpgos.app.Phase39To47BlockTest' \
+            --tests 'com.rpgos.app.Phase39To47R1BoundaryRepairTest' \
+            --tests 'com.rpgos.app.Phase39To47Audit3RepairTest' \
+            --stacktrace
+          rc=$?
+          set -e
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          tests = failures = skipped = 0
+          for path in glob.glob('app/build/test-results/testDebugUnitTest/TEST-*.xml'):
+              root = ET.parse(path).getroot()
+              tests += int(root.attrib.get('tests', 0))
+              failures += int(root.attrib.get('failures', 0)) + int(root.attrib.get('errors', 0))
+              skipped += int(root.attrib.get('skipped', 0))
+          print(f'FOCUSED_XML tests={tests} failures={failures} skipped={skipped}')
+          PY
+          echo "FOCUSED_RC=$rc TESTED_SHA=$GITHUB_SHA"
+          exit "$rc"
+
+  full-jvm:
+    needs: focused
+    if: ${{ needs.focused.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Install Android SDK 36
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Run full JVM regression
+        shell: bash
+        run: |
+          rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
+          set +e
+          gradle --no-daemon :app:testDebugUnitTest --stacktrace
+          rc=$?
+          set -e
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          tests = failures = skipped = 0
+          for path in glob.glob('app/build/test-results/testDebugUnitTest/TEST-*.xml'):
+              root = ET.parse(path).getroot()
+              tests += int(root.attrib.get('tests', 0))
+              failures += int(root.attrib.get('failures', 0)) + int(root.attrib.get('errors', 0))
+              skipped += int(root.attrib.get('skipped', 0))
+          print(f'FULL_XML tests={tests} failures={failures} skipped={skipped}')
+          PY
+          echo "FULL_RC=$rc TESTED_SHA=$GITHUB_SHA"
+          exit "$rc"
