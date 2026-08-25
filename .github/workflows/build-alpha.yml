@@ -3,7 +3,7 @@ name: Validate RPG OS ALPHA
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "codex/phase-39-47" ]
 
 permissions:
   contents: read
