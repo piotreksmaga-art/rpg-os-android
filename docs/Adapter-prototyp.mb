@@ -1,0 +1,117 @@
+# Adapter-prototyp — historyczny Core ↔ przyszłe fazy
+
+Status: **REFERENCE ONLY / PROTOTYPE / NOT A ROADMAP PHASE / DO NOT IMPLEMENT BY DEFAULT**
+
+Powód zachowania dokumentu: Phase 38.5 nie została wprowadzona do roadmapy. Ten plik przechowuje jej użyteczną część jako wzorzec diagnostyczny dla przyszłych faz, które mogą napotkać koszt lub ryzyko integracji z architekturą Phase 1–38.
+
+## 1. Kiedy czytać ten dokument
+
+Faza oznaczona w `docs/Roadmap.md` markerem `[REF-ADAPTER]` musi przeczytać ten dokument przed implementacją i podczas audytu wejściowego.
+
+Samo oznaczenie nie oznacza, że adapter jest potrzebny. Najpierw należy udowodnić rzeczywisty problem w aktualnym repozytorium.
+
+Typowe sygnały problemu:
+
+- nowa faza musi importować wiele wewnętrznych modułów Phase 1–38;
+- musi znać dawne nazwy, sygnatury, formaty lub wyjątki implementacyjne;
+- kilka nowych faz tworzy różne translacje tych samych historycznych danych;
+- integracja zachęca do odczytu surowych repozytoriów z pominięciem Phase 38;
+- zmiana historycznego modułu wymusza poprawki w wielu nowych fazach;
+- brak stabilnego, world-agnostic punktu dostępu blokuje implementację nowej odpowiedzialności.
+
+Jeśli żaden z tych problemów nie występuje, faza korzysta z istniejących publicznych kontraktów i nie tworzy adaptera.
+
+## 2. Referencyjna odpowiedź
+
+Jeżeli audyt potwierdzi problem, preferowaną odpowiedzią może być cienka warstwa kompatybilności:
+
+```text
+przyszła faza
+    |
+    v
+minimalny kontrakt kompatybilności
+    |
+    +--> Phase 38 protected read/projection boundary
+    |
+    +--> zaakceptowane publiczne możliwości Phase 1–37
+```
+
+Warstwa może:
+
+- ujednolicić nazwę, sygnaturę, identyfikator lub opakowanie wyniku;
+- zachować `campaignId`, provenance i typowane stany odpowiedzi;
+- delegować chroniony odczyt do Phase 38;
+- ukryć historyczne szczegóły przed nową fazą;
+- zgłosić brak obsługi jawnie jako `UNSUPPORTED` lub równoważny stan;
+- posiadać testy równoważności z zaakceptowanym historycznym źródłem.
+
+Warstwa nie może:
+
+- tworzyć nowej prawdy domenowej;
+- zmieniać stanu świata ani posiadać własnych tabel domenowych;
+- przejmować access, perception lub disclosure od Phase 38;
+- implementować czasu, schedulera, retrievalu, intencji, planowania tury lub budowania kontekstu;
+- tworzyć promptów, decyzji AI/MG, pamięci, decyzji NPC, Living World lub Directora;
+- wprowadzać platformy cache, routingu modeli albo orkiestracji wydajności;
+- dodawać abstrakcji bez pierwszego rzeczywistego konsumenta;
+- zawierać zachowań konkretnego World Packa.
+
+Zasada referencyjna:
+
+> Adapter może tłumaczyć kształt dostępu, ale nie przejmuje znaczenia, decyzji ani odpowiedzialności domenowej.
+
+## 3. Procedura dla fazy oznaczonej `[REF-ADAPTER]`
+
+Przed implementacją należy:
+
+1. Zinwentaryzować rzeczywiste zależności fazy od Phase 1–38.
+2. Wskazać publiczny historyczny kontrakt i właściciela danych.
+3. Sprawdzić, czy chroniony odczyt musi przejść przez Phase 38.
+4. Spróbować użyć istniejącego publicznego kontraktu bez nowej warstwy.
+5. Jeżeli to niemożliwe, opisać konkretny koszt, przeciek lub duplikację.
+6. Wybrać najmniejszą odpowiedź: lokalne mapowanie, rozszerzenie publicznego kontraktu właściciela albo cienki adapter.
+7. Dodać test równoważności i test stanów bezpieczeństwa.
+8. Zanotować decyzję w acceptance record danej fazy.
+
+Nie należy tworzyć jednego dużego adaptera dla wszystkich przyszłych faz. Pierwszy rzeczywisty konsument uzasadnia pierwszy kontrakt; kolejny konsument może uzasadnić jego ostrożne uogólnienie.
+
+## 4. Kryteria dopuszczenia adaptera
+
+Adapter można wprowadzić wyłącznie, gdy audyt wykazał, że:
+
+- problem występuje w aktualnym kodzie, a nie tylko w przewidywaniach;
+- bezpośrednia naprawa u historycznego właściciela byłaby bardziej ryzykowna albo naruszałaby zamrożony kontrakt;
+- adapter zmniejsza liczbę zależności i nie duplikuje domeny;
+- każda operacja ma konkretnego konsumenta;
+- translacje są mechaniczne i zachowują obserwowalne znaczenie;
+- `DENIED`, `NO_DATA`, `NOT_DISCLOSED`, `UNKNOWN`, `CORRUPTION` oraz brak wsparcia pozostają rozróżnialne;
+- nowa faza nie może ominąć adaptera przez bezpośredni import tego samego historycznego API;
+- pełna regresja zaakceptowanych faz pozostaje zielona.
+
+## 5. Warunki odrzucenia
+
+Nie tworzymy adaptera, gdy:
+
+- istniejący publiczny kontrakt jest wystarczający;
+- problem jest pojedynczym, możliwym do naprawienia defektem u właściciela;
+- proponowana warstwa dodaje logikę przyszłej fazy;
+- głównym argumentem jest hipotetyczna „elastyczność na przyszłość”;
+- adapter jedynie kopiuje historyczne modele jeden do jednego;
+- prowadzi do powstania drugiego Core lub drugiej granicy informacji;
+- zwiększa liczbę kroków bez zmniejszenia sprzężenia.
+
+## 6. Oczekiwany wynik audytu
+
+Każda faza oznaczona `[REF-ADAPTER]` kończy analizę jedną z trzech decyzji:
+
+- **NO ADAPTER:** istniejące kontrakty wystarczają;
+- **OWNER FIX:** właściwa jest mała poprawka publicznego kontraktu u właściciela;
+- **MINIMAL ADAPTER:** udowodniono potrzebę cienkiej warstwy kompatybilności o dokładnie opisanym zakresie.
+
+Brak decyzji oznacza, że audyt wejściowy fazy jest niekompletny.
+
+## 7. Cel produktu
+
+Ten prototyp nie jest mechaniką gry. Jego jedyna możliwa wartość polega na ograniczeniu archeologii technicznej, ryzyka przecieków i powielania integracji, aby przyszłe fazy mogły szybciej skupić się na swoich właściwych odpowiedzialnościach oraz jakości doświadczenia gracza.
+
+Najbezpieczniejszy adapter jest mały, przyrostowy, możliwy do usunięcia i prawie niewidoczny dla mechanik gry.

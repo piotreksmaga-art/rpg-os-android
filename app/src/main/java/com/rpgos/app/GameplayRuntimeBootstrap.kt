@@ -45,6 +45,7 @@ internal object GameplayRuntimeBootstrap {
                 Phase36EventSchemaScaffold.ensureWithoutMaterialMigration(db, campaignUid)
                 CampaignCausalGraphSchema.ensureReady(db)
                 CampaignSnapshotSchema.ensureReady(db)
+                Phase40SchedulerSchema.ensureReady(db)
             }
             if (GameplayMutationDatabaseGuards.isInstalled(db)) {
                 withAdministrativeMutationAuthority(db, campaignUid) { ensureAcceptedStructuralSchemas() }

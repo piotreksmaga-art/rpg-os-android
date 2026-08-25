@@ -365,6 +365,15 @@ Indeks techniczny wspierający `docs/Architektura projektu.md` i `docs/Roadmap.m
 ## Kluczowe wspólne dokumenty i runtime assets
 - `docs/Architektura projektu.md`
 - `docs/Roadmap.md`
+- `docs/Adapter-prototyp.mb` — niewiążąca referencja audytowa dla faz oznaczonych `[REF-ADAPTER]`; nie jest fazą roadmapy ani domyślnym planem implementacji
+- `docs/PHASE_39_47_EXECUTION_BLOCK.md` — wykonany plan jednego bloku Phase 39–47 z czterema bramkami jakości
+- `docs/audits/PHASE_39_47_ENTRY_AUDIT.md` — wspólny audit wejściowy Phase 39–47: stan runtime, luki, zależności i decyzje adapterowe przed Gate A
+- `docs/architecture/PHASE39_47_ACCEPTANCE.md` — skonsolidowany rekord acceptance z osobną sekcją dla każdej Phase 39–47 i dowodami bramek
+- `app/src/main/java/com/rpgos/app/Phase39TemporalAndPhase40Scheduler.kt` — temporal query/result engine, port historycznej access authority oraz transakcyjny Scheduler
+- `app/src/main/java/com/rpgos/app/Phase41StructuredAndPhase42GraphRetrieval.kt` — allowlisted structured retrieval i bounded causal traversal
+- `app/src/main/java/com/rpgos/app/Phase43IntentAndPhase44TurnPlanner.kt` — deterministyczny Intent Parser i bounded Turn Planner
+- `app/src/main/java/com/rpgos/app/Phase45To47ContextPipeline.kt` — audience-scoped Context Builder, twardy budget i bounded missing-context loop
+- `app/src/test/java/com/rpgos/app/Phase39To47BlockTest.kt` — pięć skondensowanych testów Gate A–D oraz integracji do bezpiecznego kontekstu
 - `docs/Mapa plików.md`
 - `docs/Historia projektu.md`
 - `docs/PROJECT_WORK_PROTOCOL.md`

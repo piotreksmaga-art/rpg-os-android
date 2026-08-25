@@ -31,6 +31,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "Phase35CanonDivergence.kt",
             "Phase37WorldActorKnowledge.kt",
             "Phase38AccessAuthority.kt",
+            "Phase39TemporalAndPhase40Scheduler.kt",
             "Phase9Store.kt",
             "ProgressionProfileStore.kt",
             "SkillStore.kt",

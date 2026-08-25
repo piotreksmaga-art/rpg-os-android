@@ -164,6 +164,8 @@ internal object BundledCampaignPersistentFamilies {
     )
     val TEMPORAL_SCHEDULE_STATE = setOf(
         "npc_schedules",
+        "phase40_scheduled_evaluations",
+        "phase40_scheduled_evaluation_transitions",
         "time_skip_training_plans",
         "timeline_event_dependencies",
         "timeline_event_influences",

@@ -35,11 +35,11 @@ Każdy przyszły Core acceptance audit sprawdza co najmniej:
 Wyjątek stanowią jawnie World-Pack-specific fazy integracyjne (obecnie Phase 80–84), których zadaniem jest test konkretnego packa przeciwko uniwersalnemu Core, a nie zmiana Core pod ten pack.
 
 ## Aktualny baseline
-- Canonical accepted runtime through Phase 38: code-bearing SHA `db2f836fe3575204d045e5d3a861e07bb61cd5a9`.
+- Canonical accepted runtime through Phase 38: code-bearing SHA `db2f836fe3575204d045e5d3a861e07bb61cd5a9`; Phase 39–47 implementation is recorded in `docs/architecture/PHASE39_47_ACCEPTANCE.md` and requires exact-SHA CI before merge.
 - Phase 38 final audit: PASS; protected projection, trusted perception, sealed carrier/effective-access, persistence/replay oraz repository-wide consumer inventory findings są zamknięte.
 - Exact-SHA GREEN evidence: Phase 38 `117/0/0`, full JVM `1004/0/0`, Actions run `32776574352`, job `97588891710`.
 - Acceptance record: `docs/architecture/PHASE38_ACCEPTANCE.md`; pełne historyczne SHA/CI/artifacts/findingi pozostają w `docs/Historia projektu.md` i phase acceptance records.
-- Następny implementacyjny gate: **Phase 39 — Temporal Engine historical truth, AUDIT FIRST**.
+- Następny implementacyjny gate po zielonym exact-SHA CI: **Phase 48 — AI Provider Abstraction**.
 - Phase 48 pozostaje NOT STARTED.
 - World Pack Creator pozostaje DEFERRED do czasu globalnego ACCEPTED Phase 1–84.
 
@@ -88,18 +88,27 @@ Wyjątek stanowią jawnie World-Pack-specific fazy integracyjne (obecnie Phase 8
 
 Accepted scope i historical evidence Phase 1–36 są zamrożone i zarchiwizowane. Future changes nie reinterpretują ich retroaktywnie.
 
+## Referencyjny audyt kompatybilności historycznego Core
+
+Marker `[REF-ADAPTER]` przy przyszłej fazie oznacza ryzyko kontaktu z historyczną architekturą Phase 1–38. Przed implementacją tej fazy należy przeczytać `docs/Adapter-prototyp.mb` i w audycie wejściowym zapisać jedną decyzję: `NO ADAPTER`, `OWNER FIX` albo `MINIMAL ADAPTER`.
+
+Marker nie dodaje Phase 38.5 do roadmapy, nie nakazuje implementacji adaptera i nie rozszerza zakresu oznaczonej fazy. Dokument jest wyłącznie wartością referencyjną używaną po potwierdzeniu problemu w aktualnym repozytorium.
+
 # FAZA C — CZAS, WIEDZA I RETRIEVAL
+
+Phase 39–47 wykonano jako jeden ciągły blok roboczy z czterema wewnętrznymi bramkami acceptance. Plan i kontrakty: `docs/PHASE_39_47_EXECUTION_BLOCK.md`; skonsolidowany rekord z dziewięcioma osobnymi sekcjami: `docs/architecture/PHASE39_47_ACCEPTANCE.md`.
+
 - [x] 37. World Actor Knowledge, Expertise & Acquisition Provenance
 - [x] 38. Universal Visibility, Access & Audience Boundary — GM/NPC/PC/player/access/perception/disclosure isolation
-- [-] 39. Temporal Engine historical truth
-- [-] 40. Scheduler — evaluation points/deadlines, not precommitted outcomes
-- [-] 41. Structured SQL Retriever
-- [-] 42. Knowledge Graph / causal retrieval
-- [ ] 43. Intent Parser
-- [ ] 44. Turn Planner
-- [-] 45. Context Builder — holder isolation + separate local/cloud task context boundaries
-- [ ] 46. Context Budget Manager — ModelProfile/AiCapability/workload-aware
-- [ ] 47. Iterative Retrieval + missing-context loop
+- [x] 39. Temporal Engine historical truth `[REF-ADAPTER]`
+- [x] 40. Scheduler — evaluation points/deadlines, not precommitted outcomes `[REF-ADAPTER]`
+- [x] 41. Structured SQL Retriever `[REF-ADAPTER]`
+- [x] 42. Knowledge Graph / causal retrieval `[REF-ADAPTER]`
+- [x] 43. Intent Parser
+- [x] 44. Turn Planner
+- [x] 45. Context Builder — holder isolation + separate local/cloud task context boundaries `[REF-ADAPTER]`
+- [x] 46. Context Budget Manager — ModelProfile/AiCapability/workload-aware
+- [x] 47. Iterative Retrieval + missing-context loop
 
 ## Acceptance direction Phase 37–47
 Phase 37 jest uniwersalnym epistemic core świata, nie tylko tabelą `NPC knowledge`. Ma obsługiwać indywidualnych i instytucjonalnych holderów bez budowania osobnych systemów wiedzy dla każdego gatunku gry.
@@ -226,7 +235,7 @@ Dalsze Phase 39–47:
 # FAZA D — GM ENGINE / HYBRID AI FOUNDATION
 - [ ] 48. AI Provider & Hybrid Local-First Inference Architecture
 - [-] 49. Structured GM Output contract
-- [ ] 50. Universal Mechanics & Combat Resolution integration
+- [ ] 50. Universal Mechanics & Combat Resolution integration `[REF-ADAPTER]`
 - [-] 51. Consistency Validator
 - [ ] 52. Counterfactual Guard
 - [ ] 53. Repair Pass for proposal/narrative
@@ -288,16 +297,16 @@ Future Player Interaction acceptance, rozwijane wraz z Phase 43–54, 63–64 i 
 - situation recap / `Co się dzieje?` respektuje PC knowledge/visibility i nie ujawnia internal GM context.
 
 # FAZA E — PAMIĘĆ I DŁUGOTERMINOWA SYMULACJA
-- [-] 55. Working Memory — AI provider/model is not durable owner
-- [-] 56. Episodic Memory — AI provider/model is not durable owner
-- [-] 57. Semantic Campaign Memory — AI provider/model is not durable owner
+- [-] 55. Working Memory — AI provider/model is not durable owner `[REF-ADAPTER]`
+- [-] 56. Episodic Memory — AI provider/model is not durable owner `[REF-ADAPTER]`
+- [-] 57. Semantic Campaign Memory — AI provider/model is not durable owner `[REF-ADAPTER]`
 - [ ] 58. Memory Consolidation without recursive summary degradation
-- [ ] 59. Vector/Semantic Retrieval engine/index integration
-- [ ] 60. Time Skip Processor + Scheduler/WorldProcess orchestration
-- [-] 61. NPC Brain + persistent individuality/personality/values/goals/fears/emotional state/relationships
-- [-] 62. NPC Decision Engine + knowledge/memory/social-role constrained autonomy
-- [ ] 63. World Simulation LOD 0–3 + World Actor mechanical materialization + Combat LOD integration
-- [ ] 64. Background-world causal simulation: organizations/economy/projects/demography/wars/knowledge propagation/conflict resolution + controlled randomness
+- [ ] 59. Vector/Semantic Retrieval engine/index integration `[REF-ADAPTER]`
+- [ ] 60. Time Skip Processor + Scheduler/WorldProcess orchestration `[REF-ADAPTER]`
+- [-] 61. NPC Brain + persistent individuality/personality/values/goals/fears/emotional state/relationships `[REF-ADAPTER]`
+- [-] 62. NPC Decision Engine + knowledge/memory/social-role constrained autonomy `[REF-ADAPTER]`
+- [ ] 63. World Simulation LOD 0–3 + World Actor mechanical materialization + Combat LOD integration `[REF-ADAPTER]`
+- [ ] 64. Background-world causal simulation: organizations/economy/projects/demography/wars/knowledge propagation/conflict resolution + controlled randomness `[REF-ADAPTER]`
 
 ## Acceptance direction Phase 55–64
 Memory pozostaje RPG OS-owned i odtwarzalna po zmianie modelu/runtime.
@@ -367,12 +376,12 @@ Phase 63–64 Living World:
 - Chronicle remains projection from committed structured reality.
 
 # FAZA G — SAVE / DEBUG / SKALA
-- [-] 71. Save/Load integration + Persistent World / Character Succession
-- [ ] 72. Branching without full database duplication
+- [-] 71. Save/Load integration + Persistent World / Character Succession `[REF-ADAPTER]`
+- [ ] 72. Branching without full database duplication `[REF-ADAPTER]`
 - [-] 73. Backup System
 - [-] 74. Observability metrics
-- [ ] 75. Replay Debugger
-- [-] 76. Integrity Test Suite
+- [ ] 75. Replay Debugger `[REF-ADAPTER]`
+- [-] 76. Integrity Test Suite `[REF-ADAPTER]`
 - [-] 77. Long Campaign Stress Tests
 - [-] 78. Android performance profiling/optimization + Adaptive Turn Runtime
 - [-] 79. AI workload / provider / model / runtime routing + Response-Time Policy
@@ -432,7 +441,7 @@ Wymagane m.in.:
 - [ ] 81. Bleach WorldRuleProvider integration test pack
 - [ ] 82. Canon/divergence automated test scenarios
 - [ ] 83. World-specific progression/evolution automated tests
-- [ ] 84. World Pack update compatibility automated tests
+- [ ] 84. World Pack update compatibility automated tests `[REF-ADAPTER]`
 
 ## Acceptance direction Phase 80–84
 World Packs must prove final Core compatibility, canon/divergence behavior, world-specific rules/progression/evolution and update compatibility before World Pack Creator production work begins.
