@@ -76,6 +76,34 @@ data class CanonicalCausalRelationRecord(
     val semanticFingerprint: String
 )
 
+data class CanonicalCausalEndpointRef(val eventUid:String,val subject:DomainRef){
+    init{require(eventUid.isNotBlank()&&subject.kindUid.isNotBlank()&&subject.uid.isNotBlank())}
+}
+
+data class CanonicalCausalTraversalRecord(
+    val relationUid:String,
+    val relationClass:CausalRelationClass,
+    val relationKindUid:String,
+    val source:CanonicalCausalEndpointRef,
+    val target:CanonicalCausalEndpointRef,
+    val committedOrder:Long?,
+    val semanticFingerprint:String
+)
+
+data class CanonicalCausalTraversalQuery(
+    val startEventUid:String,
+    val directionUid:String,
+    val relationKinds:Set<String> = emptySet(),
+    val maxDepth:Int=3,
+    val maxEdges:Int=100
+){
+    init{
+        require(startEventUid.isNotBlank())
+        require(directionUid in setOf("OUTGOING","INCOMING","BOTH"))
+        require(maxDepth in 1..8&&maxEdges in 1..200)
+    }
+}
+
 internal object CampaignCausalGraphSchema {
     const val TABLE = "canonical_causal_relations"
 
@@ -300,6 +328,55 @@ internal class CampaignCausalGraph(private val db: SQLiteDatabase, private val c
         }
     }
 
+    /** Canonical bounded read port for Phase42. Traversal semantics remain owned by Phase31. */
+    fun traverseBounded(query:CanonicalCausalTraversalQuery):List<CanonicalCausalTraversalRecord>{
+        if(!tableExists())return emptyList()
+        val frontier=ArrayDeque<Pair<String,Int>>()
+        frontier.add(query.startEventUid to 0)
+        val visited=linkedSetOf(query.startEventUid)
+        val seenRelations=linkedSetOf<String>()
+        val out=mutableListOf<CanonicalCausalTraversalRecord>()
+        while(frontier.isNotEmpty()&&out.size<query.maxEdges){
+            val(node,depth)=frontier.removeFirst()
+            if(depth>=query.maxDepth)continue
+            val where=when(query.directionUid){
+                "OUTGOING"->"source_event_uid=?"
+                "INCOMING"->"target_event_uid=?"
+                else->"(source_event_uid=? OR target_event_uid=?)"
+            }
+            val args=if(query.directionUid=="BOTH")arrayOf(campaignUid,node,node)else arrayOf(campaignUid,node)
+            db.rawQuery(
+                "SELECT relation_uid,relation_class_uid,relation_kind_uid,source_event_uid,target_event_uid,committed_order,semantic_fingerprint FROM ${CampaignCausalGraphSchema.TABLE} WHERE campaign_uid=? AND $where ORDER BY committed_order,relation_ordinal,relation_uid",
+                args
+            ).use{c->
+                while(c.moveToNext()&&out.size<query.maxEdges){
+                    val kind=c.getString(2)
+                    if(query.relationKinds.isNotEmpty()&&kind !in query.relationKinds)continue
+                    val relationUid=c.getString(0)
+                    if(!seenRelations.add(relationUid))continue
+                    val sourceUid=c.getString(3)
+                    val targetUid=c.getString(4)
+                    out+=CanonicalCausalTraversalRecord(
+                        relationUid,
+                        CausalRelationClass.valueOf(c.getString(1)),
+                        kind,
+                        eventEndpoint(sourceUid),
+                        eventEndpoint(targetUid),
+                        if(c.isNull(5))null else c.getLong(5),
+                        c.getString(6)
+                    )
+                    val next=when(query.directionUid){
+                        "OUTGOING"->targetUid
+                        "INCOMING"->sourceUid
+                        else->if(node==sourceUid)targetUid else sourceUid
+                    }
+                    if(visited.add(next))frontier.add(next to depth+1)
+                }
+            }
+        }
+        return out
+    }
+
     fun relationUid(identity: TurnTransactionIdentity, relationIntentUid: String): String =
         "RPGOS-RELATION:" + sha256("$campaignUid|${identity.transactionUid}|${identity.commandUid}|$relationIntentUid")
 
@@ -311,7 +388,7 @@ internal class CampaignCausalGraph(private val db: SQLiteDatabase, private val c
 
     private fun planned(identity: TurnTransactionIdentity, intent: CanonicalCausalRelationIntent, ordinal: Int): Pair<String,String> {
         val semantic = listOf(
-            "v=$PHASE31_CAUSAL_SCHEMA_VERSION","campaign=$campaignUid","tx=${identity.transactionUid}","turn=${identity.turnUid}","command=${identity.commandUid}",
+            "v=$PHASE31_CAUSAL_SCHEMA_VERSION","campaign=$campaignUid","tx=${identity.transactionUid}","turn=${identity.turnUid},","command=${identity.commandUid}",
             "intent=${intent.relationIntentUid}","ordinal=$ordinal","class=${intent.relationClass.name}","kind=${intent.relationKindUid}",
             "source=${intent.sourceEventUid}","target=${intent.targetEventUid}","evidence=${encodeStrings(intent.evidenceEventUids)}",
             "provenance=${encodeStrings(intent.provenanceEventUids)}","supersedes=${intent.supersedesRelationUid ?: "UNKNOWN"}"
@@ -361,6 +438,15 @@ internal class CampaignCausalGraph(private val db: SQLiteDatabase, private val c
         }
         val nodes = (adjacency.keys + adjacency.values.flatten()).toSortedSet()
         if (nodes.any(::visit)) throw CausalGraphIntegrityException("DIRECTED_DEPENDENCY_CYCLE")
+    }
+
+    private fun eventEndpoint(eventUid:String):CanonicalCausalEndpointRef{
+        val subject=db.rawQuery(
+            "SELECT subject_ref_kind_uid,subject_ref_uid FROM ${CampaignIntelligencePhase30Schema.EVENT_TABLE} WHERE campaign_uid=? AND event_uid=? LIMIT 1",
+            arrayOf(campaignUid,eventUid)
+        ).use{c->if(!c.moveToFirst())null else DomainRef(c.getString(0),c.getString(1))}
+            ?:throw CausalGraphIntegrityException("DANGLING_EVENT_ENDPOINT")
+        return CanonicalCausalEndpointRef(eventUid,subject)
     }
 
     private fun validateEventEndpoint(eventUid: String) {
