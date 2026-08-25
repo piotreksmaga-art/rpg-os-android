@@ -1,7 +1,5 @@
 package com.rpgos.app
 
-import android.database.sqlite.SQLiteDatabase
-
 enum class RetrievalState { VALUE, NO_DATA, DENIED, NOT_DISCLOSED, UNKNOWN, UNSUPPORTED, CORRUPTION }
 data class StructuredRetrievalRequest(
     val requestUid:String,val campaignUid:String,val providerUid:String,val operationUid:String,val filters:Map<String,String>,val limit:Int,
@@ -31,39 +29,50 @@ class StructuredSqlRetriever(bindings:List<StructuredProviderBinding>){
 }
 
 data class CausalTraversalSpec(val startEventUid:String,val directionUid:String,val relationKinds:Set<String> = emptySet(),val maxDepth:Int=3,val maxEdges:Int=100){init{require(startEventUid.isNotBlank());require(directionUid in setOf("OUTGOING","INCOMING","BOTH"));require(maxDepth in 1..8&&maxEdges in 1..200)}}
-/** Bounded read-only traversal. It never infers or writes a canonical relation. */
-internal class Phase42CausalGraphRetriever(private val db:SQLiteDatabase,private val campaignUid:String){
-    fun traverse(spec:CausalTraversalSpec):List<RetrievalRecord>{
-        val frontier=ArrayDeque<Pair<String,Int>>()
-        frontier.add(spec.startEventUid to 0)
-        val visited=linkedSetOf(spec.startEventUid)
-        val edges=linkedSetOf<String>()
-        val out=mutableListOf<RetrievalRecord>()
-        while(frontier.isNotEmpty()&&out.size<spec.maxEdges){
-            val(node,depth)=frontier.removeFirst()
-            if(depth>=spec.maxDepth)continue
-            val where=when(spec.directionUid){"OUTGOING"->"source_event_uid=?";"INCOMING"->"target_event_uid=?";else->"(source_event_uid=? OR target_event_uid=?)"}
-            val args=if(spec.directionUid=="BOTH")arrayOf(campaignUid,node,node)else arrayOf(campaignUid,node)
-            db.rawQuery("SELECT relation_uid,relation_class_uid,relation_kind_uid,source_event_uid,target_event_uid,committed_order,semantic_fingerprint FROM ${CampaignCausalGraphSchema.TABLE} WHERE campaign_uid=? AND $where ORDER BY committed_order,relation_ordinal,relation_uid",args).use{c->
-                while(c.moveToNext()&&out.size<spec.maxEdges){
-                    val kind=c.getString(2)
-                    if(spec.relationKinds.isNotEmpty()&&kind !in spec.relationKinds)continue
-                    val uid=c.getString(0)
-                    if(!edges.add(uid))continue
-                    val source=c.getString(3)
-                    val target=c.getString(4)
-                    out+=RetrievalRecord(uid,mapOf("relation_class_uid" to c.getString(1),"relation_kind_uid" to kind,"source_event_uid" to source,"target_event_uid" to target,"committed_order" to if(c.isNull(5))null else c.getLong(5)),"CAUSAL_RELATION:${c.getString(6)}")
-                    val next=when(spec.directionUid){"OUTGOING"->target;"INCOMING"->source;else->if(node==source)target else source}
-                    if(visited.add(next))frontier.add(next to depth+1)
+
+/** Phase42 is a thin retrieval adapter. CampaignCausalGraph remains the graph owner; Phase38 owns disclosure. */
+class Phase42CausalQueryProvider(
+    private val protectedReads:ProtectedCampaignReadRepository,
+    private val campaignUid:String
+):StructuredQueryProvider{
+    override fun retrieve(request:StructuredRetrievalRequest):StructuredRetrievalResult{
+        if(request.campaignUid!=campaignUid)throw VisibilityAuthorityFailure.CrossCampaign()
+        if(request.operationUid!="TRAVERSE_CAUSAL")return StructuredRetrievalResult.Unsupported("OPERATION_UNSUPPORTED")
+        val start=request.filters["start_event_uid"]?:return StructuredRetrievalResult.Unknown("START_EVENT_REQUIRED")
+        val direction=request.filters["direction_uid"]?:"BOTH"
+        val depth=request.filters["max_depth"]?.toIntOrNull()?.coerceIn(1,8)?:3
+        val kinds=request.filters["relation_kinds"]?.split(',')?.filter{it.isNotBlank()}?.toSet().orEmpty()
+        val query=CanonicalCausalTraversalQuery(start,direction,kinds,depth,request.limit)
+        return when(val result=protectedReads.causalTraversal(request.audience,request.purpose,query)){
+            is ProtectedReadResult.Allow -> StructuredRetrievalResult.Value(result.value.map{row->
+                val values=linkedMapOf<String,Any?>(
+                    "relation_class_uid" to row.relationClassUid,
+                    "relation_kind_uid" to row.relationKindUid,
+                    "source_disclosure_state" to row.source.state.name,
+                    "target_disclosure_state" to row.target.state.name,
+                    "committed_order" to row.committedOrder
+                )
+                if(row.source.state==ProjectionDataState.DISCLOSED){
+                    values["source_event_uid"]=row.source.eventUid
+                    values["source_subject_kind_uid"]=row.source.subjectKindUid
+                    values["source_subject_uid"]=row.source.subjectUid
                 }
-            }
+                if(row.target.state==ProjectionDataState.DISCLOSED){
+                    values["target_event_uid"]=row.target.eventUid
+                    values["target_subject_kind_uid"]=row.target.subjectKindUid
+                    values["target_subject_uid"]=row.target.subjectUid
+                }
+                RetrievalRecord(row.relationUid,values,"CAUSAL_RELATION:${row.semanticFingerprint}")
+            },result.value.size<request.limit)
+            ProtectedReadResult.NoData -> StructuredRetrievalResult.NoData
+            is ProtectedReadResult.Deny -> StructuredRetrievalResult.Denied(result.reasonCode)
+            is ProtectedReadResult.NotDisclosed -> StructuredRetrievalResult.NotDisclosed(result.reasonCode)
+            is ProtectedReadResult.Unknown -> StructuredRetrievalResult.Unknown(result.reasonCode)
+            is ProtectedReadResult.Corruption -> StructuredRetrievalResult.Corruption(result.reasonCode)
         }
-        return out
     }
 }
-class Phase42CausalQueryProvider(private val db:SQLiteDatabase,private val campaignUid:String):StructuredQueryProvider{
-    override fun retrieve(request:StructuredRetrievalRequest):StructuredRetrievalResult{if(request.campaignUid!=campaignUid)throw VisibilityAuthorityFailure.CrossCampaign();if(request.operationUid!="TRAVERSE_CAUSAL")return StructuredRetrievalResult.Unsupported("OPERATION_UNSUPPORTED");val start=request.filters["start_event_uid"]?:return StructuredRetrievalResult.Unknown("START_EVENT_REQUIRED");val direction=request.filters["direction_uid"]?:"BOTH";val depth=request.filters["max_depth"]?.toIntOrNull()?.coerceIn(1,8)?:3;val kinds=request.filters["relation_kinds"]?.split(',')?.filter{it.isNotBlank()}?.toSet().orEmpty();val rows=Phase42CausalGraphRetriever(db,campaignUid).traverse(CausalTraversalSpec(start,direction,kinds,depth,request.limit));return if(rows.isEmpty())StructuredRetrievalResult.NoData else StructuredRetrievalResult.Value(rows,rows.size<request.limit)}
-}
+
 class Phase41TemporalQueryProvider(private val engine:TemporalEngine):StructuredQueryProvider{
     override fun retrieve(request:StructuredRetrievalRequest):StructuredRetrievalResult{val at=request.atOrder?:return StructuredRetrievalResult.Unknown("TEMPORAL_ORDER_REQUIRED");val subjectKind=request.filters["subject_kind_uid"]?:return StructuredRetrievalResult.Unknown("SUBJECT_KIND_REQUIRED");val subject=request.filters["subject_uid"]?:return StructuredRetrievalResult.Unknown("SUBJECT_REQUIRED");return when(val result=engine.query(TemporalQuery(request.campaignUid,request.operationUid,subjectKind,subject,at,request.audience,request.purpose,request.limit))){is TemporalResult.Value->StructuredRetrievalResult.Value(result.records.map{RetrievalRecord(it.recordUid,it.values,it.provenanceUid)},result.complete);TemporalResult.NoData->StructuredRetrievalResult.NoData;is TemporalResult.Denied->StructuredRetrievalResult.Denied(result.reasonUid);is TemporalResult.NotDisclosed->StructuredRetrievalResult.NotDisclosed(result.reasonUid);is TemporalResult.Unknown->StructuredRetrievalResult.Unknown(result.reasonUid);is TemporalResult.Unsupported->StructuredRetrievalResult.Unsupported(result.reasonUid);is TemporalResult.Corruption->StructuredRetrievalResult.Corruption(result.reasonUid)}}
 }
