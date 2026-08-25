@@ -17,8 +17,10 @@ class Phase39To47BlockTest {
         RuntimeTruthLayerRegistry.validateCanonicalInventory()
         assertEquals("TEMPORAL_SCHEDULE_STATE",RuntimeTruthLayerRegistry.requireClassifiedTable(Phase40SchedulerSchema.DEFINITIONS).uid)
         assertEquals("TEMPORAL_SCHEDULE_STATE",RuntimeTruthLayerRegistry.requireClassifiedTable(Phase40SchedulerSchema.TRANSITIONS).uid)
-        val engine=TemporalEngine(listOf(TemporalSourceBinding("HISTORY",TemporalSource{q->listOf(
-            TemporalRecord("OLD",0,10,mapOf("value" to "old")),TemporalRecord("NOW",10,null,mapOf("value" to "now")).filter{it.validAt(q.atOrder)}.let{TemporalResult.Value(it)}})))
+        val engine=TemporalEngine(listOf(TemporalSourceBinding("HISTORY",TemporalSource{q->
+            listOf(TemporalRecord("OLD",0,10,mapOf("value" to "old")),TemporalRecord("NOW",10,null,mapOf("value" to "now")))
+                .filter{it.validAt(q.atOrder)}.let{TemporalResult.Value(it)}
+        })))
         val result=engine.query(TemporalQuery("C","HISTORY","THING","X",5,audience,purpose)) as TemporalResult.Value
         assertEquals(listOf("OLD"),result.records.map{it.recordUid})
 
