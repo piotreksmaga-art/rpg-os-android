@@ -17,6 +17,7 @@ enum class ChangeIntentClassification {
     CACHE_INVALIDATION_INTENT
 }
 
+@ExposedCopyVisibility
 data class ExactLongDelta private constructor(val units: Long) {
     init {
         if (units == 0L) throw PlayerChangeSetStructuralException("ZERO_DELTA")

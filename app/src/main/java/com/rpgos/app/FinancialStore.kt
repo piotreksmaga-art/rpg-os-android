@@ -11,7 +11,7 @@ class FinancialStore(private val db: SQLiteDatabase, private val campaignId: Str
         db.execSQL(
             """INSERT INTO currency_definitions(currency_uid,currency_key,display_name,minor_unit_scale,definition_status,provenance)
                VALUES(?,?,?,?,?,?)""".trimIndent(),
-            arrayOf(definition.currencyUid, definition.currencyKey, definition.displayName, definition.minorUnitScale, definition.status, definition.provenance)
+            arrayOf<Any?>(definition.currencyUid, definition.currencyKey, definition.displayName, definition.minorUnitScale, definition.status, definition.provenance)
         )
     }
 

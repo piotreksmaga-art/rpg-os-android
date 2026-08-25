@@ -156,7 +156,7 @@ class AccessAuthorityStore(private val db:SQLiteDatabase,private val campaignUid
         db.execSQL("""INSERT INTO ${Phase38AccessAuthoritySchema.RECORDS}(
             campaign_uid,record_uid,operation_uid,principal_kind_uid,principal_uid,binding_or_grant_kind_uid,value_uid,subject_kind_uid,subject_uid,
             valid_from_order,valid_until_order,delegated_by_principal_uid,transaction_uid,turn_uid,change_uid,created_order)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",arrayOf(campaignUid,p.recordUid,p.operation.name,p.principalKindUid,p.principalUid,p.bindingOrGrantKindUid,p.valueUid,p.subjectKindUid,p.subjectUid,p.validFromOrder,p.validUntilOrder,p.delegatedByPrincipalUid,identity.transactionUid,identity.turnUid,changeUid,createdOrder))
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",arrayOf<Any?>(campaignUid,p.recordUid,p.operation.name,p.principalKindUid,p.principalUid,p.bindingOrGrantKindUid,p.valueUid,p.subjectKindUid,p.subjectUid,p.validFromOrder,p.validUntilOrder,p.delegatedByPrincipalUid,identity.transactionUid,identity.turnUid,changeUid,createdOrder))
     }
 
     fun effective(principal:VisibilityPrincipalRef,atOrder:Long=Long.MAX_VALUE):List<AccessAuthorityRecord>{

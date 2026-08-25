@@ -167,6 +167,7 @@ class UpdateManager(
 
     fun validateApk(file: File, requireNewer: Boolean): ApkValidationResult {
         val pm = context.packageManager
+        @Suppress("DEPRECATION")
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
             PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
 

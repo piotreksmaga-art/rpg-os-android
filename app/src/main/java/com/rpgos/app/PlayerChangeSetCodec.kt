@@ -551,7 +551,6 @@ private fun decodeChange(obj: JsonObject, registry: TypedPlayerChangeRegistry): 
 private fun encodeEventIntent(intent: PlayerEventIntent): JsonObject {
     val payload = when (val p = intent.payload) {
         is DomainEffectEventIntentPayload -> pcsObj("subject" to encodeChangeSetRef(p.subject), "effectKindUid" to pcsJ(p.effectKindUid))
-        else -> throw PlayerChangeSetStructuralException("EVENT_PAYLOAD_TYPE_MISMATCH")
     }
     return pcsObj(
         "eventIntentUid" to pcsJ(intent.eventIntentUid), "eventKindUid" to pcsJ(intent.eventKindUid),
@@ -587,7 +586,6 @@ private fun encodeLedgerIntent(intent: PlayerLedgerIntent): JsonObject {
             "transactionTypeUid" to pcsJ(p.transactionTypeUid)
         )
         is ProgressionLedgerIntentPayload -> encodeProgressionLedgerPayload(p)
-        else -> throw PlayerChangeSetStructuralException("LEDGER_PAYLOAD_TYPE_MISMATCH")
     }
     return pcsObj(
         "ledgerIntentUid" to pcsJ(intent.ledgerIntentUid), "ledgerKindUid" to pcsJ(intent.ledgerKindUid),

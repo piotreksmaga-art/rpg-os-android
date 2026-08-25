@@ -123,6 +123,7 @@ data class PerceptionInterference(
     }
 }
 
+@ConsistentCopyVisibility
 data class PerceptionExpertise internal constructor(
     val campaignUid: String,
     val holder: KnowledgeHolderRef,
@@ -190,6 +191,7 @@ data class PerceptionWorldRules(
             interpretationRules.all { (kind, rule) -> kind == rule.signalKindUid && rule.isWellFormed() }
 }
 
+@ConsistentCopyVisibility
 data class PerceptionContext internal constructor(
     val campaignUid: String,
     val trustedObserver: TrustedPrincipalContext,

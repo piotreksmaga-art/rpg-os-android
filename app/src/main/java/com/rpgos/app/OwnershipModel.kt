@@ -19,6 +19,7 @@ data class OwnedAssetRef(
  * Exact fixed-scale ownership share. No floating-point constructor exists.
  * The canonical scale is deliberately divisible by common 2/3/4/5/6/8/9/10 fractions.
  */
+@ExposedCopyVisibility
 data class OwnershipShare private constructor(val units: Long) {
     init { require(units in 1..OWNERSHIP_SHARE_SCALE) { "ownership share must be in (0, 100%]" } }
 

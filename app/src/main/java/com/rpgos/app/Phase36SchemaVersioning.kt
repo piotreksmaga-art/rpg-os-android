@@ -222,7 +222,7 @@ internal object Phase36SchemaVersioning {
                 migration_attempt_uid,campaign_uid,source_vector_fingerprint,target_vector_fingerprint,
                 plan_fingerprint,plan_version,safety_snapshot_uid,state,started_at_epoch_ms)
                 VALUES(?,?,?,?,?,?,?,?,?)""",
-                arrayOf(attempt, campaignUid, source, target, planFingerprint, PLAN_VERSION, effectiveSafetyUid,
+                arrayOf<Any?>(attempt, campaignUid, source, target, planFingerprint, PLAN_VERSION, effectiveSafetyUid,
                     MigrationAttemptState.PREPARED.name, now))
         }
 
@@ -238,19 +238,19 @@ internal object Phase36SchemaVersioning {
                     familyPlan.edges.forEach { edge ->
                         edge.migrate(db, campaignUid)
                         db.execSQL("INSERT OR REPLACE INTO $VERSIONS(schema_family_uid,schema_version,migration_owner,updated_at_epoch_ms) VALUES(?,?,?,?)",
-                            arrayOf(edge.family.name, edge.toVersion, edge.implementationId, System.currentTimeMillis()))
+                            arrayOf<Any?>(edge.family.name, edge.toVersion, edge.implementationId, System.currentTimeMillis()))
                     }
                 }
                 registerMissingCurrentVersions(db, System.currentTimeMillis())
                 beforeApplied?.invoke()
                 db.execSQL("UPDATE $ATTEMPTS SET state=?,completed_at_epoch_ms=? WHERE migration_attempt_uid=?",
-                    arrayOf(MigrationAttemptState.APPLIED.name, System.currentTimeMillis(), attempt))
+                    arrayOf<Any?>(MigrationAttemptState.APPLIED.name, System.currentTimeMillis(), attempt))
             }
         } catch (t: Throwable) {
             if (t is SimulatedMigrationProcessDeath) throw t
             administrativeWrite(db, campaignUid) {
                 db.execSQL("UPDATE $ATTEMPTS SET state=?,completed_at_epoch_ms=?,failure_code=? WHERE migration_attempt_uid=?",
-                    arrayOf(MigrationAttemptState.FAILED.name, System.currentTimeMillis(), "MIGRATION_STEP_FAILED", attempt))
+                    arrayOf<Any?>(MigrationAttemptState.FAILED.name, System.currentTimeMillis(), "MIGRATION_STEP_FAILED", attempt))
             }
             throw t
         }
@@ -393,7 +393,7 @@ internal object Phase36SchemaVersioning {
 
         administrativeWrite(db, campaignUid) {
             db.execSQL("UPDATE $ATTEMPTS SET state=?,completed_at_epoch_ms=?,failure_code=? WHERE migration_attempt_uid=?",
-                arrayOf(MigrationAttemptState.FAILED.name, System.currentTimeMillis(), "INTERRUPTED_RESTART_SAFE", attempt.uid))
+                arrayOf<Any?>(MigrationAttemptState.FAILED.name, System.currentTimeMillis(), "INTERRUPTED_RESTART_SAFE", attempt.uid))
         }
     }
 
@@ -429,7 +429,7 @@ internal object Phase36SchemaVersioning {
                     "RPGOS-SCHEMA:CANNOT_REGISTER_NONCURRENT:${contract.family}:$effective:${contract.currentVersion}"
                 }
                 db.execSQL("INSERT INTO $VERSIONS(schema_family_uid,schema_version,migration_owner,updated_at_epoch_ms) VALUES(?,?,?,?)",
-                    arrayOf(contract.family.name, contract.currentVersion, "GameplayRuntimeBootstrap", now))
+                    arrayOf<Any?>(contract.family.name, contract.currentVersion, "GameplayRuntimeBootstrap", now))
             }
         }
     }

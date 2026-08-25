@@ -26,7 +26,7 @@ class Phase9Store(
             require(definition.originKind.isNotBlank()) { "originKind must not be blank" }
             require(!exists("origin_definitions_v2", "origin_uid", definition.originUid)) { "Duplicate origin UID: ${definition.originUid}" }
             db.execSQL("INSERT INTO origin_definitions_v2(origin_uid,world_pack_uid,origin_key,display_name,origin_kind,definition_status,definition_version,provenance) VALUES(?,?,?,?,?,?,?,?)",
-                arrayOf(definition.originUid,definition.worldPackUid,definition.key,definition.displayName,definition.originKind,definition.status.name,definition.definitionVersion,definition.provenance))
+                arrayOf<Any?>(definition.originUid,definition.worldPackUid,definition.key,definition.displayName,definition.originKind,definition.status.name,definition.definitionVersion,definition.provenance))
         }
     }
 
@@ -39,7 +39,7 @@ class Phase9Store(
             require(definition.featureKind.isNotBlank()) { "featureKind must not be blank" }
             require(!exists("innate_feature_definitions", "feature_uid", definition.featureUid)) { "Duplicate innate feature UID: ${definition.featureUid}" }
             db.execSQL("INSERT INTO innate_feature_definitions(feature_uid,world_pack_uid,feature_key,display_name,feature_kind,category,definition_status,definition_version,provenance) VALUES(?,?,?,?,?,?,?,?,?)",
-                arrayOf(definition.featureUid,definition.worldPackUid,definition.key,definition.displayName,definition.featureKind,definition.category,definition.status.name,definition.definitionVersion,definition.provenance))
+                arrayOf<Any?>(definition.featureUid,definition.worldPackUid,definition.key,definition.displayName,definition.featureKind,definition.category,definition.status.name,definition.definitionVersion,definition.provenance))
         }
     }
 
@@ -51,7 +51,7 @@ class Phase9Store(
             require(definition.worldPackUid == worldPackUid) { "Path ${definition.pathUid} belongs to another World Pack" }
             require(!exists("evolution_path_definitions", "path_uid", definition.pathUid)) { "Duplicate evolution path UID: ${definition.pathUid}" }
             db.execSQL("INSERT INTO evolution_path_definitions(path_uid,world_pack_uid,path_key,display_name,definition_status,definition_version,provenance) VALUES(?,?,?,?,?,?,?)",
-                arrayOf(definition.pathUid,definition.worldPackUid,definition.key,definition.displayName,definition.status.name,definition.definitionVersion,definition.provenance))
+                arrayOf<Any?>(definition.pathUid,definition.worldPackUid,definition.key,definition.displayName,definition.status.name,definition.definitionVersion,definition.provenance))
         }
     }
 
@@ -65,7 +65,7 @@ class Phase9Store(
             require(owner("evolution_path_definitions", "path_uid", definition.pathUid) == worldPackUid) { "Stage path belongs to another World Pack or is missing" }
             require(!exists("evolution_stage_definitions", "stage_uid", definition.stageUid)) { "Duplicate evolution stage UID: ${definition.stageUid}" }
             db.execSQL("INSERT INTO evolution_stage_definitions(stage_uid,path_uid,world_pack_uid,stage_key,display_name,definition_status,definition_version,provenance) VALUES(?,?,?,?,?,?,?,?)",
-                arrayOf(definition.stageUid,definition.pathUid,definition.worldPackUid,definition.key,definition.displayName,definition.status.name,definition.definitionVersion,definition.provenance))
+                arrayOf<Any?>(definition.stageUid,definition.pathUid,definition.worldPackUid,definition.key,definition.displayName,definition.status.name,definition.definitionVersion,definition.provenance))
         }
     }
 
@@ -87,7 +87,7 @@ class Phase9Store(
             }
             require(!exists("evolution_transition_definitions", "transition_uid", definition.transitionUid)) { "Duplicate evolution transition UID: ${definition.transitionUid}" }
             db.execSQL("INSERT INTO evolution_transition_definitions(transition_uid,world_pack_uid,source_stage_uid,target_stage_uid,requirement_rule_uid,reversible,cross_path_allowed,transition_version,provenance,requirement_rule_version) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                arrayOf(definition.transitionUid,definition.worldPackUid,definition.sourceStageUid,definition.targetStageUid,definition.requirementRuleUid,if(definition.reversible)1 else 0,if(definition.crossPathAllowed)1 else 0,definition.transitionVersion,definition.provenance,definition.requirementRuleVersion))
+                arrayOf<Any?>(definition.transitionUid,definition.worldPackUid,definition.sourceStageUid,definition.targetStageUid,definition.requirementRuleUid,if(definition.reversible)1 else 0,if(definition.crossPathAllowed)1 else 0,definition.transitionVersion,definition.provenance,definition.requirementRuleVersion))
         }
     }
 
@@ -103,7 +103,7 @@ class Phase9Store(
             definition.sourceStageUid?.let { require(owner("evolution_stage_definitions","stage_uid",it) == worldPackUid) { "Form stage source belongs to another World Pack or is missing" } }
             require(!exists("form_definitions", "form_uid", definition.formUid)) { "Duplicate form UID: ${definition.formUid}" }
             db.execSQL("INSERT INTO form_definitions(form_uid,world_pack_uid,form_key,display_name,source_feature_uid,source_stage_uid,exclusive_group_uid,activation_rule_uid,definition_status,definition_version,provenance,unlock_requirement_rule_uid,unlock_requirement_rule_version,activation_rule_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                arrayOf(definition.formUid,definition.worldPackUid,definition.key,definition.displayName,definition.sourceFeatureUid,definition.sourceStageUid,definition.exclusiveGroupUid,definition.activationRuleUid,definition.status.name,definition.definitionVersion,definition.provenance,definition.unlockRequirementRuleUid,definition.unlockRequirementRuleVersion,definition.activationRuleVersion))
+                arrayOf<Any?>(definition.formUid,definition.worldPackUid,definition.key,definition.displayName,definition.sourceFeatureUid,definition.sourceStageUid,definition.exclusiveGroupUid,definition.activationRuleUid,definition.status.name,definition.definitionVersion,definition.provenance,definition.unlockRequirementRuleUid,definition.unlockRequirementRuleVersion,definition.activationRuleVersion))
         }
     }
 
@@ -116,7 +116,7 @@ class Phase9Store(
             requireTargetExists(binding.targetKind, binding.targetDefinitionUid)
             require(!exists("form_modifier_bindings","binding_uid",binding.bindingUid)) { "Duplicate form modifier binding UID: ${binding.bindingUid}" }
             db.execSQL("INSERT INTO form_modifier_bindings(binding_uid,world_pack_uid,form_uid,target_definition_uid,target_kind,operation,modifier_value,priority,binding_version,provenance) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                arrayOf(binding.bindingUid,binding.worldPackUid,binding.formUid,binding.targetDefinitionUid,binding.targetKind.name,binding.operation.name,binding.value,binding.priority,binding.bindingVersion,binding.provenance))
+                arrayOf<Any?>(binding.bindingUid,binding.worldPackUid,binding.formUid,binding.targetDefinitionUid,binding.targetKind.name,binding.operation.name,binding.value,binding.priority,binding.bindingVersion,binding.provenance))
         }
     }
 
@@ -128,7 +128,7 @@ class Phase9Store(
             requireTargetOwnedBy(mapping.targetKind, mapping.targetUid, worldPackUid)
             require(!legacyMappingExists(mapping)) { "Duplicate Phase 9 legacy mapping" }
             db.execSQL("INSERT INTO legacy_phase9_mappings(world_pack_uid,evidence_field,evidence_value,target_kind,target_uid,mapping_version,provenance) VALUES(?,?,?,?,?,?,?)",
-                arrayOf(mapping.worldPackUid,mapping.evidenceField,mapping.evidenceValue,mapping.targetKind.name,mapping.targetUid,mapping.mappingVersion,mapping.provenance))
+                arrayOf<Any?>(mapping.worldPackUid,mapping.evidenceField,mapping.evidenceValue,mapping.targetKind.name,mapping.targetUid,mapping.mappingVersion,mapping.provenance))
         }
     }
 
@@ -157,7 +157,7 @@ class Phase9Store(
         require(origin.relationshipKind.isNotBlank())
         require(exists("origin_definitions_v2","origin_uid",origin.originUid)) { "Missing origin definition ${origin.originUid}" }
         require(!playerRowExists("player_origins_v2","origin_uid",origin.characterUid,origin.originUid)) { "Player origin already exists: ${origin.originUid}" }
-        db.execSQL("INSERT INTO player_origins_v2(campaign_id,character_uid,origin_uid,relationship_kind,entry_version,provenance) VALUES(?,?,?,?,?,?)",arrayOf(origin.campaignId,origin.characterUid,origin.originUid,origin.relationshipKind,origin.entryVersion,origin.provenance))
+        db.execSQL("INSERT INTO player_origins_v2(campaign_id,character_uid,origin_uid,relationship_kind,entry_version,provenance) VALUES(?,?,?,?,?,?)",arrayOf<Any?>(origin.campaignId,origin.characterUid,origin.originUid,origin.relationshipKind,origin.entryVersion,origin.provenance))
     }
 
     fun grantInnateFeature(feature: PlayerInnateFeature) {
@@ -165,7 +165,7 @@ class Phase9Store(
         require(feature.acquiredChapter == null || feature.acquiredChapter >= 0)
         require(exists("innate_feature_definitions","feature_uid",feature.featureUid)) { "Missing innate feature definition ${feature.featureUid}" }
         require(!playerRowExists("player_innate_features","feature_uid",feature.characterUid,feature.featureUid)) { "Player already owns innate feature ${feature.featureUid}" }
-        db.execSQL("INSERT INTO player_innate_features(campaign_id,character_uid,feature_uid,acquired_chapter,entry_version,provenance) VALUES(?,?,?,?,?,?)",arrayOf(feature.campaignId,feature.characterUid,feature.featureUid,feature.acquiredChapter,feature.entryVersion,feature.provenance))
+        db.execSQL("INSERT INTO player_innate_features(campaign_id,character_uid,feature_uid,acquired_chapter,entry_version,provenance) VALUES(?,?,?,?,?,?)",arrayOf<Any?>(feature.campaignId,feature.characterUid,feature.featureUid,feature.acquiredChapter,feature.entryVersion,feature.provenance))
     }
 
     @Deprecated("Direct stage entry is forbidden. Use transitionEvolution with an explicit ENTRY transition UID.", level = DeprecationLevel.ERROR)
@@ -222,7 +222,7 @@ class Phase9Store(
             form.unlockRequirement,
             RequirementContext(campaignId, unlock.characterUid, RequirementGate.UNLOCK, unlock.formUid)
         )
-        db.execSQL("INSERT INTO player_form_unlocks(campaign_id,character_uid,form_uid,entry_version,provenance) VALUES(?,?,?,?,?)",arrayOf(unlock.campaignId,unlock.characterUid,unlock.formUid,unlock.entryVersion,unlock.provenance))
+        db.execSQL("INSERT INTO player_form_unlocks(campaign_id,character_uid,form_uid,entry_version,provenance) VALUES(?,?,?,?,?)",arrayOf<Any?>(unlock.campaignId,unlock.characterUid,unlock.formUid,unlock.entryVersion,unlock.provenance))
     }
 
     fun activateForm(active: PlayerActiveForm) {
@@ -242,7 +242,7 @@ class Phase9Store(
         db.beginTransaction()
         try {
             if(!playerRowExists("player_active_forms","form_uid",active.characterUid,active.formUid)){
-                db.execSQL("INSERT INTO player_active_forms(campaign_id,character_uid,form_uid,activated_at,state_version,provenance) VALUES(?,?,?,?,?,?)",arrayOf(active.campaignId,active.characterUid,active.formUid,active.activatedAt,active.stateVersion,active.provenance))
+                db.execSQL("INSERT INTO player_active_forms(campaign_id,character_uid,form_uid,activated_at,state_version,provenance) VALUES(?,?,?,?,?,?)",arrayOf<Any?>(active.campaignId,active.characterUid,active.formUid,active.activatedAt,active.stateVersion,active.provenance))
             }
             ensureFormModifiers(active.characterUid,active.formUid)
             ModifierStore(db,campaignId).setSourceActive(active.characterUid,PHASE9_FORM_SOURCE_TYPE,active.formUid,true)
@@ -378,7 +378,7 @@ class Phase9Store(
 
     private fun attainStageIfMissing(characterUid:String,stageUid:String,transitionUid:String?,chapter:Long?,provenance:String){
         if(playerRowExists("player_evolution_stages","stage_uid",characterUid,stageUid)) return
-        db.execSQL("INSERT INTO player_evolution_stages(campaign_id,character_uid,stage_uid,attained_via_transition_uid,attained_chapter,entry_version,provenance) VALUES(?,?,?,?,?,1,?)",arrayOf(campaignId,characterUid,stageUid,transitionUid,chapter,provenance))
+        db.execSQL("INSERT INTO player_evolution_stages(campaign_id,character_uid,stage_uid,attained_via_transition_uid,attained_chapter,entry_version,provenance) VALUES(?,?,?,?,?,1,?)",arrayOf<Any?>(campaignId,characterUid,stageUid,transitionUid,chapter,provenance))
     }
 
     private fun ensureFormModifiers(characterUid:String,formUid:String){
