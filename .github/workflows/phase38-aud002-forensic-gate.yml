@@ -2,6 +2,8 @@ name: Phase38 AUD002 Forensic Gate
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ "codex/phase-39-47" ]
 
 permissions:
   contents: read
