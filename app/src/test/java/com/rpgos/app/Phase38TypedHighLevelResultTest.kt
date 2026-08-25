@@ -79,6 +79,10 @@ class Phase38TypedHighLevelResultTest {
         assertFalse(columns.contains("affiliation_summary"))
         assertFalse(columns.contains("status"))
 
+        val readerSource=source("app/src/main/java/com/rpgos/app/CanonCharacterProjectionReader.kt")
+        assertTrue(readerSource.contains("optionalText(\"status\")"))
+        assertTrue(readerSource.contains("val REQUIRED_COLUMNS = setOf(\"character_uid\", \"name\")"))
+
         val list=repository.npcsProjection("",audience,purpose)
         assertEquals(ProjectionDataState.DISCLOSED,list.dataState)
         assertTrue(list.value!!.isNotEmpty())
@@ -122,8 +126,8 @@ class Phase38TypedHighLevelResultTest {
         val unknownRequest=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,unknownKind,"UNKNOWN-SUBJECT"))
         assertEquals(ProjectionDataState.UNKNOWN,unknown.toVisibilityProjection(unknownRequest).dataState)
 
-        if(repository.activePlayerRef()==null) repository.setActivePlayer("CHAR-NARUTO")
-        val playerUid=requireNotNull(repository.activePlayerRef()?.playerUid)
+        val playerUid=repository.activePlayerRef()?.playerUid ?: existingCanonicalPlayerUid().also { repository.setActivePlayer(it) }
+        assertEquals(playerUid,repository.activePlayerRef()?.playerUid)
         val notNecessaryPurpose=PurposeContext(campaignUid,VisibilityPurposeKinds.INTERNAL_SIMULATION)
         val notDisclosed=repository.protectedReads().playerState(audience,notNecessaryPurpose,playerUid)
         assertTrue(notDisclosed is ProtectedReadResult.NotDisclosed)
@@ -148,6 +152,33 @@ class Phase38TypedHighLevelResultTest {
         assertTrue(npcSource.contains("npcsProjection(search, audience, purpose).value ?: emptyList()"))
         assertTrue(facadeSource.contains("fun relationshipsProjection("))
         assertFalse("canonical facade must not expose the legacy flattened relationship list",facadeSource.contains("fun relationships(audience:"))
+    }
+
+    private fun existingCanonicalPlayerUid():String = LocalGameStore(context).openGameplaySaveDb().use { db ->
+        val sources=listOf(
+            "character_status_snapshot" to "entity_uid",
+            "character_stats" to "entity_uid",
+            "character_skills" to "entity_uid",
+            "character_techniques" to "entity_uid",
+            "character_finances" to "entity_uid",
+            "character_goals" to "entity_uid",
+            "entity_positions" to "entity_uid",
+            "organization_memberships_v3" to "character_uid"
+        )
+        sources.firstNotNullOfOrNull { (table,column) ->
+            val exists=db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",arrayOf(table)).use{it.moveToFirst()}
+            if(!exists) return@firstNotNullOfOrNull null
+            val hasColumn=db.rawQuery("PRAGMA table_info($table)",null).use { c ->
+                val nameIndex=c.getColumnIndex("name")
+                var found=false
+                while(c.moveToNext()) if(nameIndex>=0&&c.getString(nameIndex).equals(column,ignoreCase=true)) found=true
+                found
+            }
+            if(!hasColumn) return@firstNotNullOfOrNull null
+            db.rawQuery("SELECT $column FROM $table WHERE $column IS NOT NULL AND trim($column)<>'' ORDER BY $column LIMIT 1",null).use { c ->
+                if(c.moveToFirst()) c.getString(0) else null
+            }
+        } ?: error("Phase38 AUD-002 fixture requires one existing canonical player identity")
     }
 
     private fun repoRoot():File {
