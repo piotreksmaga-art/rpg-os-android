@@ -18,7 +18,7 @@ class Phase39To47BlockTest {
         assertEquals("TEMPORAL_SCHEDULE_STATE",RuntimeTruthLayerRegistry.requireClassifiedTable(Phase40SchedulerSchema.DEFINITIONS).uid)
         assertEquals("TEMPORAL_SCHEDULE_STATE",RuntimeTruthLayerRegistry.requireClassifiedTable(Phase40SchedulerSchema.TRANSITIONS).uid)
         val engine=TemporalEngine(listOf(TemporalSourceBinding("HISTORY",TemporalSource{q->listOf(
-            TemporalRecord("OLD",0,10,mapOf("value" to "old")),TemporalRecord("NOW",10,null,mapOf("value" to "now"))).filter{it.validAt(q.atOrder)}.let{TemporalResult.Value(it)}})))
+            TemporalRecord("OLD",0,10,mapOf("value" to "old")),TemporalRecord("NOW",10,null,mapOf("value" to "now")).filter{it.validAt(q.atOrder)}.let{TemporalResult.Value(it)}})))
         val result=engine.query(TemporalQuery("C","HISTORY","THING","X",5,audience,purpose)) as TemporalResult.Value
         assertEquals(listOf("OLD"),result.records.map{it.recordUid})
 
@@ -40,11 +40,19 @@ class Phase39To47BlockTest {
         assertTrue(retriever.retrieve(request.copy(operationUid="RAW_SQL")) is StructuredRetrievalResult.Unsupported)
 
         SQLiteDatabase.create(null).use{db->
-            db.execSQL("CREATE TABLE canonical_causal_relations(campaign_uid TEXT,relation_uid TEXT,relation_class_uid TEXT,relation_kind_uid TEXT,source_event_uid TEXT,target_event_uid TEXT,committed_order INTEGER,relation_ordinal INTEGER,semantic_fingerprint TEXT)")
-            db.execSQL("INSERT INTO canonical_causal_relations VALUES('C','R1','CAUSAL','CAUSES','A','B',1,0,'F1')")
-            db.execSQL("INSERT INTO canonical_causal_relations VALUES('C','R2','NARRATIVE','NARRATIVE_ASSOCIATION','B','C',2,0,'F2')")
-            val rows=Phase42CausalGraphRetriever(db,"C").traverse(CausalTraversalSpec("A","OUTGOING",maxDepth=2,maxEdges=1))
-            assertEquals(1,rows.size);assertEquals("CAUSES",rows.single().values["relation_kind_uid"])
+            createGraphFixture(db)
+            db.execSQL("INSERT INTO canonical_gameplay_events VALUES('C','A','PUBLIC_WORLD_EVENT','A')")
+            db.execSQL("INSERT INTO canonical_gameplay_events VALUES('C','B','PUBLIC_WORLD_EVENT','B')")
+            db.execSQL("INSERT INTO canonical_gameplay_events VALUES('C','C','PUBLIC_WORLD_EVENT','C')")
+            db.execSQL("INSERT INTO canonical_causal_relations VALUES('C','R1','CAUSAL','${CausalRelationKinds.CAUSES}','A','B',1,0,'F1')")
+            db.execSQL("INSERT INTO canonical_causal_relations VALUES('C','R2','NARRATIVE','${CausalRelationKinds.NARRATIVE_ASSOCIATION}','B','C',2,0,'F2')")
+            val player=VisibilityAudienceFactory.player("C")
+            grantRelation(db,player.principal!!,"R1",1)
+            val protected=ProtectedCampaignReadRepository.borrowed(db,"C"){null}
+            val graph=Phase42CausalQueryProvider(protected,"C")
+            val graphRequest=StructuredRetrievalRequest("G","C","GRAPH","TRAVERSE_CAUSAL",mapOf("start_event_uid" to "A","direction_uid" to "OUTGOING","max_depth" to "2"),1,player,PurposeContext("C",VisibilityPurposeKinds.PLAYER_UI))
+            val rows=(graph.retrieve(graphRequest) as StructuredRetrievalResult.Value).records
+            assertEquals(1,rows.size);assertEquals(CausalRelationKinds.CAUSES,rows.single().values["relation_kind_uid"])
         }
     }
 
@@ -80,5 +88,19 @@ class Phase39To47BlockTest {
         val retriever=StructuredSqlRetriever(listOf(StructuredProviderBinding("WORLD",setOf("VISIBLE"),StructuredQueryProvider{StructuredRetrievalResult.Value(listOf(RetrievalRecord("VISIBLE:1",mapOf("summary" to "safe"),"PROJECTED")),true)})))
         val result=IterativeRetrievalPipeline(retriever,ContextBudgetManager(),MissingContextStrategy{_,_,_->emptyList()}).execute(plan,ContextModelProfile("LOCAL",2048,256))
         assertTrue(result.missing.isEmpty());assertEquals("safe",result.budgeted.includedSegments.single().records.single().values["summary"])
+    }
+
+    private fun createGraphFixture(db:SQLiteDatabase){
+        Phase38AccessAuthoritySchema.ensureReady(db)
+        db.execSQL("CREATE TABLE canonical_gameplay_events(campaign_uid TEXT,event_uid TEXT,subject_ref_kind_uid TEXT,subject_ref_uid TEXT)")
+        db.execSQL("CREATE TABLE canonical_causal_relations(campaign_uid TEXT,relation_uid TEXT,relation_class_uid TEXT,relation_kind_uid TEXT,source_event_uid TEXT,target_event_uid TEXT,committed_order INTEGER,relation_ordinal INTEGER,semantic_fingerprint TEXT)")
+    }
+
+    private fun grantRelation(db:SQLiteDatabase,principal:VisibilityPrincipalRef,relationUid:String,order:Long){
+        val change=AccessAuthorityChange(AccessOperation.GRANT,"GRANT:$relationUid:${principal.uid}",principal.kindUid,principal.uid,AccessGrantKind.EXPLICIT.name,ProtectedSubjectAccessRegistry.CAUSAL_RELATION_READ_POLICY_UID,VisibilitySubjectKinds.CAUSAL_RELATION,relationUid,0)
+        db.beginTransaction();try{
+            AccessAuthorityStore(db,"C").apply(TurnTransactionIdentity("C","TURN:G","CMD:G","TX:G:$relationUid"),"CHANGE:$relationUid",change,order)
+            db.setTransactionSuccessful()
+        }finally{db.endTransaction()}
     }
 }
