@@ -1,5 +1,6 @@
 package com.rpgos.app
 
+@ConsistentCopyVisibility
 data class PreparedImageEditSource internal constructor(
     val sourceVisualUid:String,
     val bytes:ByteArray,

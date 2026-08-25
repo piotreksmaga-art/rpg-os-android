@@ -197,7 +197,7 @@ internal class TurnTransactionReceiptStore(private val db: SQLiteDatabase) {
             transaction_uid,campaign_uid,turn_uid,command_uid,semantic_fingerprint,result_fingerprint,commit_order,
             required_event_count,required_event_manifest_fingerprint,receipt_version,commit_state)
             VALUES(?,?,?,?,?,?,?,?,?,?,'COMMITTED')""",
-            arrayOf(receipt.transactionUid,receipt.campaignUid,receipt.turnUid,receipt.commandUid,receipt.semanticFingerprint,
+            arrayOf<Any?>(receipt.transactionUid,receipt.campaignUid,receipt.turnUid,receipt.commandUid,receipt.semanticFingerprint,
                 receipt.resultFingerprint,receipt.commitOrder,receipt.requiredEventCount,receipt.requiredEventManifestFingerprint,receipt.receiptVersion))
         return receipt
     }

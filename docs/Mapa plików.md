@@ -369,11 +369,21 @@ Indeks techniczny wspierający `docs/Architektura projektu.md` i `docs/Roadmap.m
 - `docs/PHASE_39_47_EXECUTION_BLOCK.md` — wykonany plan jednego bloku Phase 39–47 z czterema bramkami jakości
 - `docs/audits/PHASE_39_47_ENTRY_AUDIT.md` — wspólny audit wejściowy Phase 39–47: stan runtime, luki, zależności i decyzje adapterowe przed Gate A
 - `docs/architecture/PHASE39_47_ACCEPTANCE.md` — skonsolidowany rekord acceptance z osobną sekcją dla każdej Phase 39–47 i dowodami bramek
+- `docs/architecture/PHASE48_54_VERTICAL_SLICE_ACCEPTANCE.md` — evidence wymaganego pionowego slice AI/GM/commit; jawnie nie zamyka pełnych Faz 48–54
 - `app/src/main/java/com/rpgos/app/Phase39TemporalAndPhase40Scheduler.kt` — temporal query/result engine, port historycznej access authority oraz transakcyjny Scheduler
 - `app/src/main/java/com/rpgos/app/Phase41StructuredAndPhase42GraphRetrieval.kt` — allowlisted structured retrieval i bounded causal traversal
-- `app/src/main/java/com/rpgos/app/Phase43IntentAndPhase44TurnPlanner.kt` — deterministyczny Intent Parser i bounded Turn Planner
-- `app/src/main/java/com/rpgos/app/Phase45To47ContextPipeline.kt` — audience-scoped Context Builder, twardy budget i bounded missing-context loop
+- `app/src/main/java/com/rpgos/app/Phase43IntentAndPhase44TurnPlanner.kt` — legacy deterministic Intent Parser i legacy bounded Turn Planner, zachowane jako compatibility fallback
+- `app/src/main/java/com/rpgos/app/Phase43SandboxIntent.kt` — canonical `IntentDocument` v2, graph semantics, validator i legacy adapter
+- `app/src/main/java/com/rpgos/app/Phase44GraphTurnPlanner.kt` — canonical pure graph planner, capability registry model i formalny `CapabilityEnvelope`
+- `app/src/main/java/com/rpgos/app/Phase45To47ContextPipeline.kt` — legacy audience-scoped Context Builder/budget/missing-context loop
+- `app/src/main/java/com/rpgos/app/Phase45To47CanonicalContext.kt` — context integrity, non-droppable semantic core, full payload budget i typed bounded completion
+- `app/src/main/java/com/rpgos/app/Phase48AiProvider.kt` — provider-independent AI capabilities, registry, transport/codec adapter, cancellation i conformance provider
+- `app/src/main/java/com/rpgos/app/Phase49To53GmPipeline.kt` — structured GM proposal, trusted mechanics resolution, consistency, counterfactual guard i bounded repair
+- `app/src/main/java/com/rpgos/app/Phase54AiChatEngineFacade.kt` — Chat→Engine facade, canonical assembler/commit ports i persisted-receipt narrative permit
 - `app/src/test/java/com/rpgos/app/Phase39To47BlockTest.kt` — pięć skondensowanych testów Gate A–D oraz integracji do bezpiecznego kontekstu
+- `app/src/test/java/com/rpgos/app/Phase39To47R1BoundaryRepairTest.kt` — R1 boundary regression Phase 39–47
+- `app/src/test/java/com/rpgos/app/Phase39To47Audit3RepairTest.kt` — Audit3 projection/provenance/scope regression Phase 39–47
+- `app/src/test/java/com/rpgos/app/Phase43To54VerticalSliceTest.kt` — graph intent, multi-target envelope, safe context, provider swap/failure i real SQLite commit-before-narrative E2E
 - `docs/Mapa plików.md`
 - `docs/Historia projektu.md`
 - `docs/PROJECT_WORK_PROTOCOL.md`

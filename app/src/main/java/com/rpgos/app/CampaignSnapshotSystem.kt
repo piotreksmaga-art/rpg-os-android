@@ -105,7 +105,7 @@ internal class CommittedReplayPayloadStore(private val db: SQLiteDatabase) {
         db.execSQL("""INSERT INTO ${CampaignSnapshotSchema.REPLAY}(
             transaction_uid,campaign_uid,turn_uid,command_uid,commit_order,semantic_fingerprint,required_event_count,
             required_event_manifest_fingerprint,event_boundary_uid,replay_schema_version,player_change_set_json,causal_plan_json,payload_sha256)
-            VALUES(?,?,?,?,?,?,?,?,?,1,?,?,?)""", arrayOf(identity.transactionUid,identity.campaignUid,identity.turnUid,identity.commandUid,
+            VALUES(?,?,?,?,?,?,?,?,?,1,?,?,?)""", arrayOf<Any?>(identity.transactionUid,identity.campaignUid,identity.turnUid,identity.commandUid,
             commitOrder,semanticFingerprint,manifest.requiredEventCount,manifest.orderedManifestFingerprint,eventBoundaryUid,changeJson,causalJson,digest))
     }
 
@@ -162,7 +162,7 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
         val uid="SNAP-$campaignUid-$order-${UUID.randomUUID()}";val staged=File(snapshotDir,".$uid.staged.db");val published=File(snapshotDir,"$uid.db")
         db.execSQL("""INSERT INTO ${CampaignSnapshotSchema.CATALOG}(snapshot_uid,campaign_uid,snapshot_kind,snapshot_schema_version,created_order,
             created_at_epoch_ms,anchor_commit_order,anchor_transaction_uid,anchor_turn_uid,anchor_event_uid,payload_path,payload_sha256,publication_state,pinned)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",arrayOf(uid,campaignUid,kind.name,CampaignSnapshotSchema.VERSION,order,System.currentTimeMillis(),
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",arrayOf<Any?>(uid,campaignUid,kind.name,CampaignSnapshotSchema.VERSION,order,System.currentTimeMillis(),
             0L,null,null,null,published.absolutePath,null,SnapshotPublicationState.STAGED.name,if(effectivePinned)1 else 0))
         try {
             if(staged.exists())staged.delete(); db.execSQL("VACUUM INTO ?",arrayOf(staged.absolutePath));check(staged.isFile)
@@ -179,7 +179,7 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
             val digest=fileSha256(staged);check(staged.renameTo(published)){"RPGOS-SNAPSHOT:PUBLISH_RENAME_FAILED"}
             db.execSQL("""UPDATE ${CampaignSnapshotSchema.CATALOG}
                 SET anchor_commit_order=?,anchor_transaction_uid=?,anchor_turn_uid=?,anchor_event_uid=?,payload_sha256=?,publication_state=?
-                WHERE snapshot_uid=?""",arrayOf(capturedAnchor.commitOrder,capturedAnchor.transactionUid,capturedAnchor.turnUid,
+                WHERE snapshot_uid=?""",arrayOf<Any?>(capturedAnchor.commitOrder,capturedAnchor.transactionUid,capturedAnchor.turnUid,
                 capturedAnchor.eventUid,digest,SnapshotPublicationState.VALID.name,uid))
             if(kind==SnapshotKind.AUTOMATIC&&!effectivePinned)pruneAutomaticLocked()
             return requireNotNull(find(uid))

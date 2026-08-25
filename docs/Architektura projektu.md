@@ -380,15 +380,32 @@ Scheduler planuje evaluation points/deadlines, nie z góry outcome. Przyszły re
 Time Skip orkiestruje upływ czasu przez odpowiednie subsystemy: scheduled evaluations, player/NPC progression, age/family, projects, economy, travel, organizations, wars/politics, world simulation, relationships, knowledge propagation, memory consolidation i snapshot/state update.
 
 ## 12. Retrieval, Intent, Turn Planner i Context
-Retrieval łączy według potrzeb SQL + Knowledge/Causal Graph + Vector/Semantic Search + Temporal Filter + Knowledge Filter. Jest bounded i iteracyjny.
+Canonical pipeline Phase 39–47 jest addytywnym następcą wcześniejszej ścieżki regułowej:
 
-Intent Parser rozpoznaje strukturę intencji, nie rozstrzyga mechaniki. Turn Planner wybiera tylko potrzebne repozytoria, mechaniki, NPC, history/canon i output capabilities.
+```text
+raw player input
+  -> IntentDocument v2 + deterministic validator
+  -> GraphTurnPlanner
+  -> CapabilityDescriptor + CapabilityEnvelope
+  -> allowlisted StructuredRetrievalRequest
+  -> Phase38-projected ContextIntegrityBuilder
+  -> non-droppable SemanticCoreCapsule
+  -> SemanticContextBudgetManager
+  -> typed, envelope-constrained bounded completion
+  -> BudgetedCanonicalContext.safeForAi
+```
 
-Context Budget jest dynamiczny i provider/model/workload-aware; nie zakłada stałego CTX ani output budgetu.
+`IntentDocument` zachowuje graf wielu działań, participants/roles, reference states, future-result dependencies, conditions, constraints/preferences, modality/polarity, correction/cancellation relations, commitment state, uncertainty i player-context claims. AI może zaproponować semantykę, ale nie może sam nadać canonical action UID ani rozwiązać hidden/world UID. `LegacyIntentDocumentAdapter` utrzymuje deterministic fallback; legacy parser nie jest już canonical semantic schema nowych ścieżek.
 
-Actor/action/target z normalized intent pozostają strukturalnym wejściem. Model nie jest jedynym parserem semantyki akcji.
+`GraphTurnPlanner` jest pure i deterministic. Nie czyta repository, nie wykonuje mechaniki i nie mutuje świata. Dopasowuje wyłącznie capabilities z trusted composition root, planuje wszystkie legalnie rozwiązane cele i wydaje formalne envelope określające campaign/audience/purpose, provider/operation, filter dimensions, fixed identity, at-order, cursor capability i limit. Brak capability, niejednoznaczność lub brak wymaganego resolved reference prowadzą do adjudication/rejection, nie do zgadywania.
 
-Local context i cloud context nie muszą być identyczne. Cloud otrzymuje minimalny, zadaniowy, sanitizowany i dozwolony bundle — nie automatycznie całe Save/Chronicle/DB.
+Retrieval jest allowlisted, temporal/graph-aware, bounded i iteracyjny. Provider ordering pozostaje semantycznym kontraktem providera; Core nie przestawia wyników globalnie. Cursor jest opaque i kryptograficznie związany ze scope requestu. Nadmiarowy wynik jest jawnie incomplete, unsafe cursor/duplicate identity jest corruption, a programmer errors nie są maskowane jako data corruption.
+
+`ContextIntegrityBuilder` przyjmuje wyłącznie wyniki wymagań obecnych w TurnPlan, zachowuje typed retrieval state i wymaga projected provenance oraz bezpiecznych wartości payloadu. `SemanticCoreCapsule` zawiera pełną canonical semantykę intencji i planu i nigdy nie jest dropowany. Budżet obejmuje core, segmenty, final serialized payload oraz osobne protocol/system/output/safety reserves. REQUIRED/SAFETY context nie jest po cichu usuwany: overflow lub brak danych oznacza `safeForAi=false`.
+
+Phase 47 może wyłącznie zawężać albo kontynuować request w oryginalnym `CapabilityEnvelope`. Obowiązują limity iteracji, follow-upów, rekordów i payload units, deduplikacja fingerprintów, re-budget po każdej iteracji i typed terminal reason. Strategy nie może rozszerzyć campaign, audience, purpose, provider, operation, identity, filter dimensions, at-order, cursor capability ani limitu.
+
+Local context i cloud context nie muszą być identyczne. Oba powstają z tego samego semantic entitlement; cloud otrzymuje minimalny, zadaniowy, sanitizowany i dozwolony bundle — nigdy automatycznie całe Save/Chronicle/DB.
 
 ## 13. Hybrid Local-First AI — CANONICAL TARGET
 Docelowy AI jest `HYBRID LOCAL-FIRST` pod jednym provider-independent semantic contractem.
@@ -405,6 +422,31 @@ Cloud może poprawiać jakość, ale brak sieci, timeout, 429, quota, provider f
 - `RuntimeBackendSelector` — CPU/GPU/supported NPU/AUTO;
 - optional cloud adapters — ten sam semantic contract, bez campaign authority;
 - `GmToolGateway` — allowlisted QUERY/REQUEST/PROPOSE boundary, bez raw writable DB i COMMIT.
+
+Aktualny vertical slice Phase 48–54 implementuje `AiProvider`, `AiProviderRegistry`, `AiCapabilityContract`, `TransportAiProviderAdapter` oraz deterministic conformance provider. Transport i codec są wstrzykiwane w composition root, dzięki czemu lokalny lub chmurowy runtime można podłączyć bez przepisywania Intent/Planner/Context/GM pipeline. Nie oznacza to jeszcze implementacji konkretnego `LocalInferenceRuntime`, backend selectora ani cloud failover.
+
+Canonical runtime flow tego slice:
+
+```text
+ChatTurnRequest
+  -> provider interpretation candidate
+  -> trusted IntentDocument validation/resolution
+  -> GraphTurnPlan + safe projected context
+  -> structured GmProposalCandidate
+  -> StructuredGmProposalValidator
+  -> trusted MechanicsResolutionEngine (proposal only)
+  -> ConsistencyValidator + CounterfactualGuard
+  -> bounded repair + full revalidation
+  -> CanonicalMutationAssembler
+  -> existing TurnTransaction / CampaignRepository authority
+  -> persisted V3 TurnCommitReceipt verification
+  -> AuthoritativeCommitEvidence
+  -> narrative render/delivery
+```
+
+`AI CANDIDATE != VALIDATED PROPOSAL != MECHANICS RESOLUTION != CANONICAL MUTATION PROPOSAL != COMMIT`. Żaden provider, codec, proposal validator, mechanics resolver ani narrative renderer nie otrzymuje sam przez te kontrakty raw DB lub COMMIT authority. `CanonicalMutationAssembler` może zwrócić wyłącznie proposal już zapieczętowany przez istniejący PlayerDomainEngine admission path, a durable write pozostaje własnością istniejącej TurnTransaction.
+
+Narracja jest renderowana dopiero po autoryzacji receiptu znalezionego w trwałym receipt store. Sam strukturalnie podobny obiekt receipt nie wystarcza. Awaria/cancel/invalid output przed commit nie mutuje kampanii; po udanym atomic commit awaria narracji zwraca typed committed-without-narrative i nie próbuje cofać rzeczywistości.
 
 Model, provider, runtime i backend są wymienne i nie mogą wymagać migracji kampanii.
 

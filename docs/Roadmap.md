@@ -35,12 +35,12 @@ Każdy przyszły Core acceptance audit sprawdza co najmniej:
 Wyjątek stanowią jawnie World-Pack-specific fazy integracyjne (obecnie Phase 80–84), których zadaniem jest test konkretnego packa przeciwko uniwersalnemu Core, a nie zmiana Core pod ten pack.
 
 ## Aktualny baseline
-- Canonical accepted runtime through Phase 38: code-bearing SHA `db2f836fe3575204d045e5d3a861e07bb61cd5a9`; Phase 39–47 implementation is recorded in `docs/architecture/PHASE39_47_ACCEPTANCE.md` and requires exact-SHA CI before merge.
+- Canonical globally accepted runtime remains Phase 38 at code-bearing SHA `db2f836fe3575204d045e5d3a861e07bb61cd5a9`. Candidate Phase 39–47 implementation and required Phase 48–54 vertical slice są zaimplementowane lokalnie i wymagają exact-SHA CI przed merge/acceptance.
 - Phase 38 final audit: PASS; protected projection, trusted perception, sealed carrier/effective-access, persistence/replay oraz repository-wide consumer inventory findings są zamknięte.
 - Exact-SHA GREEN evidence: Phase 38 `117/0/0`, full JVM `1004/0/0`, Actions run `32776574352`, job `97588891710`.
 - Acceptance record: `docs/architecture/PHASE38_ACCEPTANCE.md`; pełne historyczne SHA/CI/artifacts/findingi pozostają w `docs/Historia projektu.md` i phase acceptance records.
-- Następny implementacyjny gate po zielonym exact-SHA CI: **Phase 48 — AI Provider Abstraction**.
-- Phase 48 pozostaje NOT STARTED.
+- Aktualny gate: exact-SHA CI + signed validation APK dla Phase 39–47 i wymaganego vertical slice Phase 48–54.
+- Phase 48–54 mają status `[-]`: wymagany provider-independent slice istnieje, lecz szeroki zakres faz pozostaje częściowy.
 - World Pack Creator pozostaje DEFERRED do czasu globalnego ACCEPTED Phase 1–84.
 
 # FAZA 0 — BASELINE / AUDYT
@@ -109,6 +109,8 @@ Phase 39–47 wykonano jako jeden ciągły blok roboczy z czterema wewnętrznymi
 - [x] 45. Context Builder — holder isolation + separate local/cloud task context boundaries `[REF-ADAPTER]`
 - [x] 46. Context Budget Manager — ModelProfile/AiCapability/workload-aware
 - [x] 47. Iterative Retrieval + missing-context loop
+
+Canonical hardening 39–47 rozszerza wcześniejszy minimalny blok addytywnie: legacy `NormalizedIntent`/`TurnPlan` pozostają fallbackiem, natomiast nowe ścieżki używają `IntentDocument` v2, `GraphTurnPlanner`, formalnego `CapabilityEnvelope`, niedropowalnego semantic core, pełnego budżetu serialized payload oraz typed/bounded context completion. Nie wprowadzono Phase 38.5 ani równoległego systemu visibility, causal graph lub transakcji.
 
 ## Acceptance direction Phase 37–47
 Phase 37 jest uniwersalnym epistemic core świata, nie tylko tabelą `NPC knowledge`. Ma obsługiwać indywidualnych i instytucjonalnych holderów bez budowania osobnych systemów wiedzy dla każdego gatunku gry.
@@ -233,16 +235,28 @@ Dalsze Phase 39–47:
 - cloud context, gdy później aktywny, jest minimalny i sanitised zamiast whole-save export.
 
 # FAZA D — GM ENGINE / HYBRID AI FOUNDATION
-- [ ] 48. AI Provider & Hybrid Local-First Inference Architecture
-- [-] 49. Structured GM Output contract
-- [ ] 50. Universal Mechanics & Combat Resolution integration `[REF-ADAPTER]`
-- [-] 51. Consistency Validator
-- [ ] 52. Counterfactual Guard
-- [ ] 53. Repair Pass for proposal/narrative
-- [ ] 54. Committed narrative delivery only after valid transaction
+- [-] 48. AI Provider & Hybrid Local-First Inference Architecture — provider-independent vertical integration boundary implemented; concrete local/cloud runtime and Android performance evidence remain
+- [-] 49. Structured GM Output contract — canonical proposal schema/validator implemented in required vertical slice; broader conformance remains
+- [-] 50. Universal Mechanics & Combat Resolution integration `[REF-ADAPTER]` — trusted resolver registry and no-mutation mechanics proposal seam implemented; full universal mechanics/combat scope remains
+- [-] 51. Consistency Validator — required vertical validator implemented; broader domain matrices remain
+- [-] 52. Counterfactual Guard — projected-support/subject/effect guard implemented in vertical slice; broader world-domain coverage remains
+- [-] 53. Repair Pass for proposal/narrative — bounded proposal repair with full revalidation implemented; narrative-quality repair scope remains
+- [-] 54. Committed narrative delivery only after valid transaction — persisted receipt permit and Chat→Engine vertical slice implemented; production UI/provider wiring remains
+
+Status `[-]` jest celowy: `docs/architecture/PHASE48_54_VERTICAL_SLICE_ACCEPTANCE.md` potwierdza wymagany działający slice i łatwą wymianę providera, ale nie oznacza pełnego acceptance szerokich Faz 48–54 ani nie przenosi zakresu Faz 55+ do tego bloku.
 
 ## Acceptance direction Phase 48–54
 Phase 48 buduje provider/execution foundation, nie pełny Director.
+
+Zaimplementowany pionowy kontrakt:
+- `Chat/UI -> AiChatEngineFacade -> AiProvider -> IntentDocument -> GraphTurnPlanner -> Context -> StructuredGmProposal -> Mechanics/Guards/Repair -> canonical TurnTransaction -> persisted TurnCommitReceipt -> Narrative`;
+- `AiProviderRegistry` i `AiCapabilityContract` pozwalają zamienić Provider A na B bez zmian Phase 43–54;
+- `TransportAiProviderAdapter` przyjmuje konfigurowalny transport+codec dla realnego local/cloud runtime, a deterministic provider służy wyłącznie conformance/CI;
+- AI nie otrzymuje repository/DB ani mutation authority; proposal i narrative nie są rzeczywistością;
+- narrative request wymaga niepodrabialnego w ścieżce aplikacji evidence wydanego po odczycie trwałego V3 receipt;
+- provider failure, invalid structured output i cancellation przed commit kończą się bez mutacji; cancellation/failure po commit nie cofa rzeczywistości i zwraca typed `CommittedWithoutNarrative`.
+
+Poza tym slice pozostają: wybór konkretnego modelu, `LocalInferenceRuntime`, backend CPU/GPU/NPU, credentials/cloud policy, offline failover, streaming UI, real-device performance i pełne systemy mechanics/combat. Są to nadal kryteria szerokiego Phase 48–54, a nie fałszywie zamknięte elementy obecnej implementacji.
 
 Wymagane docelowo:
 - provider-independent `AiProvider`/semantic contract;
@@ -540,12 +554,12 @@ Przyszłe obowiązkowe gates obejmują co najmniej:
 - [ ] available latency improves quality before idle waiting; speculative/background preparation never commits future player/world decisions
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
-`Phase 39 — Temporal Engine historical truth`
+`Exact-SHA CI + signed validation APK dla candidate Phase 39–47 oraz required Phase 48–54 vertical slice`
 
 Obowiązkowa sekwencja:
 `READ ARCHITECTURE + ROADMAP + MAPA PLIKÓW -> AUDIT FIRST -> classify COMPLETE/PARTIAL/MISSING/BLOCKED -> minimal implementation -> targeted tests -> compatibility -> full JVM -> PR -> exact-SHA CI -> coordinator acceptance`.
 
-Phase 38: **GLOBALLY ACCEPTED / COMPLETE** na code-bearing SHA `db2f836fe3575204d045e5d3a861e07bb61cd5a9`; exact-SHA run `32776574352` — SUCCESS.
+Phase 38: **GLOBALLY ACCEPTED / COMPLETE** na code-bearing SHA `db2f836fe3575204d045e5d3a861e07bb61cd5a9`; exact-SHA run `32776574352` — SUCCESS. Phase 39–47 oraz slice 48–54 pozostają candidate do czasu zielonego exact-SHA evidence.
 
 Future Hybrid AI, NPC individuality, Living World i post-roadmap WPC nie zmieniają tej kolejności.
 

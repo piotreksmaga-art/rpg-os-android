@@ -1,6 +1,7 @@
 package com.rpgos.app
 
 import android.database.sqlite.SQLiteDatabase
+import java.security.MessageDigest
 
 enum class TemporalResultState { VALUE, NO_DATA, DENIED, NOT_DISCLOSED, UNKNOWN, UNSUPPORTED, CORRUPTION }
 
@@ -49,6 +50,23 @@ sealed interface TemporalResult {
 fun interface TemporalSource { fun read(query: TemporalQuery): TemporalResult }
 data class TemporalSourceBinding(val sourceUid: String, val source: TemporalSource) { init { require(sourceUid.isNotBlank()) } }
 
+/** Expected source/read failure. Programming errors and fatal JVM failures are deliberately not wrapped. */
+class TemporalSourceReadException(val reasonUid:String, cause:Throwable?=null):RuntimeException(reasonUid,cause){
+    init{require(reasonUid.isNotBlank())}
+}
+
+internal object ProjectionScopedTemporalIdentity{
+    fun accessHistory(query:TemporalQuery,validFromOrder:Long,createdOrder:Long,index:Int):Pair<String,String>{
+        val scope=sha256(listOf(
+            "ACCESS_HISTORY",query.campaignUid,query.audience.audienceKindUid,query.audience.principal,
+            query.purpose.purposeUid,query.subjectKindUid,query.subjectUid,validFromOrder,createdOrder,index
+        ).joinToString("|"))
+        return "ACCESS_HISTORY_PROJECTED:$scope" to "ACCESS_AUTHORITY_PROJECTED:$scope"
+    }
+    private fun sha256(value:String)=MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}
+}
+
 class TemporalEngine(bindings: List<TemporalSourceBinding>) {
     private val sources = bindings.associateBy { it.sourceUid }
     init { require(sources.size == bindings.size) { "RPGOS-P39:DUPLICATE_SOURCE" } }
@@ -58,11 +76,15 @@ class TemporalEngine(bindings: List<TemporalSourceBinding>) {
             when (val result = source.read(query)) {
                 is TemporalResult.Value -> if (result.records.any { !it.validAt(query.atOrder) }) TemporalResult.Corruption("SOURCE_RETURNED_OUT_OF_RANGE_RECORD")
                 else if (result.records.isEmpty()) TemporalResult.NoData
-                else result.copy(records = result.records.sortedWith(compareBy<TemporalRecord> { it.validFromOrder }.thenBy { it.recordUid }).take(query.limit))
+                else if(result.records.map{it.recordUid}.distinct().size!=result.records.size)TemporalResult.Corruption("DUPLICATE_RECORD_UID")
+                else result.copy(
+                    records = result.records.sortedWith(compareBy<TemporalRecord> { it.validFromOrder }.thenBy { it.recordUid }).take(query.limit),
+                    complete=result.complete&&result.records.size<=query.limit
+                )
                 else -> result
             }
         } catch (_: VisibilityAuthorityFailure.CrossCampaign) { throw VisibilityAuthorityFailure.CrossCampaign() }
-        catch (_: Throwable) { TemporalResult.Corruption("TEMPORAL_SOURCE_FAILURE") }
+        catch (failure:TemporalSourceReadException) { TemporalResult.Corruption(failure.reasonUid) }
     }
 }
 
@@ -96,8 +118,9 @@ class AccessAuthorityTemporalSource(private val protectedReads: ProtectedCampaig
                     values["subject_uid"]=record.subjectUid
                 }
                 val redactedIdentity=ownHistory && record.subjectUid!=null
-                val recordUid=if(redactedIdentity) "ACCESS_HISTORY_PROJECTED:${record.validFromOrder}:$index" else record.recordUid
-                val provenance=if(redactedIdentity) "ACCESS_AUTHORITY_PROJECTED:${record.createdOrder}:$index" else "ACCESS_AUTHORITY:${record.recordUid}:${record.createdOrder}"
+                val projected=if(redactedIdentity)ProjectionScopedTemporalIdentity.accessHistory(query,record.validFromOrder,record.createdOrder,index) else null
+                val recordUid=projected?.first?:record.recordUid
+                val provenance=projected?.second?:"ACCESS_AUTHORITY:${record.recordUid}:${record.createdOrder}"
                 TemporalRecord(recordUid,record.validFromOrder,record.validUntilOrder,values,provenance)
             })
             ProtectedReadResult.NoData -> TemporalResult.NoData
@@ -132,7 +155,7 @@ internal class ScheduledEvaluationStore(private val db:SQLiteDatabase,private va
     fun schedule(identity:TurnTransactionIdentity,evaluation:ScheduledEvaluation){
         require(db.inTransaction()){"RPGOS-P40:TURN_TRANSACTION_REQUIRED"};require(identity.campaignUid==campaignUid&&evaluation.campaignUid==campaignUid){"RPGOS-P40:CROSS_CAMPAIGN"}
         val existing=definition(evaluation.evaluationUid);if(existing!=null){require(existing==evaluation){"RPGOS-P40:EVALUATION_IDENTITY_CONFLICT"};return}
-        db.execSQL("INSERT INTO ${Phase40SchedulerSchema.DEFINITIONS} VALUES(?,?,?,?,?,?,?,?,?)",arrayOf(campaignUid,evaluation.evaluationUid,evaluation.evaluatorKindUid,evaluation.subjectKindUid,evaluation.subjectUid,evaluation.dueOrder,evaluation.createdOrder,evaluation.provenanceUid,evaluation.payloadCanonical))
+        db.execSQL("INSERT INTO ${Phase40SchedulerSchema.DEFINITIONS} VALUES(?,?,?,?,?,?,?,?,?)",arrayOf<Any?>(campaignUid,evaluation.evaluationUid,evaluation.evaluatorKindUid,evaluation.subjectKindUid,evaluation.subjectUid,evaluation.dueOrder,evaluation.createdOrder,evaluation.provenanceUid,evaluation.payloadCanonical))
     }
     fun transition(identity:TurnTransactionIdentity,transitionUid:String,evaluationUid:String,state:ScheduledEvaluationState,effectiveOrder:Long,provenanceUid:String){
         require(db.inTransaction()){"RPGOS-P40:TURN_TRANSACTION_REQUIRED"};require(identity.campaignUid==campaignUid&&transitionUid.isNotBlank()&&provenanceUid.isNotBlank()){"RPGOS-P40:INVALID_TRANSITION"};val scheduled=requireNotNull(definition(evaluationUid)){"RPGOS-P40:UNKNOWN_EVALUATION"};require(effectiveOrder>=scheduled.createdOrder){"RPGOS-P40:TRANSITION_BEFORE_CREATION"}
@@ -147,7 +170,7 @@ internal class ScheduledEvaluationStore(private val db:SQLiteDatabase,private va
             ScheduledEvaluationState.CANCELLED,ScheduledEvaluationState.PROCESSED -> false
         }
         require(legal){"RPGOS-P40:ILLEGAL_STATE_TRANSITION:${current.name}->${state.name}"}
-        db.execSQL("INSERT INTO ${Phase40SchedulerSchema.TRANSITIONS} VALUES(?,?,?,?,?,?,?)",arrayOf(campaignUid,transitionUid,evaluationUid,state.name,effectiveOrder,identity.transactionUid,provenanceUid))
+        db.execSQL("INSERT INTO ${Phase40SchedulerSchema.TRANSITIONS} VALUES(?,?,?,?,?,?,?)",arrayOf<Any?>(campaignUid,transitionUid,evaluationUid,state.name,effectiveOrder,identity.transactionUid,provenanceUid))
     }
     fun due(atOrder:Long,limit:Int=100):List<DueEvaluation>{require(atOrder>=0L&&limit in 1..500);return db.rawQuery("""SELECT d.evaluation_uid,d.evaluator_kind_uid,d.subject_kind_uid,d.subject_uid,d.due_order,d.created_order,d.provenance_uid,d.payload_canonical,(SELECT t.state_uid FROM ${Phase40SchedulerSchema.TRANSITIONS} t WHERE t.campaign_uid=d.campaign_uid AND t.evaluation_uid=d.evaluation_uid AND t.effective_order<=? ORDER BY t.effective_order DESC,t.transition_uid DESC LIMIT 1) FROM ${Phase40SchedulerSchema.DEFINITIONS} d WHERE d.campaign_uid=? AND d.due_order<=? ORDER BY d.due_order,d.evaluation_uid LIMIT $limit""",arrayOf(atOrder.toString(),campaignUid,atOrder.toString())).use{c->buildList{while(c.moveToNext()){val state=if(c.isNull(8))ScheduledEvaluationState.PENDING else ScheduledEvaluationState.valueOf(c.getString(8));if(state==ScheduledEvaluationState.PENDING)add(DueEvaluation(ScheduledEvaluation(campaignUid,c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getLong(4),c.getLong(5),c.getString(6),c.getString(7)),atOrder))}}}}
     private fun stateAt(evaluationUid:String,atOrder:Long):ScheduledEvaluationState=db.rawQuery("SELECT state_uid FROM ${Phase40SchedulerSchema.TRANSITIONS} WHERE campaign_uid=? AND evaluation_uid=? AND effective_order<=? ORDER BY effective_order DESC,transition_uid DESC LIMIT 1",arrayOf(campaignUid,evaluationUid,atOrder.toString())).use{c->if(!c.moveToFirst())ScheduledEvaluationState.PENDING else ScheduledEvaluationState.valueOf(c.getString(0))}

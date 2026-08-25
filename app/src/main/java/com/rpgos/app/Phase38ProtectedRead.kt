@@ -112,7 +112,7 @@ class ProtectedReadGateway(
         return try{
             val projection=visibility.project(request,trusted,effectiveAccess,read)
             when(projection.dataState){
-                ProjectionDataState.DISCLOSED->ProtectedReadResult.Allow(projection.value as T,projection.decision.level,projection.decision.reasonCode)
+                ProjectionDataState.DISCLOSED->projection.value?.let{ProtectedReadResult.Allow(it,projection.decision.level,projection.decision.reasonCode)}?:ProtectedReadResult.NoData
                 ProjectionDataState.NO_DATA->ProtectedReadResult.NoData
                 ProjectionDataState.DENIED->ProtectedReadResult.Deny(projection.decision.reasonCode)
                 ProjectionDataState.NOT_DISCLOSED->ProtectedReadResult.NotDisclosed(projection.decision.reasonCode)

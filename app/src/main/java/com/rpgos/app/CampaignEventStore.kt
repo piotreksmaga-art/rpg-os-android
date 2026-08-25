@@ -53,7 +53,7 @@ internal object CampaignIntelligencePhase30Schema {
         } else {
             db.execSQL(
                 "UPDATE $ACTIVATION_TABLE SET event_schema_version=?,min_writer_contract_version=? WHERE campaign_uid=?",
-                arrayOf(PHASE30_EVENT_SCHEMA_VERSION, PHASE30_WRITER_CONTRACT_VERSION, campaignUid)
+                arrayOf<Any?>(PHASE30_EVENT_SCHEMA_VERSION, PHASE30_WRITER_CONTRACT_VERSION, campaignUid)
             )
         }
         installOldWriterGuards(db)
@@ -341,7 +341,6 @@ internal class CampaignEventStore(private val db: SQLiteDatabase, private val ca
             is DevelopmentProjectChange -> PlayerChangeKinds.DEVELOPMENT_PROJECT
             is KnowledgeAcquisitionChange -> PHASE37_KNOWLEDGE_CHANGE_KIND
             is AccessAuthorityChange -> PlayerChangeKinds.ACCESS_AUTHORITY
-            else -> throw EventStoreIntegrityException("UNCLASSIFIED_CHANGE_KIND")
         }
         if (change.changeKindUid != expectedKind) throw EventStoreIntegrityException("CHANGE_KIND_PAYLOAD_MISMATCH")
         // All currently modeled PlayerDomainChange families are explicitly EVENT_BEARING.
@@ -376,7 +375,6 @@ internal class CampaignEventStore(private val db: SQLiteDatabase, private val ca
         is DevelopmentProjectChange -> DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid)
         is KnowledgeAcquisitionChange -> DomainRef(payload.acquisition.holder.holderKindUid, payload.acquisition.holder.holderUid)
         is AccessAuthorityChange -> DomainRef(payload.principalKindUid, payload.principalUid)
-        else -> throw EventStoreIntegrityException("UNCLASSIFIED_CHANGE_KIND")
     }
 
     fun appendRequired(identity: TurnTransactionIdentity, changeSet: PlayerChangeSet, commitOrder: Long) {

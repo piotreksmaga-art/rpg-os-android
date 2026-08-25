@@ -31,6 +31,7 @@ object ProgressionFactorKinds {
     const val OUTCOME = "RPGOS-PROGRESSION-FACTOR:OUTCOME"
 }
 
+@ExposedCopyVisibility
 data class ProgressionScaledValue private constructor(val scaledUnits: Long) {
     init { if (scaledUnits < 0L) fail("NEGATIVE_PROGRESSION_NUMERIC_VALUE") }
 

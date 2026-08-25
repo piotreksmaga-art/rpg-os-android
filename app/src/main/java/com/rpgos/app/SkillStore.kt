@@ -98,7 +98,7 @@ internal class SkillStore(
         if (mapping.supersededByTyped) require(typedExists(mapping.characterUid, mapping.canonicalSkillUid)) { "Supersession requires existing typed PlayerSkill" }
         db.execSQL("""INSERT INTO legacy_skill_mappings(campaign_id,character_uid,legacy_skill_uid,canonical_skill_uid,world_pack_uid,mapping_version,provenance,superseded_by_typed)
                        VALUES(?,?,?,?,?,?,?,?)""".trimIndent(),
-            arrayOf(mapping.campaignId,mapping.characterUid,mapping.legacySkillUid,mapping.canonicalSkillUid,mapping.worldPackUid,mapping.mappingVersion,mapping.provenance,if(mapping.supersededByTyped)1 else 0))
+            arrayOf<Any?>(mapping.campaignId,mapping.characterUid,mapping.legacySkillUid,mapping.canonicalSkillUid,mapping.worldPackUid,mapping.mappingVersion,mapping.provenance,if(mapping.supersededByTyped)1 else 0))
     }
 
     fun reconciled(characterUid: String): SkillReadResult {

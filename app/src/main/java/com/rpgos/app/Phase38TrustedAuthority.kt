@@ -14,6 +14,7 @@ class PrivilegedAudienceCapability private constructor(
 }
 private val PRIVILEGE_SEAL = Any()
 
+@ConsistentCopyVisibility
 data class TrustedPrincipalContext internal constructor(
     val campaignUid: String,
     val principal: VisibilityPrincipalRef,
@@ -73,6 +74,7 @@ internal object Phase38RuntimeAuthority {
 }
 
 /** Compatibility descriptor: caller-supplied holders are deliberately ignored by trusted authorization. */
+@Suppress("DEPRECATION")
 data class AudienceContext(
     val campaignUid: String,
     val audienceKindUid: String,
