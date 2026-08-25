@@ -35,11 +35,11 @@ Każdy przyszły Core acceptance audit sprawdza co najmniej:
 Wyjątek stanowią jawnie World-Pack-specific fazy integracyjne (obecnie Phase 80–84), których zadaniem jest test konkretnego packa przeciwko uniwersalnemu Core, a nie zmiana Core pod ten pack.
 
 ## Aktualny baseline
-- Canonical globally accepted runtime remains Phase 38 at code-bearing SHA `db2f836fe3575204d045e5d3a861e07bb61cd5a9`. Candidate Phase 39–47 implementation and required Phase 48–54 vertical slice są zaimplementowane lokalnie i wymagają exact-SHA CI przed merge/acceptance.
+- Canonical globally accepted runtime remains Phase 38 at code-bearing SHA `db2f836fe3575204d045e5d3a861e07bb61cd5a9`. Candidate Phase 39–47 implementation and required Phase 48–54 vertical slice są zaimplementowane na code-bearing SHA `5ae6f0648704b114c6aa38ddea7f912006709d8d`; exact-SHA CI jest zielone, a global acceptance wymaga decyzji koordynatora.
 - Phase 38 final audit: PASS; protected projection, trusted perception, sealed carrier/effective-access, persistence/replay oraz repository-wide consumer inventory findings są zamknięte.
 - Exact-SHA GREEN evidence: Phase 38 `117/0/0`, full JVM `1004/0/0`, Actions run `32776574352`, job `97588891710`.
 - Acceptance record: `docs/architecture/PHASE38_ACCEPTANCE.md`; pełne historyczne SHA/CI/artifacts/findingi pozostają w `docs/Historia projektu.md` i phase acceptance records.
-- Aktualny gate: exact-SHA CI + signed validation APK dla Phase 39–47 i wymaganego vertical slice Phase 48–54.
+- Exact-SHA evidence: `Validate RPG OS ALPHA` run `32889856844`, `Phase39-47 Audit3 Validation` run `32889856923` i `Phase38 AUD002 Forensic Gate` run `32889856858` — SUCCESS. Signed artifact `9579252027`, digest `sha256:0ad2e25010501b235695be0c1823a21e4f1f336d1e85f7e7e1a7ba39d48a841e`.
 - Phase 48–54 mają status `[-]`: wymagany provider-independent slice istnieje, lecz szeroki zakres faz pozostaje częściowy.
 - World Pack Creator pozostaje DEFERRED do czasu globalnego ACCEPTED Phase 1–84.
 
@@ -554,12 +554,12 @@ Przyszłe obowiązkowe gates obejmują co najmniej:
 - [ ] available latency improves quality before idle waiting; speculative/background preparation never commits future player/world decisions
 
 # AKTUALNA NAJBLIŻSZA ZALEŻNOŚĆ
-`Exact-SHA CI + signed validation APK dla candidate Phase 39–47 oraz required Phase 48–54 vertical slice`
+`Coordinator acceptance dla candidate Phase 39–47 oraz required Phase 48–54 vertical slice`
 
 Obowiązkowa sekwencja:
 `READ ARCHITECTURE + ROADMAP + MAPA PLIKÓW -> AUDIT FIRST -> classify COMPLETE/PARTIAL/MISSING/BLOCKED -> minimal implementation -> targeted tests -> compatibility -> full JVM -> PR -> exact-SHA CI -> coordinator acceptance`.
 
-Phase 38: **GLOBALLY ACCEPTED / COMPLETE** na code-bearing SHA `db2f836fe3575204d045e5d3a861e07bb61cd5a9`; exact-SHA run `32776574352` — SUCCESS. Phase 39–47 oraz slice 48–54 pozostają candidate do czasu zielonego exact-SHA evidence.
+Phase 38: **GLOBALLY ACCEPTED / COMPLETE** na code-bearing SHA `db2f836fe3575204d045e5d3a861e07bb61cd5a9`; exact-SHA run `32776574352` — SUCCESS. Phase 39–47 oraz slice 48–54 mają zielone exact-SHA evidence dla `5ae6f0648704b114c6aa38ddea7f912006709d8d`, lecz pozostają candidate do decyzji koordynatora.
 
 Future Hybrid AI, NPC individuality, Living World i post-roadmap WPC nie zmieniają tej kolejności.
 

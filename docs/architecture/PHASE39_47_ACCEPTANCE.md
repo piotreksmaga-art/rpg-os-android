@@ -1,6 +1,6 @@
 # RPG OS — Phase 39–47 Consolidated Acceptance
 
-Status: **IMPLEMENTED / LOCAL TARGETED GATES GREEN / EXACT-SHA CI REQUIRED**
+Status: **IMPLEMENTED / LOCAL + EXACT-SHA CI GREEN / COORDINATOR ACCEPTANCE REQUIRED**
 
 Work ID: `WORK-20260825-001`
 
@@ -33,6 +33,10 @@ Schemat Phase 40 jest rejestrowany w `TEMPORAL_SCHEDULE_STATE`, tworzony przez p
 - `Phase43To54VerticalSliceTest`: 7/0/0;
 - combined local canonical gate: 47/0/0;
 - full Windows Robolectric run: 1051 tests / 192 failures, environment-inconclusive. 190 failures są zgodne z ograniczeniami lokalnego sqlite4java (`UPSERT`, `VACUUM INTO`, brak runtime custom SQL functions i file-backed DB path); 2 izolowane legacy concurrency assertions również nie przechodzą na tym backendzie. Nie dodano obejścia do kodu produkcyjnego;
-- exact-SHA GitHub Actions JVM regression and signed validation APK: required before merge.
+- exact code-bearing SHA: `5ae6f0648704b114c6aa38ddea7f912006709d8d`;
+- `Validate RPG OS ALPHA` run `32889856844`, job `97938967272`: SUCCESS, full JVM + signed validation APK;
+- `Phase39-47 Audit3 Validation` run `32889856923`, focused job `97938967635` and full-JVM job `97939753043`: SUCCESS;
+- `Phase38 AUD002 Forensic Gate` run `32889856858`, targeted job `97938967407` and full-JVM job `97939877522`: SUCCESS;
+- immutable signed artifact `9579252027`, `RPG-OS-VALIDATION-1.2.0-alpha5-hybrid145-5ae6f0648704b114c6aa38ddea7f912006709d8d`, digest `sha256:0ad2e25010501b235695be0c1823a21e4f1f336d1e85f7e7e1a7ba39d48a841e`.
 
 Wymagany vertical slice Phase 48–54 jest opisany oddzielnie w `PHASE48_54_VERTICAL_SLICE_ACCEPTANCE.md`; nie oznacza pełnego acceptance szerokich Faz 48–54.
