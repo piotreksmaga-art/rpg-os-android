@@ -66,18 +66,25 @@ class TemporalEngine(bindings: List<TemporalSourceBinding>) {
     }
 }
 
-/** Phase-38-owned source port. It translates representation only; Phase 39 owns at-order semantics. */
-class AccessAuthorityTemporalSource(private val store: AccessAuthorityStore) : TemporalSource {
+/** Phase-38-owned source port. It translates protected projection only; Phase 39 owns at-order semantics. */
+class AccessAuthorityTemporalSource(private val protectedReads: ProtectedCampaignReadRepository) : TemporalSource {
     override fun read(query: TemporalQuery): TemporalResult {
         if (query.subjectKindUid != "VISIBILITY_PRINCIPAL") return TemporalResult.Unsupported("SUBJECT_KIND_UNSUPPORTED")
         val split = query.subjectUid.split(':', limit = 2)
         if (split.size != 2 || split.any { it.isBlank() }) return TemporalResult.Unknown("MALFORMED_PRINCIPAL")
-        val records = store.effective(VisibilityPrincipalRef(split[0], split[1]), query.atOrder).map {
-            TemporalRecord(it.recordUid,it.validFromOrder,it.validUntilOrder,
-                mapOf("operation" to it.operation.name,"kind_uid" to it.kindUid,"value_uid" to it.valueUid,"subject_kind_uid" to it.subjectKindUid,"subject_uid" to it.subjectUid),
-                "ACCESS_AUTHORITY:${it.recordUid}:${it.createdOrder}")
+        val target=VisibilityPrincipalRef(split[0],split[1])
+        return when(val result=protectedReads.accessAuthorityHistory(query.audience,query.purpose,target,query.atOrder)){
+            is ProtectedReadResult.Allow -> TemporalResult.Value(result.value.map {
+                TemporalRecord(it.recordUid,it.validFromOrder,it.validUntilOrder,
+                    mapOf("operation" to it.operation.name,"kind_uid" to it.kindUid,"value_uid" to it.valueUid,"subject_kind_uid" to it.subjectKindUid,"subject_uid" to it.subjectUid),
+                    "ACCESS_AUTHORITY:${it.recordUid}:${it.createdOrder}")
+            })
+            ProtectedReadResult.NoData -> TemporalResult.NoData
+            is ProtectedReadResult.Deny -> TemporalResult.Denied(result.reasonCode)
+            is ProtectedReadResult.NotDisclosed -> TemporalResult.NotDisclosed(result.reasonCode)
+            is ProtectedReadResult.Unknown -> TemporalResult.Unknown(result.reasonCode)
+            is ProtectedReadResult.Corruption -> TemporalResult.Corruption(result.reasonCode)
         }
-        return if (records.isEmpty()) TemporalResult.NoData else TemporalResult.Value(records)
     }
 }
 
