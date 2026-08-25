@@ -73,20 +73,32 @@ class AccessAuthorityTemporalSource(private val protectedReads: ProtectedCampaig
         val split = query.subjectUid.split(':', limit = 2)
         if (split.size != 2 || split.any { it.isBlank() }) return TemporalResult.Unknown("MALFORMED_PRINCIPAL")
         val target=VisibilityPrincipalRef(split[0],split[1])
-        return when(val result=protectedReads.accessAuthorityHistory(query.audience,query.purpose,target,query.atOrder)){
-            is ProtectedReadResult.Allow -> TemporalResult.Value(result.value.map { record ->
+        val protected = try {
+            protectedReads.accessAuthorityHistory(query.audience,query.purpose,target,query.atOrder)
+        } catch (_: VisibilityAuthorityFailure.CrossCampaign) {
+            return TemporalResult.Denied("CROSS_CAMPAIGN")
+        } catch (failure: IllegalArgumentException) {
+            if (failure.message?.contains("CROSS_CAMPAIGN") == true) return TemporalResult.Denied("CROSS_CAMPAIGN")
+            throw failure
+        }
+        return when(val result=protected){
+            is ProtectedReadResult.Allow -> TemporalResult.Value(result.value.mapIndexed { index,record ->
+                val ownHistory=result.reasonCode=="OWN_ACCESS_AUTHORITY_HISTORY"
                 val values=linkedMapOf<String,Any?>(
                     "operation" to record.operation.name,
                     "kind_uid" to record.kindUid,
                     "value_uid" to record.valueUid
                 )
-                if(result.reasonCode=="OWN_ACCESS_AUTHORITY_HISTORY"){
+                if(ownHistory){
                     values["subject_scoped"]=record.subjectUid!=null
                 }else{
                     values["subject_kind_uid"]=record.subjectKindUid
                     values["subject_uid"]=record.subjectUid
                 }
-                TemporalRecord(record.recordUid,record.validFromOrder,record.validUntilOrder,values,"ACCESS_AUTHORITY:${record.recordUid}:${record.createdOrder}")
+                val redactedIdentity=ownHistory && record.subjectUid!=null
+                val recordUid=if(redactedIdentity) "ACCESS_HISTORY_PROJECTED:${record.validFromOrder}:$index" else record.recordUid
+                val provenance=if(redactedIdentity) "ACCESS_AUTHORITY_PROJECTED:${record.createdOrder}:$index" else "ACCESS_AUTHORITY:${record.recordUid}:${record.createdOrder}"
+                TemporalRecord(recordUid,record.validFromOrder,record.validUntilOrder,values,provenance)
             })
             ProtectedReadResult.NoData -> TemporalResult.NoData
             is ProtectedReadResult.Deny -> TemporalResult.Denied(result.reasonCode)
@@ -126,12 +138,28 @@ internal class ScheduledEvaluationStore(private val db:SQLiteDatabase,private va
         require(db.inTransaction()){"RPGOS-P40:TURN_TRANSACTION_REQUIRED"};require(identity.campaignUid==campaignUid&&transitionUid.isNotBlank()&&provenanceUid.isNotBlank()){"RPGOS-P40:INVALID_TRANSITION"};val scheduled=requireNotNull(definition(evaluationUid)){"RPGOS-P40:UNKNOWN_EVALUATION"};require(effectiveOrder>=scheduled.createdOrder){"RPGOS-P40:TRANSITION_BEFORE_CREATION"}
         val existing=db.rawQuery("SELECT evaluation_uid,state_uid,effective_order,transaction_uid,provenance_uid FROM ${Phase40SchedulerSchema.TRANSITIONS} WHERE campaign_uid=? AND transition_uid=?",arrayOf(campaignUid,transitionUid)).use{c->if(!c.moveToFirst())null else listOf(c.getString(0),c.getString(1),c.getLong(2).toString(),c.getString(3),c.getString(4))}
         val expected=listOf(evaluationUid,state.name,effectiveOrder.toString(),identity.transactionUid,provenanceUid);if(existing!=null){require(existing==expected){"RPGOS-P40:TRANSITION_IDENTITY_CONFLICT"};return}
+        val latestOrder=latestTransitionOrder(evaluationUid)
+        require(latestOrder==null||effectiveOrder>=latestOrder){"RPGOS-P40:NON_MONOTONIC_TRANSITION"}
+        val current=stateAt(evaluationUid,effectiveOrder)
+        val legal=when(current){
+            ScheduledEvaluationState.PENDING -> state in setOf(ScheduledEvaluationState.CLAIMED,ScheduledEvaluationState.CANCELLED,ScheduledEvaluationState.PROCESSED)
+            ScheduledEvaluationState.CLAIMED -> state in setOf(ScheduledEvaluationState.PROCESSED,ScheduledEvaluationState.CANCELLED)
+            ScheduledEvaluationState.CANCELLED,ScheduledEvaluationState.PROCESSED -> false
+        }
+        require(legal){"RPGOS-P40:ILLEGAL_STATE_TRANSITION:${current.name}->${state.name}"}
         db.execSQL("INSERT INTO ${Phase40SchedulerSchema.TRANSITIONS} VALUES(?,?,?,?,?,?,?)",arrayOf(campaignUid,transitionUid,evaluationUid,state.name,effectiveOrder,identity.transactionUid,provenanceUid))
     }
     fun due(atOrder:Long,limit:Int=100):List<DueEvaluation>{require(atOrder>=0L&&limit in 1..500);return db.rawQuery("""SELECT d.evaluation_uid,d.evaluator_kind_uid,d.subject_kind_uid,d.subject_uid,d.due_order,d.created_order,d.provenance_uid,d.payload_canonical,(SELECT t.state_uid FROM ${Phase40SchedulerSchema.TRANSITIONS} t WHERE t.campaign_uid=d.campaign_uid AND t.evaluation_uid=d.evaluation_uid AND t.effective_order<=? ORDER BY t.effective_order DESC,t.transition_uid DESC LIMIT 1) FROM ${Phase40SchedulerSchema.DEFINITIONS} d WHERE d.campaign_uid=? AND d.due_order<=? ORDER BY d.due_order,d.evaluation_uid LIMIT $limit""",arrayOf(atOrder.toString(),campaignUid,atOrder.toString())).use{c->buildList{while(c.moveToNext()){val state=if(c.isNull(8))ScheduledEvaluationState.PENDING else ScheduledEvaluationState.valueOf(c.getString(8));if(state==ScheduledEvaluationState.PENDING)add(DueEvaluation(ScheduledEvaluation(campaignUid,c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getLong(4),c.getLong(5),c.getString(6),c.getString(7)),atOrder))}}}}
+    private fun stateAt(evaluationUid:String,atOrder:Long):ScheduledEvaluationState=db.rawQuery("SELECT state_uid FROM ${Phase40SchedulerSchema.TRANSITIONS} WHERE campaign_uid=? AND evaluation_uid=? AND effective_order<=? ORDER BY effective_order DESC,transition_uid DESC LIMIT 1",arrayOf(campaignUid,evaluationUid,atOrder.toString())).use{c->if(!c.moveToFirst())ScheduledEvaluationState.PENDING else ScheduledEvaluationState.valueOf(c.getString(0))}
+    private fun latestTransitionOrder(evaluationUid:String):Long?=db.rawQuery("SELECT MAX(effective_order) FROM ${Phase40SchedulerSchema.TRANSITIONS} WHERE campaign_uid=? AND evaluation_uid=?",arrayOf(campaignUid,evaluationUid)).use{c->if(!c.moveToFirst()||c.isNull(0))null else c.getLong(0)}
     private fun definition(uid:String):ScheduledEvaluation?=db.rawQuery("SELECT evaluator_kind_uid,subject_kind_uid,subject_uid,due_order,created_order,provenance_uid,payload_canonical FROM ${Phase40SchedulerSchema.DEFINITIONS} WHERE campaign_uid=? AND evaluation_uid=?",arrayOf(campaignUid,uid)).use{c->if(!c.moveToFirst())null else ScheduledEvaluation(campaignUid,uid,c.getString(0),c.getString(1),c.getString(2),c.getLong(3),c.getLong(4),c.getString(5),c.getString(6))}
 }
 
-class Phase40Scheduler(private val campaignUid:String,private val dueSource:(Long,Int)->List<DueEvaluation>){
-    fun due(atOrder:Long,limit:Int=100):List<DueEvaluation>{require(atOrder>=0L&&limit in 1..500);return dueSource(atOrder,limit).also{rows->require(rows.all{it.observedAtOrder==atOrder&&it.evaluation.campaignUid==campaignUid})}.sortedWith(compareBy<DueEvaluation>{it.evaluation.dueOrder}.thenBy{it.evaluation.evaluationUid}).take(limit)}
+/** Raw scheduler rows are an internal-simulation surface, never a player/NPC retrieval surface. */
+internal class Phase40Scheduler(private val campaignUid:String,private val dueSource:(Long,Int)->List<DueEvaluation>){
+    fun due(atOrder:Long,purpose:PurposeContext,limit:Int=100):List<DueEvaluation>{
+        require(purpose.campaignUid==campaignUid&&purpose.purposeUid==VisibilityPurposeKinds.INTERNAL_SIMULATION){"RPGOS-P40:INTERNAL_SIMULATION_ONLY"}
+        require(atOrder>=0L&&limit in 1..500)
+        return dueSource(atOrder,limit).also{rows->require(rows.all{it.observedAtOrder==atOrder&&it.evaluation.campaignUid==campaignUid})}.sortedWith(compareBy<DueEvaluation>{it.evaluation.dueOrder}.thenBy{it.evaluation.evaluationUid}).take(limit)
+    }
 }

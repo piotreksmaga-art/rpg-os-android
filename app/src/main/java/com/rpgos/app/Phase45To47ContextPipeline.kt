@@ -21,8 +21,18 @@ class IterativeRetrievalPipeline(private val retriever:StructuredSqlRetriever,pr
     fun execute(plan:TurnPlan,profile:ContextModelProfile):IterativeContextResult{
         var candidate=Phase45ContextBuilder(retriever).build(plan);val fingerprints=plan.steps.map{it.request.fingerprint()}.toMutableSet();var iterations=0
         fun missing()=candidate.segments.filter{it.priority in setOf(PlanStepPriority.REQUIRED,PlanStepPriority.SAFETY)&&it.state!=RetrievalState.VALUE}.map{MissingContext(it.segmentUid,it.sourceRequestUid,it.state.name)}
+        fun requirePlanScope(request:StructuredRetrievalRequest){
+            require(request.campaignUid==plan.campaignUid&&request.audience==plan.audience&&request.purpose==plan.purpose){"RPGOS-P47:ENTITLEMENT_EXPANSION"}
+            val step=plan.steps.singleOrNull{it.request.requestUid==request.requestUid}?:throw IllegalArgumentException("RPGOS-P47:REQUEST_OUTSIDE_TURN_PLAN")
+            val original=step.request
+            require(request.providerUid==original.providerUid&&request.operationUid==original.operationUid){"RPGOS-P47:CAPABILITY_EXPANSION"}
+            require(request.atOrder==original.atOrder&&request.limit<=original.limit){"RPGOS-P47:QUERY_SCOPE_EXPANSION"}
+            require(original.filters.all{(key,value)->request.filters[key]==value}){"RPGOS-P47:FILTER_SCOPE_EXPANSION"}
+            val addedKeys=request.filters.keys-original.filters.keys
+            require(addedKeys.none{key->key.endsWith("_uid")||key.endsWith("_id")}){"RPGOS-P47:IDENTITY_SCOPE_EXPANSION"}
+        }
         var absent=missing()
-        while(absent.isNotEmpty()&&iterations<policy.maxIterations){val proposed=strategy.followUps(plan,candidate,absent).take(policy.maxFollowUpRequests).filter{request->require(request.campaignUid==plan.campaignUid&&request.audience==plan.audience&&request.purpose==plan.purpose){"RPGOS-P47:ENTITLEMENT_EXPANSION"};fingerprints.add(request.fingerprint())};if(proposed.isEmpty())break;proposed.forEachIndexed{i,request->val replacement=when(val result=retriever.retrieve(request)){is StructuredRetrievalResult.Value->ContextSegment("FOLLOWUP:${iterations+1}:$i",request.requestUid,PlanStepPriority.REQUIRED,result.state,result.records,result.complete);else->ContextSegment("FOLLOWUP:${iterations+1}:$i",request.requestUid,PlanStepPriority.REQUIRED,result.state,emptyList(),result is StructuredRetrievalResult.NoData)};candidate=candidate.copy(segments=candidate.segments.filterNot{it.sourceRequestUid==request.requestUid}+replacement)};iterations++;absent=missing()}
+        while(absent.isNotEmpty()&&iterations<policy.maxIterations){val proposed=strategy.followUps(plan,candidate,absent).take(policy.maxFollowUpRequests).filter{request->requirePlanScope(request);fingerprints.add(request.fingerprint())};if(proposed.isEmpty())break;proposed.forEachIndexed{i,request->val replacement=when(val result=retriever.retrieve(request)){is StructuredRetrievalResult.Value->ContextSegment("FOLLOWUP:${iterations+1}:$i",request.requestUid,PlanStepPriority.REQUIRED,result.state,result.records,result.complete);else->ContextSegment("FOLLOWUP:${iterations+1}:$i",request.requestUid,PlanStepPriority.REQUIRED,result.state,emptyList(),result is StructuredRetrievalResult.NoData)};candidate=candidate.copy(segments=candidate.segments.filterNot{it.sourceRequestUid==request.requestUid}+replacement)};iterations++;absent=missing()}
         val budgeted=budgetManager.apply(candidate,profile);absent=missing();val termination=when{absent.isEmpty()->"CONTEXT_COMPLETE";iterations>=policy.maxIterations->"ITERATION_LIMIT";else->"NO_LEGAL_FOLLOW_UP"};return IterativeContextResult(budgeted,iterations,absent,termination)
     }
 }

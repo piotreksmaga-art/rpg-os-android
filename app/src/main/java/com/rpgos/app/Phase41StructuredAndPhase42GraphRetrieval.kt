@@ -42,34 +42,67 @@ class Phase42CausalQueryProvider(
         val direction=request.filters["direction_uid"]?:"BOTH"
         val depth=request.filters["max_depth"]?.toIntOrNull()?.coerceIn(1,8)?:3
         val kinds=request.filters["relation_kinds"]?.split(',')?.filter{it.isNotBlank()}?.toSet().orEmpty()
-        val query=CanonicalCausalTraversalQuery(start,direction,kinds,depth,request.limit)
-        return when(val result=protectedReads.causalTraversal(request.audience,request.purpose,query)){
-            is ProtectedReadResult.Allow -> StructuredRetrievalResult.Value(result.value.map{row->
-                val values=linkedMapOf<String,Any?>(
-                    "relation_class_uid" to row.relationClassUid,
-                    "relation_kind_uid" to row.relationKindUid,
-                    "source_disclosure_state" to row.source.state.name,
-                    "target_disclosure_state" to row.target.state.name,
-                    "committed_order" to row.committedOrder
-                )
-                if(row.source.state==ProjectionDataState.DISCLOSED){
-                    values["source_event_uid"]=row.source.eventUid
-                    values["source_subject_kind_uid"]=row.source.subjectKindUid
-                    values["source_subject_uid"]=row.source.subjectUid
+        if(direction !in setOf("OUTGOING","INCOMING","BOTH"))return StructuredRetrievalResult.Unknown("DIRECTION_UNSUPPORTED")
+
+        // Visibility constrains frontier expansion. Every owner read is one hop; an undisclosed endpoint is never enqueued.
+        val frontier=ArrayDeque<Pair<String,Int>>()
+        frontier.add(start to 0)
+        val visited=linkedSetOf(start)
+        val seenRelations=linkedSetOf<String>()
+        val projected=mutableListOf<ProjectedCausalRelation>()
+        while(frontier.isNotEmpty()&&projected.size<request.limit){
+            val(node,nodeDepth)=frontier.removeFirst()
+            if(nodeDepth>=depth)continue
+            val remaining=request.limit-projected.size
+            val oneHop=CanonicalCausalTraversalQuery(node,direction,kinds,1,remaining)
+            when(val result=protectedReads.causalTraversal(request.audience,request.purpose,oneHop)){
+                is ProtectedReadResult.Allow -> result.value.forEach{row->
+                    if(projected.size>=request.limit||!seenRelations.add(row.relationUid))return@forEach
+                    projected+=row
+                    val next=when(direction){
+                        "OUTGOING"->row.target
+                        "INCOMING"->row.source
+                        else->when{
+                            row.source.state==ProjectionDataState.DISCLOSED&&row.source.eventUid==node->row.target
+                            row.target.state==ProjectionDataState.DISCLOSED&&row.target.eventUid==node->row.source
+                            else->null
+                        }
+                    }
+                    val nextUid=next?.eventUid
+                    if(next?.state==ProjectionDataState.DISCLOSED&&nextUid!=null&&visited.add(nextUid))frontier.add(nextUid to nodeDepth+1)
                 }
-                if(row.target.state==ProjectionDataState.DISCLOSED){
-                    values["target_event_uid"]=row.target.eventUid
-                    values["target_subject_kind_uid"]=row.target.subjectKindUid
-                    values["target_subject_uid"]=row.target.subjectUid
-                }
-                RetrievalRecord(row.relationUid,values,"CAUSAL_RELATION:${row.semanticFingerprint}")
-            },result.value.size<request.limit)
-            ProtectedReadResult.NoData -> StructuredRetrievalResult.NoData
-            is ProtectedReadResult.Deny -> StructuredRetrievalResult.Denied(result.reasonCode)
-            is ProtectedReadResult.NotDisclosed -> StructuredRetrievalResult.NotDisclosed(result.reasonCode)
-            is ProtectedReadResult.Unknown -> StructuredRetrievalResult.Unknown(result.reasonCode)
-            is ProtectedReadResult.Corruption -> StructuredRetrievalResult.Corruption(result.reasonCode)
+                ProtectedReadResult.NoData -> Unit
+                is ProtectedReadResult.Deny -> return StructuredRetrievalResult.Denied(result.reasonCode)
+                is ProtectedReadResult.NotDisclosed -> return StructuredRetrievalResult.NotDisclosed(result.reasonCode)
+                is ProtectedReadResult.Unknown -> return StructuredRetrievalResult.Unknown(result.reasonCode)
+                is ProtectedReadResult.Corruption -> return StructuredRetrievalResult.Corruption(result.reasonCode)
+            }
         }
+        if(projected.isEmpty())return StructuredRetrievalResult.NoData
+        val records=projected.map{row->
+            val values=linkedMapOf<String,Any?>(
+                "relation_class_uid" to row.relationClassUid,
+                "relation_kind_uid" to row.relationKindUid,
+                "source_disclosure_state" to row.source.state.name,
+                "target_disclosure_state" to row.target.state.name,
+                "committed_order" to row.committedOrder
+            )
+            if(row.source.state==ProjectionDataState.DISCLOSED){
+                values["source_event_uid"]=row.source.eventUid
+                values["source_subject_kind_uid"]=row.source.subjectKindUid
+                values["source_subject_uid"]=row.source.subjectUid
+            }
+            if(row.target.state==ProjectionDataState.DISCLOSED){
+                values["target_event_uid"]=row.target.eventUid
+                values["target_subject_kind_uid"]=row.target.subjectKindUid
+                values["target_subject_uid"]=row.target.subjectUid
+            }
+            val fullyDisclosed=row.source.state==ProjectionDataState.DISCLOSED&&row.target.state==ProjectionDataState.DISCLOSED
+            // relationUid is itself the authorized relation carrier; canonical semantic fingerprint is not disclosed on partial rows.
+            val provenance=if(fullyDisclosed)"CAUSAL_RELATION:${row.semanticFingerprint}" else "CAUSAL_RELATION_PROJECTED"
+            RetrievalRecord(row.relationUid,values,provenance)
+        }
+        return StructuredRetrievalResult.Value(records,frontier.isEmpty())
     }
 }
 
