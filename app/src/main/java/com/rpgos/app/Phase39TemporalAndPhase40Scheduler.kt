@@ -74,10 +74,19 @@ class AccessAuthorityTemporalSource(private val protectedReads: ProtectedCampaig
         if (split.size != 2 || split.any { it.isBlank() }) return TemporalResult.Unknown("MALFORMED_PRINCIPAL")
         val target=VisibilityPrincipalRef(split[0],split[1])
         return when(val result=protectedReads.accessAuthorityHistory(query.audience,query.purpose,target,query.atOrder)){
-            is ProtectedReadResult.Allow -> TemporalResult.Value(result.value.map {
-                TemporalRecord(it.recordUid,it.validFromOrder,it.validUntilOrder,
-                    mapOf("operation" to it.operation.name,"kind_uid" to it.kindUid,"value_uid" to it.valueUid,"subject_kind_uid" to it.subjectKindUid,"subject_uid" to it.subjectUid),
-                    "ACCESS_AUTHORITY:${it.recordUid}:${it.createdOrder}")
+            is ProtectedReadResult.Allow -> TemporalResult.Value(result.value.map { record ->
+                val values=linkedMapOf<String,Any?>(
+                    "operation" to record.operation.name,
+                    "kind_uid" to record.kindUid,
+                    "value_uid" to record.valueUid
+                )
+                if(result.reasonCode=="OWN_ACCESS_AUTHORITY_HISTORY"){
+                    values["subject_scoped"]=record.subjectUid!=null
+                }else{
+                    values["subject_kind_uid"]=record.subjectKindUid
+                    values["subject_uid"]=record.subjectUid
+                }
+                TemporalRecord(record.recordUid,record.validFromOrder,record.validUntilOrder,values,"ACCESS_AUTHORITY:${record.recordUid}:${record.createdOrder}")
             })
             ProtectedReadResult.NoData -> TemporalResult.NoData
             is ProtectedReadResult.Deny -> TemporalResult.Denied(result.reasonCode)
