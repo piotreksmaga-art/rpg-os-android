@@ -116,8 +116,14 @@ object VisibilityConsumerInventory {
             VisibilityPurposeKinds.INTERNAL_SIMULATION),
         c("turn-transaction", "app/src/main/java/com/rpgos/app/TurnTransaction.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
             VisibilityPurposeKinds.INTERNAL_SIMULATION),
+        c("campaign-causal-graph", "app/src/main/java/com/rpgos/app/CampaignCausalGraph.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("phase38-access-authority", "app/src/main/java/com/rpgos/app/Phase38AccessAuthority.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
             VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
+        c("phase39-temporal-consumer", "app/src/main/java/com/rpgos/app/Phase39TemporalAndPhase40Scheduler.kt", ProtectedConsumerCapability.PROJECTED_CONSUMER,
+            VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
+        c("phase41-42-retrieval-consumer", "app/src/main/java/com/rpgos/app/Phase41StructuredAndPhase42GraphRetrieval.kt", ProtectedConsumerCapability.PROJECTED_CONSUMER,
+            VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("unified-repository", "app/src/main/java/com/rpgos/app/UnifiedGameRepository.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
             VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("image-generate-request-model", "app/src/main/java/com/rpgos/app/ImageModels.kt", ProtectedConsumerCapability.PRESENTATION_AFTER_PROJECTION,
@@ -146,12 +152,13 @@ object VisibilityConsumerInventory {
         "gm_summary","npc_memories_v2","npc_beliefs","npc_schedules","npc_decisions",
         "CampaignTruthStore(","KnowledgeContextProjection(","campaign_truth","canon_diverg","canon_characters_v2",
         "hidden_pressure","world_pressures","country_economies","relationships_v2","InformationCarrierRef",
+        "AccessAuthorityStore(","CampaignCausalGraph(","CampaignCausalGraphSchema.TABLE",
         "Phase38AccessRuntimeAuthority.issuePath(","AuthorizationDecision.allow(","EffectiveAccessDecision.granted(",
         "visibility_envelope","Phase38VisualAuthorization","/v1/images/generate","/v1/images/edit"
     )
     private val forbiddenDirectSymbols = listOf(
-        "CampaignTruthStore(", "PlayerStateStore(", "KnowledgeStore(", ".openWorldDb()", ".openCoreDb()",
-        "Phase38AccessRuntimeAuthority.issuePath(", "AuthorizationDecision.allow(", "EffectiveAccessDecision.granted("
+        "CampaignTruthStore(", "PlayerStateStore(", "KnowledgeStore(", "AccessAuthorityStore(", "CampaignCausalGraph(", "CampaignCausalGraphSchema.TABLE",
+        ".openWorldDb()", ".openCoreDb()", "Phase38AccessRuntimeAuthority.issuePath(", "AuthorizationDecision.allow(", "EffectiveAccessDecision.granted("
     )
     fun hasForbiddenDirectProtectedEntryPoint(source: String): Boolean = forbiddenDirectSymbols.any(source::contains)
 
