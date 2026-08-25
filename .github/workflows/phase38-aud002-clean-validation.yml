@@ -1,0 +1,120 @@
+name: Phase38 AUD002 Clean Provenance Gate
+
+on:
+  push:
+    branches: [ "chat1-phase38-aud002-clean-validation" ]
+
+permissions:
+  contents: read
+
+env:
+  TESTED_SHA: 3f80356679010786654144b92a08d109cf4a7e59
+
+jobs:
+  targeted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact clean candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TESTED_SHA }}
+
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Install Android SDK 36
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Run Phase38 targeted
+        shell: bash
+        run: |
+          rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
+          set +e
+          gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase38*' --stacktrace
+          rc=$?
+          set -e
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          tests = failures = skipped = 0
+          for path in glob.glob('app/build/test-results/testDebugUnitTest/TEST-*.xml'):
+              root = ET.parse(path).getroot()
+              tests += int(root.attrib.get('tests', 0))
+              failures += int(root.attrib.get('failures', 0)) + int(root.attrib.get('errors', 0))
+              skipped += int(root.attrib.get('skipped', 0))
+          print(f'TARGETED_XML tests={tests} failures={failures} skipped={skipped}')
+          PY
+          echo "TARGETED_RC=$rc TESTED_SHA=$TESTED_SHA"
+          exit "$rc"
+
+  full-jvm:
+    needs: targeted
+    if: ${{ needs.targeted.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact clean candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TESTED_SHA }}
+
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Install Android SDK 36
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Run full JVM
+        shell: bash
+        run: |
+          rm -rf app/build/test-results/testDebugUnitTest app/build/reports/tests/testDebugUnitTest
+          set +e
+          gradle --no-daemon :app:testDebugUnitTest --stacktrace
+          rc=$?
+          set -e
+          python3 - <<'PY'
+          import glob, xml.etree.ElementTree as ET
+          tests = failures = skipped = 0
+          for path in glob.glob('app/build/test-results/testDebugUnitTest/TEST-*.xml'):
+              root = ET.parse(path).getroot()
+              tests += int(root.attrib.get('tests', 0))
+              failures += int(root.attrib.get('failures', 0)) + int(root.attrib.get('errors', 0))
+              skipped += int(root.attrib.get('skipped', 0))
+          print(f'FULL_XML tests={tests} failures={failures} skipped={skipped}')
+          PY
+          echo "FULL_RC=$rc TESTED_SHA=$TESTED_SHA"
+          exit "$rc"
