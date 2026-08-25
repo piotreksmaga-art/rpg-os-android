@@ -388,7 +388,7 @@ internal class CampaignCausalGraph(private val db: SQLiteDatabase, private val c
 
     private fun planned(identity: TurnTransactionIdentity, intent: CanonicalCausalRelationIntent, ordinal: Int): Pair<String,String> {
         val semantic = listOf(
-            "v=$PHASE31_CAUSAL_SCHEMA_VERSION","campaign=$campaignUid","tx=${identity.transactionUid}","turn=${identity.turnUid},","command=${identity.commandUid}",
+            "v=$PHASE31_CAUSAL_SCHEMA_VERSION","campaign=$campaignUid","tx=${identity.transactionUid}","turn=${identity.turnUid}","command=${identity.commandUid}",
             "intent=${intent.relationIntentUid}","ordinal=$ordinal","class=${intent.relationClass.name}","kind=${intent.relationKindUid}",
             "source=${intent.sourceEventUid}","target=${intent.targetEventUid}","evidence=${encodeStrings(intent.evidenceEventUids)}",
             "provenance=${encodeStrings(intent.provenanceEventUids)}","supersedes=${intent.supersedesRelationUid ?: "UNKNOWN"}"
