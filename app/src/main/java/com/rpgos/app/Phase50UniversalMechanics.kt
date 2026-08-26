@@ -8,6 +8,13 @@ enum class MechanicalStateMaterialization { SEED_ONLY, PARTIAL, FULL }
 
 data class MechanicalResource(val resourceUid:String,val current:Long,val maximum:Long){init{require(resourceUid.isNotBlank()&&maximum>=0&&current in 0..maximum)}}
 data class MechanicalCondition(val conditionUid:String,val intensity:Long,val expiresAtOrder:Long?=null){init{require(conditionUid.isNotBlank()&&intensity>=0&&expiresAtOrder?.let{it>=0}!=false)}}
+data class AggregateMechanicalPopulation(
+    val totalCount:Long,val activeCount:Long,val woundedCount:Long=0,val eliminatedCount:Long=0,
+    val conditionCounts:Map<String,Long> = emptyMap()
+){init{
+    require(totalCount>0&&activeCount>=0&&woundedCount>=0&&eliminatedCount>=0&&activeCount+woundedCount+eliminatedCount<=totalCount)
+    require(conditionCounts.keys.none{it.isBlank()}&&conditionCounts.values.all{it in 0..totalCount})
+}}
 
 data class MechanicalActorView(
     val campaignUid:String,
@@ -23,11 +30,13 @@ data class MechanicalActorView(
     val equipmentRefs:List<DomainRef> = emptyList(),
     val conditions:List<MechanicalCondition> = emptyList(),
     val locationRef:DomainRef?=null,
-    val generationProvenanceUid:String
+    val generationProvenanceUid:String,
+    val aggregatePopulation:AggregateMechanicalPopulation?=null
 ){init{
     require(campaignUid.isNotBlank()&&actor.kindUid.isNotBlank()&&actor.uid.isNotBlank()&&stateVersion>=0&&generationProvenanceUid.isNotBlank())
     require(attributes.keys.none{it.isBlank()}&&resources.map{it.resourceUid}.distinct().size==resources.size)
     require(executableAbilityUids.none{it.isBlank()}&&resistanceBasisPoints.values.all{it in -100_000..100_000})
+    require(aggregatePopulation==null||kind in setOf(MechanicalActorKind.UNIT,MechanicalActorKind.GROUP))
 }}
 
 enum class GenerationRuleKind { REQUIRED, CONDITIONAL, WEIGHTED, FORBIDDEN }
@@ -110,10 +119,14 @@ sealed interface CombatReactionEligibility{
 }
 
 class CombatReactionGate{
-    fun evaluate(request:CombatReactionRequest,intent:CombatIntent,snapshot:ImmutableCombatSnapshot):CombatReactionEligibility{
+    fun evaluate(request:CombatReactionRequest,intent:CombatIntent,snapshot:ImmutableCombatSnapshot,reactionAtOrder:Long=snapshot.atOrder):CombatReactionEligibility{
         val actor=snapshot.actors.singleOrNull{it.actor==request.reactor}?:return CombatReactionEligibility.Rejected("REACTOR_NOT_MATERIALIZED")
         if(request.reactionAbilityUid !in actor.executableAbilityUids)return CombatReactionEligibility.Rejected("REACTION_CAPABILITY_UNAVAILABLE")
-        val perceived=snapshot.perception.filter{it.observer==request.reactor&&it.perceivedSubject==intent.actor&&it.availableAtOrder<=snapshot.atOrder}
+        val availableAt=snapshot.timingFacts["${request.reactor.kindUid}:${request.reactor.uid}:reaction_available_at:${request.reactionAbilityUid}"]?:snapshot.atOrder
+        if(availableAt>reactionAtOrder)return CombatReactionEligibility.Rejected("REACTION_WINDOW_NOT_OPEN")
+        val cooldownUntil=snapshot.timingFacts["${request.reactor.kindUid}:${request.reactor.uid}:cooldown:${request.reactionAbilityUid}"]?:0L
+        if(cooldownUntil>reactionAtOrder)return CombatReactionEligibility.Rejected("REACTION_IN_RECOVERY")
+        val perceived=snapshot.perception.filter{it.observer==request.reactor&&it.perceivedSubject==intent.actor&&it.availableAtOrder<=reactionAtOrder}
             .maxByOrNull{it.qualityBasisPoints}?:return CombatReactionEligibility.Rejected("ATTACK_NOT_PERCEIVED")
         if(request.resourceUid!=null){
             val resource=actor.resources.singleOrNull{it.resourceUid==request.resourceUid}?:return CombatReactionEligibility.Rejected("REACTION_RESOURCE_MISSING")
@@ -123,7 +136,10 @@ class CombatReactionGate{
     }
 }
 
-enum class UniversalMechanicalEffectKind { RESOURCE_DELTA, WOUND, CONDITION, MOVEMENT, EQUIPMENT, STRUCTURE, MORALE, COHESION, FORMATION, ENVIRONMENT }
+enum class UniversalMechanicalEffectKind {
+    RESOURCE_DELTA, WOUND, CONDITION, MOVEMENT, EQUIPMENT, STRUCTURE, MORALE, COHESION, FORMATION, ENVIRONMENT,
+    AGGREGATE_ELIMINATION, AGGREGATE_INJURY, AGGREGATE_CONDITION
+}
 data class UniversalMechanicalEffect(
     val effectUid:String,val kind:UniversalMechanicalEffectKind,val target:DomainRef,val magnitude:Long,
     val payload:Map<String,String>,val causeIntentUid:String
@@ -141,31 +157,13 @@ sealed interface CombatResolution{
 
 class UniversalCombatResolver(private val rulesetUid:String="RPGOS-UNIVERSAL-COMBAT-V1"){
     fun resolve(intent:CombatIntent,snapshot:ImmutableCombatSnapshot,reaction:CombatReactionRequest?=null):CombatResolution{
-        if(intent.campaignUid!=snapshot.campaignUid)return CombatResolution.Rejected("CROSS_CAMPAIGN_COMBAT")
-        val attacker=snapshot.actors.singleOrNull{it.actor==intent.actor}?:return CombatResolution.Rejected("ACTOR_NOT_MATERIALIZED")
-        val defender=snapshot.actors.singleOrNull{it.actor==intent.target}?:return CombatResolution.Rejected("TARGET_NOT_MATERIALIZED")
-        if(intent.abilityUid !in attacker.executableAbilityUids)return CombatResolution.Rejected("ABILITY_UNAVAILABLE")
-        val reactionEligible=reaction?.let{CombatReactionGate().evaluate(it,intent,snapshot)}
-        if(reactionEligible is CombatReactionEligibility.Rejected)return CombatResolution.Rejected(reactionEligible.reasonUid)
-        val input=canonicalInput(intent,snapshot,reaction)
-        val seed=sha256("$rulesetUid|$input")
-        val random=Random(seed.take(16).toULong(16).toLong())
-        val attackDraw=random.nextInt(10_001).toLong();val defenceDraw=random.nextInt(10_001).toLong()
-        val attack=attacker.attributes["POWER"].orZero()+attacker.attributes["SKILL"].orZero()+attackDraw/100
-        val defence=defender.attributes["DEFENCE"].orZero()+defender.attributes["AGILITY"].orZero()+defenceDraw/100+(if(reactionEligible is CombatReactionEligibility.Eligible)20 else 0)
-        val margin=attack-defence
-        val effects=if(margin<=0)emptyList() else listOf(UniversalMechanicalEffect(
-            "COMBAT:${intent.intentUid}:E0",UniversalMechanicalEffectKind.WOUND,intent.target,margin.coerceAtMost(10_000),
-            mapOf("severity_uid" to when{margin>100->"SEVERE";margin>30->"MODERATE";else->"LIGHT"}),intent.intentUid
-        ))
-        val outcome=if(margin<=0)"NO_EFFECT" else "EFFECT_APPLIED"
-        val output=effects.joinToString("|")
-        return CombatResolution.Resolved(outcome,effects,DeterministicMechanicsEvidence(
-            "PROOF:${sha256("$input|$output")}",rulesetUid,snapshot.fingerprint,seed,listOf(attackDraw,defenceDraw),sha256(input),sha256(output)
+        val positioned=if(snapshot.positionOf(intent.actor)==null&&snapshot.positionOf(intent.target)==null){
+            val positions=mapOf(intent.actor to CombatPosition.Exact(0,0),intent.target to CombatPosition.Exact(0,0))
+            CombatSpatialState(positions)
+        }else CombatSpatialState(emptyMap())
+        return UniversalCombatEngine(rulesetUid).resolve(UniversalCombatRequest(
+            intent=intent,snapshot=snapshot,ability=CombatAbilityContract(intent.abilityUid),spatialState=positioned,reaction=reaction,
+            objective=CombatObjective(intent.objectiveUid,CombatObjectiveKind.DISABLE)
         ))
     }
-    private fun canonicalInput(intent:CombatIntent,snapshot:ImmutableCombatSnapshot,reaction:CombatReactionRequest?)=
-        "$intent|${snapshot.fingerprint}|$reaction"
-    private fun Long?.orZero()=this?:0L
-    private fun sha256(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString(""){"%02x".format(it)}
 }

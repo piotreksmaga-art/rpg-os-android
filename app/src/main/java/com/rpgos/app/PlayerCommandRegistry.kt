@@ -340,5 +340,6 @@ private fun corePayloadAllowedKeys(type: KClass<*>): Set<String> = when (type) {
     ChangeProjectLifecycleCommandPayload::class -> setOf("projectUid", "requestedStatusUid", "successorProjectUid")
     CompleteProjectCommandPayload::class -> setOf("projectUid", "completionEvidenceRefs")
     CancelProjectCommandPayload::class -> setOf("projectUid", "reasonUid", "reasonText")
+    ApplyVerifiedMechanicsCommandPayload::class -> setOf("planUid", "effects")
     else -> emptySet()
 }

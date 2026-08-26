@@ -80,6 +80,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("com.squareup.okhttp3:okhttp:5.3.2")
+    // Official ExecuTorch Android AAR packages the native CPU/XNNPACK runtime for on-device LLMs.
+    implementation("org.pytorch:executorch-android:1.3.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.14.1")

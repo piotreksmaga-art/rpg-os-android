@@ -156,3 +156,15 @@ Przy kolejnych dużych normalizacjach aktywnych dokumentów:
 1. zachowaj exact snapshot w `docs/history/` albo w innym jawnie wskazanym archiwum;
 2. dopisz do tego pliku datę, commit/blob SHA i najważniejsze decyzje;
 3. nie przenoś historycznych opisów z powrotem do aktywnej Roadmapy ani Architektury, chyba że stają się ponownie obowiązującym kontraktem.
+
+## Phase 48–54 integrated repair candidate — 2026-08-27
+
+Branch `codex/phase-48-54-repair` rozpoczął się od master SHA `0ea25f1abb4b9e7639058df5c48466e4f5f3d70e` według `CODEX_PLAN_POPRAWKI_48-54.md`.
+
+Work block zamknął dwa wcześniejsze blockery implementacyjne: spakował oficjalny Android ExecuTorch runtime dla local AI i ustanowił jeden production composition root od Android chat przez Phase43–54 do istniejącego TurnTransaction. Dodatkowo wdrożył pełny Phase50 candidate z trwałym non-player mechanical state, owner-routed effects, staged multi-action, generic AoE, aggregate individual/group/unit combat, Core-owned status effects oraz World-Pack-owned ability/status chance bindings.
+
+Zakres rozszerzono o uniwersalny kreator postaci nowej kampanii: AI tworzy tylko kompletny draft z aktywnych World Pack definitions, a osobne fingerprinted potwierdzenie gracza uruchamia atomowy bootstrap. Naruto pozostało wyłącznie compatibility fixture.
+
+Minimalny `AggregateCombatStatePort` został jawnie oznaczony jako pulled-forward slice Phase63 bez LOD/world-simulation ownership. Phase65 Director nie otrzymał nowej authority.
+
+Focused provider/schema/repair/production E2E oraz regresje migracji, backupu i finansów były zielone lokalnie. Pełny lokalny JVM run został unieważniony przez Windows Defender blokujący wyodrębnioną bibliotekę natywną Robolectric, co następnie powodowało kaskadowe błędy funkcji SQLite; Linux exact-SHA CI i podpisany validation APK pozostają właściwą bramką końcową. Ten wpis nie oznacza globalnego acceptance ani zgody na merge.

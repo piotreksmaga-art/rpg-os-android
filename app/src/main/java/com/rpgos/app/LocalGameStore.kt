@@ -36,6 +36,7 @@ internal class LocalGameStore(private val context: Context) {
                     withAdministrativeMutationAuthority(save, campaignUid, explicitBootstrap)
                 } else explicitBootstrap()
             }.onFailure { DiagnosticLogger.log(context, "AUTO_REPAIR_BOOT_FAILED", it) }
+            ensureCharacterCreationDefinitions(save,campaignUid)
             GameplayRuntimeBootstrap.initialize(save, campaignUid)
             val snapshots=CampaignSnapshotManager(save,campaignUid,File(saveDir,"snapshots"))
             if(snapshots.latestValidCompatible()==null) snapshots.create(SnapshotKind.AUTOMATIC)
@@ -55,11 +56,15 @@ internal class LocalGameStore(private val context: Context) {
         }
         CanonicalPackageReplacement.reconcile(target, validPackage)
         if (validPackage(target)) return
-        val staging = File(baseDir, ".bootstrap-staging/${target.name}-${System.nanoTime()}")
+        // Keep staging paths short: legacy Windows SQLite drivers used by local validation can
+        // still fail before opening a valid DB when an otherwise legal absolute path is too long.
+        val staging = File(baseDir, ".s/${if(isCampaign)"c" else "w"}-${System.nanoTime()}")
         staging.deleteRecursively()
         try {
             extractAssetZip(assetName, staging)
-            require(validPackage(staging)) { "Bootstrap package $assetName failed canonical validation" }
+            val validation=runCatching{if(isCampaign)validator.validateCampaign(staging) else validator.validateWorldPack(staging)}
+                .getOrElse{ValidationResult(false,it.message?:it::class.java.simpleName)}
+            require(validation.ok) { "Bootstrap package $assetName failed canonical validation: ${validation.message}" }
             val prepared = CanonicalPackageReplacement.prepareCopy(staging, target)
             CanonicalPackageReplacement.activatePreparedIf(prepared, target, validPackage) { !validPackage(target) }
         } finally { staging.deleteRecursively() }
@@ -163,6 +168,12 @@ internal class LocalGameStore(private val context: Context) {
 
     fun activePlayerRef(): ActivePlayerRef? { openGameplaySaveDb().use { db -> return ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active() } }
     fun setActivePlayer(playerUid: String): ActivePlayerRef = withAdminReadyDb { db, campaignUid -> ActivePlayerStore(db, campaignUid).set(playerUid) }
+    fun characterCreationCatalog():CharacterCreationCatalog=openGameplaySaveDb().use(::characterCreationCatalog)
+    fun createPlayerCharacter(draft:PlayerCharacterCreationDraft,confirmation:PlayerCharacterCreationConfirmation):PlayerCharacterBootstrapReceipt=
+        openGameplaySaveDb().use{db->
+            val catalog=characterCreationCatalog(db)
+            PlayerCharacterBootstrapService(db,selection.activeCampaignRef().campaignId,selection.currentWorldPackAuthority().binding.worldPackUid,catalog).commit(draft,confirmation)
+        }
     fun playerState(): PlayerStateSnapshot? { openGameplaySaveDb().use { db -> return PlayerStateStore(db, selection.activeCampaignRef().campaignId).load() } }
     fun statDefinitions(): List<StatDefinition> { openGameplaySaveDb().use { db -> return StatResourceStore(db, selection.activeCampaignRef().campaignId).statDefinitions() } }
     fun resourceDefinitions(): List<ResourceDefinition> { openGameplaySaveDb().use { db -> return StatResourceStore(db, selection.activeCampaignRef().campaignId).resourceDefinitions() } }
@@ -196,7 +207,8 @@ internal class LocalGameStore(private val context: Context) {
 
     fun restoreBackup(path: String): String {
         val safety = RestoreManager(context).restoreBackup(selection.activeCampaignDirName(), path)
-        openSaveDb().use { restored -> GameplayRuntimeBootstrap.initialize(restored, selection.activeCampaignRef().campaignId) }
+        val campaignUid=selection.activeCampaignRef().campaignId
+        openSaveDb().use { restored -> ensureCurrentSchema(restored);ensureCharacterCreationDefinitions(restored,campaignUid);GameplayRuntimeBootstrap.initialize(restored,campaignUid) }
         openGameplaySaveDb().use { GameplayRuntimeBootstrap.requireReady(it, selection.activeCampaignRef().campaignId) }
         return safety.absolutePath
     }
@@ -206,12 +218,18 @@ internal class LocalGameStore(private val context: Context) {
 
     fun setActiveCampaign(dirName: String) {
         selection.setActiveCampaign(dirName)
-        openSaveDb().use { db -> GameplayRuntimeBootstrap.initialize(db, selection.activeCampaignRef().campaignId) }
+        val campaignUid=selection.activeCampaignRef().campaignId
+        openSaveDb().use { db -> ensureCurrentSchema(db);ensureCharacterCreationDefinitions(db,campaignUid);GameplayRuntimeBootstrap.initialize(db,campaignUid) }
     }
-    fun setActiveWorldPack(dirName: String) { selection.setActiveWorldPack(dirName) }
+    fun setActiveWorldPack(dirName: String) {
+        selection.setActiveWorldPack(dirName)
+        val campaignUid=selection.activeCampaignRef().campaignId
+        openSaveDb().use{db->ensureCharacterCreationDefinitions(db,campaignUid);GameplayRuntimeBootstrap.initialize(db,campaignUid)}
+    }
     fun createCampaign(name: String): File {
         val created = selection.createCampaign(name)
-        openSaveDb().use { db -> GameplayRuntimeBootstrap.initialize(db, selection.activeCampaignRef().campaignId) }
+        val campaignUid=selection.activeCampaignRef().campaignId
+        openSaveDb().use { db -> ensureCurrentSchema(db);ensureCharacterCreationDefinitions(db,campaignUid);GameplayRuntimeBootstrap.initialize(db,campaignUid) }
         return created
     }
     fun activeCampaignDirName(): String = selection.activeCampaignDirName()
@@ -223,13 +241,35 @@ internal class LocalGameStore(private val context: Context) {
     fun restoreLatestSnapshot():String {
         val active=File(saveDir,"campaign.db");val db=openGameplaySaveDb();val manager=CampaignSnapshotManager(db,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots"))
         val staged=manager.reconstructToVerifiedStaging();manager.activateVerifiedStaging(active,staged)
-        openSaveDb().use{GameplayRuntimeBootstrap.initialize(it,selection.activeCampaignRef().campaignId)}
+        val campaignUid=selection.activeCampaignRef().campaignId
+        openSaveDb().use{ensureCurrentSchema(it);ensureCharacterCreationDefinitions(it,campaignUid);GameplayRuntimeBootstrap.initialize(it,campaignUid)}
         return active.absolutePath
     }
     fun finalizeChapter(chapter: Int, title: String): Pair<String, String> { openGameplaySaveDb().use { save -> val hash = ChapterSaveManager(save).finalizeChapter(chapter, title); CampaignSnapshotManager(save,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots")).create(SnapshotKind.AUTOMATIC);val backup = BackupManager(context).createBackup("chapter_$chapter"); return hash to backup.absolutePath } }
     internal fun applyPatch(patch: StatePatch): PatchResult { openGameplaySaveDb().use { save -> openCoreDb().use { core -> return StatePatchEngine(save, SourceOfTruthRegistry(core)).apply(patch) } } }
     private fun openSave(): SQLiteDatabase = SQLiteDatabase.openDatabase(File(saveDir, "campaign.db").absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
     private fun ensureCurrentSchema(saveDb: SQLiteDatabase) { CurrentSchema.ensure(saveDb, selection.activeCampaignRef().campaignId) }
+
+    private fun ensureCharacterCreationDefinitions(saveDb:SQLiteDatabase,campaignUid:String){
+        // Historical migration/restore fixtures can legitimately omit the World Pack package.
+        // They still migrate, but no character definitions may be invented for a missing or
+        // invalid authority. Normal bootstrap installs and validates the pack before this point.
+        if(!File(worldDir,"world.db").isFile)return
+        val worldPack=selection.currentWorldPackAuthority().binding
+        val install={
+            openWorldDb().use{world->CharacterCreationDefinitionBootstrap(saveDb,world,worldPack).ensure()}
+        }
+        if(GameplayMutationDatabaseGuards.isInstalled(saveDb))withAdministrativeMutationAuthority(saveDb,campaignUid,install) else install()
+    }
+
+    private fun characterCreationCatalog(saveDb:SQLiteDatabase):CharacterCreationCatalog{
+        val locations=openWorldDb().use{world->WorldReader(world,saveDb).locations().map{
+            CharacterCreationDefinitionOption(CharacterCreationDefinitionKind.STARTING_LOCATION,it.uid,it.name)
+        }}
+        return CharacterCreationCatalogReader(
+            saveDb,selection.activeCampaignRef().campaignId,selection.currentWorldPackAuthority().binding.worldPackUid,locations
+        ).read()
+    }
 
     fun status(): StatusSnapshot {
         if (!File(saveDir, "campaign.db").exists()) return StatusSnapshot()

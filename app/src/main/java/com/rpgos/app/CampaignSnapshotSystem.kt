@@ -159,13 +159,22 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
         check(CampaignSnapshotSchema.isReady(db)) { "RPGOS-SNAPSHOT:SCHEMA_NOT_READY" }
         snapshotDir.mkdirs(); reconcileOrphansLocked();val effectivePinned=pinned||kind==SnapshotKind.USER_PINNED
         val order=db.rawQuery("SELECT COALESCE(MAX(created_order),0)+1 FROM ${CampaignSnapshotSchema.CATALOG} WHERE campaign_uid=?",arrayOf(campaignUid)).use{it.moveToFirst();it.getLong(0)}
-        val uid="SNAP-$campaignUid-$order-${UUID.randomUUID()}";val staged=File(snapshotDir,".$uid.staged.db");val published=File(snapshotDir,"$uid.db")
+        val uid="SNAP-$campaignUid-$order-${UUID.randomUUID()}"
+        val payloadToken="s-$order"
+        // Keep the path openable by the oldest Windows-backed SQLite used in local Android tests.
+        // The per-campaign recovery lock makes one stable sibling staging name collision-safe.
+        val staged=File(requireNotNull(snapshotDir.parentFile),".s.tmp");val published=File(snapshotDir,"$payloadToken.db")
         db.execSQL("""INSERT INTO ${CampaignSnapshotSchema.CATALOG}(snapshot_uid,campaign_uid,snapshot_kind,snapshot_schema_version,created_order,
             created_at_epoch_ms,anchor_commit_order,anchor_transaction_uid,anchor_turn_uid,anchor_event_uid,payload_path,payload_sha256,publication_state,pinned)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",arrayOf<Any?>(uid,campaignUid,kind.name,CampaignSnapshotSchema.VERSION,order,System.currentTimeMillis(),
             0L,null,null,null,published.absolutePath,null,SnapshotPublicationState.STAGED.name,if(effectivePinned)1 else 0))
         try {
-            if(staged.exists())staged.delete(); db.execSQL("VACUUM INTO ?",arrayOf(staged.absolutePath));check(staged.isFile)
+            if(staged.exists())staged.delete()
+            check(!db.inTransaction()){"RPGOS-SNAPSHOT:CAPTURE_INSIDE_TRANSACTION"}
+            // VACUUM INTO requires a newer SQLite than Android 9 (the app's minSdk). The recovery
+            // lock prevents concurrent turns; checkpoint first, then copy the canonical DB file.
+            runCatching{db.rawQuery("PRAGMA wal_checkpoint(FULL)",null).use{while(it.moveToNext())Unit}}
+            File(db.path).copyTo(staged,overwrite=false);check(staged.isFile)
             val capturedAnchor=SQLiteDatabase.openDatabase(staged.absolutePath,null,SQLiteDatabase.OPEN_READONLY).use{capturedDb->
                 check(capturedDb.isDatabaseIntegrityOk)
                 val receipt=TurnTransactionReceiptStore(capturedDb).lastValidCommit(campaignUid)

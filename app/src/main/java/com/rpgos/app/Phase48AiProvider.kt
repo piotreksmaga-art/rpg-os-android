@@ -6,6 +6,7 @@ enum class AiWorkload {
     PROPOSAL_REPAIR,
     NARRATIVE_RENDER,
     NARRATIVE_REPAIR,
+    CHARACTER_CREATION,
     DIRECTOR_STRATEGY
 }
 enum class AiProviderKind { LOCAL, CLOUD, CONTROLLED_TEST }
@@ -100,6 +101,8 @@ interface AiProvider{
     fun renderNarrative(request:AiNarrativeRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<RenderedNarrative>
     fun repairNarrative(request:AiNarrativeRepairRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<RenderedNarrative> =
         AiProviderResult.Failure(AiProviderFailureKind.CAPABILITY_MISMATCH,"NARRATIVE_REPAIR_UNSUPPORTED")
+    fun guideCharacterCreation(request:AiCharacterCreationRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<CharacterCreationGmCandidate> =
+        AiProviderResult.Failure(AiProviderFailureKind.CAPABILITY_MISMATCH,"CHARACTER_CREATION_UNSUPPORTED")
     fun generateDirector(request:AiDirectorRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<DirectorBundle> =
         AiProviderResult.Failure(AiProviderFailureKind.CAPABILITY_MISMATCH,"DIRECTOR_STRATEGY_UNSUPPORTED")
     fun cancel(requestUid:String)
@@ -150,6 +153,8 @@ interface AiStructuredCodec{
     fun encodeNarrative(request:AiNarrativeRequest):String
     fun encodeNarrativeRepair(request:AiNarrativeRepairRequest):String
     fun decodeNarrative(payload:String):RenderedNarrative
+    fun encodeCharacterCreation(request:AiCharacterCreationRequest):String = throw IllegalArgumentException("CHARACTER_CREATION_CODEC_UNSUPPORTED")
+    fun decodeCharacterCreation(payload:String):CharacterCreationGmCandidate = throw IllegalArgumentException("CHARACTER_CREATION_CODEC_UNSUPPORTED")
     fun encodeDirector(request:AiDirectorRequest):String
     fun decodeDirector(payload:String):DirectorBundle
 }
@@ -178,6 +183,9 @@ class TransportAiProviderAdapter(
     )
     override fun repairNarrative(request:AiNarrativeRepairRequest,cancellation:AiCancellationSignal)=call(
         request.requestUid,AiWorkload.NARRATIVE_REPAIR,1,codec.encodeNarrativeRepair(request),cancellation,codec::decodeNarrative
+    )
+    override fun guideCharacterCreation(request:AiCharacterCreationRequest,cancellation:AiCancellationSignal)=call(
+        request.requestUid,AiWorkload.CHARACTER_CREATION,1,codec.encodeCharacterCreation(request),cancellation,codec::decodeCharacterCreation
     )
     override fun generateDirector(request:AiDirectorRequest,cancellation:AiCancellationSignal)=call(
         request.requestUid,AiWorkload.DIRECTOR_STRATEGY,DIRECTOR_BUNDLE_SCHEMA_VERSION,codec.encodeDirector(request),cancellation,codec::decodeDirector
@@ -209,13 +217,15 @@ class DeterministicAiProvider(
     private val repairFunction:(AiRepairRequest)->GmProposalCandidate={it.rejectedCandidate},
     private val narrativeFunction:(AiNarrativeRequest)->RenderedNarrative,
     private val narrativeRepairFunction:(AiNarrativeRepairRequest)->RenderedNarrative={narrativeFunction(it.original)},
-    private val directorFunction:(AiDirectorRequest)->DirectorBundle={throw IllegalArgumentException("DIRECTOR_NOT_CONFIGURED")}
+    private val directorFunction:(AiDirectorRequest)->DirectorBundle={throw IllegalArgumentException("DIRECTOR_NOT_CONFIGURED")},
+    private val characterCreationFunction:(AiCharacterCreationRequest)->CharacterCreationGmCandidate={throw IllegalArgumentException("CHARACTER_CREATION_NOT_CONFIGURED")}
 ):AiProvider{
     override fun interpret(request:AiIntentRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){intentFunction(request)}
     override fun propose(request:AiGmProposalRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){proposalFunction(request)}
     override fun repair(request:AiRepairRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){repairFunction(request)}
     override fun renderNarrative(request:AiNarrativeRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){narrativeFunction(request)}
     override fun repairNarrative(request:AiNarrativeRepairRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){narrativeRepairFunction(request)}
+    override fun guideCharacterCreation(request:AiCharacterCreationRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){characterCreationFunction(request)}
     override fun generateDirector(request:AiDirectorRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){directorFunction(request)}
     override fun cancel(requestUid:String)=Unit
     private fun <T> invoke(requestUid:String,cancellation:AiCancellationSignal,block:()->T):AiProviderResult<T>{

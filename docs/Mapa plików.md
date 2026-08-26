@@ -381,9 +381,17 @@ Indeks techniczny wspierający `docs/Architektura projektu.md` i `docs/Roadmap.m
 - `app/src/main/java/com/rpgos/app/Phase48AiProvider.kt` — provider-independent AI capabilities, registry, transport/codec adapter, cancellation i conformance provider
 - `app/src/main/java/com/rpgos/app/Phase48ProductionAiRuntime.kt` — role assignments, deterministic Auto routing, universal LocalAiPort/CloudAiPort, Bielik profile, runtime/admission/settings/auth contracts
 - `app/src/main/java/com/rpgos/app/OpenRouterAndroidInfrastructure.kt` — Android Keystore, PKCE callback, OpenRouter HTTP/discovery/inference i JNI local driver boundary
+- `app/src/main/java/com/rpgos/app/OpenRouterStructuredOutputSchema.kt` — workload-specific strict OpenRouter JSON Schema; transportowa prewalidacja bez zastępowania walidacji Core
 - `app/src/main/java/com/rpgos/app/CanonicalAiJsonCodec.kt` — strict typed JSON wire schemas Intent/Proposal/Repair/Narrative/Director
 - `app/src/main/java/com/rpgos/app/Phase49To53GmPipeline.kt` — structured GM proposal, mechanics proofs, candidate consistency seam, factual frontier i bounded no-reroll repair
 - `app/src/main/java/com/rpgos/app/Phase50UniversalMechanics.kt` — universal mechanical actors, world generation, immutable combat, perception-gated reactions, typed effects i replay evidence
+- `app/src/main/java/com/rpgos/app/Phase50UniversalCombatEngine.kt` — jeden universal Combat Engine: spatial/timing/detection/reaction/clash/contest/objectives, Core statuses, generic AoE, O(1) individual/group/unit aggregates i deterministic evidence
+- `app/src/main/java/com/rpgos/app/Phase50MechanicalStateStore.kt` — persistent non-player mechanical state oraz materializacja typed/aggregate effects
+- `app/src/main/java/com/rpgos/app/Phase50MechanicsComposition.kt` — routing Phase50 effects do istniejących canonical domain ownerów
+- `app/src/main/java/com/rpgos/app/ProductionGameEngineCompositionRoot.kt` — jeden production composition root, combat snapshot/ability ports, staged multi-action assembler i Android chat engine wiring
+- `app/src/main/java/com/rpgos/app/PlayerCharacterBootstrap.kt` — uniwersalny fingerprinted character draft/confirmation contract i atomowy bootstrap postaci gracza
+- `app/src/main/java/com/rpgos/app/CharacterCreationDefinitionBootstrap.kt` — aktywny typed World Pack definition import, wąski legacy bridge i neutralny namespaced fallback
+- `app/src/main/java/com/rpgos/app/SqliteCompatibility.kt` — bezpieczny update-then-insert dla najstarszego wspieranego SQLite
 - `app/src/main/java/com/rpgos/app/Phase51CandidateStateConsistency.kt` — pure candidate-state projection/validation dla kluczowych domen
 - `app/src/main/java/com/rpgos/app/Phase54CommittedNarration.kt` — exact committed readback, narrative semantic firewall/repair/fallback i idempotent delivery/recovery store
 - `app/src/main/java/com/rpgos/app/Phase54AiChatEngineFacade.kt` — Chat→Engine facade, canonical assembler/commit ports, post-commit readback i recovery
@@ -395,6 +403,11 @@ Indeks techniczny wspierający `docs/Architektura projektu.md` i `docs/Roadmap.m
 - `app/src/test/java/com/rpgos/app/Phase39To47Audit3RepairTest.kt` — Audit3 projection/provenance/scope regression Phase 39–47
 - `app/src/test/java/com/rpgos/app/Phase43To54VerticalSliceTest.kt` — graph intent, multi-target envelope, safe context, provider swap/failure i real SQLite commit-before-narrative E2E
 - `app/src/test/java/com/rpgos/app/Phase48To54FinalPlanTest.kt` — final-plan local/cloud/router/Phase49–54/Director adversarial and failure matrix
+- `app/src/test/java/com/rpgos/app/Phase48To54RepairPlanTest.kt` — production composition, universal character creation, multi-action/combat/restart, generic AoE/status i aggregate large-battle repair acceptance
+- `app/src/test/java/com/rpgos/app/AiProviderConformanceSuiteTest.kt` — wspólny semantic conformance probe dla controlled, local i cloud provider path
+- `app/src/test/java/com/rpgos/app/OpenRouterStructuredOutputSchemaTest.kt` — strict named workload schema i brak world-specific status/ability authority w provider schema
+- `docs/architecture/PHASE50_ACCEPTANCE.md` — Phase50 repair-candidate scope/evidence
+- `docs/architecture/PHASE63_PULLED_FORWARD_ACCEPTANCE.md` — minimalny aggregate combat seam pulled forward; jawnie bez przejęcia pełnej Phase63
 - `docs/Mapa plików.md`
 - `docs/Historia projektu.md`
 - `docs/PROJECT_WORK_PROTOCOL.md`

@@ -142,7 +142,7 @@ object BielikLocalModelProfiles{
         tokenizerUid="BIELIK_SENTENCEPIECE",
         chatTemplateUid="BIELIK_CHAT_V3",
         supportedWorkloads=setOf(
-            AiWorkload.INTENT_INTERPRETATION,AiWorkload.GM_PROPOSAL,AiWorkload.PROPOSAL_REPAIR,
+            AiWorkload.INTENT_INTERPRETATION,AiWorkload.GM_PROPOSAL,AiWorkload.PROPOSAL_REPAIR,AiWorkload.CHARACTER_CREATION,
             AiWorkload.NARRATIVE_RENDER,AiWorkload.NARRATIVE_REPAIR,AiWorkload.DIRECTOR_STRATEGY
         ),
         recommendedContextUnits=8_192,
@@ -151,6 +151,17 @@ object BielikLocalModelProfiles{
         variants=listOf(
             LocalArtifactVariant("GGUF-Q4_K_M",LocalArtifactFormat.GGUF,"Q4_K_M",3_200_000_000L),
             LocalArtifactVariant("GGUF-Q5_K_M",LocalArtifactFormat.GGUF,"Q5_K_M",3_900_000_000L)
+        )
+    )
+
+    /** Production Android profile for the official packaged ExecuTorch runtime. */
+    val BIELIK_4_5B_V3_EXECUTORCH = BIELIK_4_5B_V3.copy(
+        displayName="Bielik 4.5B v3 Instruct (lokalny ExecuTorch)",
+        recommendedContextUnits=4_096,
+        maximumContextUnits=16_384,
+        recommendedKvBytesPerContextUnit=131_072,
+        variants=listOf(
+            LocalArtifactVariant("EXECUTORCH-XNNPACK",LocalArtifactFormat.EXECUTORCH,"EXPORT_QUANTIZED",3_600_000_000L)
         )
     )
 }
@@ -245,10 +256,12 @@ class LocalModelAdmissionController{
 }
 
 data class LocalModelArtifact(
-    val modelUid:String,val variantUid:String,val absolutePath:String,val byteSize:Long,val sha256:String
+    val modelUid:String,val variantUid:String,val absolutePath:String,val byteSize:Long,val sha256:String,
+    val tokenizerAbsolutePath:String?=null
 ){init{
     require(modelUid.isNotBlank()&&variantUid.isNotBlank()&&absolutePath.isNotBlank()&&byteSize>0)
     require(sha256.matches(Regex("[0-9a-fA-F]{64}")))
+    require(tokenizerAbsolutePath?.isBlank()!=true)
 }}
 
 fun interface LocalModelArtifactStore{fun find(modelUid:String,variantUid:String):LocalModelArtifact?}

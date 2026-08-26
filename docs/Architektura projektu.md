@@ -145,7 +145,7 @@ Materialization może być lazy (`SEED_ONLY` / `PARTIAL_MECHANICAL` / `FULL_MECH
 
 Zwykły actor power wynika z world context, roli, frakcji, rank/status, historii i World Pack constraints — nie z mocy aktualnego PC. Globalny invariant: `ENCOUNTER DIFFICULTY MUST EMERGE FROM WORLD STATE, NOT PLAYER POWER SCALING`. Director/AI nie może retconować statów ani generować perfect counter tylko dlatego, że zna kartę gracza. Wyjątek wymaga legalnej causal przyczyny w świecie; np. organizacja świadomie dobiera przeciwnika na podstawie własnej holder-scoped wiedzy o PC.
 
-### 9.3 Universal Combat Engine — CANONICAL FUTURE CONTRACT
+### 9.3 Universal Combat Engine — IMPLEMENTED CANDIDATE / CANONICAL CONTRACT
 Combat Engine nie wybiera intencji aktora, nie generuje przeciwników i nie jest źródłem narracji. `DECISION ENGINE DECIDES; COMBAT ENGINE RESOLVES`. Jego zadanie: z legalnego `CombatIntent`/`CombatAction`, immutable relevant snapshotu, World Rules, przestrzeni, czasu i deterministic RNG evidence wyprowadzić `CombatResolution`/domain ChangeSets, które dopiero canonical transaction może commitować.
 
 Docelowy pipeline:
@@ -156,6 +156,12 @@ Core zapewnia abstrakcje, a World Pack definiuje konkretne reguły. Spatial mode
 Reaction jest legalna tylko gdy aktor posiada capability, wykrył/zna zagrożenie, ma czas i wymagany resource. `COUNTER CAPABILITY MUST PREEXIST`; `COUNTER SELECTION MUST USE ACTOR-AVAILABLE KNOWLEDGE`. Ukryta akcja istniejąca w FACT nie daje automatycznej reakcji targetowi.
 
 Effect resolution jest kompozycyjne i nie redukuje walki do jednego HP: damage/wounds, resources, status, displacement, equipment/structure damage, morale/cohesion, formation, environment i World Pack-defined effects. Optional `TargetComponentModel` obsługuje ciało, skrzydła smoka, moduły pojazdu, okręt itd. Mechanika zachowuje degree-of-effect i objective outcomes (kill/capture/delay/escape/protect/hold/break formation/survive/world-defined), nie tylko `winnerUid`.
+
+Efekty statusu są własnością Core, nie zawartością konkretnego świata. `UniversalStatusEffectRegistry` definiuje stabilne semantyki i stacking policy m.in. dla `BURNING`, `POISONED`, `PARALYZED`, `FROZEN`, `BLEEDING`, `STUNNED`, `SLOWED` i `ROOTED`. World Pack definiuje zdolność oraz typed `AbilityStatusApplication(statusEffectUid, chanceBasisPoints)` — np. zdolność może mieć 20% szansy na `BURNING`, lecz nie może tworzyć prywatnego znaczenia statusu omijającego Core. Canonical materializer zachowuje identity statusu także dla aggregate condition.
+
+AoE jest uniwersalnym contractem shape/range/cost/targeting, a nie specjalnym przypadkiem kuli ognia. Blast, cone, line, zone, sweep i inne rodziny zdolności wiążą się przez `CombatAbilityContractPort`. Neutralny fallback nie nakłada statusu; szansa i powiązanie statusu pochodzą z World Packa.
+
+Duże walki pozostają bounded. `AggregateAreaEffectResolver`, `AggregateDirectImpactResolver` i `AggregateGroupEngagementResolver` rozstrzygają w O(1) individual-vs-group, group-vs-group i unit-vs-unit na licznościach oraz reprezentatywnych parametrach, bez iterowania po tysiącach celów. Ekstremalna różnica siły może zamienić pojedynczy/melee atak w ograniczony group impact; throughput/casualty bounds zapobiegają arbitralnemu „wszyscy giną”.
 
 Combat supports LOD: `LOD0 strategic aggregate`, `LOD1 formations/units`, `LOD2 groups + important actors`, `LOD3 full individual tactical resolution`. Przejścia LOD zachowują manpower/resources/casualties/unique actors/equipment/important conditions i nie materializują dodatkowej authority. Lokalny rezultat LOD3 może propagować causal effect do LOD1/0, np. utrata generała -> command/morale effect.
 
@@ -423,7 +429,7 @@ Cloud może poprawiać jakość, ale brak sieci, timeout, 429, quota, provider f
 - optional cloud adapters — ten sam semantic contract, bez campaign authority;
 - `GmToolGateway` — allowlisted QUERY/REQUEST/PROPOSE boundary, bez raw writable DB i COMMIT.
 
-Final-plan candidate Phase48–54 implementuje `AiProvider`, registry/capability contracts, role-aware deterministic router, universal `LocalAiPort`/`CloudAiPort`, lifecycle/admission/settings/artifact contracts, Android JNI driver boundary, Bielik data profile, OpenRouter PKCE/Keystore/discovery/inference adapter oraz strict JSON codecs. Deterministic provider pozostaje wyłącznie controlled conformance backend.
+Repair candidate Phase48–54 implementuje `AiProvider`, registry/capability contracts, role-aware deterministic router, universal `LocalAiPort`/`CloudAiPort`, lifecycle/admission/settings/artifact contracts, spakowany oficjalny ExecuTorch Android runtime, Bielik data profile, OpenRouter PKCE/Keystore/discovery/inference adapter oraz workload-specific strict JSON Schema z ponowną walidacją w Core. Deterministic provider pozostaje wyłącznie controlled conformance backend i przechodzi ten sam production port.
 
 Auto routing respektuje workload, context limit, availability, privacy, resource admission i explicit pins. Local jest preferowany dla normalnego GM workloadu, lecz nie jest fałszywie oznaczany READY bez modelu, bezpiecznego profilu urządzenia i działającego runtime. Director cadence pozostaje niezależny od wyboru providera.
 
@@ -460,9 +466,15 @@ Credentials/auth state nie należą do Campaign State, Save, Chronicle ani World
 
 `CanonicalChatApplication` jest jedynym adapterem UI uprawnionym do wywołania `AiChatEngineFacade`. UI nie może wywołać DB, ChangeSet, mechanics, commit, raw OpenRouter HTTP ani local runtime. Stary `ViewModel -> StatePatch` został usunięty. Legacy backend jest odizolowany jako narration-only compatibility boundary; każdy zwrócony patch jest odrzucany przed LocalGameStore.
 
-Repozytorium nie zawiera natywnej biblioteki `rpgos_ai_runtime`, dlatego Android JNI adapter nie jest jeszcze prawdziwym Bielik inference runtime. Drugim rzeczywistym blockerem jest brak kompletnej production composition, która materializuje wszystkie wymagane arbitrary chat mechanics przez istniejące `PlayerDomainEngine` domain owners. System fail-closed zamiast omijać accepted authority. Pełna macierz i statusy znajdują się w `docs/architecture/PHASE48_54_FINAL_IMPLEMENTATION.md`.
+`ProductionGameEngineCompositionRoot` jest jednym composition rootem dla canonical Android chat: provider -> IntentDocument -> plan/context -> GM proposal -> mechanics/guards/repair -> existing TurnTransaction -> committed narration. `ProductionCanonicalMutationAssembler` wykonuje zależne multi-action w staged state, mapuje efekty do istniejących domain ownerów i zapisuje dokładnie raz. Wcześniejsze blockery produkcyjnej kompozycji oraz brakującego native packaging są zamknięte; realne weights, urządzenie i live provider authorization pozostają osobnymi bramkami evidence, nie brakującym kodem Core.
 
-OpenRouter authorization używa OAuth PKCE oraz ephemeral loopback callback, a credential trafia do Android Keystore poza campaign/save. Cloud otrzymuje wyłącznie projected/minimised structured context.
+OpenRouter authorization używa OAuth PKCE oraz ephemeral loopback callback, a credential trafia do Android Keystore poza campaign/save. Cloud otrzymuje wyłącznie projected/minimised structured context. Każdy workload wysyła nazwany `response_format.type=json_schema` z `strict=true`; routing wymaga obsługi parametrów, a `CanonicalAiJsonCodec` i walidatory Core nadal odrzucają semantycznie nielegalne dane.
+
+### 13.1b Uniwersalne rozpoczęcie kampanii i postać gracza
+
+Nowa kampania używa provider-independent workloadu `CHARACTER_CREATION`. AI/MG może prowadzić rozmowę i stworzyć wyłącznie `PlayerCharacterCreationDraft`; nie otrzymuje mutation authority. Draft musi zachować wybory użytkownika i zawierać kompletną tożsamość, płeć, startowe statystyki i zasoby, talent, potencjał, umiejętności, techniki, origins/innate features oraz startową lokalizację. `PlayerCharacterBootstrapService` zapisuje całość w jednej transakcji dopiero po osobnym `PlayerCharacterCreationConfirmation` związanym fingerprintem draftu.
+
+`CharacterCreationDefinitionBootstrap` pobiera typed definitions aktywnego World Packa. Dla starszych paczek stosuje jawnie ograniczony adapter legacy, a dla poprawnej paczki bez schematu — namespaced, gatunkowo neutralny fallback. Brak World Pack authority nie prowadzi do fabrykowania definicji. Naruto jest fixture kompatybilności, nie architekturą kreatora.
 
 ### 13.2 Player agency
 `VOLITIONAL PLAYER ACTION SOURCE = USER / VALIDATED PLAYER COMMAND ONLY`.

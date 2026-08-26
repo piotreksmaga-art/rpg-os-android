@@ -123,6 +123,43 @@ class CanonicalAiJsonCodec:AiStructuredCodec{
         )
     }
 
+    override fun encodeCharacterCreation(request:AiCharacterCreationRequest)=JSONObject()
+        .put("contract","RPGOS_CHARACTER_CREATION_V1")
+        .put("request_uid",request.requestUid).put("campaign_uid",request.campaignUid).put("locale_uid",request.localeUid)
+        .put("conversation",JSONArray(request.conversation.map{JSONObject().put("role",it.role.name).put("text",it.text)}))
+        .put("allowed_definitions",JSONArray(request.catalog.options.map{option->JSONObject()
+            .put("kind",option.kind.name).put("definition_uid",option.definitionUid).put("display_name",option.displayName)
+            .put("minimum_value",option.minimumValue).put("maximum_value",option.maximumValue).put("dimension_uid",option.dimensionUid)}))
+        .put("requirements",JSONArray(listOf(
+            "Ask one concise question when player choices are incomplete",
+            "Use only allowed definition UIDs and preserve the player's choices",
+            "Assign complete starting stats, resources, talent, potential, skills and techniques without inventing definitions",
+            "Return READY only when a full draft can be shown for separate explicit user confirmation",
+            "This response is a candidate and has no mutation authority"
+        ))).toString()
+
+    override fun decodeCharacterCreation(payload:String):CharacterCreationGmCandidate{
+        val root=strictObject(payload)
+        return when(root.reqString("state")){
+            "NEEDS_PLAYER_CHOICE"->CharacterCreationGmCandidate.NeedsPlayerChoice(root.reqString("question"),root.array("missing_category_uids").strings())
+            "READY_FOR_CONFIRMATION"->{
+                val draft=root.reqObject("draft")
+                fun choices(key:String)=draft.array(key).objects().map{choice->CharacterCreationValueChoice(
+                    choice.reqString("definition_uid"),choice.getDouble("value"),choice.optString("dimension_uid")
+                )}
+                CharacterCreationGmCandidate.ReadyForConfirmation(PlayerCharacterCreationDraft(
+                    creationUid=draft.reqString("creation_uid"),campaignUid=draft.reqString("campaign_uid"),playerUid=draft.reqString("player_uid"),
+                    displayName=draft.reqString("display_name"),genderUid=draft.reqString("gender_uid"),identityChoices=draft.obj("identity_choices").stringMap(),
+                    stats=choices("stats"),resources=choices("resources"),talents=choices("talents"),potentials=choices("potentials"),
+                    skills=choices("skills"),techniques=choices("techniques"),originUids=draft.array("origin_uids").strings(),
+                    innateFeatureUids=draft.array("innate_feature_uids").strings(),startingLocationUid=draft.reqString("starting_location_uid"),
+                    startingXMillimetres=draft.optLongOrZero("starting_x_millimetres"),startingYMillimetres=draft.optLongOrZero("starting_y_millimetres")
+                ),root.reqString("player_facing_summary"))
+            }
+            else->throw IllegalArgumentException("CHARACTER_CREATION_STATE_UNSUPPORTED")
+        }
+    }
+
     override fun encodeDirector(request:AiDirectorRequest)=JSONObject()
         .put("contract","RPGOS_DIRECTOR_BUNDLE_V1").put("job_uid",request.jobUid)
         .put("trigger",JSONObject().put("trigger_uid",request.trigger.triggerUid).put("kind",request.trigger.kind.name)
@@ -234,6 +271,7 @@ class CanonicalAiJsonCodec:AiStructuredCodec{
 private fun JSONObject.reqString(key:String):String{require(has(key)&&!isNull(key));return getString(key).also{require(it.isNotBlank())}}
 private fun JSONObject.reqInt(key:String):Int{require(has(key)&&!isNull(key));return getInt(key)}
 private fun JSONObject.reqLong(key:String):Long{require(has(key)&&!isNull(key));return getLong(key)}
+private fun JSONObject.optLongOrZero(key:String):Long=if(has(key)&&!isNull(key))getLong(key) else 0L
 private fun JSONObject.reqObject(key:String):JSONObject{require(has(key)&&!isNull(key));return getJSONObject(key)}
 private fun JSONObject.optObject(key:String):JSONObject?=if(has(key)&&!isNull(key))getJSONObject(key) else null
 private fun JSONObject.obj(key:String):JSONObject=optObject(key)?:JSONObject()

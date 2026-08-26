@@ -134,7 +134,8 @@ class StructuredGmProposalValidator{
 data class MechanicsResolutionContext(
     val campaignUid:String,
     val plan:CanonicalTurnPlan,
-    val context:BudgetedCanonicalContext
+    val context:BudgetedCanonicalContext,
+    val stagedEffects:List<VerifiedMechanicsEffect> = emptyList()
 ){init{require(campaignUid==plan.campaignUid&&context.candidate.plan.planUid==plan.planUid&&context.safeForAi)}}
 
 data class VerifiedMechanicsEffect(
@@ -188,10 +189,11 @@ sealed interface MechanicsPipelineResult{
 class MechanicsResolutionEngine(private val registry:MechanicsResolverRegistry){
     fun resolve(candidate:GmProposalCandidate,context:MechanicsResolutionContext):MechanicsPipelineResult{
         val verified=mutableListOf<VerifiedMechanicsEffect>();val reasons=linkedSetOf<String>()
-        candidate.mechanicsEffects.sortedBy{it.effectUid}.forEach{effect->
+        val nodeOrder=context.plan.steps.mapIndexed{index,step->step.nodeUid to index}.toMap()
+        candidate.mechanicsEffects.sortedWith(compareBy<MechanicsEffectRequest>{nodeOrder[it.nodeUid]?:Int.MAX_VALUE}.thenBy{it.effectUid}).forEach{effect->
             val resolver=registry.resolver(effect.mechanicsOwnerUid)
             if(resolver==null)reasons+="MECHANICS_OWNER_NOT_REGISTERED:${effect.mechanicsOwnerUid}"
-            else when(val result=resolver.resolve(effect,context)){
+            else when(val result=resolver.resolve(effect,context.copy(stagedEffects=verified.toList()))){
                 is MechanicsEffectResolution.Verified->{
                     if(result.effect.effectUid!=effect.effectUid||result.effect.nodeUid!=effect.nodeUid||result.effect.mechanicsOwnerUid!=effect.mechanicsOwnerUid)reasons+="MECHANICS_PROOF_IDENTITY_MISMATCH:${effect.effectUid}"
                     else verified+=result.effect
@@ -210,6 +212,11 @@ class GmConsistencyValidator{
         proposal.verifiedEffects.forEach{effect->
             val step=byNode[effect.nodeUid]
             if(step?.mechanicsOwnerUid!=effect.mechanicsOwnerUid)reasons+="VERIFIED_EFFECT_OWNER_DIVERGENCE:${effect.effectUid}"
+            val nodeOutcome=proposal.candidate.nodeProposals.singleOrNull{it.nodeUid==effect.nodeUid}
+            if(nodeOutcome?.outcomeState!=GmNodeOutcomeState.PROPOSED_SUCCESS)reasons+="EFFECT_WITHOUT_SUCCESSFUL_NODE:${effect.effectUid}"
+            val canonicalTarget=effect.canonicalPayload["target_uid"]
+            val actorUid=plan.intent.actor.actorUid
+            if(canonicalTarget!=null&&canonicalTarget!=actorUid&&nodeOutcome?.targetProjectedRefs?.none{it.uid==canonicalTarget}==true)reasons+="MECHANICS_TARGET_DIVERGENCE:${effect.effectUid}"
         }
         proposal.candidate.proposedClaims.groupBy{Triple(it.nodeUid,it.subjectProjectedUid,it.predicateUid)}.values
             .filter{claims->claims.map{it.valueCanonical}.distinct().size>1}.forEach{reasons+="CONTRADICTORY_PROPOSED_CLAIMS:${it.first().nodeUid}"}

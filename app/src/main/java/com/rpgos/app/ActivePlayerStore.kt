@@ -49,15 +49,11 @@ class ActivePlayerStore(
     }
 
     private fun persist(ref: ActivePlayerRef) {
-        db.execSQL(
-            """
-            INSERT INTO active_player_ref(campaign_id,player_uid,updated_at)
-            VALUES(?,?,strftime('%s','now'))
-            ON CONFLICT(campaign_id) DO UPDATE SET
-                player_uid=excluded.player_uid,
-                updated_at=excluded.updated_at
-            """.trimIndent(),
-            arrayOf(ref.campaignId, ref.playerUid)
+        db.updateOrInsertCompat(
+            "UPDATE active_player_ref SET player_uid=?,updated_at=strftime('%s','now') WHERE campaign_id=?",
+            arrayOf(ref.playerUid,ref.campaignId),
+            "INSERT INTO active_player_ref(campaign_id,player_uid,updated_at) VALUES(?,?,strftime('%s','now'))",
+            arrayOf(ref.campaignId,ref.playerUid)
         )
     }
 

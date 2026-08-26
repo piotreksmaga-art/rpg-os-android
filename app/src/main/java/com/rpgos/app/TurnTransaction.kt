@@ -203,6 +203,7 @@ internal object CanonicalPlayerChangeApplier{
             when(change.payload){
                 is StatChange,is ResourceChange,is SkillChange,is TechniqueChange,is InventoryChange,
                 is EquipmentChange,is FinancialChange,is OwnershipChange,is CampaignTruthChange,
+                is AssetChange,is ConditionChange,is RuntimeChange,
                 is DevelopmentProjectChange,is KnowledgeAcquisitionChange -> Unit
                 is AccessAuthorityChange -> AccessAuthorityChangeValidator.requireValid(change.payload)
                 else -> throw UnsupportedCanonicalChangeException(change.changeKindUid)
@@ -227,8 +228,11 @@ internal object CanonicalPlayerChangeApplier{
                 is InventoryChange->applyInventory(db,identity,change.changeUid,payload)
                 is EquipmentChange->applyEquipment(db,identity,change.changeUid,payload)
                 is FinancialChange->applyFinancial(db,identity,changeSet,change.changeUid,payload)
+                is AssetChange->applyAsset(db,identity,changeSet,change.changeUid,payload)
                 is OwnershipChange->applyOwnership(db,identity,changeSet,change.changeUid,payload)
                 is CampaignTruthChange->applyTruth(db,identity,changeSet,change.changeUid,payload)
+                is ConditionChange->applyCondition(db,identity,changeSet,change.changeUid,payload)
+                is RuntimeChange->applyRuntime(db,identity,changeSet,change.changeUid,payload)
                 is KnowledgeAcquisitionChange->applyKnowledge(db,identity,changeSet,change.changeUid,payload)
                 is DevelopmentProjectChange->applyProject(db,identity,changeSet,change.changeUid,payload)
                 is AccessAuthorityChange->applyAccessAuthority(db,identity,changeSet,change.changeUid,payload)
@@ -331,6 +335,20 @@ internal object CanonicalPlayerChangeApplier{
                 effectiveOrder(changeSet),provenance(identity,changeUid),changeSet.provenance.sourceEventUid,identity.commandUid
             )
         )
+    }
+
+    private fun applyAsset(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,changeUid:String,p:AssetChange){
+        val lifecycle=try{AssetLifecycle.valueOf(p.proposedLifecycleStateUid)}catch(_:Throwable){throw UnsupportedCanonicalChangeException(PlayerChangeKinds.ASSET)}
+        require(lifecycle!=AssetLifecycle.ACTIVE){"RPGOS-TURN-APPLIER:ASSET_REACTIVATION_UNSUPPORTED"}
+        AssetLiabilityStore(db,identity.campaignUid).retireAsset(p.asset,effectiveOrder(changeSet),lifecycle,provenance(identity,changeUid))
+    }
+
+    private fun applyCondition(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,changeUid:String,p:ConditionChange){
+        Phase50MechanicalStateStore(db,identity.campaignUid).applyCondition(identity,changeUid,p,effectiveOrder(changeSet))
+    }
+
+    private fun applyRuntime(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,changeUid:String,p:RuntimeChange){
+        Phase50MechanicalStateStore(db,identity.campaignUid).applyRuntime(identity,changeUid,p,effectiveOrder(changeSet))
     }
 
     private fun applyOwnership(db:SQLiteDatabase,identity:TurnTransactionIdentity,changeSet:PlayerChangeSet,changeUid:String,p:OwnershipChange){

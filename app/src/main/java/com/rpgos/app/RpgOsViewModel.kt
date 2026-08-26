@@ -11,7 +11,7 @@ import kotlinx.coroutines.withContext
 
 class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     private val store = LocalGameStore(app)
-    private val repository:CampaignRepository = UnifiedGameRepository(app)
+    private val repository = UnifiedGameRepository(app)
     private val appSettings = AppSettings(app)
     private val providerCenterApplication=AndroidAiProviderCenterApplication(app)
     private fun playerAudience() = VisibilityAudienceFactory.player(store.activeCampaignId())
@@ -29,15 +29,14 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     val chatTurnUi:StateFlow<ChatTurnUiState> = _chatTurnUi
     @Volatile private var activeAiCancellation:MutableAiCancellationSignal?=null
     private var pendingNarrationRecovery:ChatNarrationRecoveryToken?=null
-    private val chatApplication:ChatApplicationPort by lazy{
-        NonAuthoritativeLegacyNarrationApplication(
-            repository=repository,
-            backendUrl={_settings.value.backendUrl},
-            audience={playerAudience()},
-            purpose={playerPurpose(VisibilityPurposeKinds.GAMEPLAY_NARRATION)},
-            chapter={(_chronicle.value.maxOfOrNull{it.chapter}?:0)+1}
-        )
+    private val productionEngine by lazy{
+        ProductionGameEngineCompositionRoot(app,repository,providerCenterApplication,configuration={_settings.value.ai})
     }
+    private val chatApplication:ChatApplicationPort by lazy{
+        DynamicCanonicalChatApplication{productionEngine.chatApplication()}
+    }
+    private val characterCreationApplication by lazy{productionEngine.characterCreationApplication()}
+    private var pendingCharacterCreationUid:String?=null
 
     private val _developerStatus = MutableStateFlow("Nie uruchomiono testów.")
     val developerStatus: StateFlow<String> = _developerStatus
@@ -230,6 +229,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     init {
         providerCenterApplication.onOpenRouterCallback{callback->completeOpenRouter(callback)}
         store.bootstrap()
+        if(store.activePlayerRef()==null)_messages.value+=ChatMessage("gm","Zanim rozpoczniemy przygodę, wspólnie stworzymy Twoją postać. Opowiedz mi, kim chcesz grać.")
         refresh()
         buildStartupContext()
     }
@@ -304,7 +304,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         if(admission is LocalAdmissionResult.Admitted)persistAi(_settings.value.ai.copy(localModelSettings=settings))
     }
 
-    fun resetLocalAiSettings(){updateLocalAiSettings(LocalRecommendedSettings.forProfile(BielikLocalModelProfiles.BIELIK_4_5B_V3))}
+    fun resetLocalAiSettings(){updateLocalAiSettings(LocalRecommendedSettings.forProfile(BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH))}
 
     fun importBielikArtifact(uri:android.net.Uri){
         viewModelScope.launch{
@@ -690,9 +690,29 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
             val app = getApplication<Application>()
             try {
                 DiagnosticLogger.log(app, "SEND_START", message = "request=$requestUid")
+                if(repository.activePlayerRef()==null){
+                    _chatTurnUi.value=_chatTurnUi.value.copy(stage=ChatTurnUiStage.GENERATING_PROPOSAL,statusText="Mistrz Gry pomaga stworzyć postać…")
+                    when(val creation=withContext(Dispatchers.IO){characterCreationApplication.play(text,cancellation)}){
+                        is CharacterCreationApplicationOutcome.Question->{
+                            _messages.value+=ChatMessage("gm",creation.text)
+                            _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.CLARIFICATION,requestUid,"Tworzenie postaci — czekam na Twój wybór")
+                        }
+                        is CharacterCreationApplicationOutcome.AwaitingExplicitConfirmation->{
+                            pendingCharacterCreationUid=creation.creationUid
+                            _messages.value+=ChatMessage("gm",creation.summary)
+                            _messages.value+=ChatMessage("system","Sprawdź podsumowanie. Postać nie została jeszcze zapisana — użyj przycisku „Potwierdź postać”.")
+                            _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.CLARIFICATION,requestUid,"Projekt postaci czeka na Twoje potwierdzenie",canConfirmCharacterCreation=true)
+                        }
+                        is CharacterCreationApplicationOutcome.Created->Unit
+                        is CharacterCreationApplicationOutcome.Failed->_chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.FAILED,requestUid,"Nie udało się przygotować postaci.",reasonUid=creation.reasonUid)
+                        is CharacterCreationApplicationOutcome.Cancelled->_chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.CANCELLED,requestUid,"Tworzenie postaci anulowane.",reasonUid=creation.reasonUid)
+                    }
+                    return@launch
+                }
                 _chatTurnUi.value=_chatTurnUi.value.copy(stage=ChatTurnUiStage.BUILDING_CONTEXT,statusText="Buduję bezpieczny kontekst…")
                 _chatTurnUi.value=_chatTurnUi.value.copy(stage=ChatTurnUiStage.GENERATING_PROPOSAL,statusText="Mistrz Gry przygotowuje propozycję…")
-                when(val outcome=chatApplication.play(text,cancellation)){
+                val applicationOutcome=withContext(Dispatchers.IO){chatApplication.play(text,cancellation)}
+                when(val outcome=applicationOutcome){
                     is ChatApplicationOutcome.Narrated->{
                         _chatTurnUi.value=_chatTurnUi.value.copy(stage=ChatTurnUiStage.NARRATING,statusText="Odbieram zatwierdzoną narrację…",canCancel=false)
                         _messages.value+=ChatMessage("gm",outcome.result.narrative.text)
@@ -742,6 +762,25 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun cancelCurrentAiTurn(){activeAiCancellation?.cancel()}
 
+    fun confirmCharacterCreation(){
+        val creationUid=pendingCharacterCreationUid?:return
+        if(activeAiCancellation!=null)return
+        viewModelScope.launch{
+            val actionUid="CHARACTER-CONFIRM:${System.currentTimeMillis()}"
+            _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.COMMITTING,actionUid,"Zapisuję potwierdzoną postać…")
+            when(val outcome=withContext(Dispatchers.IO){characterCreationApplication.confirm(creationUid,actionUid)}){
+                is CharacterCreationApplicationOutcome.Created->{
+                    pendingCharacterCreationUid=null
+                    _messages.value+=ChatMessage("system","Postać ${outcome.receipt.playerUid} została utworzona i jest gotowa do gry.")
+                    _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.COMPLETED,actionUid,"Postać utworzona")
+                    refresh()
+                }
+                is CharacterCreationApplicationOutcome.Failed->_chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.FAILED,actionUid,"Nie udało się zapisać postaci.",canConfirmCharacterCreation=true,reasonUid=outcome.reasonUid)
+                else->_chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.FAILED,actionUid,"Nieprawidłowy stan tworzenia postaci.",canConfirmCharacterCreation=true)
+            }
+        }
+    }
+
     fun retryCommittedNarration(){
         val token=pendingNarrationRecovery?:run{
             _messages.value+=ChatMessage("system","Brak zapisanej tury oczekującej na narrację.")
@@ -752,7 +791,8 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch{
             try{
                 _chatTurnUi.value=_chatTurnUi.value.copy(stage=ChatTurnUiStage.NARRATING,statusText="Odzyskuję narrację wyłącznie z zapisanego rezultatu…",canCancel=false)
-                when(val recovered=chatApplication.recover(token,cancellation)){
+                val recoveryOutcome=withContext(Dispatchers.IO){chatApplication.recover(token,cancellation)}
+                when(val recovered=recoveryOutcome){
                     is NarrativeRecoveryResult.Recovered->{
                         _messages.value+=ChatMessage("gm",recovered.delivery.narrative.text)
                         pendingNarrationRecovery=null

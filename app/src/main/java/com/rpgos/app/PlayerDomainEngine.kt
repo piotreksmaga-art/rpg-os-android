@@ -779,6 +779,7 @@ internal fun commandReferences(command: PlayerCommand<out PlayerCommandPayload>)
             addAll(payload.completionEvidenceRefs)
         }
         is CancelProjectCommandPayload -> add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
+        is ApplyVerifiedMechanicsCommandPayload -> addAll(payload.effects.map{it.target})
         else -> Unit
     }
 }

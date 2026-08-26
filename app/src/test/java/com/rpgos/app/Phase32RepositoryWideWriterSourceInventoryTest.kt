@@ -29,6 +29,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "ModifierStore.kt",
             "OwnershipReferenceRegistry.kt",
             "OwnershipStore.kt",
+            "Phase50MechanicalStateStore.kt",
             "Phase35CanonDivergence.kt",
             "Phase37WorldActorKnowledge.kt",
             "Phase38AccessAuthority.kt",
@@ -37,7 +38,8 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "ProgressionProfileStore.kt",
             "SkillStore.kt",
             "StatResourceStore.kt",
-            "TechniqueStore.kt"
+            "TechniqueStore.kt",
+            "PlayerCharacterBootstrap.kt"
         ).forEach { put(it, WriterClass.CANONICAL_DOMAIN) }
 
         listOf(
@@ -58,6 +60,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "BackupManager.kt",
             "CampaignSnapshotSystem.kt",
             "CampaignSelectionManager.kt",
+            "CharacterCreationDefinitionBootstrap.kt",
             "CanonicalPackageReplacement.kt",
             "ContentUpdateManager.kt",
             "FilePickerBridge.kt",
@@ -88,6 +91,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
 
         put("GameplayMutationGate.kt", WriterClass.OPERATIONAL_GUARD)
         put("DiagnosticLogger.kt", WriterClass.OPERATIONAL_GUARD)
+        put("SqliteCompatibility.kt", WriterClass.OPERATIONAL_GUARD)
         put("AppSettings.kt", WriterClass.UI_SETTINGS)
         put("OpenRouterAndroidInfrastructure.kt", WriterClass.EXTERNAL_AI_CONFIGURATION)
     }
@@ -107,7 +111,8 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         ".renameTo(",
         ".deleteRecursively(",
         ".openOutputStream(",
-        "getSharedPreferences("
+        "getSharedPreferences(",
+        "updateOrInsertCompat("
     )
 
     @Test

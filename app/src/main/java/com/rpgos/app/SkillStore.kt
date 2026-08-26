@@ -81,12 +81,12 @@ internal class SkillStore(
         if (legacyExactExists(skill.characterUid, skill.skillUid) && mapping(skill.characterUid, skill.skillUid) == null) {
             error("Mixed legacy + typed Skill with same UID requires explicit mapping: ${skill.skillUid}")
         }
-        db.execSQL("""INSERT INTO player_skills_v2(campaign_id,character_uid,skill_uid,base_mastery,progress_value,progress_semantics_uid,entry_version,provenance,learned_chapter)
-                       VALUES(?,?,?,?,?,?,?,?,?)
-                       ON CONFLICT(campaign_id,character_uid,skill_uid) DO UPDATE SET
-                       base_mastery=excluded.base_mastery,progress_value=excluded.progress_value,progress_semantics_uid=excluded.progress_semantics_uid,
-                       entry_version=excluded.entry_version,provenance=excluded.provenance,learned_chapter=excluded.learned_chapter""".trimIndent(),
-            arrayOf<Any?>(skill.campaignId, skill.characterUid, skill.skillUid, skill.baseMastery, skill.progressValue, skill.progressSemanticsUid, skill.entryVersion, skill.provenance, skill.learnedChapter))
+        db.updateOrInsertCompat(
+            "UPDATE player_skills_v2 SET base_mastery=?,progress_value=?,progress_semantics_uid=?,entry_version=?,provenance=?,learned_chapter=? WHERE campaign_id=? AND character_uid=? AND skill_uid=?",
+            arrayOf<Any?>(skill.baseMastery,skill.progressValue,skill.progressSemanticsUid,skill.entryVersion,skill.provenance,skill.learnedChapter,skill.campaignId,skill.characterUid,skill.skillUid),
+            "INSERT INTO player_skills_v2(campaign_id,character_uid,skill_uid,base_mastery,progress_value,progress_semantics_uid,entry_version,provenance,learned_chapter) VALUES(?,?,?,?,?,?,?,?,?)",
+            arrayOf<Any?>(skill.campaignId,skill.characterUid,skill.skillUid,skill.baseMastery,skill.progressValue,skill.progressSemanticsUid,skill.entryVersion,skill.provenance,skill.learnedChapter)
+        )
     }
 
     fun registerLegacyMapping(mapping: LegacySkillMapping) {

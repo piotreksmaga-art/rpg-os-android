@@ -4,11 +4,13 @@ import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 enum class ChatTurnUiStage { IDLE, INTERPRETING, PLANNING, BUILDING_CONTEXT, GENERATING_PROPOSAL, VALIDATING, COMMITTING, NARRATING, COMMITTED_NARRATION_PENDING, COMPLETED, CLARIFICATION, FAILED, CANCELLED }
 data class ChatTurnUiState(
     val stage:ChatTurnUiStage=ChatTurnUiStage.IDLE,val requestUid:String?=null,val statusText:String="Gotowy",
-    val canCancel:Boolean=false,val canRetryNarration:Boolean=false,val committedOrder:Long?=null,val reasonUid:String?=null
+    val canCancel:Boolean=false,val canRetryNarration:Boolean=false,val canConfirmCharacterCreation:Boolean=false,
+    val committedOrder:Long?=null,val reasonUid:String?=null
 )
 
 data class AiModelOptionUi(
@@ -32,12 +34,12 @@ data class AiProviderCenterUiState(
 
 object AiProviderCenterStateFactory{
     fun initial(settings:AiSystemConfiguration,artifactInstalled:Boolean,openRouter:CloudConnectionStatus):AiProviderCenterUiState{
-        val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3
+        val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH
         val local=settings.localModelSettings?:LocalRecommendedSettings.forProfile(profile)
         val localState=if(artifactInstalled)AiAvailabilityState.DEGRADED else AiAvailabilityState.NOT_CONFIGURED
         return AiProviderCenterUiState(
             settings.gameMaster,settings.director,listOf(
-                AiModelOptionUi(AiModelSelection("LOCAL:ANDROID_NATIVE",profile.modelUid),profile.displayName,AiProviderKind.LOCAL,localState,
+                AiModelOptionUi(AiModelSelection("LOCAL:ANDROID_EXECUTORCH_1_3",profile.modelUid),profile.displayName,AiProviderKind.LOCAL,localState,
                     if(artifactInstalled)"MODEL_INSTALLED_RUNTIME_CHECK_PENDING" else "MODEL_ARTIFACT_REQUIRED")
             ),openRouter,profile,local,artifactInstalled,false,null,settings.privacy,"Director oczekuje na pierwszy okresowy trigger"
         )
@@ -67,18 +69,20 @@ class AndroidAiProviderCenterApplication(context:Context){
     private val callbacks=OpenRouterLoopbackCallbackServer()
     private val auth=OpenRouterPkceAuthPort(AndroidKeystoreSecretStore(app),callbacks,http)
     private val runtimeCapabilities=LocalRuntimeCapabilities(
-        "ANDROID_NATIVE",setOf(LocalArtifactFormat.GGUF),
-        setOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU,LocalRuntimeBackend.GPU),
-        supportsContextTuning=true,supportsKvTuning=true,supportsThreads=true,supportsBatchPrefill=true,
+        "ANDROID_EXECUTORCH_1_3",setOf(LocalArtifactFormat.EXECUTORCH),
+        setOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU),
+        supportsContextTuning=true,supportsKvTuning=false,supportsThreads=false,supportsBatchPrefill=false,
         supportsCancellation=true,supportsStreaming=true
     )
+    private val discoveredCloudModels=ConcurrentHashMap<String,CloudModelProfile>()
+    private val localRuntime by lazy{DriverBackedLocalInferenceRuntime(runtimeCapabilities,ExecuTorchLocalInferenceDriver())}
 
     fun initialState(configuration:AiSystemConfiguration):AiProviderCenterUiState{
-        val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3
+        val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH
         val settings=configuration.localModelSettings?:LocalRecommendedSettings.forProfile(profile)
         val installed=artifacts.find(profile.modelUid,settings.variantUid)!=null
         return AiProviderCenterStateFactory.initial(configuration,installed,auth.status()).copy(
-            localRuntimeAvailable=NativeLocalInferenceBridge.available,
+            localRuntimeAvailable=true,
             localAdmission=localAdmission(settings)
         )
     }
@@ -86,11 +90,11 @@ class AndroidAiProviderCenterApplication(context:Context){
     fun onOpenRouterCallback(callback:(CloudAuthCallback)->Unit){callbacks.onCallback(callback)}
 
     fun localAdmission(settings:LocalModelSettings):LocalAdmissionResult = LocalModelAdmissionController().evaluate(
-        BielikLocalModelProfiles.BIELIK_4_5B_V3,settings,runtimeCapabilities,AndroidLocalDeviceProbe.snapshot(app)
+        BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH,settings,runtimeCapabilities,AndroidLocalDeviceProbe.snapshot(app).copy(availableBackends=setOf(LocalRuntimeBackend.CPU))
     )
 
     suspend fun importBielikArtifact(uri:Uri,settings:LocalModelSettings):LocalModelArtifact=withContext(Dispatchers.IO){
-        val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3
+        val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH
         require(settings.modelUid==profile.modelUid&&profile.variants.any{it.variantUid==settings.variantUid})
         val input=app.contentResolver.openInputStream(uri)?:error("Nie można otworzyć pliku modelu")
         artifacts.import(settings.modelUid,settings.variantUid,input)
@@ -106,6 +110,35 @@ class AndroidAiProviderCenterApplication(context:Context){
             val credential=auth.accessCredential()
             try{if(credential==null)emptyList() else http.discoverModels(credential)}finally{credential?.fill('\u0000')}
         }else emptyList()
+        models.forEach{discoveredCloudModels[it.modelUid]=it}
         OpenRouterConnectionResult(status,models)
+    }
+
+    /** Builds provider adapters only; Chat/UI never sees an SDK or runtime handle. */
+    fun provider(selection:AiModelSelection,configuration:AiSystemConfiguration):AiProvider?{
+        return when(selection.providerUid){
+            "LOCAL:ANDROID_EXECUTORCH_1_3","LOCAL:ANDROID_NATIVE"->{
+                val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH
+                if(selection.modelUid!=profile.modelUid)return null
+                val settings=configuration.localModelSettings?:LocalRecommendedSettings.forProfile(profile)
+                if(settings.modelUid!=profile.modelUid||profile.variants.none{it.variantUid==settings.variantUid})return null
+                LocalAiPort(profile,settings,localRuntime,artifacts,{AndroidLocalDeviceProbe.snapshot(app).copy(availableBackends=setOf(LocalRuntimeBackend.CPU))},CanonicalAiJsonCodec())
+            }
+            "OPENROUTER"->discoveredCloudModels[selection.modelUid]?.let{CloudAiPort(it,auth,http,CanonicalAiJsonCodec())}
+            else->null
+        }
+    }
+
+    fun availableProviders(configuration:AiSystemConfiguration):List<AiProvider>{
+        if(discoveredCloudModels.isEmpty()&&auth.status().state==CloudAuthState.CONNECTED){
+            val credential=auth.accessCredential()
+            try{
+                if(credential!=null)runCatching{http.discoverModels(credential)}.getOrDefault(emptyList()).forEach{discoveredCloudModels[it.modelUid]=it}
+            }finally{credential?.fill('\u0000')}
+        }
+        val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH
+        val local=provider(AiModelSelection("LOCAL:ANDROID_EXECUTORCH_1_3",profile.modelUid),configuration)
+        val cloud=discoveredCloudModels.values.sortedBy{it.modelUid}.mapNotNull{provider(AiModelSelection("OPENROUTER",it.modelUid),configuration)}
+        return listOfNotNull(local)+cloud
     }
 }

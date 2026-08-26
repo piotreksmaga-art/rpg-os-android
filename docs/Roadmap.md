@@ -40,7 +40,7 @@ Wyjątek stanowią jawnie World-Pack-specific fazy integracyjne (obecnie Phase 8
 - Exact-SHA GREEN evidence: Phase 38 `117/0/0`, full JVM `1004/0/0`, Actions run `32776574352`, job `97588891710`.
 - Acceptance record: `docs/architecture/PHASE38_ACCEPTANCE.md`; pełne historyczne SHA/CI/artifacts/findingi pozostają w `docs/Historia projektu.md` i phase acceptance records.
 - Exact-SHA evidence: `Validate RPG OS ALPHA` run `32889856844`, `Phase39-47 Audit3 Validation` run `32889856923` i `Phase38 AUD002 Forensic Gate` run `32889856858` — SUCCESS. Signed artifact `9579252027`, digest `sha256:0ad2e25010501b235695be0c1823a21e4f1f336d1e85f7e7e1a7ba39d48a841e`.
-- Phase 48–54 mają nowy final-plan candidate opisany w `docs/architecture/PHASE48_54_FINAL_IMPLEMENTATION.md`. Niezależne kontrakty 48–54 są wdrożone i focused suite jest zielony, ale globalny status pozostaje `[-]` z powodu jawnych bramek live oraz dwóch rzeczywistych blockerów integracyjnych: brak spakowanego native runtime Bielika i brak pełnej produkcyjnej kompozycji arbitrary chat mechanics do historycznego PlayerDomainEngine.
+- Phase 48–54 mają zintegrowany repair candidate opisany w `docs/architecture/PHASE48_54_FINAL_IMPLEMENTATION.md`. Spakowany ExecuTorch adapter, production composition root, canonical Android chat, pełna materializacja wymaganych efektów, multi-action, Combat Engine oraz controlled-provider E2E zamknęły wcześniejsze blockery implementacyjne. Globalny status pozostaje `[-]` do exact-SHA CI, koordynacyjnego audytu/acceptance oraz zewnętrznego live-device/live-model evidence.
 - World Pack Creator pozostaje DEFERRED do czasu globalnego ACCEPTED Phase 1–84.
 
 # FAZA 0 — BASELINE / AUDYT
@@ -235,13 +235,13 @@ Dalsze Phase 39–47:
 - cloud context, gdy później aktywny, jest minimalny i sanitised zamiast whole-save export.
 
 # FAZA D — GM ENGINE / ROLE-BASED AI FOUNDATION
-- [-] 48. AI Provider & role-based Local/Cloud execution — universal LocalAiPort/CloudAiPort, Bielik profile/settings/admission/JNI adapter, OpenRouter PKCE/Keystore/discovery/inference i deterministic Auto/manual role routing zaimplementowane; production native library i live-device evidence pozostają jawnie otwarte
+- [-] 48. AI Provider & role-based Local/Cloud execution — universal LocalAiPort/CloudAiPort, Bielik profile/settings/admission, spakowany ExecuTorch Android runtime, OpenRouter PKCE/Keystore/model discovery/strict workload JSON Schema inference i deterministic Auto/manual role routing są zintegrowane; kompatybilne weights, user authorization i real-device evidence pozostają zewnętrznymi bramkami
 - [-] 49. Structured GM Output contract — strict proposal identity/provenance/actor/action/target/modality/dependency/player-agency validation zaimplementowane
-- [-] 50. Universal Mechanics & Combat Resolution integration `[REF-ADAPTER]` — universal actor/generation/combat/reaction/effect/replay contracts zaimplementowane; pełna materializacja arbitrary chat mechanics do historycznych domain owners pozostaje blockerem
+- [-] 50. Universal Mechanics & Combat Resolution integration `[REF-ADAPTER]` — jeden production Combat Engine, canonical snapshot, persistent non-player state, spatial/timing/detection/reaction/clash/contest/objectives/replay, effect materialization przez istniejących ownerów, multi-action oraz individual/group/unit aggregate combat są zintegrowane; oczekuje exact-SHA CI i koordynacyjnego acceptance
 - [-] 51. Candidate-State Consistency Validator — pure projection oraz inventory/ownership/finance/progression/location/exclusion/temporal checks zaimplementowane
 - [-] 52. Counterfactual/Factual Frontier Guard — FACT/BELIEF/NARRATIVE/future/counterfactual/support/scope isolation zaimplementowane
 - [-] 53. Repair Pass for proposal and narrative — bounded, no-reroll, no-entitlement-expansion repair z pełną rewalidacją zaimplementowany
-- [-] 54. Committed narrative after valid transaction — exact persisted receipt, Phase38 post-commit readback, semantic firewall, bounded repair/fallback, delivery idempotency i restart recovery zaimplementowane; produkcyjne Android composition pozostaje blockerem
+- [-] 54. Committed narrative after valid transaction — exact persisted receipt, Phase38 post-commit readback, semantic firewall, bounded repair/fallback, delivery idempotency i restart recovery są podłączone do jednego production Android composition root; oczekuje exact-SHA CI i koordynacyjnego acceptance
 
 Status `[-]` jest celowy i nie jest ogólnym „vertical slice only”. Szczegółowe `IMPLEMENTATION_COMPLETE`, `CONCRETE_ADAPTER_GREEN`, `LIVE_EVIDENCE_PENDING_EXTERNAL_DEPENDENCY` i `ACTUAL_IMPLEMENTATION_BLOCKER` są rozdzielone w `docs/architecture/PHASE48_54_FINAL_IMPLEMENTATION.md`. Stary `PHASE48_54_VERTICAL_SLICE_ACCEPTANCE.md` pozostaje rekordem historycznym.
 
@@ -255,8 +255,10 @@ Zaimplementowany final-plan candidate:
 - AI nie otrzymuje repository/DB ani mutation authority; proposal i narrative nie są rzeczywistością;
 - narrative request wymaga niepodrabialnego w ścieżce aplikacji evidence wydanego po odczycie trwałego V3 receipt;
 - provider failure, invalid structured output i cancellation przed commit kończą się bez mutacji; cancellation/failure po commit nie cofa rzeczywistości i zwraca typed `CommittedWithoutNarrative`.
+- rozpoczęcie nowej kampanii ma provider-independent `CHARACTER_CREATION` workload: MG zbiera wybory gracza i tworzy kompletny draft postaci z identity/gender/stats/resources/talent/potential/skills/techniques/origins/innate features/start location, ale zapis następuje atomowo dopiero po osobnym jawnym potwierdzeniu gracza;
+- kreator pobiera typed definitions aktywnego World Packa, stosuje wąski legacy import tylko dla starszych paczek i neutralny, namespaced fallback bez Naruto-specific statów lub zasobów; World Pack dostarcza treść, a Core workflow i authority są uniwersalne.
 
-Otwarte bramki są sklasyfikowane precyzyjnie w finalnym rekordzie: live OpenRouter/model/device są external-evidence gates; brak spakowanej biblioteki native oraz brak kompletnej kompozycji arbitrary chat mechanics do accepted historycznego Core są rzeczywistymi blockerami implementacji. Legacy `ViewModel -> StatePatch` został usunięty; compatibility backend może dać wyłącznie jawnie nieautorytatywną narrację i jego patch jest odrzucany.
+Otwarte bramki są sklasyfikowane precyzyjnie w finalnym rekordzie: live OpenRouter/model/device pozostają external-evidence gates, a wcześniejsze blockery spakowanego local runtime i produkcyjnej kompozycji są zamknięte w repair candidate. Legacy `ViewModel -> StatePatch` został usunięty; compatibility backend może dać wyłącznie jawnie nieautorytatywną narrację i jego patch jest odrzucany.
 
 Wymagane docelowo:
 - provider-independent `AiProvider`/semantic contract;
@@ -288,7 +290,9 @@ Phase 50 Universal Mechanics & Combat Resolution acceptance obejmuje co najmniej
 - `CombatIntent != Outcome`; Decision Engine/validated player command wybiera intencję, Combat Engine tylko ją rozstrzyga;
 - immutable relevant Combat Snapshot + eligibility/preconditions + spatial/timing + detection + reaction/interrupt + clash + contest + effect + objectives + resolution evidence;
 - reaction wymaga capability + perception/knowledge + time + resource; hidden FACT nie daje automatycznej reakcji;
-- effects są typed/compositional i mogą obejmować HP/wounds/resources/status/movement/equipment/structure/morale/cohesion/formation/environment zamiast jednego damage number;
+- effects są typed/compositional i mogą obejmować HP/wounds/resources/status/movement/equipment/structure/morale/cohesion/formation/environment zamiast jednego damage number; katalog statusów (`BURNING`, `POISONED`, `PARALYZED`, `FROZEN` itd.) należy do uniwersalnego Core, natomiast World Pack definiuje zdolność, jej koszty i szanse zastosowania statusu;
+- AoE jest semantic family/shape contractem, nie przypadkiem `FIREBALL`; World Pack może definiować blast/cone/line/zone/sweep i inne zdolności bez zmian Core;
+- wielkie starcia używają bounded O(1) aggregate resolution dla individual-vs-group, group-vs-group i unit-vs-unit; ekstremalna przewaga siły może legalnie zamienić pojedynczy atak w bounded group impact bez rozwijania setek/tysięcy członków;
 - optional TargetComponentModel obsługuje anatomy oraz non-biological components;
 - deterministic/replay-safe RNG/evidence; same committed inputs/rules/random evidence -> same outcome;
 - Combat Engine nie zapisuje authority bezpośrednio: wynik -> domain ChangeSets -> validation -> TurnTransaction -> Event/Causal evidence -> COMMIT -> narration;
@@ -319,7 +323,7 @@ Future Player Interaction acceptance, rozwijane wraz z Phase 43–54, 63–64 i 
 - [ ] 60. Time Skip Processor + Scheduler/WorldProcess orchestration `[REF-ADAPTER]`
 - [-] 61. NPC Brain + persistent individuality/personality/values/goals/fears/emotional state/relationships `[REF-ADAPTER]`
 - [-] 62. NPC Decision Engine + knowledge/memory/social-role constrained autonomy `[REF-ADAPTER]`
-- [ ] 63. World Simulation LOD 0–3 + World Actor mechanical materialization + Combat LOD integration `[REF-ADAPTER]`
+- [ ] 63. World Simulation LOD 0–3 + World Actor mechanical materialization + Combat LOD integration `[REF-ADAPTER]` — minimalny `AggregateCombatStatePort`/aggregate population seam jest pulled-forward wyłącznie dla Phase50; symulacja LOD, promotion/coarsening i background world loop nadal należą do Phase63
 - [ ] 64. Background-world causal simulation: organizations/economy/projects/demography/wars/knowledge propagation/conflict resolution + controlled randomness `[REF-ADAPTER]`
 
 ## Acceptance direction Phase 55–64

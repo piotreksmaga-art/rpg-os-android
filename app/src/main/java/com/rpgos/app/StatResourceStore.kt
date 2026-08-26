@@ -204,10 +204,11 @@ internal class StatResourceStore(
         require(stat.campaignId == campaignId) { "PlayerStat belongs to another campaign" }
         requireDefinitionUidAvailable(stat.statUid)
         requireValueWithinDefinition("stat_definitions", "stat_uid", stat.statUid, stat.baseValue)
-        db.execSQL(
-            """INSERT INTO player_stats(campaign_id,character_uid,stat_uid,base_value,version) VALUES(?,?,?,?,?)
-               ON CONFLICT(campaign_id,character_uid,stat_uid) DO UPDATE SET base_value=excluded.base_value,version=excluded.version""".trimIndent(),
-            arrayOf<Any?>(stat.campaignId, stat.characterUid, stat.statUid, stat.baseValue, stat.version)
+        db.updateOrInsertCompat(
+            "UPDATE player_stats SET base_value=?,version=? WHERE campaign_id=? AND character_uid=? AND stat_uid=?",
+            arrayOf<Any?>(stat.baseValue,stat.version,stat.campaignId,stat.characterUid,stat.statUid),
+            "INSERT INTO player_stats(campaign_id,character_uid,stat_uid,base_value,version) VALUES(?,?,?,?,?)",
+            arrayOf<Any?>(stat.campaignId,stat.characterUid,stat.statUid,stat.baseValue,stat.version)
         )
     }
 
@@ -216,10 +217,11 @@ internal class StatResourceStore(
         require(resource.campaignId == campaignId) { "PlayerResource belongs to another campaign" }
         requireDefinitionUidAvailable(resource.resourceUid)
         requireValueWithinDefinition("resource_definitions", "resource_uid", resource.resourceUid, resource.currentValue)
-        db.execSQL(
-            """INSERT INTO player_resources(campaign_id,character_uid,resource_uid,current_value,version) VALUES(?,?,?,?,?)
-               ON CONFLICT(campaign_id,character_uid,resource_uid) DO UPDATE SET current_value=excluded.current_value,version=excluded.version""".trimIndent(),
-            arrayOf<Any?>(resource.campaignId, resource.characterUid, resource.resourceUid, resource.currentValue, resource.version)
+        db.updateOrInsertCompat(
+            "UPDATE player_resources SET current_value=?,version=? WHERE campaign_id=? AND character_uid=? AND resource_uid=?",
+            arrayOf<Any?>(resource.currentValue,resource.version,resource.campaignId,resource.characterUid,resource.resourceUid),
+            "INSERT INTO player_resources(campaign_id,character_uid,resource_uid,current_value,version) VALUES(?,?,?,?,?)",
+            arrayOf<Any?>(resource.campaignId,resource.characterUid,resource.resourceUid,resource.currentValue,resource.version)
         )
     }
 

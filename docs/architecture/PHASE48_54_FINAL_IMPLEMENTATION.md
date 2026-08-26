@@ -1,100 +1,101 @@
-# RPG OS — Phase 48–54 final-plan implementation record
+# RPG OS — Phase 48–54 integrated repair candidate
 
-Status: **IMPLEMENTED CANDIDATE / CONTROLLED BACKEND GREEN / LIVE EVIDENCE AND TWO PRODUCTION INTEGRATION GATES PENDING**
+Status: **IMPLEMENTATION + PRODUCTION INTEGRATION COMPLETE / FOCUSED GREEN / EXACT-SHA CI AND COORDINATOR ACCEPTANCE PENDING**
 
-Work branch: `codex/phase-48-54-final`
+Branch: `codex/phase-48-54-repair`
 
-Authoritative input: `CODEX_PLAN_48_54_FINAL.md`. `MGAI.md` and `Analiza_48-54.md` were treated as reference material. This record supersedes the scope description in `PHASE48_54_VERTICAL_SLICE_ACCEPTANCE.md`; the older document remains historical evidence for the previously merged slice.
+Base master SHA: `0ea25f1abb4b9e7639058df5c48466e4f5f3d70e`
 
-## Result by status vocabulary
+Authoritative input: `CODEX_PLAN_POPRAWKI_48-54.md`. `poprawki_48-54.md` was reference material. The older `PHASE48_54_VERTICAL_SLICE_ACCEPTANCE.md` remains historical evidence only.
 
-| Area | Status | Evidence / remaining gate |
+## Status matrix
+
+| Area | Status before repair | Repair-candidate status |
 |---|---|---|
-| Provider-independent contracts, role assignments and deterministic Auto routing | `IMPLEMENTATION_COMPLETE` | One AI system; GM and Director can independently use Auto or a pinned local/cloud model. Routing checks workload, context, availability, privacy and local admission. |
-| Universal `LocalAiPort`, model/artifact/settings/admission/runtime lifecycle contracts | `IMPLEMENTATION_COMPLETE` | Bielik 4.5B v3 Instruct is the first data profile. CTX, KV, backend, threads, prefill and quantization are capability checked. |
-| Android JNI local adapter | `CONCRETE_ADAPTER_GREEN` for controlled driver contract; `ACTUAL_IMPLEMENTATION_BLOCKER` for production inference | The repository does not contain the `rpgos_ai_runtime` native library. Importing weights alone cannot produce real Bielik inference until a compatible packaged implementation is supplied. |
-| Real-device Bielik | `LIVE_EVIDENCE_PENDING_EXTERNAL_DEPENDENCY` | Requires compatible weights, packaged native runtime and a physical Android device with sufficient memory. |
-| Universal `CloudAiPort` and OpenRouter adapter | `IMPLEMENTATION_COMPLETE`; `CONCRETE_ADAPTER_GREEN` | OAuth PKCE, Android Keystore credential storage, model discovery, structured chat execution, cancellation, usage and typed 429 handling are implemented. Credentials never enter campaign/save state. |
-| Live OpenRouter | `LIVE_EVIDENCE_PENDING_EXTERNAL_DEPENDENCY` | Requires user authorization/network. No credential was available in this work block. |
-| Phase49 structured GM proposal | `IMPLEMENTATION_COMPLETE` | Strict identity, actor/action/target/modality, dependency, provenance and player-volition validation. |
-| Phase50 universal mechanics contracts | `IMPLEMENTATION_COMPLETE` for the new universal mechanics layer; `ACTUAL_IMPLEMENTATION_BLOCKER` for full legacy-domain materialization | Mechanical views cover PC/former PC/NPC/monster/summon/vehicle/unit/group/world actor; generation, perception-gated reactions, typed effects and replay evidence exist. Historical Core has no complete production resolution-component composition for arbitrary chat mechanics (for example movement), so UI must not fabricate a canonical mutation. |
-| Phase51 candidate-state consistency | `IMPLEMENTATION_COMPLETE` | Inventory, ownership, finance conservation, progression, location, mutually exclusive effects and temporal/world constraints are validated on a pure candidate projection. |
-| Phase52 factual frontier | `IMPLEMENTATION_COMPLETE` | Unsupported facts, belief/narrative promotion, future/counterfactual promotion and out-of-scope subjects/effects fail closed. |
-| Phase53 repair | `IMPLEMENTATION_COMPLETE` | Bounded repair preserves verified mechanics, forbids rerolls/entitlement expansion and revalidates the whole candidate. Narration repair is independently bounded. |
-| Phase54 committed narration | `IMPLEMENTATION_COMPLETE` at Core/application contracts | Narration receives exact persisted receipt evidence and a Phase38 player-visible post-commit readback only. Semantic validation, bounded repair, natural fallback, delivery idempotency and restart recovery never rerun mechanics or commit. |
-| Production Android canonical chat composition | `ACTUAL_IMPLEMENTATION_BLOCKER` | `CanonicalChatApplication` is ready, but wiring arbitrary natural-language actions to the historical `PlayerDomainEngine` still lacks production resolution components for all required domains. The former `ViewModel -> StatePatch` write was removed. The legacy backend is quarantined as narration-only and its patch is discarded. |
-| Required Director slice (real owner Phase65) | `IMPLEMENTATION_COMPLETE` for required slice / Phase65 remains `PARTIAL` | Versioned candidate bundles, triggers/cadence, async jobs, stale/cancel/dedup/idempotency/provenance validation; never direct mutation. |
-| Controlled test backend | `CONTROLLED_BACKEND_GREEN` | Focused Phase43–54 and final-plan tests pass locally. |
+| Phase48 provider contracts/routing | implemented | `GREEN` — one semantic port and common conformance suite |
+| Local Android AI | JNI boundary without packaged runtime | `GREEN` at implementation/package gate — official ExecuTorch Android AAR, package import, tokenizer/model validation, admission and lifecycle are wired; compatible weights and physical-device performance remain external evidence |
+| OpenRouter | concrete adapter | `GREEN` controlled — official PKCE/loopback flow, Android Keystore, discovery, typed 429/cancel, workload-specific strict JSON Schema plus Core revalidation; live authorization/network remain external evidence |
+| Phase49 | implemented contract | `GREEN` — proposal identity, actor/action/target/modality/dependencies/agency and malformed-output rejection |
+| Phase50 Combat | incomplete integration | `GREEN` focused — one universal engine, persistent non-player state, spatial/timing/detection/reaction/clash/contest/objectives/evidence/replay and owner-routed materialization |
+| Arbitrary/multi-action mechanics | production blocker | `GREEN` — staged execution through one canonical assembler and existing TurnTransaction; failure rolls back the turn |
+| Phase51–53 | implemented contracts | `GREEN` — pure candidate consistency, factual frontier, bounded no-reroll repair and complete revalidation |
+| Phase54 / Android canonical chat | production blocker | `GREEN` focused — Android uses one production composition root; commit precedes exact readback/narration; restart recovery does not rerun mechanics |
+| Universal character creation | missing | `GREEN` focused — provider-independent draft, active World Pack definitions, separate fingerprinted confirmation and atomic bootstrap |
+| Phase63 required seam | missing | `GREEN` pulled-forward slice only — aggregate population input for Phase50; no World Simulation lifecycle |
+| Phase65 Director slice | already implemented | preserved; no new authority and no expansion of Phase65 scope |
 
-Nothing in the two `ACTUAL_IMPLEMENTATION_BLOCKER` rows may be relabelled as an external credential/model gate. They require repository implementation work. Conversely, absence of weights, a device or an OpenRouter authorization does not downgrade independently completed contracts.
+Global roadmap status remains `[-]` until exact-SHA CI and coordinator acceptance. This record does not self-promote Phase48–54 to global `[x]`.
 
 ## Canonical runtime
 
 ```text
-Chat UI
-  -> ChatApplicationPort
+Android Chat UI
   -> CanonicalChatApplication
-  -> AiChatEngineFacade
-  -> role-aware ModelRouter
-  -> AiProvider
-       -> LocalAiPort -> LocalInferenceRuntime
-       -> CloudAiPort -> OpenRouter
-  -> IntentDocument validation and trusted reference resolution
+  -> ProductionGameEngineCompositionRoot
+  -> role-aware AiProvider (controlled | local ExecuTorch | OpenRouter)
+  -> IntentDocument + Phase43 validation/resolution
   -> GraphTurnPlanner + CapabilityEnvelope
-  -> Phase38-projected context integrity/budget/completion
-  -> GmProposalCandidate
-  -> mechanics + candidate-state consistency + factual frontier
-  -> bounded repair and complete revalidation
-  -> sealed CanonicalCampaignMutationProposal
-  -> existing TurnTransaction
-  -> persisted V3 receipt + exact post-commit readback
-  -> committed narrative validator/repair/fallback
-  -> idempotent delivery
+  -> Phase38-safe projected context + semantic budget/completion
+  -> Structured GM Proposal
+  -> Phase50 mechanics / existing domain owners
+  -> Phase51 consistency + Phase52 factual frontier
+  -> bounded Phase53 repair + full revalidation
+  -> staged CanonicalCampaignMutationProposal
+  -> existing TurnTransaction (exactly once)
+  -> persisted receipt + exact Phase38 post-commit readback
+  -> Phase54 narrative validation/repair/fallback
+  -> idempotent player-visible delivery
 ```
 
-Authority invariants:
+AI remains a candidate generator. It has no repository, raw database, mechanics outcome or commit authority. Cancellation/failure before commit changes nothing. Failure after commit returns recoverable committed-without-narration state; recovery starts from the receipt and never repeats mechanics or commit.
 
-- AI output is a candidate, never canonical truth or mutation authority.
-- local and cloud receive the same semantic entitlement, with cloud-minimised projected payloads;
-- cancellation before commit mutates nothing;
-- cancellation/failure after commit produces a recoverable committed-without-narration state;
-- recovery begins from persisted receipt/readback and cannot rerun planning, mechanics or commit;
-- factual outcome is never streamed before commit;
-- player volitional action is sourced only from validated player input.
+## Phase50 and scale
 
-## One AI system and Director ownership
+The engine is World-Pack-agnostic. `CombatAbilityContractPort` supplies ability shape/range/cost/status bindings. AoE includes blast/cone/line/zone/sweep-style semantic families and has no `FIREBALL` branch in Core.
 
-There is no top-level Local/Cloud/Hybrid mode. Settings persist separate GM and Director role assignments:
+`UniversalStatusEffectRegistry` owns status identity and stacking policy. A World Pack ability supplies `AbilityStatusApplication`, for example a 20% binding to Core `BURNING`. Unknown private status identities fail closed.
 
-```text
-Game Master: Auto | compatible local model | compatible cloud model
-Director:     Auto | compatible local model | compatible cloud model
-```
+Large battles use bounded aggregate resolution:
 
-The Director implementation is owned by Phase65. It emits future strategic candidates only; cadence is independent from provider assignment and normal turns never wait for it.
+- area attack against an aggregate population;
+- extreme-power individual/direct attack against a group;
+- group-vs-group and unit-vs-unit engagement;
+- O(1) distributions for eliminated, wounded, status-affected and unaffected counts;
+- deterministic evidence/replay without member expansion.
 
-## UI and credential boundary
+The Phase63 pulled-forward seam supplies only aggregate population state. Phase63 remains owner of LOD promotion/coarsening, conservation across LOD, background simulation and World Actor lifecycle.
 
-The Provider Center exposes role assignment, Bielik artifact/settings/admission state, OpenRouter connect/disconnect/model discovery, privacy policy and Director status. Android Keystore stores the OpenRouter credential outside Campaign State. The OAuth callback uses an ephemeral loopback endpoint permitted by OpenRouter's official PKCE flow.
+## Universal new-campaign character creation
 
-The UI no longer calls `LocalGameStore.applyPatch`. Until the missing canonical production composition is implemented, the pre-Phase48 backend may return prose only. Any legacy `StatePatch` is discarded and the UI explicitly says that no canonical state was changed.
+The GM can gather user choices and produce a complete `PlayerCharacterCreationDraft`: identity, gender, stats, resources, talent, potential, skills, techniques, origins, innate features and starting position. The draft cannot mutate state. A separate confirmation must match the draft fingerprint, after which `PlayerCharacterBootstrapService` commits the whole character atomically and makes it active.
 
-## Verification
+Definitions come from the active World Pack typed schema. A narrow compatibility bridge reads supported legacy tables. A valid pack with no character schema receives a namespaced, genre-neutral fallback; missing World Pack authority never causes fabricated definitions. Naruto-specific content is not part of the Core creator.
 
-- focused final-plan suite: GREEN;
-- production Kotlin compilation: GREEN;
-- release-workflow separation check: GREEN;
-- local full JVM attempt: 1062 tests, 193 historical Windows/Robolectric failures caused by sqlite4java lacking the accepted runtime's SQLite features (`UPSERT`, `VACUUM INTO`, custom authority functions); Linux exact-SHA CI is the authoritative regression gate;
-- exact-SHA Linux CI and signed APK: pending push at the time this record was written;
-- real-device Bielik/OpenRouter: pending as classified above.
+## Provider conformance and OpenRouter
 
-Official OpenRouter references used for the adapter:
+The same semantic probe runs against controlled, real LocalAiPort and real CloudAiPort adapter paths. It checks cancellation, identity, actor/action/target, Phase43 validation, structured proposal, agency, invented ability, bounded repair, hidden-marker leakage and absence of provider mutation methods.
 
-- OAuth PKCE: <https://openrouter.ai/docs/guides/overview/auth/oauth>
-- authorization-code exchange: <https://openrouter.ai/docs/api/api-reference/o-auth/exchange-auth-code-for-api-key>
-- model discovery: <https://openrouter.ai/docs/api/api-reference/models/get-models>
-- API quickstart: <https://openrouter.ai/docs/quickstart>
+OpenRouter uses OAuth PKCE with an ephemeral localhost callback, `/api/v1/auth/keys`, model discovery and `/api/v1/chat/completions`. When a model advertises structured output, requests use a named strict `json_schema` for the exact workload and require compatible provider parameters. Core decoding/validation remains authoritative.
+
+Official references:
+
+- <https://openrouter.ai/docs/guides/overview/auth/oauth>
+- <https://openrouter.ai/docs/guides/features/structured-outputs>
+- <https://openrouter.ai/docs/guides/overview/models>
+- <https://openrouter.ai/docs/quickstart>
+
+## Verification state before final push
+
+- focused repair/provider/schema/production E2E: `GREEN`;
+- legacy migration/backup routing regressions: `GREEN` after missing-World-Pack fail-closed repair;
+- financial concurrency/idempotency and closed-account invariants: `GREEN`;
+- local Android debug compilation: `GREEN` as part of focused Gradle runs;
+- local full JVM attempt: environment-invalid after Windows Defender blocked Robolectric's extracted native runtime; this caused cascading missing SQLite native functions and is not recorded as green;
+- Linux exact-SHA full JVM, signed release APK, signature/digest and immutable provenance: pending final push/CI;
+- live Bielik weights/device and live OpenRouter authorization: `PENDING_EXTERNAL_DEPENDENCY`.
 
 ## Merge rule
 
-This branch must not be merged without coordinator authorization. Exact-SHA CI and the signed artifact provide candidate evidence, not global acceptance.
+`STOP / DO NOT MERGE / WAIT FOR COORDINATOR AUDIT`.
+
+Exact-SHA CI and a signed validation artifact are candidate evidence, not permission to merge or global acceptance.

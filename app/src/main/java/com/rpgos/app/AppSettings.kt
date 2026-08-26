@@ -72,7 +72,7 @@ class AppSettings(private val context: Context) {
 
     private fun loadAi():AiSystemConfiguration{
         val localModel=prefs.getString("ai_local_model_uid",null)?.let{modelUid->
-            val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3
+            val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH
             runCatching{LocalModelSettings(
                 modelUid,prefs.getString("ai_local_variant_uid",profile.variants.first().variantUid)!!,
                 prefs.getInt("ai_local_context_units",profile.recommendedContextUnits),
