@@ -48,7 +48,7 @@ data class DirectorJobRecord(
 
 interface DirectorJobStore{
     fun reserve(record:DirectorJobRecord):Boolean
-    fun update(record:DirectorJobRecord)
+    fun transition(record:DirectorJobRecord)
     fun find(jobUid:String):DirectorJobRecord?
     fun lastAcceptedOrder(campaignUid:String):Long?
 }
@@ -56,7 +56,7 @@ interface DirectorJobStore{
 class InMemoryDirectorJobStore:DirectorJobStore{
     private val jobs=linkedMapOf<String,DirectorJobRecord>()
     @Synchronized override fun reserve(record:DirectorJobRecord):Boolean{if(record.jobUid in jobs)return false;jobs[record.jobUid]=record;return true}
-    @Synchronized override fun update(record:DirectorJobRecord){require(jobs[record.jobUid]?.campaignUid==record.campaignUid);jobs[record.jobUid]=record}
+    @Synchronized override fun transition(record:DirectorJobRecord){require(jobs[record.jobUid]?.campaignUid==record.campaignUid);jobs[record.jobUid]=record}
     @Synchronized override fun find(jobUid:String)=jobs[jobUid]
     @Synchronized override fun lastAcceptedOrder(campaignUid:String)=jobs.values.filter{it.campaignUid==campaignUid&&it.state==DirectorJobState.ACCEPTED}.maxOfOrNull{it.atCommittedOrder}
 }
@@ -132,17 +132,17 @@ class DirectorEngine(
     private fun run(initial:DirectorJobRecord,trigger:DirectorTrigger,context:DirectorContextEnvelope){
         val route=modelRoute.route(AiRole.DIRECTOR_SCENARIST,AiWorkload.DIRECTOR_STRATEGY,context.strategicSummarySegments.sumOf{it.length/4+1})
         val provider=(route as? AiRouteResult.Selected)?.provider
-        if(provider==null){jobs.update(initial.copy(state=DirectorJobState.FAILED,terminalReasonUid="DIRECTOR_PROVIDER_UNAVAILABLE"));return}
-        val running=initial.copy(state=DirectorJobState.RUNNING,providerUid=provider.capabilities.providerUid,modelUid=provider.capabilities.modelUid);jobs.update(running)
+        if(provider==null){jobs.transition(initial.copy(state=DirectorJobState.FAILED,terminalReasonUid="DIRECTOR_PROVIDER_UNAVAILABLE"));return}
+        val running=initial.copy(state=DirectorJobState.RUNNING,providerUid=provider.capabilities.providerUid,modelUid=provider.capabilities.modelUid);jobs.transition(running)
         val request=AiDirectorRequest("${initial.jobUid}:REQUEST",initial.jobUid,trigger,context)
         when(val generated=provider.generateDirector(request)){
-            is AiProviderResult.Failure->jobs.update(running.copy(state=if(generated.kind==AiProviderFailureKind.CANCELLED)DirectorJobState.CANCELLED else DirectorJobState.FAILED,terminalReasonUid=generated.reasonUid))
+            is AiProviderResult.Failure->jobs.transition(running.copy(state=if(generated.kind==AiProviderFailureKind.CANCELLED)DirectorJobState.CANCELLED else DirectorJobState.FAILED,terminalReasonUid=generated.reasonUid))
             is AiProviderResult.Success->{
                 val bundle=generated.value
-                if(bundle.providerUid!=provider.capabilities.providerUid||bundle.modelUid!=provider.capabilities.modelUid){jobs.update(running.copy(state=DirectorJobState.REJECTED,terminalReasonUid="DIRECTOR_PROVENANCE_MISMATCH"));return}
+                if(bundle.providerUid!=provider.capabilities.providerUid||bundle.modelUid!=provider.capabilities.modelUid){jobs.transition(running.copy(state=DirectorJobState.REJECTED,terminalReasonUid="DIRECTOR_PROVENANCE_MISMATCH"));return}
                 val checked=validator.validate(bundle,request,contextVersions.current(context.campaignUid))
-                if(!checked.accepted)jobs.update(running.copy(state=DirectorJobState.REJECTED,terminalReasonUid=checked.reasonUids.joinToString("|")))
-                else{candidates.put(bundle);jobs.update(running.copy(state=DirectorJobState.ACCEPTED,terminalReasonUid="DIRECTOR_BUNDLE_ACCEPTED"))}
+                if(!checked.accepted)jobs.transition(running.copy(state=DirectorJobState.REJECTED,terminalReasonUid=checked.reasonUids.joinToString("|")))
+                else{candidates.put(bundle);jobs.transition(running.copy(state=DirectorJobState.ACCEPTED,terminalReasonUid="DIRECTOR_BUNDLE_ACCEPTED"))}
             }
         }
     }

@@ -12,7 +12,8 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         DERIVED_PRESENTATION,
         ADMINISTRATIVE_MIGRATION_RECOVERY,
         OPERATIONAL_GUARD,
-        UI_SETTINGS
+        UI_SETTINGS,
+        EXTERNAL_AI_CONFIGURATION
     }
 
     /** Closed inventory of production source files that contain a durable state write sink. */
@@ -48,6 +49,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         listOf(
             "ChapterSaveManager.kt",
             "GalleryService.kt",
+            "Phase54CommittedNarration.kt",
             "VisualLibrary.kt"
         ).forEach { put(it, WriterClass.DERIVED_PRESENTATION) }
 
@@ -87,6 +89,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         put("GameplayMutationGate.kt", WriterClass.OPERATIONAL_GUARD)
         put("DiagnosticLogger.kt", WriterClass.OPERATIONAL_GUARD)
         put("AppSettings.kt", WriterClass.UI_SETTINGS)
+        put("OpenRouterAndroidInfrastructure.kt", WriterClass.EXTERNAL_AI_CONFIGURATION)
     }
 
     private val durableWriteMarkers = listOf(
