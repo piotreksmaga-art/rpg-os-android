@@ -407,8 +407,8 @@ Phase 47 może wyłącznie zawężać albo kontynuować request w oryginalnym `C
 
 Local context i cloud context nie muszą być identyczne. Oba powstają z tego samego semantic entitlement; cloud otrzymuje minimalny, zadaniowy, sanitizowany i dozwolony bundle — nigdy automatycznie całe Save/Chronicle/DB.
 
-## 13. Hybrid Local-First AI — CANONICAL TARGET
-Docelowy AI jest `HYBRID LOCAL-FIRST` pod jednym provider-independent semantic contractem.
+## 13. Role-based Local/Cloud AI — IMPLEMENTED CANDIDATE
+Istnieje jeden provider-independent system AI. Nie ma osobnych trybów produktu Local/Cloud/Hybrid. Użytkownik przypisuje model niezależnie do roli Game Master oraz Director/Scenarist: `Auto` albo kompatybilny model local/cloud.
 
 `LOCAL AI MUST BE SUFFICIENT TO CONTINUE THE CAMPAIGN.`
 
@@ -423,7 +423,9 @@ Cloud może poprawiać jakość, ale brak sieci, timeout, 429, quota, provider f
 - optional cloud adapters — ten sam semantic contract, bez campaign authority;
 - `GmToolGateway` — allowlisted QUERY/REQUEST/PROPOSE boundary, bez raw writable DB i COMMIT.
 
-Aktualny vertical slice Phase 48–54 implementuje `AiProvider`, `AiProviderRegistry`, `AiCapabilityContract`, `TransportAiProviderAdapter` oraz deterministic conformance provider. Transport i codec są wstrzykiwane w composition root, dzięki czemu lokalny lub chmurowy runtime można podłączyć bez przepisywania Intent/Planner/Context/GM pipeline. Nie oznacza to jeszcze implementacji konkretnego `LocalInferenceRuntime`, backend selectora ani cloud failover.
+Final-plan candidate Phase48–54 implementuje `AiProvider`, registry/capability contracts, role-aware deterministic router, universal `LocalAiPort`/`CloudAiPort`, lifecycle/admission/settings/artifact contracts, Android JNI driver boundary, Bielik data profile, OpenRouter PKCE/Keystore/discovery/inference adapter oraz strict JSON codecs. Deterministic provider pozostaje wyłącznie controlled conformance backend.
+
+Auto routing respektuje workload, context limit, availability, privacy, resource admission i explicit pins. Local jest preferowany dla normalnego GM workloadu, lecz nie jest fałszywie oznaczany READY bez modelu, bezpiecznego profilu urządzenia i działającego runtime. Director cadence pozostaje niezależny od wyboru providera.
 
 Canonical runtime flow tego slice:
 
@@ -440,17 +442,27 @@ ChatTurnRequest
   -> CanonicalMutationAssembler
   -> existing TurnTransaction / CampaignRepository authority
   -> persisted V3 TurnCommitReceipt verification
-  -> AuthoritativeCommitEvidence
-  -> narrative render/delivery
+  -> exact Phase38 player-visible post-commit readback
+  -> committed-narrative semantic validation
+  -> bounded repair or natural deterministic fallback
+  -> idempotent/recoverable delivery
 ```
 
 `AI CANDIDATE != VALIDATED PROPOSAL != MECHANICS RESOLUTION != CANONICAL MUTATION PROPOSAL != COMMIT`. Żaden provider, codec, proposal validator, mechanics resolver ani narrative renderer nie otrzymuje sam przez te kontrakty raw DB lub COMMIT authority. `CanonicalMutationAssembler` może zwrócić wyłącznie proposal już zapieczętowany przez istniejący PlayerDomainEngine admission path, a durable write pozostaje własnością istniejącej TurnTransaction.
 
-Narracja jest renderowana dopiero po autoryzacji receiptu znalezionego w trwałym receipt store. Sam strukturalnie podobny obiekt receipt nie wystarcza. Awaria/cancel/invalid output przed commit nie mutuje kampanii; po udanym atomic commit awaria narracji zwraca typed committed-without-narrative i nie próbuje cofać rzeczywistości.
+Narracja jest renderowana dopiero po autoryzacji receiptu znalezionego w trwałym receipt store i exact post-commit readbacku przez Phase38 projection. Precommit proposal nie jest wejściem factual narration. Sam strukturalnie podobny obiekt receipt nie wystarcza. Awaria/cancel/invalid output przed commit nie mutuje kampanii; po udanym atomic commit awaria narracji zwraca typed committed-without-narrative. Recovery zaczyna od persisted receipt/readback i nigdy nie powtarza planu, mechanics ani commit.
 
 Model, provider, runtime i backend są wymienne i nie mogą wymagać migracji kampanii.
 
 Credentials/auth state nie należą do Campaign State, Save, Chronicle ani World Pack.
+
+### 13.1a Production implementation gates
+
+`CanonicalChatApplication` jest jedynym adapterem UI uprawnionym do wywołania `AiChatEngineFacade`. UI nie może wywołać DB, ChangeSet, mechanics, commit, raw OpenRouter HTTP ani local runtime. Stary `ViewModel -> StatePatch` został usunięty. Legacy backend jest odizolowany jako narration-only compatibility boundary; każdy zwrócony patch jest odrzucany przed LocalGameStore.
+
+Repozytorium nie zawiera natywnej biblioteki `rpgos_ai_runtime`, dlatego Android JNI adapter nie jest jeszcze prawdziwym Bielik inference runtime. Drugim rzeczywistym blockerem jest brak kompletnej production composition, która materializuje wszystkie wymagane arbitrary chat mechanics przez istniejące `PlayerDomainEngine` domain owners. System fail-closed zamiast omijać accepted authority. Pełna macierz i statusy znajdują się w `docs/architecture/PHASE48_54_FINAL_IMPLEMENTATION.md`.
+
+OpenRouter authorization używa OAuth PKCE oraz ephemeral loopback callback, a credential trafia do Android Keystore poza campaign/save. Cloud otrzymuje wyłącznie projected/minimised structured context.
 
 ### 13.2 Player agency
 `VOLITIONAL PLAYER ACTION SOURCE = USER / VALIDATED PLAYER COMMAND ONLY`.

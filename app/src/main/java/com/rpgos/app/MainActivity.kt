@@ -220,6 +220,7 @@ private enum class CampaignTool(val title: String) {
     TIME("Czas"),
     DASHBOARD("Symulacja świata"),
     PACKAGES("Kampanie i pakiety"),
+    AI("AI"),
     GM("Diagnostyka MG"),
     DEV("Panel deweloperski"),
     DB("Baza danych"),
@@ -962,6 +963,7 @@ private fun CampaignShell(
                 CampaignTool.TIME -> TimeScreen(vm)
                 CampaignTool.DASHBOARD -> WorldDashboardScreen(vm)
                 CampaignTool.PACKAGES -> PackagesScreen(vm)
+                CampaignTool.AI -> AiProviderCenterScreen(vm)
                 CampaignTool.GM -> GmDiagnosticsScreen(vm)
                 CampaignTool.DEV -> DeveloperPanelScreen(vm)
                 CampaignTool.DB -> DatabaseScreen(vm)
@@ -1078,18 +1080,19 @@ private fun CampaignMenuScreen(
         }
         item {
             MenuGridRow(
-                left = "Ustawienia" to CampaignTool.SETTINGS,
-                right = "Diagnostyka" to CampaignTool.GM,
+                left = "AI" to CampaignTool.AI,
+                right = "Ustawienia" to CampaignTool.SETTINGS,
                 onTool = onTool
             )
         }
         item {
             MenuGridRow(
-                left = "Dev" to CampaignTool.DEV,
-                right = "Baza danych" to CampaignTool.DB,
+                left = "Diagnostyka" to CampaignTool.GM,
+                right = "Dev" to CampaignTool.DEV,
                 onTool = onTool
             )
         }
+        item { OutlinedButton(onClick={onTool(CampaignTool.DB)},modifier=Modifier.fillMaxWidth()){Text("Baza danych")} }
 
         item {
             Spacer(Modifier.height(8.dp))
@@ -1679,6 +1682,7 @@ private fun GameScreen(vm:RpgOsViewModel){
     val messages by vm.messages.collectAsState()
     val settings by vm.settings.collectAsState()
     val contextSummary by vm.lastContextSummary.collectAsState()
+    val turnUi by vm.chatTurnUi.collectAsState()
     var text by remember{mutableStateOf("")}
 
     Column(
@@ -1695,6 +1699,17 @@ private fun GameScreen(vm:RpgOsViewModel){
                     style=MaterialTheme.typography.labelSmall,
                     color=MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
+        if(turnUi.stage!=ChatTurnUiStage.IDLE&&turnUi.stage!=ChatTurnUiStage.COMPLETED){
+            Surface(shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.secondaryContainer){
+                Row(Modifier.fillMaxWidth().padding(12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){
+                    Column(Modifier.weight(1f)){Text(turnUi.statusText,fontWeight=FontWeight.Bold);turnUi.reasonUid?.let{Text(it,style=MaterialTheme.typography.labelSmall)}}
+                    if(turnUi.canCancel)TextButton(onClick=vm::cancelCurrentAiTurn){Text("Anuluj")}
+                    if(turnUi.canRetryNarration)TextButton(onClick=vm::retryCommittedNarration){Text("Ponów narrację")}
+                }
             }
             Spacer(Modifier.height(8.dp))
         }
@@ -2178,6 +2193,125 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
             )
         }
     }
+}
+
+@Composable
+private fun AiProviderCenterScreen(vm:RpgOsViewModel){
+    val state by vm.aiProviderCenter.collectAsState()
+    val context=LocalContext.current
+    val modelPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null)vm.importBielikArtifact(uri)}
+    var advanced by remember{mutableStateOf(false)}
+
+    LazyColumn(
+        Modifier.fillMaxSize().padding(horizontal=16.dp),
+        contentPadding=PaddingValues(top=18.dp,bottom=32.dp),
+        verticalArrangement=Arrangement.spacedBy(14.dp)
+    ){
+        item{
+            Text("Centrum AI",style=MaterialTheme.typography.headlineMedium,fontWeight=FontWeight.Bold)
+            Text("Jeden system AI. Wybierz model osobno dla Mistrza Gry i okresowego Dyrektora / Scenarzysty.",color=MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item{AiRoleAssignmentPanel("Mistrz Gry",AiRole.GAME_MASTER,state.gameMasterAssignment,state.modelOptions,vm::assignAiRole)}
+        item{AiRoleAssignmentPanel("Director / Scenarzysta",AiRole.DIRECTOR_SCENARIST,state.directorAssignment,state.modelOptions,vm::assignAiRole)}
+        item{
+            GlowPanel(Modifier.fillMaxWidth(),shape=RoundedCornerShape(22.dp,14.dp,26.dp,18.dp)){
+                Text("Model lokalny",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                Text(state.localProfile.displayName,color=MaterialTheme.colorScheme.primary)
+                Text(if(state.localArtifactInstalled)"Plik modelu: zainstalowany" else "Plik modelu: wymagany",color=if(state.localArtifactInstalled)MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error)
+                Text(if(state.localRuntimeAvailable)"Runtime: gotowy" else "Runtime: oczekuje na zgodny pakiet urządzenia",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(onClick={modelPicker.launch(arrayOf("application/octet-stream","*/*"))},modifier=Modifier.fillMaxWidth()){
+                    Text(if(state.localArtifactInstalled)"Zmień plik Bielika" else "Importuj Bielika")
+                }
+                TextButton(onClick={advanced=!advanced},modifier=Modifier.fillMaxWidth()){Text(if(advanced)"Ukryj ustawienia zaawansowane" else "Ustawienia zaawansowane")}
+                if(advanced){
+                    HorizontalDivider(Modifier.padding(vertical=8.dp))
+                    Text("Profil: ${if(state.localSettings.recommended)"Auto / Zalecany" else "Ręczny"}",fontWeight=FontWeight.Bold)
+                    Text("Kontekst (CTX)")
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+                        listOf(4096,8192,16384,32768).forEach{ctx->FilterChip(
+                            selected=state.localSettings.contextUnits==ctx,onClick={vm.updateLocalAiSettings(state.localSettings.copy(contextUnits=ctx,recommended=false))},
+                            label={Text(if(ctx>=1024)"${ctx/1024}k" else ctx.toString())}
+                        )}
+                    }
+                    Text("KV: ${(state.localSettings.contextUnits.toLong()*state.localSettings.kvBytesPerContextUnit)/(1024*1024)} MB",style=MaterialTheme.typography.bodySmall)
+                    Text("Backend")
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+                        listOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU,LocalRuntimeBackend.GPU,LocalRuntimeBackend.NPU).forEach{backend->FilterChip(
+                            selected=state.localSettings.backend==backend,onClick={vm.updateLocalAiSettings(state.localSettings.copy(backend=backend,recommended=false))},label={Text(backend.name)}
+                        )}
+                    }
+                    Text("Wariant artefaktu")
+                    state.localProfile.variants.forEach{variant->RadioButtonRow(
+                        selected=state.localSettings.variantUid==variant.variantUid,label="${variant.variantUid} • ${variant.expectedBytes/(1024*1024)} MB",
+                        onClick={vm.updateLocalAiSettings(state.localSettings.copy(variantUid=variant.variantUid,recommended=false))}
+                    )}
+                    when(val admission=state.localAdmission){
+                        is LocalAdmissionResult.Admitted->Text("Szacowany szczyt RAM: ${admission.estimatedPeakBytes/(1024*1024)} MB",color=MaterialTheme.colorScheme.secondary)
+                        is LocalAdmissionResult.Rejected->Text("Profil odrzucony dla bezpieczeństwa: ${admission.reasonUids.joinToString()}",color=MaterialTheme.colorScheme.error)
+                        null->Unit
+                    }
+                    OutlinedButton(onClick=vm::resetLocalAiSettings,modifier=Modifier.fillMaxWidth()){Text("Przywróć zalecane")}
+                }
+            }
+        }
+        item{
+            GlowPanel(Modifier.fillMaxWidth(),borderColor=Color(0x6658B8FF),shape=RoundedCornerShape(18.dp,28.dp,20.dp,14.dp)){
+                Text("OpenRouter",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                Text(when(state.openRouterStatus.state){
+                    CloudAuthState.CONNECTED->"Połączono"
+                    CloudAuthState.CONNECTING->"Oczekiwanie na autoryzację w przeglądarce"
+                    CloudAuthState.ERROR->"Błąd połączenia"
+                    CloudAuthState.EXPIRED->"Połączenie wygasło"
+                    CloudAuthState.DISCONNECTED->"Niepołączony"
+                },color=if(state.openRouterStatus.state==CloudAuthState.CONNECTED)MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Logowanie używa oficjalnego PKCE i lokalnego callbacku. Klucz jest szyfrowany poza kampanią.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                if(state.openRouterStatus.state==CloudAuthState.CONNECTED)OutlinedButton(onClick=vm::disconnectOpenRouter,modifier=Modifier.fillMaxWidth()){Text("Rozłącz")}
+                else GradientActionButton("Połącz z OpenRouter",onClick={
+                    val url=vm.beginOpenRouterConnect();context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse(url)))
+                },modifier=Modifier.fillMaxWidth())
+            }
+        }
+        item{
+            GlowPanel(Modifier.fillMaxWidth(),shape=RoundedCornerShape(24.dp,16.dp,20.dp,28.dp)){
+                Text("Prywatność",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                AiPrivacySwitch("Zezwól na chmurę",state.privacy.cloudAllowed){vm.updateAiPrivacy(state.privacy.copy(cloudAllowed=it))}
+                AiPrivacySwitch("Tekst gracza może trafić do chmury",state.privacy.cloudAllowedForPlayerText){vm.updateAiPrivacy(state.privacy.copy(cloudAllowedForPlayerText=it))}
+                AiPrivacySwitch("Director może używać chmury",state.privacy.cloudAllowedForDirector){vm.updateAiPrivacy(state.privacy.copy(cloudAllowedForDirector=it))}
+            }
+        }
+        item{
+            GlowPanel(Modifier.fillMaxWidth(),shape=RoundedCornerShape(16.dp,22.dp,28.dp,18.dp)){
+                Text("Director",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                Text(state.directorStatusText)
+                Text("Director działa okresowo i poza ścieżką zwykłej tury. Brak chmury nie zatrzymuje gry.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AiRoleAssignmentPanel(
+    title:String,role:AiRole,assignment:AiRoleAssignment,models:List<AiModelOptionUi>,onAssign:(AiRole,AiModelSelection?)->Unit
+){
+    GlowPanel(Modifier.fillMaxWidth(),shape=RoundedCornerShape(18.dp,26.dp,16.dp,24.dp)){
+        Text(title,style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+        RadioButtonRow(assignment.kind==AiAssignmentKind.AUTO,"Auto (zalecane)"){onAssign(role,null)}
+        models.forEach{model->RadioButtonRow(
+            assignment.pinned==model.selection,"${if(model.providerKind==AiProviderKind.LOCAL)"Lokalny" else "Chmura"}: ${model.label}${if(model.availability==AiAvailabilityState.READY)"" else " • niedostępny"}"
+        ){onAssign(role,model.selection)}}
+    }
+}
+
+@Composable private fun RadioButtonRow(selected:Boolean,label:String,onClick:()->Unit){
+    Surface(onClick=onClick,color=Color.Transparent,modifier=Modifier.fillMaxWidth()){
+        Row(Modifier.padding(vertical=5.dp),verticalAlignment=Alignment.CenterVertically){RadioButton(selected,onClick=onClick);Text(label,Modifier.weight(1f))}
+    }
+}
+
+@Composable private fun AiPrivacySwitch(label:String,value:Boolean,onChange:(Boolean)->Unit){
+    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){Text(label,Modifier.weight(1f));Switch(value,onChange)}
 }
 
 @Composable private fun SettingsScreen(vm:RpgOsViewModel){

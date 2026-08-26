@@ -1,6 +1,14 @@
 package com.rpgos.app
 
-enum class AiWorkload { INTENT_INTERPRETATION, GM_PROPOSAL, PROPOSAL_REPAIR, NARRATIVE_RENDER }
+enum class AiWorkload {
+    INTENT_INTERPRETATION,
+    GM_PROPOSAL,
+    PROPOSAL_REPAIR,
+    NARRATIVE_RENDER,
+    NARRATIVE_REPAIR,
+    DIRECTOR_STRATEGY
+}
+enum class AiProviderKind { LOCAL, CLOUD, CONTROLLED_TEST }
 enum class AiProviderFailureKind { CANCELLED, UNAVAILABLE, TIMEOUT, INVALID_STRUCTURED_OUTPUT, CAPABILITY_MISMATCH, INTERNAL_FAILURE }
 
 data class AiCapabilityContract(
@@ -11,7 +19,9 @@ data class AiCapabilityContract(
     val intentSchemaVersions:Set<Int> = setOf(PHASE43_INTENT_SCHEMA_VERSION),
     val gmProposalSchemaVersions:Set<Int> = setOf(1),
     val supportsStreaming:Boolean=false,
-    val maximumContextUnits:Int
+    val maximumContextUnits:Int,
+    val providerKind:AiProviderKind=AiProviderKind.CONTROLLED_TEST,
+    val supportsJsonSchema:Boolean=true
 ){init{
     require(contractUid.isNotBlank()&&providerUid.isNotBlank()&&modelUid.isNotBlank())
     require(supportedWorkloads.isNotEmpty()&&maximumContextUnits>0)
@@ -21,6 +31,12 @@ data class AiCapabilityContract(
 fun interface AiCancellationSignal{
     fun isCancelled():Boolean
     companion object{val NONE=AiCancellationSignal{false}}
+}
+
+class MutableAiCancellationSignal:AiCancellationSignal{
+    private val cancelled=java.util.concurrent.atomic.AtomicBoolean(false)
+    override fun isCancelled()=cancelled.get()
+    fun cancel(){cancelled.set(true)}
 }
 
 sealed interface AiProviderResult<out T>{
@@ -57,18 +73,24 @@ data class AiRepairRequest(
 
 data class AiNarrativeRequest(
     val requestUid:String,
-    val campaignUid:String,
-    val proposal:ResolvedGmProposal,
-    val commitEvidence:AuthoritativeCommitEvidence,
+    val context:CommittedNarrationContext,
     val localeUid:String
 ){init{
-    require(requestUid.isNotBlank()&&campaignUid.isNotBlank()&&localeUid.isNotBlank())
-    require(proposal.campaignUid==campaignUid&&receipt.campaignUid==campaignUid&&receipt.commitOrder!=null){"RPGOS-P54:NARRATIVE_BEFORE_COMMIT"}
+    require(requestUid.isNotBlank()&&context.campaignUid.isNotBlank()&&localeUid.isNotBlank()&&context.committedOrder>0)
 }
-    val receipt:TurnCommitReceipt get()=commitEvidence.receipt
+    val campaignUid:String get()=context.campaignUid
 }
 
-data class RenderedNarrative(val text:String,val stopReasonUid:String,val committedOrder:Long){init{require(text.isNotBlank()&&stopReasonUid.isNotBlank()&&committedOrder>0)}}
+data class RenderedNarrative(
+    val text:String,
+    val stopReasonUid:String,
+    val committedOrder:Long,
+    val claims:List<NarrativeSemanticClaim> = emptyList(),
+    val assertsPlayerVolition:Boolean=false
+){init{
+    require(text.isNotBlank()&&stopReasonUid.isNotBlank()&&committedOrder>0)
+    require(claims.map{it.claimUid}.distinct().size==claims.size)
+}}
 
 interface AiProvider{
     val capabilities:AiCapabilityContract
@@ -76,18 +98,30 @@ interface AiProvider{
     fun propose(request:AiGmProposalRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<GmProposalCandidate>
     fun repair(request:AiRepairRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<GmProposalCandidate>
     fun renderNarrative(request:AiNarrativeRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<RenderedNarrative>
+    fun repairNarrative(request:AiNarrativeRepairRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<RenderedNarrative> =
+        AiProviderResult.Failure(AiProviderFailureKind.CAPABILITY_MISMATCH,"NARRATIVE_REPAIR_UNSUPPORTED")
+    fun generateDirector(request:AiDirectorRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<DirectorBundle> =
+        AiProviderResult.Failure(AiProviderFailureKind.CAPABILITY_MISMATCH,"DIRECTOR_STRATEGY_UNSUPPORTED")
     fun cancel(requestUid:String)
 }
 
 /** Trusted registration is composition-root configuration, never model output or chat content. */
-class AiProviderRegistry private constructor(providers:List<AiProvider>){
-    private val providers=providers.associateBy{it.capabilities.providerUid}
-    init{require(this.providers.size==providers.size){"RPGOS-P48:DUPLICATE_PROVIDER"}}
+class AiProviderRegistry private constructor(registered:List<AiProvider>){
+    private val providers=registered.associateBy{it.capabilities.providerUid to it.capabilities.modelUid}
+    private val byProviderUid=providers.values.groupBy{it.capabilities.providerUid}
+    init{require(this.providers.size==registered.size){"RPGOS-P48:DUPLICATE_PROVIDER_MODEL"}}
     fun require(providerUid:String,workload:AiWorkload):AiProvider{
-        val provider=providers[providerUid]?:throw IllegalArgumentException("RPGOS-P48:PROVIDER_NOT_REGISTERED")
+        val matching=byProviderUid[providerUid].orEmpty()
+        val provider=matching.singleOrNull()?:throw IllegalArgumentException(if(matching.isEmpty())"RPGOS-P48:PROVIDER_NOT_REGISTERED" else "RPGOS-P48:PROVIDER_MODEL_AMBIGUOUS")
         require(workload in provider.capabilities.supportedWorkloads){"RPGOS-P48:WORKLOAD_UNSUPPORTED"}
         return provider
     }
+    fun all():List<AiProvider> = providers.values.sortedWith(
+        compareBy<AiProvider>{it.capabilities.providerKind.ordinal}
+            .thenBy{it.capabilities.providerUid}
+            .thenBy{it.capabilities.modelUid}
+    )
+    fun find(providerUid:String,modelUid:String):AiProvider? = providers[providerUid to modelUid]
     companion object{fun fromCompositionRoot(providers:List<AiProvider>)=AiProviderRegistry(providers.toList())}
 }
 
@@ -114,7 +148,10 @@ interface AiStructuredCodec{
     fun decodeProposal(payload:String):GmProposalCandidate
     fun encodeRepair(request:AiRepairRequest):String
     fun encodeNarrative(request:AiNarrativeRequest):String
+    fun encodeNarrativeRepair(request:AiNarrativeRepairRequest):String
     fun decodeNarrative(payload:String):RenderedNarrative
+    fun encodeDirector(request:AiDirectorRequest):String
+    fun decodeDirector(payload:String):DirectorBundle
 }
 
 /** Production-ready adapter seam: adding a model requires transport + codec + registration, not Core changes. */
@@ -138,6 +175,12 @@ class TransportAiProviderAdapter(
     )
     override fun renderNarrative(request:AiNarrativeRequest,cancellation:AiCancellationSignal)=call(
         request.requestUid,AiWorkload.NARRATIVE_RENDER,1,codec.encodeNarrative(request),cancellation,codec::decodeNarrative
+    )
+    override fun repairNarrative(request:AiNarrativeRepairRequest,cancellation:AiCancellationSignal)=call(
+        request.requestUid,AiWorkload.NARRATIVE_REPAIR,1,codec.encodeNarrativeRepair(request),cancellation,codec::decodeNarrative
+    )
+    override fun generateDirector(request:AiDirectorRequest,cancellation:AiCancellationSignal)=call(
+        request.requestUid,AiWorkload.DIRECTOR_STRATEGY,DIRECTOR_BUNDLE_SCHEMA_VERSION,codec.encodeDirector(request),cancellation,codec::decodeDirector
     )
     override fun cancel(requestUid:String){require(requestUid.isNotBlank());cancellationHook(requestUid)}
 
@@ -164,12 +207,16 @@ class DeterministicAiProvider(
     private val intentFunction:(AiIntentRequest)->IntentDocument,
     private val proposalFunction:(AiGmProposalRequest)->GmProposalCandidate,
     private val repairFunction:(AiRepairRequest)->GmProposalCandidate={it.rejectedCandidate},
-    private val narrativeFunction:(AiNarrativeRequest)->RenderedNarrative
+    private val narrativeFunction:(AiNarrativeRequest)->RenderedNarrative,
+    private val narrativeRepairFunction:(AiNarrativeRepairRequest)->RenderedNarrative={narrativeFunction(it.original)},
+    private val directorFunction:(AiDirectorRequest)->DirectorBundle={throw IllegalArgumentException("DIRECTOR_NOT_CONFIGURED")}
 ):AiProvider{
     override fun interpret(request:AiIntentRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){intentFunction(request)}
     override fun propose(request:AiGmProposalRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){proposalFunction(request)}
     override fun repair(request:AiRepairRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){repairFunction(request)}
     override fun renderNarrative(request:AiNarrativeRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){narrativeFunction(request)}
+    override fun repairNarrative(request:AiNarrativeRepairRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){narrativeRepairFunction(request)}
+    override fun generateDirector(request:AiDirectorRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){directorFunction(request)}
     override fun cancel(requestUid:String)=Unit
     private fun <T> invoke(requestUid:String,cancellation:AiCancellationSignal,block:()->T):AiProviderResult<T>{
         if(cancellation.isCancelled())return AiProviderResult.Failure(AiProviderFailureKind.CANCELLED,"CANCELLED")

@@ -40,7 +40,7 @@ Wyjątek stanowią jawnie World-Pack-specific fazy integracyjne (obecnie Phase 8
 - Exact-SHA GREEN evidence: Phase 38 `117/0/0`, full JVM `1004/0/0`, Actions run `32776574352`, job `97588891710`.
 - Acceptance record: `docs/architecture/PHASE38_ACCEPTANCE.md`; pełne historyczne SHA/CI/artifacts/findingi pozostają w `docs/Historia projektu.md` i phase acceptance records.
 - Exact-SHA evidence: `Validate RPG OS ALPHA` run `32889856844`, `Phase39-47 Audit3 Validation` run `32889856923` i `Phase38 AUD002 Forensic Gate` run `32889856858` — SUCCESS. Signed artifact `9579252027`, digest `sha256:0ad2e25010501b235695be0c1823a21e4f1f336d1e85f7e7e1a7ba39d48a841e`.
-- Phase 48–54 mają status `[-]`: wymagany provider-independent slice istnieje, lecz szeroki zakres faz pozostaje częściowy.
+- Phase 48–54 mają nowy final-plan candidate opisany w `docs/architecture/PHASE48_54_FINAL_IMPLEMENTATION.md`. Niezależne kontrakty 48–54 są wdrożone i focused suite jest zielony, ale globalny status pozostaje `[-]` z powodu jawnych bramek live oraz dwóch rzeczywistych blockerów integracyjnych: brak spakowanego native runtime Bielika i brak pełnej produkcyjnej kompozycji arbitrary chat mechanics do historycznego PlayerDomainEngine.
 - World Pack Creator pozostaje DEFERRED do czasu globalnego ACCEPTED Phase 1–84.
 
 # FAZA 0 — BASELINE / AUDYT
@@ -234,29 +234,29 @@ Dalsze Phase 39–47:
 - retrieval jest bounded/iterative i context actor/time/visibility-safe;
 - cloud context, gdy później aktywny, jest minimalny i sanitised zamiast whole-save export.
 
-# FAZA D — GM ENGINE / HYBRID AI FOUNDATION
-- [-] 48. AI Provider & Hybrid Local-First Inference Architecture — provider-independent vertical integration boundary implemented; concrete local/cloud runtime and Android performance evidence remain
-- [-] 49. Structured GM Output contract — canonical proposal schema/validator implemented in required vertical slice; broader conformance remains
-- [-] 50. Universal Mechanics & Combat Resolution integration `[REF-ADAPTER]` — trusted resolver registry and no-mutation mechanics proposal seam implemented; full universal mechanics/combat scope remains
-- [-] 51. Consistency Validator — required vertical validator implemented; broader domain matrices remain
-- [-] 52. Counterfactual Guard — projected-support/subject/effect guard implemented in vertical slice; broader world-domain coverage remains
-- [-] 53. Repair Pass for proposal/narrative — bounded proposal repair with full revalidation implemented; narrative-quality repair scope remains
-- [-] 54. Committed narrative delivery only after valid transaction — persisted receipt permit and Chat→Engine vertical slice implemented; production UI/provider wiring remains
+# FAZA D — GM ENGINE / ROLE-BASED AI FOUNDATION
+- [-] 48. AI Provider & role-based Local/Cloud execution — universal LocalAiPort/CloudAiPort, Bielik profile/settings/admission/JNI adapter, OpenRouter PKCE/Keystore/discovery/inference i deterministic Auto/manual role routing zaimplementowane; production native library i live-device evidence pozostają jawnie otwarte
+- [-] 49. Structured GM Output contract — strict proposal identity/provenance/actor/action/target/modality/dependency/player-agency validation zaimplementowane
+- [-] 50. Universal Mechanics & Combat Resolution integration `[REF-ADAPTER]` — universal actor/generation/combat/reaction/effect/replay contracts zaimplementowane; pełna materializacja arbitrary chat mechanics do historycznych domain owners pozostaje blockerem
+- [-] 51. Candidate-State Consistency Validator — pure projection oraz inventory/ownership/finance/progression/location/exclusion/temporal checks zaimplementowane
+- [-] 52. Counterfactual/Factual Frontier Guard — FACT/BELIEF/NARRATIVE/future/counterfactual/support/scope isolation zaimplementowane
+- [-] 53. Repair Pass for proposal and narrative — bounded, no-reroll, no-entitlement-expansion repair z pełną rewalidacją zaimplementowany
+- [-] 54. Committed narrative after valid transaction — exact persisted receipt, Phase38 post-commit readback, semantic firewall, bounded repair/fallback, delivery idempotency i restart recovery zaimplementowane; produkcyjne Android composition pozostaje blockerem
 
-Status `[-]` jest celowy: `docs/architecture/PHASE48_54_VERTICAL_SLICE_ACCEPTANCE.md` potwierdza wymagany działający slice i łatwą wymianę providera, ale nie oznacza pełnego acceptance szerokich Faz 48–54 ani nie przenosi zakresu Faz 55+ do tego bloku.
+Status `[-]` jest celowy i nie jest ogólnym „vertical slice only”. Szczegółowe `IMPLEMENTATION_COMPLETE`, `CONCRETE_ADAPTER_GREEN`, `LIVE_EVIDENCE_PENDING_EXTERNAL_DEPENDENCY` i `ACTUAL_IMPLEMENTATION_BLOCKER` są rozdzielone w `docs/architecture/PHASE48_54_FINAL_IMPLEMENTATION.md`. Stary `PHASE48_54_VERTICAL_SLICE_ACCEPTANCE.md` pozostaje rekordem historycznym.
 
 ## Acceptance direction Phase 48–54
 Phase 48 buduje provider/execution foundation, nie pełny Director.
 
-Zaimplementowany pionowy kontrakt:
+Zaimplementowany final-plan candidate:
 - `Chat/UI -> AiChatEngineFacade -> AiProvider -> IntentDocument -> GraphTurnPlanner -> Context -> StructuredGmProposal -> Mechanics/Guards/Repair -> canonical TurnTransaction -> persisted TurnCommitReceipt -> Narrative`;
-- `AiProviderRegistry` i `AiCapabilityContract` pozwalają zamienić Provider A na B bez zmian Phase 43–54;
-- `TransportAiProviderAdapter` przyjmuje konfigurowalny transport+codec dla realnego local/cloud runtime, a deterministic provider służy wyłącznie conformance/CI;
+- `AiProviderRegistry`, `AiCapabilityContract`, `LocalAiPort`, `CloudAiPort` i role-aware `ModelRouter` pozwalają zamienić provider/model bez zmian Phase 43–54 i bez migracji kampanii;
+- Bielik 4.5B v3 Instruct jest pierwszym profilem local, a OpenRouter pierwszym adapterem cloud; są danymi/adapterami, nie osobnymi silnikami GM;
 - AI nie otrzymuje repository/DB ani mutation authority; proposal i narrative nie są rzeczywistością;
 - narrative request wymaga niepodrabialnego w ścieżce aplikacji evidence wydanego po odczycie trwałego V3 receipt;
 - provider failure, invalid structured output i cancellation przed commit kończą się bez mutacji; cancellation/failure po commit nie cofa rzeczywistości i zwraca typed `CommittedWithoutNarrative`.
 
-Poza tym slice pozostają: wybór konkretnego modelu, `LocalInferenceRuntime`, backend CPU/GPU/NPU, credentials/cloud policy, offline failover, streaming UI, real-device performance i pełne systemy mechanics/combat. Są to nadal kryteria szerokiego Phase 48–54, a nie fałszywie zamknięte elementy obecnej implementacji.
+Otwarte bramki są sklasyfikowane precyzyjnie w finalnym rekordzie: live OpenRouter/model/device są external-evidence gates; brak spakowanej biblioteki native oraz brak kompletnej kompozycji arbitrary chat mechanics do accepted historycznego Core są rzeczywistymi blockerami implementacji. Legacy `ViewModel -> StatePatch` został usunięty; compatibility backend może dać wyłącznie jawnie nieautorytatywną narrację i jego patch jest odrzucany.
 
 Wymagane docelowo:
 - provider-independent `AiProvider`/semantic contract;

@@ -2,13 +2,25 @@ package com.rpgos.app
 
 enum class ProposedClaimKind { PROJECTED_FACT_CONCLUSION, PLAYER_ASSERTION, UNCERTAIN_INFERENCE, NARRATIVE_COLOR }
 enum class MechanicsResolutionState { VERIFIED, REJECTED, NOT_REQUIRED }
+enum class GmNodeOutcomeState { PROPOSED_SUCCESS, PROPOSED_FAILURE, BLOCKED_BY_PREREQUISITE, NEEDS_CLARIFICATION, REQUIRES_ADJUDICATION }
+enum class ClaimEpistemicBasis { PROJECTED_FACT, PLAYER_ASSERTION, HOLDER_BELIEF, AI_INFERENCE, NARRATIVE_ONLY }
+enum class ClaimTemporalPosition { CURRENT, HISTORICAL_AS_OF, FUTURE_PLAN, PREDICTED_OUTCOME, COUNTERFACTUAL }
 
 data class GmNodeProposal(
     val nodeUid:String,
     val outcomeUid:String,
     val playerFacingSummary:String,
-    val uncertaintyUids:List<String> = emptyList()
-){init{require(nodeUid.isNotBlank()&&outcomeUid.isNotBlank()&&playerFacingSummary.isNotBlank()&&uncertaintyUids.none{it.isBlank()})}}
+    val actor:CommandActorRef,
+    val actionSemanticUid:String,
+    val targetProjectedRefs:List<DomainRef>,
+    val modality:IntentModality,
+    val outcomeState:GmNodeOutcomeState,
+    val uncertaintyUids:List<String> = emptyList(),
+    val materializedResultUids:List<String> = emptyList()
+){init{
+    require(nodeUid.isNotBlank()&&outcomeUid.isNotBlank()&&playerFacingSummary.isNotBlank()&&actionSemanticUid.isNotBlank())
+    require(uncertaintyUids.none{it.isBlank()}&&targetProjectedRefs.distinct()==targetProjectedRefs&&materializedResultUids.none{it.isBlank()})
+}}
 
 data class ProposedWorldClaim(
     val claimUid:String,
@@ -18,11 +30,20 @@ data class ProposedWorldClaim(
     val predicateUid:String,
     val valueCanonical:String,
     val supportingRecordUids:List<String> = emptyList(),
-    val supportingPlayerClaimUids:List<String> = emptyList()
+    val supportingPlayerClaimUids:List<String> = emptyList(),
+    val epistemicBasis:ClaimEpistemicBasis=when(claimKind){
+        ProposedClaimKind.PROJECTED_FACT_CONCLUSION->ClaimEpistemicBasis.PROJECTED_FACT
+        ProposedClaimKind.PLAYER_ASSERTION->ClaimEpistemicBasis.PLAYER_ASSERTION
+        ProposedClaimKind.UNCERTAIN_INFERENCE->ClaimEpistemicBasis.AI_INFERENCE
+        ProposedClaimKind.NARRATIVE_COLOR->ClaimEpistemicBasis.NARRATIVE_ONLY
+    },
+    val temporalPosition:ClaimTemporalPosition=ClaimTemporalPosition.CURRENT,
+    val campaignDivergenceEvidenceUids:List<String> = emptyList()
 ){init{
     require(claimUid.isNotBlank()&&nodeUid.isNotBlank()&&predicateUid.isNotBlank()&&valueCanonical.isNotBlank())
     require(subjectProjectedUid?.isBlank()!=true&&supportingRecordUids.none{it.isBlank()}&&supportingRecordUids.distinct()==supportingRecordUids)
     require(supportingPlayerClaimUids.none{it.isBlank()}&&supportingPlayerClaimUids.distinct()==supportingPlayerClaimUids)
+    require(campaignDivergenceEvidenceUids.none{it.isBlank()}&&campaignDivergenceEvidenceUids.distinct()==campaignDivergenceEvidenceUids)
 }}
 
 data class MechanicsEffectRequest(
@@ -56,11 +77,15 @@ data class GmProposalCandidate(
     val mechanicsEffects:List<MechanicsEffectRequest> = emptyList(),
     val narrativeBlueprint:NarrativeBlueprint,
     val providerUid:String,
-    val modelUid:String
+    val modelUid:String,
+    val intentFingerprint:String,
+    val requestedPlayerVolitionalActionUids:List<String> = emptyList(),
+    val playerDecisionPointUid:String?=null
 ){init{
-    require(schemaVersion==1&&proposalUid.isNotBlank()&&campaignUid.isNotBlank()&&planUid.isNotBlank()&&providerUid.isNotBlank()&&modelUid.isNotBlank())
+    require(schemaVersion==1&&proposalUid.isNotBlank()&&campaignUid.isNotBlank()&&planUid.isNotBlank()&&providerUid.isNotBlank()&&modelUid.isNotBlank()&&intentFingerprint.isNotBlank())
     require(nodeProposals.map{it.nodeUid}.distinct().size==nodeProposals.size)
     require(proposedClaims.map{it.claimUid}.distinct().size==proposedClaims.size&&mechanicsEffects.map{it.effectUid}.distinct().size==mechanicsEffects.size)
+    require(requestedPlayerVolitionalActionUids.none{it.isBlank()}&&playerDecisionPointUid?.isBlank()!=true)
 }}
 
 sealed interface GmProposalValidationResult{
@@ -73,10 +98,26 @@ class StructuredGmProposalValidator{
         val reasons=linkedSetOf<String>()
         if(candidate.campaignUid!=plan.campaignUid)reasons+="CROSS_CAMPAIGN_PROPOSAL"
         if(candidate.planUid!=plan.planUid)reasons+="PLAN_IDENTITY_MISMATCH"
+        if(candidate.intentFingerprint!=plan.intent.canonicalFingerprint())reasons+="INTENT_FINGERPRINT_MISMATCH"
         val executable=plan.steps.filter{it.matchState in setOf(CapabilityMatchState.EXACT,CapabilityMatchState.COMPOSED,CapabilityMatchState.GENERIC)}
         val plannedNodes=plan.steps.map{it.nodeUid}.toSet()
         if(candidate.nodeProposals.any{it.nodeUid !in plannedNodes})reasons+="UNPLANNED_NODE_OUTCOME"
         if(executable.any{step->candidate.nodeProposals.none{it.nodeUid==step.nodeUid}})reasons+="MISSING_NODE_OUTCOME"
+        candidate.nodeProposals.forEach{nodeProposal->
+            val intentNode=plan.intent.nodes.singleOrNull{it.nodeUid==nodeProposal.nodeUid}
+            if(intentNode!=null){
+                if(nodeProposal.actor!=plan.intent.actor)reasons+="ACTOR_PRESERVATION_VIOLATION:${nodeProposal.nodeUid}"
+                val semantic=intentNode.semanticAction.canonicalActionUid?:intentNode.semanticAction.semanticFamilyUid
+                if(nodeProposal.actionSemanticUid!=semantic)reasons+="ACTION_PRESERVATION_VIOLATION:${nodeProposal.nodeUid}"
+                if(nodeProposal.modality!=intentNode.modality)reasons+="MODALITY_PRESERVATION_VIOLATION:${nodeProposal.nodeUid}"
+                val intendedTargets=intentNode.participants.mapNotNull{participant->participant.referenceUid?.let{uid->plan.intent.references.singleOrNull{it.referenceUid==uid}?.resolvedProjectedRef}}
+                if(nodeProposal.targetProjectedRefs!=intendedTargets)reasons+="TARGET_PRESERVATION_VIOLATION:${nodeProposal.nodeUid}"
+                val failedDependencies=intentNode.dependencies.mapNotNull{dependency->candidate.nodeProposals.singleOrNull{it.nodeUid==dependency.predecessorNodeUid}}
+                    .filter{it.outcomeState !in setOf(GmNodeOutcomeState.PROPOSED_SUCCESS)}
+                if(failedDependencies.isNotEmpty()&&nodeProposal.outcomeState==GmNodeOutcomeState.PROPOSED_SUCCESS)reasons+="FAILED_PREREQUISITE_MATERIALIZED:${nodeProposal.nodeUid}"
+            }
+        }
+        if(candidate.requestedPlayerVolitionalActionUids.isNotEmpty())reasons+="AI_REQUESTED_PLAYER_VOLITION"
         if(candidate.proposedClaims.any{it.nodeUid !in plannedNodes})reasons+="UNPLANNED_CLAIM_NODE"
         candidate.mechanicsEffects.forEach{effect->
             val step=plan.steps.singleOrNull{it.nodeUid==effect.nodeUid}
@@ -102,8 +143,14 @@ data class VerifiedMechanicsEffect(
     val mechanicsOwnerUid:String,
     val effectKindUid:String,
     val canonicalPayload:Map<String,String>,
-    val proofUid:String
-){init{require(effectUid.isNotBlank()&&nodeUid.isNotBlank()&&mechanicsOwnerUid.isNotBlank()&&effectKindUid.isNotBlank()&&proofUid.isNotBlank())}}
+    val proofUid:String,
+    val deterministicInputFingerprint:String=proofUid,
+    val deterministicOutputFingerprint:String=proofUid,
+    val candidateChangeSetFingerprint:String?=null
+){init{
+    require(effectUid.isNotBlank()&&nodeUid.isNotBlank()&&mechanicsOwnerUid.isNotBlank()&&effectKindUid.isNotBlank()&&proofUid.isNotBlank())
+    require(deterministicInputFingerprint.isNotBlank()&&deterministicOutputFingerprint.isNotBlank()&&candidateChangeSetFingerprint?.isBlank()!=true)
+}}
 
 sealed interface MechanicsEffectResolution{
     data class Verified(val effect:VerifiedMechanicsEffect):MechanicsEffectResolution
@@ -185,6 +232,10 @@ class CounterfactualGuard{
             if(claim.claimKind==ProposedClaimKind.PROJECTED_FACT_CONCLUSION&&claim.supportingRecordUids.isEmpty())reasons+="UNSUPPORTED_FACT_CLAIM:${claim.claimUid}"
             if(claim.claimKind==ProposedClaimKind.PROJECTED_FACT_CONCLUSION&&claim.supportingPlayerClaimUids.isNotEmpty())reasons+="PLAYER_ASSERTION_PROMOTED:${claim.claimUid}"
             if(claim.claimKind==ProposedClaimKind.PLAYER_ASSERTION&&(claim.supportingPlayerClaimUids.isEmpty()||claim.supportingPlayerClaimUids.any{it !in playerClaims}))reasons+="PLAYER_ASSERTION_UNBOUND:${claim.claimUid}"
+            if(claim.epistemicBasis==ClaimEpistemicBasis.HOLDER_BELIEF&&claim.claimKind==ProposedClaimKind.PROJECTED_FACT_CONCLUSION)reasons+="BELIEF_PROMOTED_TO_FACT:${claim.claimUid}"
+            if(claim.epistemicBasis==ClaimEpistemicBasis.NARRATIVE_ONLY&&claim.claimKind!=ProposedClaimKind.NARRATIVE_COLOR)reasons+="NARRATIVE_PROMOTED_TO_FACT:${claim.claimUid}"
+            if(claim.temporalPosition in setOf(ClaimTemporalPosition.FUTURE_PLAN,ClaimTemporalPosition.PREDICTED_OUTCOME,ClaimTemporalPosition.COUNTERFACTUAL)&&claim.claimKind==ProposedClaimKind.PROJECTED_FACT_CONCLUSION)reasons+="FUTURE_OR_COUNTERFACTUAL_PROMOTED:${claim.claimUid}"
+            if(claim.campaignDivergenceEvidenceUids.isNotEmpty()&&claim.supportingRecordUids.isEmpty())reasons+="DIVERGENCE_CLAIM_WITHOUT_PROJECTED_SUPPORT:${claim.claimUid}"
             if(claim.subjectProjectedUid!=null&&claim.subjectProjectedUid !in projectedSubjects)reasons+="CLAIM_SUBJECT_OUTSIDE_CONTEXT:${claim.claimUid}"
         }
         proposal.verifiedEffects.forEach{effect->
@@ -197,26 +248,31 @@ class CounterfactualGuard{
 
 sealed interface GmProposalEvaluation{
     data class Accepted(val proposal:ResolvedGmProposal):GmProposalEvaluation
-    data class Rejected(val reasonUids:List<String>):GmProposalEvaluation{init{require(reasonUids.isNotEmpty())}}
+    data class Rejected(val reasonUids:List<String>,val mechanicsAnchor:List<VerifiedMechanicsEffect> = emptyList()):GmProposalEvaluation{init{require(reasonUids.isNotEmpty())}}
 }
 
 class GmProposalEvaluator(
     private val structuredValidator:StructuredGmProposalValidator,
     private val mechanicsEngine:MechanicsResolutionEngine,
     private val consistencyValidator:GmConsistencyValidator=GmConsistencyValidator(),
-    private val counterfactualGuard:CounterfactualGuard=CounterfactualGuard()
+    private val counterfactualGuard:CounterfactualGuard=CounterfactualGuard(),
+    private val candidateStateConsistency:CandidateStateConsistencyPort=CandidateStateConsistencyPort.NONE
 ){
-    fun evaluate(candidate:GmProposalCandidate,request:AiGmProposalRequest):GmProposalEvaluation{
+    fun evaluate(candidate:GmProposalCandidate,request:AiGmProposalRequest,mechanicsAnchor:List<VerifiedMechanicsEffect> = emptyList()):GmProposalEvaluation{
         when(val structural=structuredValidator.validate(candidate,request.plan)){
             is GmProposalValidationResult.Rejected->return GmProposalEvaluation.Rejected(structural.reasonUids)
             is GmProposalValidationResult.Accepted->Unit
         }
-        val resolved=when(val mechanics=mechanicsEngine.resolve(candidate,MechanicsResolutionContext(candidate.campaignUid,request.plan,request.context))){
+        val resolved=if(mechanicsAnchor.isEmpty())when(val mechanics=mechanicsEngine.resolve(candidate,MechanicsResolutionContext(candidate.campaignUid,request.plan,request.context))){
             is MechanicsPipelineResult.Rejected->return GmProposalEvaluation.Rejected(mechanics.reasonUids)
             is MechanicsPipelineResult.Resolved->mechanics.proposal
+        }else{
+            val requested=candidate.mechanicsEffects.map{it.effectUid}.toSet()
+            if(requested!=mechanicsAnchor.map{it.effectUid}.toSet())return GmProposalEvaluation.Rejected(listOf("REPAIR_MECHANICS_ENTITLEMENT_CHANGED"),mechanicsAnchor)
+            ResolvedGmProposal(candidate,mechanicsAnchor)
         }
-        val reasons=(consistencyValidator.rejectionReasons(resolved,request.plan)+counterfactualGuard.rejectionReasons(resolved,request.context)).distinct().sorted()
-        return if(reasons.isEmpty())GmProposalEvaluation.Accepted(resolved) else GmProposalEvaluation.Rejected(reasons)
+        val reasons=(consistencyValidator.rejectionReasons(resolved,request.plan)+candidateStateConsistency.rejectionReasons(resolved,request)+counterfactualGuard.rejectionReasons(resolved,request.context)).distinct().sorted()
+        return if(reasons.isEmpty())GmProposalEvaluation.Accepted(resolved) else GmProposalEvaluation.Rejected(reasons,resolved.verifiedEffects)
     }
 }
 
@@ -226,12 +282,21 @@ data class ProposalRepairResult(val evaluation:GmProposalEvaluation,val attempts
 class BoundedProposalRepair(private val evaluator:GmProposalEvaluator,private val policy:ProposalRepairPolicy=ProposalRepairPolicy()){
     fun evaluateAndRepair(provider:AiProvider,request:AiGmProposalRequest,candidate:GmProposalCandidate,cancellation:AiCancellationSignal):ProposalRepairResult{
         var current=candidate;var evaluation=evaluator.evaluate(current,request);var attempts=0
+        val originalMechanicsRequests=candidate.mechanicsEffects.associateBy{it.effectUid}
+        var mechanicsAnchor=(evaluation as? GmProposalEvaluation.Rejected)?.mechanicsAnchor.orEmpty()
         while(evaluation is GmProposalEvaluation.Rejected&&attempts<policy.maxAttempts&&!cancellation.isCancelled()){
             val repair=provider.repair(AiRepairRequest("${request.requestUid}:REPAIR:${attempts+1}",request,current,evaluation.reasonUids,attempts+1),cancellation)
             if(repair is AiProviderResult.Failure)return ProposalRepairResult(evaluation,attempts,"REPAIR_PROVIDER_FAILURE:${repair.reasonUid}")
             current=(repair as AiProviderResult.Success).value;attempts++
-            evaluation=if(current.providerUid!=provider.capabilities.providerUid||current.modelUid!=provider.capabilities.modelUid)
-                GmProposalEvaluation.Rejected(listOf("PROVIDER_PROVENANCE_MISMATCH")) else evaluator.evaluate(current,request)
+            val changedMechanics=current.mechanicsEffects.associateBy{it.effectUid}!=originalMechanicsRequests
+            evaluation=when{
+                current.providerUid!=provider.capabilities.providerUid||current.modelUid!=provider.capabilities.modelUid->
+                    GmProposalEvaluation.Rejected(listOf("PROVIDER_PROVENANCE_MISMATCH"),mechanicsAnchor)
+                changedMechanics&&mechanicsAnchor.isNotEmpty()->
+                    GmProposalEvaluation.Rejected(listOf("REPAIR_REROLL_OR_ENTITLEMENT_CHANGE"),mechanicsAnchor)
+                else->evaluator.evaluate(current,request,mechanicsAnchor)
+            }
+            if(mechanicsAnchor.isEmpty())mechanicsAnchor=(evaluation as? GmProposalEvaluation.Rejected)?.mechanicsAnchor.orEmpty()
         }
         val terminal=when{evaluation is GmProposalEvaluation.Accepted->"PROPOSAL_ACCEPTED";cancellation.isCancelled()->"CANCELLED";else->"REPAIR_LIMIT"}
         return ProposalRepairResult(evaluation,attempts,terminal)

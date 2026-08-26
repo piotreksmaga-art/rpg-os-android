@@ -1,5 +1,7 @@
 # RPG OS — Phase 48–54 Required Vertical Slice Acceptance
 
+> **Historical record.** The later final-plan candidate and its honest implementation/live/blocker matrix are documented in `PHASE48_54_FINAL_IMPLEMENTATION.md`. Do not use this older vertical-slice scope as the current Phase48–54 status.
+
 Status: **VERTICAL SLICE IMPLEMENTED / FULL PHASES PARTIAL / EXACT-SHA CI GREEN / COORDINATOR ACCEPTANCE REQUIRED**
 
 Work ID: `WORK-20260825-001`
