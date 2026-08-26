@@ -126,6 +126,8 @@ object VisibilityConsumerInventory {
             VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("unified-repository", "app/src/main/java/com/rpgos/app/UnifiedGameRepository.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
             VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
+        c("player-character-bootstrap", "app/src/main/java/com/rpgos/app/PlayerCharacterBootstrap.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("image-generate-request-model", "app/src/main/java/com/rpgos/app/ImageModels.kt", ProtectedConsumerCapability.PRESENTATION_AFTER_PROJECTION,
             VisibilityPurposeKinds.SCENE_VISUALIZATION, VisibilityPurposeKinds.CHARACTER_VISUALIZATION, VisibilityPurposeKinds.LOCATION_VISUALIZATION),
         c("image-edit-request-model", "app/src/main/java/com/rpgos/app/ImageEditModels.kt", ProtectedConsumerCapability.PRESENTATION_AFTER_PROJECTION,
