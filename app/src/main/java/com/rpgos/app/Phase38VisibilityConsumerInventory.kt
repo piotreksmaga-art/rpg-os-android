@@ -84,6 +84,8 @@ object VisibilityConsumerInventory {
             VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("character-panel-reader", "app/src/main/java/com/rpgos/app/CharacterPanel.kt", ProtectedConsumerCapability.PROJECTED_CONSUMER,
             VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.CHARACTER_VISUALIZATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
+        c("character-panel-v2-production-source", "app/src/main/java/com/rpgos/app/ProductionCharacterPanelV2ReadSource.kt", ProtectedConsumerCapability.PROJECTION_DATA_SOURCE,
+            VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.CHARACTER_VISUALIZATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("rpgos-view-model", "app/src/main/java/com/rpgos/app/RpgOsViewModel.kt", ProtectedConsumerCapability.PRESENTATION_AFTER_PROJECTION,
             VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.SCENE_VISUALIZATION,
             VisibilityPurposeKinds.CHARACTER_VISUALIZATION, VisibilityPurposeKinds.LOCATION_VISUALIZATION, VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),

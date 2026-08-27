@@ -13,6 +13,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         ADMINISTRATIVE_MIGRATION_RECOVERY,
         OPERATIONAL_GUARD,
         UI_SETTINGS,
+        USER_AUTHORIZED_FILE_TRANSFER,
         EXTERNAL_AI_CONFIGURATION
     }
 
@@ -93,6 +94,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         put("DiagnosticLogger.kt", WriterClass.OPERATIONAL_GUARD)
         put("SqliteCompatibility.kt", WriterClass.OPERATIONAL_GUARD)
         put("AppSettings.kt", WriterClass.UI_SETTINGS)
+        put("RpgOsViewModel.kt", WriterClass.USER_AUTHORIZED_FILE_TRANSFER)
         put("OpenRouterAndroidInfrastructure.kt", WriterClass.EXTERNAL_AI_CONFIGURATION)
     }
 
