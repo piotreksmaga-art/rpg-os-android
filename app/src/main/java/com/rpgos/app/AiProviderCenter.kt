@@ -33,8 +33,7 @@ data class AiProviderCenterUiState(
 )
 
 object AiProviderCenterStateFactory{
-    fun initial(settings:AiSystemConfiguration,artifactInstalled:Boolean,openRouter:CloudConnectionStatus):AiProviderCenterUiState{
-        val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH
+    fun initial(settings:AiSystemConfiguration,artifactInstalled:Boolean,openRouter:CloudConnectionStatus,profile:LocalModelProfile=BielikLocalModelProfiles.DEFAULT_ANDROID):AiProviderCenterUiState{
         val local=settings.localModelSettings?:LocalRecommendedSettings.forProfile(profile)
         val localState=if(artifactInstalled)AiAvailabilityState.DEGRADED else AiAvailabilityState.NOT_CONFIGURED
         return AiProviderCenterUiState(
@@ -78,26 +77,40 @@ class AndroidAiProviderCenterApplication(context:Context){
     private val localRuntime by lazy{DriverBackedLocalInferenceRuntime(runtimeCapabilities,ExecuTorchLocalInferenceDriver())}
 
     fun initialState(configuration:AiSystemConfiguration):AiProviderCenterUiState{
-        val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH
+        val profile=profileFor(configuration.localModelSettings?.modelUid)
         val settings=configuration.localModelSettings?:LocalRecommendedSettings.forProfile(profile)
         val installed=artifacts.find(profile.modelUid,settings.variantUid)!=null
-        return AiProviderCenterStateFactory.initial(configuration,installed,auth.status()).copy(
+        return AiProviderCenterStateFactory.initial(configuration,installed,auth.status(),profile).copy(
             localRuntimeAvailable=true,
             localAdmission=localAdmission(settings)
         )
     }
 
-    fun onOpenRouterCallback(callback:(CloudAuthCallback)->Unit){callbacks.onCallback(callback)}
+    fun onOpenRouterCallback(callback:(OpenRouterConnectionResult)->Unit){
+        callbacks.onCallback{authCallback->
+            val result=completeOpenRouterBlocking(authCallback)
+            callback(result)
+            result.status
+        }
+    }
 
     fun localAdmission(settings:LocalModelSettings):LocalAdmissionResult = LocalModelAdmissionController().evaluate(
-        BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH,settings,runtimeCapabilities,AndroidLocalDeviceProbe.snapshot(app).copy(availableBackends=setOf(LocalRuntimeBackend.CPU))
+        profileFor(settings.modelUid),settings,runtimeCapabilities,AndroidLocalDeviceProbe.snapshot(app).copy(availableBackends=setOf(LocalRuntimeBackend.CPU))
     )
 
     suspend fun importBielikArtifact(uri:Uri,settings:LocalModelSettings):LocalModelArtifact=withContext(Dispatchers.IO){
-        val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH
-        require(settings.modelUid==profile.modelUid&&profile.variants.any{it.variantUid==settings.variantUid})
+        val profile=profileFor(settings.modelUid)
+        val variant=profile.variants.singleOrNull{it.variantUid==settings.variantUid}
+        require(settings.modelUid==profile.modelUid&&variant!=null)
         val input=app.contentResolver.openInputStream(uri)?:error("Nie można otworzyć pliku modelu")
-        artifacts.import(settings.modelUid,settings.variantUid,input)
+        val artifact=artifacts.import(settings.modelUid,settings.variantUid,input)
+        val sizeMatches=variant.sha256==null||artifact.byteSize==variant.expectedBytes
+        val digestMatches=variant.sha256?.equals(artifact.sha256,ignoreCase=true)?:true
+        if(!sizeMatches||!digestMatches){
+            artifacts.remove(settings.modelUid,settings.variantUid)
+            error("Pakiet modelu nie odpowiada oficjalnemu profilowi RPG OS (rozmiar lub suma SHA-256).")
+        }
+        artifact
     }
 
     fun beginOpenRouterConnect():CloudPkceAuthorization=auth.beginConnect()
@@ -105,20 +118,42 @@ class AndroidAiProviderCenterApplication(context:Context){
     fun disconnectOpenRouter():CloudConnectionStatus{auth.disconnect();return auth.status()}
 
     suspend fun completeOpenRouter(callback:CloudAuthCallback):OpenRouterConnectionResult=withContext(Dispatchers.IO){
+        completeOpenRouterBlocking(callback)
+    }
+
+    private fun completeOpenRouterBlocking(callback:CloudAuthCallback):OpenRouterConnectionResult{
         val status=auth.complete(callback)
         val models=if(status.state==CloudAuthState.CONNECTED){
             val credential=auth.accessCredential()
-            try{if(credential==null)emptyList() else http.discoverModels(credential)}finally{credential?.fill('\u0000')}
+            try{if(credential==null)emptyList() else runCatching{http.discoverModels(credential)}.getOrDefault(emptyList())}finally{credential?.fill('\u0000')}
         }else emptyList()
         models.forEach{discoveredCloudModels[it.modelUid]=it}
-        OpenRouterConnectionResult(status,models)
+        return OpenRouterConnectionResult(status,models)
+    }
+
+    suspend fun connectOpenRouterWithApiKey(apiKey:CharArray):OpenRouterConnectionResult=withContext(Dispatchers.IO){
+        try{
+            if(apiKey.size<20||!apiKey.concatToString().startsWith("sk-or-")){
+                return@withContext OpenRouterConnectionResult(
+                    CloudConnectionStatus("OPENROUTER",CloudAuthState.ERROR,reasonUid="MANUAL_API_KEY_FORMAT_INVALID"),emptyList()
+                )
+            }
+            val models=http.discoverModels(apiKey)
+            val status=auth.connectWithCredential(apiKey.copyOf())
+            models.forEach{discoveredCloudModels[it.modelUid]=it}
+            OpenRouterConnectionResult(status,models)
+        }catch(failure:AiTransportException){
+            OpenRouterConnectionResult(CloudConnectionStatus("OPENROUTER",CloudAuthState.ERROR,reasonUid=failure.reasonUid),emptyList())
+        }catch(_:Throwable){
+            OpenRouterConnectionResult(CloudConnectionStatus("OPENROUTER",CloudAuthState.ERROR,reasonUid="MANUAL_API_KEY_VALIDATION_FAILED"),emptyList())
+        }finally{apiKey.fill('\u0000')}
     }
 
     /** Builds provider adapters only; Chat/UI never sees an SDK or runtime handle. */
     fun provider(selection:AiModelSelection,configuration:AiSystemConfiguration):AiProvider?{
         return when(selection.providerUid){
             "LOCAL:ANDROID_EXECUTORCH_1_3","LOCAL:ANDROID_NATIVE"->{
-                val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH
+                val profile=profileFor(selection.modelUid)
                 if(selection.modelUid!=profile.modelUid)return null
                 val settings=configuration.localModelSettings?:LocalRecommendedSettings.forProfile(profile)
                 if(settings.modelUid!=profile.modelUid||profile.variants.none{it.variantUid==settings.variantUid})return null
@@ -136,9 +171,12 @@ class AndroidAiProviderCenterApplication(context:Context){
                 if(credential!=null)runCatching{http.discoverModels(credential)}.getOrDefault(emptyList()).forEach{discoveredCloudModels[it.modelUid]=it}
             }finally{credential?.fill('\u0000')}
         }
-        val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH
+        val profile=profileFor(configuration.localModelSettings?.modelUid)
         val local=provider(AiModelSelection("LOCAL:ANDROID_EXECUTORCH_1_3",profile.modelUid),configuration)
         val cloud=discoveredCloudModels.values.sortedBy{it.modelUid}.mapNotNull{provider(AiModelSelection("OPENROUTER",it.modelUid),configuration)}
         return listOfNotNull(local)+cloud
     }
+
+    private fun profileFor(modelUid:String?):LocalModelProfile=
+        BielikLocalModelProfiles.byModelUid(modelUid)?:BielikLocalModelProfiles.DEFAULT_ANDROID
 }

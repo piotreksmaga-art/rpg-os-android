@@ -32,6 +32,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -2549,6 +2550,8 @@ private fun AiProviderCenterScreen(vm:RpgOsViewModel){
     val context=LocalContext.current
     val modelPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null)vm.importBielikArtifact(uri)}
     var advanced by remember{mutableStateOf(false)}
+    var manualOpenRouterKeyVisible by remember{mutableStateOf(false)}
+    var manualOpenRouterKey by remember{mutableStateOf("")}
 
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal=16.dp),
@@ -2577,16 +2580,20 @@ private fun AiProviderCenterScreen(vm:RpgOsViewModel){
                     color=MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 TextButton(
-                    onClick={context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://huggingface.co/speakleash/Bielik-4.5B-v3.0-Instruct")))},
+                    onClick={context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://github.com/piotreksmaga-art/rpg-os-android/releases/download/v1.3.0-alpha10-core54/RPG-OS-Bielik-1.5B-v3-ExecuTorch-XNNPACK.zip")))},
                     modifier=Modifier.fillMaxWidth()
-                ){Text("Otwórz oficjalną stronę Bielika")}
+                ){Text("Pobierz mobilny pakiet Bielika")}
+                TextButton(
+                    onClick={context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://huggingface.co/speakleash/Bielik-1.5B-v3.0-Instruct")))},
+                    modifier=Modifier.fillMaxWidth()
+                ){Text("Otwórz oficjalną stronę modelu")}
                 TextButton(onClick={advanced=!advanced},modifier=Modifier.fillMaxWidth()){Text(if(advanced)"Ukryj ustawienia zaawansowane" else "Ustawienia zaawansowane")}
                 if(advanced){
                     HorizontalDivider(Modifier.padding(vertical=8.dp))
                     Text("Profil: ${if(state.localSettings.recommended)"Auto / Zalecany" else "Ręczny"}",fontWeight=FontWeight.Bold)
                     Text("Kontekst (CTX)")
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
-                        listOf(4096,8192,16384,32768).forEach{ctx->FilterChip(
+                        listOf(2048,4096,8192,16384,32768).filter{it<=state.localProfile.maximumContextUnits}.forEach{ctx->FilterChip(
                             selected=state.localSettings.contextUnits==ctx,onClick={vm.updateLocalAiSettings(state.localSettings.copy(contextUnits=ctx,recommended=false))},
                             label={Text(if(ctx>=1024)"${ctx/1024}k" else ctx.toString())}
                         )}
@@ -2617,17 +2624,48 @@ private fun AiProviderCenterScreen(vm:RpgOsViewModel){
                 Text("OpenRouter",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
                 Text(when(state.openRouterStatus.state){
                     CloudAuthState.CONNECTED->"Połączono"
-                    CloudAuthState.CONNECTING->"Oczekiwanie na autoryzację w przeglądarce"
+                    CloudAuthState.CONNECTING->if(state.openRouterStatus.reasonUid=="VALIDATING_MANUAL_API_KEY")"Sprawdzanie klucza API" else "Oczekiwanie na autoryzację w przeglądarce"
                     CloudAuthState.ERROR->"Błąd połączenia"
                     CloudAuthState.EXPIRED->"Połączenie wygasło"
                     CloudAuthState.DISCONNECTED->"Niepołączony"
                 },color=if(state.openRouterStatus.state==CloudAuthState.CONNECTED)MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
+                if(state.openRouterStatus.state==CloudAuthState.ERROR)Text(
+                    when(state.openRouterStatus.reasonUid){
+                        "OPENROUTER_AUTH_HTTP_403"->"OpenRouter odrzucił kod logowania. Spróbuj ponownie albo użyj własnego klucza API poniżej."
+                        "OPENROUTER_AUTH_HTTP_400"->"OpenRouter odrzucił żądanie logowania. Rozpocznij je ponownie."
+                        "OPENROUTER_MODELS_HTTP_401","OPENROUTER_MODELS_HTTP_403"->"Klucz API został odrzucony przez OpenRouter."
+                        "MANUAL_API_KEY_FORMAT_INVALID","MANUAL_API_KEY_REJECTED"->"Klucz API ma nieprawidłowy format."
+                        "CALLBACK_IDENTITY_MISMATCH","NO_PENDING_PKCE"->"Sesja logowania wygasła. Rozpocznij ją ponownie."
+                        else->"Sprawdź połączenie z Internetem i spróbuj ponownie."
+                    },color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall
+                )
                 Text("Logowanie używa oficjalnego PKCE i lokalnego callbacku. Klucz jest szyfrowany poza kampanią.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(10.dp))
                 if(state.openRouterStatus.state==CloudAuthState.CONNECTED)OutlinedButton(onClick=vm::disconnectOpenRouter,modifier=Modifier.fillMaxWidth()){Text("Rozłącz")}
-                else GradientActionButton("Połącz z OpenRouter",onClick={
-                    val url=vm.beginOpenRouterConnect();context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse(url)))
-                },modifier=Modifier.fillMaxWidth())
+                else{
+                    GradientActionButton("Połącz z OpenRouter",onClick={
+                        val url=vm.beginOpenRouterConnect();context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse(url)))
+                    },modifier=Modifier.fillMaxWidth())
+                    TextButton(onClick={manualOpenRouterKeyVisible=!manualOpenRouterKeyVisible},modifier=Modifier.fillMaxWidth()){
+                        Text(if(manualOpenRouterKeyVisible)"Ukryj połączenie kluczem API" else "Połącz własnym kluczem API")
+                    }
+                    if(manualOpenRouterKeyVisible){
+                        OutlinedTextField(
+                            value=manualOpenRouterKey,onValueChange={manualOpenRouterKey=it.trim()},singleLine=true,
+                            label={Text("Klucz OpenRouter (sk-or-…)")},visualTransformation=PasswordVisualTransformation(),modifier=Modifier.fillMaxWidth()
+                        )
+                        TextButton(
+                            onClick={context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://openrouter.ai/settings/keys")))},
+                            modifier=Modifier.fillMaxWidth()
+                        ){Text("Utwórz klucz na OpenRouter")}
+                        Button(
+                            onClick={val submitted=manualOpenRouterKey;manualOpenRouterKey="";vm.connectOpenRouterWithApiKey(submitted)},
+                            enabled=manualOpenRouterKey.startsWith("sk-or-")&&manualOpenRouterKey.length>=20,
+                            modifier=Modifier.fillMaxWidth()
+                        ){Text("Sprawdź i zapisz klucz")}
+                        Text("Klucz jest sprawdzany online, a następnie szyfrowany przez Android Keystore. Nie trafia do kampanii ani diagnostyki.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
         }
         item{

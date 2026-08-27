@@ -46,12 +46,34 @@ provider boundary and provider-center contracts belong to Phase 48.
   model and tokenizer. It links to the official Bielik source page without presenting raw GGUF as a
   compatible Android artifact.
 
+## Closed in `1.3.0-alpha10-core54`
+
+- A cloned Naruto campaign can already contain Phase-32 administrative guards. New-campaign,
+  activation, World Pack change, backup restore and snapshot restore preparation now share one
+  lifecycle-serialized ADMIN boundary before gameplay readiness is re-established. The real clone
+  regression test closes the phone-observed
+  `RPGOS-G32:MECHANICS_DEFINITION_REQUIRES_ADMIN / SQLITE_CONSTRAINT_TRIGGER[1811]` failure.
+- Same-campaign turns now share one canonical write order at the process lifecycle boundary. An
+  identical concurrent retry therefore becomes one commit plus one replay instead of surfacing a
+  transient SQLite lock; turns in different campaigns remain independent.
+- The AI panel defaults to the verified Bielik 1.5B mobile profile (2048-token exported context),
+  offers the complete release package, and no longer presents the legacy 4.5B/3433-MB profile as
+  the default.
+- The OpenRouter loopback page reports success only after code exchange and encrypted credential
+  storage. Exact provider reasons remain visible, and an online-validated manual API-key route is
+  available as a supported recovery path.
+
 ## Remaining external product gate
 
-The official Bielik repository does not publish the exact Android artifact accepted by this build.
-Real local inference still requires a separately exported and device-tested ExecuTorch package
-containing a compatible quantized `.pte` model and tokenizer. Raw Transformers or GGUF downloads
-must not be presented as installable RPG OS local-model packages.
+The earlier missing-artifact gate is closed for the mobile default: this run exported and verified
+the complete `RPG-OS-Bielik-1.5B-v3-ExecuTorch-XNNPACK.zip` package containing a compatible
+923,083,008-byte `.pte` model and tokenizer. The model SHA-256 is
+`4e5a6b8e6684e94d794a609a2f76cfb56f3b3ddef3dfc96904cd10f40244457e`; the ZIP SHA-256 is
+`d79d42d6a0bea8b21e9bcd4e00424be451c4167d5329d7bd9515987bdbb3181a`.
+
+Host-side ExecuTorch loading is green. Physical-device load, real inference, sustained memory,
+thermal and performance measurements remain the external product gate. Raw Transformers or GGUF
+downloads are still not presented as installable packages for the ExecuTorch Android path.
 
 ## Not classified as current frontend gaps
 

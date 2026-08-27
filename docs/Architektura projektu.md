@@ -429,7 +429,9 @@ Cloud może poprawiać jakość, ale brak sieci, timeout, 429, quota, provider f
 - optional cloud adapters — ten sam semantic contract, bez campaign authority;
 - `GmToolGateway` — allowlisted QUERY/REQUEST/PROPOSE boundary, bez raw writable DB i COMMIT.
 
-Repair candidate Phase48–54 implementuje `AiProvider`, registry/capability contracts, role-aware deterministic router, universal `LocalAiPort`/`CloudAiPort`, lifecycle/admission/settings/artifact contracts, spakowany oficjalny ExecuTorch Android runtime, Bielik data profile, OpenRouter PKCE/Keystore/discovery/inference adapter oraz workload-specific strict JSON Schema z ponowną walidacją w Core. Deterministic provider pozostaje wyłącznie controlled conformance backend i przechodzi ten sam production port.
+Repair candidate Phase48–54 implementuje `AiProvider`, registry/capability contracts, role-aware deterministic router, universal `LocalAiPort`/`CloudAiPort`, lifecycle/admission/settings/artifact contracts, spakowany oficjalny ExecuTorch Android runtime, mobilny profil Bielik 1.5B v3 ExecuTorch/XNNPACK, zachowany legacy profil Bielik 4.5B, OpenRouter PKCE/Keystore/discovery/inference adapter oraz workload-specific strict JSON Schema z ponowną walidacją w Core. Deterministic provider pozostaje wyłącznie controlled conformance backend i przechodzi ten sam production port.
+
+Administracyjne ścieżki kampanii (clone/activate/World Pack/backup/snapshot restore) przygotowują schema, definicje i world actors we wspólnym lifecycle-serialized `ADMIN` boundary, zanim przywrócą gameplay-ready state. Canonical turns tej samej kampanii są serializowane w jednym commit order, natomiast blokady pozostają rozdzielone per campaign. Zapobiega to zarówno naruszeniu guardów przez clone chronionego template, jak i wyciekowi SQLite busy przy równoległym idempotentnym retry.
 
 Auto routing respektuje workload, context limit, availability, privacy, resource admission i explicit pins. Local jest preferowany dla normalnego GM workloadu, lecz nie jest fałszywie oznaczany READY bez modelu, bezpiecznego profilu urządzenia i działającego runtime. Director cadence pozostaje niezależny od wyboru providera.
 
@@ -474,7 +476,7 @@ Phase50 ma własną sklasyfikowaną authoritative family `MECHANICAL_ACTOR_AND_A
 
 Phase54 zapisuje recovery marker natychmiast po autoryzacji trwałego receiptu. Po restarcie marker lub latest valid receipt pozwala odtworzyć wyłącznie etap readback/narration. Autoryzacja wiąże campaign, turn, command i transaction; readback pochodzi z replay payload dokładnie dla committed order, a delivery store zachowuje claims, `assertsPlayerVolition` i fingerprint. Recovery nie posiada wejścia do plannera, mechanics, assemblera ani commit portu.
 
-OpenRouter authorization używa OAuth PKCE oraz ephemeral loopback callback, a credential trafia do Android Keystore poza campaign/save. Cloud otrzymuje wyłącznie projected/minimised structured context. Każdy workload wysyła nazwany `response_format.type=json_schema` z `strict=true`; routing wymaga obsługi parametrów, a `CanonicalAiJsonCodec` i walidatory Core nadal odrzucają semantycznie nielegalne dane.
+OpenRouter authorization używa OAuth PKCE oraz ephemeral loopback callback, a credential trafia do Android Keystore poza campaign/save. Strona callbacku może raportować sukces dopiero po wykonaniu `/api/v1/auth/keys`, walidacji wyniku i zaszyfrowanym zapisie; typed transport reason pozostaje dostępny diagnostycznie bez ujawniania sekretu. Ręczne wprowadzenie klucza jest drugorzędnym recovery path i również wymaga online validation przed zapisem. Cloud otrzymuje wyłącznie projected/minimised structured context. Każdy workload wysyła nazwany `response_format.type=json_schema` z `strict=true`; routing wymaga obsługi parametrów, a `CanonicalAiJsonCodec` i walidatory Core nadal odrzucają semantycznie nielegalne dane.
 
 ### 13.1b Uniwersalne rozpoczęcie kampanii i postać gracza
 
