@@ -40,7 +40,9 @@ internal class UniversalMechanicsWorldRuleProvider(binding:WorldPackRuleBinding)
             return WorldRuleDecision.Rejected.create("RPGOS-RULE:MECHANICS-COMMAND-ONLY","COMMAND_KIND_OUTSIDE_UNIVERSAL_MECHANICS")
         }
         if(request.stage==WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK&&request.effects?.changes?.any{change->
-                change.payload !is ResourceChange&&change.payload !is ConditionChange&&change.payload !is RuntimeChange&&change.payload !is AssetChange
+                change.payload !is ResourceChange&&change.payload !is ConditionChange&&change.payload !is RuntimeChange&&change.payload !is AssetChange&&
+                    change.payload !is WoundChange&&change.payload !is SpatialChange&&change.payload !is EquipmentIntegrityChange&&
+                    change.payload !is StructureIntegrityChange&&change.payload !is MechanicalTrackChange&&change.payload !is AggregatePopulationChange
             }==true){
             return WorldRuleDecision.Rejected.create("RPGOS-RULE:MECHANICS-OWNER-ALLOWLIST","UNOWNED_MECHANICS_CHANGE")
         }
@@ -112,40 +114,31 @@ internal class ProductionCombatSnapshotAuthority(
         val fallback=playerValues.values.sorted().let{it[it.size/2]}
         fun canonical(vararg hints:String)=playerValues.entries.firstOrNull{entry->hints.any{it in entry.key}}?.value?:fallback
         val attackerPersistence=repository.infrastructureMechanicalPersistence(actor.uid)
-        val attacker=MechanicalActorView(
-            context.campaignUid,actor,MechanicalActorKind.ACTIVE_PLAYER,maxOf(context.plan.atOrder?:0,attackerPersistence.stateVersion),MechanicalStateMaterialization.FULL,
-            playerValues+mapOf("POWER" to canonical("POWER","STRENGTH","ATTACK"),"SKILL" to canonical("SKILL","DEXTERITY","ACCURACY"),
-                "DEFENCE" to canonical("DEFENCE","DEFENSE","ARMOR"),"AGILITY" to canonical("AGILITY","SPEED","REFLEX")),
+        val committedMechanical=repository.infrastructureMechanicalActor(actor)
+        val committedWound=committedMechanical?.conditions?.filter{it.conditionUid=="WOUND"}?.sumOf{it.intensity}?:0L
+        val playerAttributes=playerValues+mapOf("POWER" to canonical("POWER","STRENGTH","ATTACK"),"SKILL" to canonical("SKILL","DEXTERITY","ACCURACY"),
+            "DEFENCE" to (canonical("DEFENCE","DEFENSE","ARMOR")-committedWound).coerceAtLeast(0),"AGILITY" to canonical("AGILITY","SPEED","REFLEX"),
+            "ARMOR" to (committedMechanical?.attributes?.get("ARMOR")?:canonical("ARMOR","DEFENCE","DEFENSE")))
+        val attacker=applyStaged(MechanicalActorView(
+            context.campaignUid,actor,MechanicalActorKind.ACTIVE_PLAYER,maxOf(context.plan.atOrder?:0,attackerPersistence.stateVersion,committedMechanical?.stateVersion?:0),MechanicalStateMaterialization.FULL,
+            playerAttributes,
             repository.infrastructurePlayerResources().filter{it.characterUid==active.playerUid}.map{MechanicalResource(it.resourceUid,it.currentValue.roundToLong().coerceAtLeast(0),it.currentValue.roundToLong().coerceAtLeast(0))},
-            setOf(ability),conditions=conditions(attackerPersistence),generationProvenanceUid="PLAYER-DOMAIN:${active.playerUid}"
-        )
-        val template=WorldActorMechanicalTemplate("RPGOS-GENERIC-COMBATANT",MechanicalActorKind.WORLD_ACTOR,
-            mapOf("POWER" to 45,"SKILL" to 35,"DEFENCE" to 40,"AGILITY" to 35),setOf("DEFEND"),emptyList(),0,1_000)
+            setOf(ability),conditions=(conditions(attackerPersistence)+committedMechanical?.conditions.orEmpty()).distinctBy{it.conditionUid},generationProvenanceUid="PLAYER-DOMAIN:${active.playerUid}"
+        ),context.stagedEffects)
         val targetRefs=(node.participants.mapNotNull{participant->participant.referenceUid?.let{uid->context.plan.intent.references.singleOrNull{it.referenceUid==uid}?.resolvedProjectedRef}}+target).distinct()
         val targetPersistence=targetRefs.associateWith{repository.infrastructureMechanicalPersistence(it.uid)}
         val defenders=targetRefs.map{ref->
-            val persistence=targetPersistence.getValue(ref)
-            val aggregateKind=when(ref.kindUid.uppercase()){"GROUP"->MechanicalActorKind.GROUP;"UNIT"->MechanicalActorKind.UNIT;else->null}
-            val aggregatePopulation=aggregateKind?.let{aggregateCombatState.populationFor(context.campaignUid,ref,context.plan.atOrder?:0)}
-            if(aggregateKind!=null&&aggregatePopulation==null)return null
-            val generated=WorldActorMechanicalGenerator().generate(WorldActorGenerationRequest(
-                context.campaignUid,ref,template.templateUid,"${context.campaignUid}:${ref.kindUid}:${ref.uid}",emptySet(),emptySet(),MechanicalStateMaterialization.FULL
-            ),template)
-            val wound=persistence.activeEffects.filter{it.first=="WOUND"}.sumOf{it.second.coerceAtLeast(0)}
-            val equipmentDamage=persistence.activeEffects.filter{it.first=="EQUIPMENT_DAMAGE"}.sumOf{it.second.coerceAtLeast(0)}
-            generated.copy(
-                kind=aggregateKind?:generated.kind,
-                stateVersion=maxOf(generated.stateVersion,persistence.stateVersion),
-                attributes=generated.attributes+mapOf(
-                    "DEFENCE" to (generated.attributes.getValue("DEFENCE")-wound).coerceAtLeast(0),
-                    "ARMOR" to ((generated.attributes["ARMOR"]?:0L)-equipmentDamage).coerceAtLeast(0)
-                ),
-                conditions=conditions(persistence),aggregatePopulation=aggregatePopulation
-            )
+            val canonical=repository.infrastructureMechanicalActor(ref)?:return null
+            val aggregateKind=canonical.kind in setOf(MechanicalActorKind.GROUP,MechanicalActorKind.UNIT)
+            val aggregatePopulation=if(aggregateKind)
+                aggregateCombatState.populationFor(context.campaignUid,ref,context.plan.atOrder?:0)?:canonical.aggregatePopulation
+            else null
+            if(aggregateKind&&aggregatePopulation==null)return null
+            applyStaged(canonical.copy(aggregatePopulation=aggregatePopulation),context.stagedEffects)
         }
         val positions=buildMap{
-            attackerPersistence.position?.let{put(actor,it)}
-            targetPersistence.forEach{(ref,persistence)->persistence.position?.let{put(ref,it)}}
+            applyStagedPosition(actor,attackerPersistence.position,context.stagedEffects)?.let{put(actor,it)}
+            targetPersistence.forEach{(ref,persistence)->applyStagedPosition(ref,persistence.position,context.stagedEffects)?.let{put(ref,it)}}
         }
         val fingerprint=mechanicsHash(listOf(context.context.canonicalPayload(),attacker,defenders,positions,context.plan.atOrder,context.stagedEffects).joinToString("|"))
         val intent=CombatIntent("P50:${request.effectUid}",context.campaignUid,actor,target,ability,VolitionalActionSource.VALIDATED_PLAYER_COMMAND,
@@ -163,6 +156,58 @@ internal class ProductionCombatSnapshotAuthority(
 
     private fun conditions(state:InfrastructureMechanicalPersistence)=state.activeEffects.filter{it.first.startsWith("CONDITION:")}
         .map{MechanicalCondition(it.first.substringAfter("CONDITION:"),it.second.coerceAtLeast(1))}
+
+    /** Projects already verified earlier nodes into later-node snapshots without committing them. */
+    private fun applyStaged(base:MechanicalActorView,effects:List<VerifiedMechanicsEffect>):MechanicalActorView{
+        var attributes=base.attributes.toMutableMap();var resources=base.resources
+        var conditions=base.conditions;var population=base.aggregatePopulation;var version=base.stateVersion
+        effects.flatMap(::stagedImpacts).filter{it.first==base.actor}.forEach{(_,kind,magnitude,payload)->
+            version++
+            when(kind){
+                "WOUND"->attributes["DEFENCE"]=(attributes["DEFENCE"]?:0L).minus(magnitude.coerceAtLeast(0)).coerceAtLeast(0)
+                "RESOURCE_DELTA","RESOURCE","HEALTH_DELTA","DAMAGE_HP","HEALING","RESTORATION"->{
+                    val uid=payload["resource_uid"]?:"HEALTH"
+                    resources=resources.map{if(it.resourceUid==uid)it.copy(current=(it.current+magnitude).coerceIn(0,it.maximum))else it}
+                }
+                "CONDITION","BUFF","DEBUFF","CONTROL","RESTRICTION"->{
+                    val uid=payload["condition_uid"]
+                    if(uid!=null){
+                        conditions=if(payload["operation"]?.uppercase() in setOf("REMOVE","CLEAR"))conditions.filterNot{it.conditionUid==uid}
+                        else if(conditions.none{it.conditionUid==uid})conditions+MechanicalCondition(uid,1) else conditions
+                    }
+                }
+                "EQUIPMENT","EQUIPMENT_DAMAGE"->attributes["ARMOR"]=(attributes["ARMOR"]?:0L).minus(magnitude.coerceAtLeast(0)).coerceAtLeast(0)
+                "MORALE","COHESION","FORMATION"->attributes[kind]=Math.addExact(attributes[kind]?:10_000L,magnitude).coerceAtLeast(0)
+                "AGGREGATE_ELIMINATION"->population=population?.let{p->val amount=magnitude.coerceIn(0,p.activeCount);p.copy(activeCount=p.activeCount-amount,eliminatedCount=p.eliminatedCount+amount)}
+                "AGGREGATE_INJURY"->population=population?.let{p->val amount=magnitude.coerceIn(0,p.activeCount);p.copy(activeCount=p.activeCount-amount,woundedCount=p.woundedCount+amount)}
+                "AGGREGATE_CONDITION"->{val uid=payload["condition_uid"];if(uid!=null)population=population?.let{p->p.copy(conditionCounts=p.conditionCounts+(uid to ((p.conditionCounts[uid]?:0L)+magnitude).coerceAtMost(p.totalCount)))} }
+            }
+        }
+        return base.copy(stateVersion=version,attributes=attributes,resources=resources,conditions=conditions,aggregatePopulation=population)
+    }
+
+    private fun applyStagedPosition(ref:DomainRef,base:CombatPosition?,effects:List<VerifiedMechanicsEffect>):CombatPosition?{
+        var position=base
+        effects.flatMap(::stagedImpacts).filter{it.first==ref&&it.kind in setOf("MOVEMENT","DISPLACEMENT")}.forEach{impact->
+            position=when(val current=position){
+                is CombatPosition.Exact->current.copy(xMillimetres=Math.addExact(current.xMillimetres,impact.magnitude))
+                else->CombatPosition.Exact(impact.magnitude,0)
+            }
+        }
+        return position
+    }
+
+    private fun stagedImpacts(effect:VerifiedMechanicsEffect):List<StagedImpact>{
+        val out=mutableListOf<StagedImpact>()
+        fun add(kind:String,targetKind:String?,targetUid:String?,magnitude:String?,payload:Map<String,String>){
+            val amount=magnitude?.toLongOrNull()?:return;if(targetKind!=null&&targetUid!=null)out+=StagedImpact(DomainRef(targetKind,targetUid),kind.substringAfterLast(':').uppercase(),amount,payload)
+        }
+        add(effect.effectKindUid,effect.canonicalPayload["target_kind_uid"],effect.canonicalPayload["target_uid"],effect.canonicalPayload["magnitude"],effect.canonicalPayload)
+        val count=effect.canonicalPayload["area_target_count"]?.toIntOrNull()?:0
+        repeat(count){index->add(effect.canonicalPayload["area_target_${index}_effect_kind_uid"]?:return@repeat,effect.canonicalPayload["area_target_${index}_kind_uid"],effect.canonicalPayload["area_target_${index}_uid"],effect.canonicalPayload["area_target_${index}_magnitude"],effect.canonicalPayload)}
+        return out
+    }
+    private data class StagedImpact(val first:DomainRef,val kind:String,val magnitude:Long,val payload:Map<String,String>)
 }
 
 internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapshots:ProductionCombatSnapshotAuthority):MechanicsRuleResolver{
@@ -248,6 +293,7 @@ private class ProductionIntentResolver(
             }
             val candidates=if(direct!=null)listOf(direct) else buildList{
                 runCatching{repository.npcsProjection(phrase,audience(),purpose()).value.orEmpty()}.getOrDefault(emptyList()).filter{nameMatch(it.name,phrase)}.forEach{add(DomainRef("NPC",it.uid))}
+                repository.infrastructureAggregateTargets(phrase).forEach{add(it.second)}
                 repository.worldLocations(phrase).filter{nameMatch(it.name,phrase)}.forEach{add(DomainRef("LOCATION",it.uid))}
             }.distinct()
             when(candidates.size){
@@ -261,16 +307,12 @@ private class ProductionIntentResolver(
     private fun nameMatch(name:String,phrase:String)=name.trim().equals(phrase,true)||name.lowercase().contains(phrase.lowercase()).takeIf{phrase.length>=3}==true
 }
 
-/** Readback comes from committed replay material, then the current Phase38 player projection. */
+/** Exact as-of readback: only material bound to this committed order may enter narration. */
 private class ProductionCommittedNarrationReadPort(private val repository:UnifiedGameRepository):CommittedNarrationReadPort{
     override fun read(identity:TurnTransactionIdentity,receipt:TurnCommitReceipt,audience:AudienceContext,purpose:PurposeContext):PostCommitPlayerVisibleReadback{
         val order=requireNotNull(receipt.commitOrder)
         val replay=requireNotNull(repository.infrastructureReplayPayload(identity.transactionUid,order)){"RPGOS-P54:COMMITTED_REPLAY_MISSING"}
-        val player=repository.activePlayerRef()
-        val snapshot=if(player==null)emptyMap() else when(val read=repository.protectedReads().playerState(audience,purpose,player.playerUid)){
-            is ProtectedReadResult.Allow->mapOf("player_uid" to player.playerUid,"state_fingerprint" to mechanicsHash(read.value.toContextMap().toString()))
-            else->emptyMap()
-        }
+        val snapshot=mapOf("committed_order" to order.toString(),"committed_change_count" to replay.changeSet.changes.size.toString())
         val facts=replay.changeSet.changes.map{change->CommittedNarrativeFact(
             "FACT:${mechanicsHash(change.changeUid).take(24)}",CommittedNarrativeFactKind.MECHANICAL_RESULT,
             subjectOf(change)?.uid,change.changeKindUid,valueOf(change),order
@@ -279,6 +321,12 @@ private class ProductionCommittedNarrationReadPort(private val repository:Unifie
             is ResourceChange->"Zasób ${payload.resourceUid} zmienił się o ${payload.delta.units}."
             is ConditionChange->if(payload.operation==ConditionOperation.ADD)"Pojawił się stan ${payload.conditionUid}." else "Stan ${payload.conditionUid} ustąpił."
             is RuntimeChange->"Skutek działania został zastosowany."
+            is WoundChange->"Cel otrzymał ranę o nasileniu ${payload.severityDelta.units}."
+            is SpatialChange->"Pozycja celu zmieniła się."
+            is EquipmentIntegrityChange->"Wyposażenie celu zostało uszkodzone."
+            is StructureIntegrityChange->"Struktura została uszkodzona."
+            is MechanicalTrackChange->"Stan ${payload.trackUid.lowercase()} zmienił się."
+            is AggregatePopulationChange->"Zmienił się stan walczącej grupy."
             is AssetChange->"Stan obiektu zmienił się na ${payload.proposedLifecycleStateUid.lowercase()}."
             else->"Świat przyjął skutek tej decyzji."
         }}
@@ -291,10 +339,15 @@ private class ProductionCommittedNarrationReadPort(private val repository:Unifie
     private fun subjectOf(change:PlayerDomainChange):DomainRef?=when(val payload=change.payload){
         is StatChange->payload.subject;is ResourceChange->payload.subject;is SkillChange->payload.subject;is TechniqueChange->payload.subject
         is InventoryChange->payload.subject;is EquipmentChange->payload.subject;is ConditionChange->payload.subject;is RuntimeChange->payload.subject
+        is WoundChange->payload.subject;is SpatialChange->payload.subject;is EquipmentIntegrityChange->payload.subject
+        is StructureIntegrityChange->payload.subject;is MechanicalTrackChange->payload.subject;is AggregatePopulationChange->payload.subject
         else->null
     }
     private fun valueOf(change:PlayerDomainChange)=when(val payload=change.payload){
         is ResourceChange->payload.delta.units.toString();is ConditionChange->payload.operation.name;is RuntimeChange->payload.delta.units.toString()
+        is WoundChange->payload.severityDelta.units.toString();is SpatialChange->"${payload.deltaXMillimetres},${payload.deltaYMillimetres}"
+        is EquipmentIntegrityChange->payload.damageDelta.units.toString();is StructureIntegrityChange->payload.damageDelta.units.toString()
+        is MechanicalTrackChange->payload.delta.units.toString();is AggregatePopulationChange->"${payload.eliminatedDelta}/${payload.woundedDelta}/${payload.conditionAffectedDelta}"
         is AssetChange->payload.proposedLifecycleStateUid;else->"APPLIED"
     }
 }
@@ -369,16 +422,9 @@ class ProductionGameEngineCompositionRoot(
                 when(effect.effectKindUid.substringAfterLast(':').uppercase()){
                     "RESOURCE_DELTA","RESOURCE","HEALTH_DELTA","DAMAGE_HP","HEALING","RESTORATION"->add(DomainRef("RESOURCE",effect.canonicalPayload["resource_uid"]?:"HEALTH"))
                     "CONDITION","BUFF","DEBUFF","CONTROL","RESTRICTION"->effect.canonicalPayload["condition_uid"]?.let{add(DomainRef("CONDITION",it))}
-                    else->{
-                        val requestedKind=effect.effectKindUid.substringAfterLast(':').uppercase()
-                        val runtimeKind=when(requestedKind){
-                            "DISPLACEMENT"->"MOVEMENT"
-                            "EQUIPMENT"->"EQUIPMENT_DAMAGE"
-                            "STRUCTURE"->"STRUCTURE_DAMAGE"
-                            else->requestedKind
-                        }
-                        add(DomainRef("RUNTIME_COUNTER","RPGOS-MECHANICS:$runtimeKind:${mechanicsHash(effect.effectUid).take(32)}"))
-                    }
+                    "EQUIPMENT","EQUIPMENT_DAMAGE","STRUCTURE","STRUCTURE_DAMAGE"->
+                        effect.canonicalPayload["component_uid"]?.let{add(DomainRef("MECHANICAL_COMPONENT",it))}
+                    else->Unit
                 }
             }
             PlayerResolutionContext.create(command.campaignUid,command.actor,refs,dependencyVersions=mapOf("PHASE50" to "2"),worldRuleMode=WorldRuleMode.Bound(authority.binding))
@@ -393,7 +439,16 @@ class ProductionGameEngineCompositionRoot(
             AuthoritativeTurnCommitPort{identity,proposal->try{repository.commitTurn(identity,proposal)}catch(t:Throwable){throw CanonicalCommitException(t.message?:"TURN_COMMIT_FAILED",t)}},
             PersistedCommitReceiptAuthority(CommittedReceiptLookup(repository::infrastructureReceipt)),
             CommittedNarrationContextBuilder(ProductionCommittedNarrationReadPort(repository)),
-            deliveryStore=FileNarrativeDeliveryStore(File(app.filesDir,"narrative-delivery"))
+            deliveryStore=FileNarrativeDeliveryStore(File(app.filesDir,"narrative-delivery")),
+            recoveryStore=FileNarrationRecoveryStore(File(app.filesDir,"narrative-recovery")),
+            recoveryDiscovery={repository.infrastructureLastReceipt()?.let{receipt->
+                if(!receipt.transactionUid.startsWith("TRANSACTION:")||!receipt.commandUid.startsWith("COMMAND:")||!receipt.turnUid.startsWith("TURN:"))return@let null
+                val order=receipt.commitOrder?:return@let null
+                val actor=repository.infrastructureReplayPayload(receipt.transactionUid,order)?.changeSet?.actor?:return@let null
+                ChatTurnRequest("RECOVERY:${receipt.transactionUid}",receipt.campaignUid,receipt.turnUid,receipt.commandUid,receipt.transactionUid,
+                    actor,"RECOVERY_FROM_COMMITTED_RECEIPT","pl-PL",VisibilityAudienceFactory.player(receipt.campaignUid),
+                    PurposeContext(receipt.campaignUid,VisibilityPurposeKinds.GAMEPLAY_NARRATION),order)
+            }}
         )
         return CanonicalChatApplication(facade,ChatTurnRequestFactory{input->
             val campaign=repository.activeCampaignRef().campaignId
@@ -409,6 +464,7 @@ class ProductionGameEngineCompositionRoot(
 class DynamicCanonicalChatApplication(private val factory:()->CanonicalChatApplication):ChatApplicationPort{
     override suspend fun play(input:String,cancellation:AiCancellationSignal)=factory().play(input,cancellation)
     override suspend fun recover(token:ChatNarrationRecoveryToken,cancellation:AiCancellationSignal)=factory().recover(token,cancellation)
+    override fun pendingRecovery():ChatNarrationRecoveryToken?=factory().pendingRecovery()
 }
 
 private fun mechanicsHash(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString(""){"%02x".format(it)}

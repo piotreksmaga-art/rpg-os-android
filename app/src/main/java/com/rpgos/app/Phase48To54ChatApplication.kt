@@ -28,6 +28,7 @@ data class ChatNarrationRecoveryToken(val request: ChatTurnRequest) {
 interface ChatApplicationPort {
     suspend fun play(input: String, cancellation: AiCancellationSignal = AiCancellationSignal.NONE): ChatApplicationOutcome
     suspend fun recover(token: ChatNarrationRecoveryToken, cancellation: AiCancellationSignal = AiCancellationSignal.NONE): NarrativeRecoveryResult
+    fun pendingRecovery():ChatNarrationRecoveryToken?
 }
 
 fun interface ChatTurnRequestFactory {
@@ -63,6 +64,7 @@ class CanonicalChatApplication(
 
     override suspend fun recover(token: ChatNarrationRecoveryToken, cancellation: AiCancellationSignal): NarrativeRecoveryResult =
         withContext(Dispatchers.IO) { engine.recoverNarration(token.request, cancellation) }
+    override fun pendingRecovery():ChatNarrationRecoveryToken?=engine.pendingNarrationRecovery(requests.create("RECOVERY_DISCOVERY").campaignUid)
 }
 
 /**
@@ -96,4 +98,5 @@ class NonAuthoritativeLegacyNarrationApplication(
 
     override suspend fun recover(token: ChatNarrationRecoveryToken, cancellation: AiCancellationSignal): NarrativeRecoveryResult =
         NarrativeRecoveryResult.Unavailable("NO_CANONICAL_COMMIT_RECEIPT")
+    override fun pendingRecovery():ChatNarrationRecoveryToken?=null
 }

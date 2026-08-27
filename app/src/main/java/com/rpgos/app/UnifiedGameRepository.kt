@@ -47,6 +47,8 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         openGameplaySaveDb().use{TurnTransactionReceiptStore(it).committedTransaction(transactionUid)}
     internal fun infrastructureLastCommitOrder():Long =
         openGameplaySaveDb().use{TurnTransactionReceiptStore(it).lastValidCommit(activeCampaignRef().campaignId)?.commitOrder?:0L}
+    internal fun infrastructureLastReceipt():TurnCommitReceipt? =
+        openGameplaySaveDb().use{TurnTransactionReceiptStore(it).lastValidCommit(activeCampaignRef().campaignId)}
     internal fun infrastructureReplayPayload(transactionUid:String,committedOrder:Long):CommittedReplayPayload? =
         openGameplaySaveDb().use{db->CommittedReplayPayloadStore(db).after(activeCampaignRef().campaignId,(committedOrder-1).coerceAtLeast(0)).singleOrNull{it.identity.transactionUid==transactionUid}}
     internal fun infrastructureWorldPackAuthority():CurrentWorldPackAuthority = CampaignSelectionManager(context).currentWorldPackAuthority()
@@ -74,6 +76,12 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         }
         InfrastructureMechanicalPersistence(effects,position,version)
     }
+    internal fun infrastructureMechanicalActor(ref:DomainRef):MechanicalActorView? =
+        openGameplaySaveDb().use{MechanicalActorStateStore(it,activeCampaignRef().campaignId).actor(ref)}
+    internal fun infrastructureAggregatePopulation(ref:DomainRef):AggregateMechanicalPopulation? =
+        openGameplaySaveDb().use{MechanicalActorStateStore(it,activeCampaignRef().campaignId).population(ref)}
+    internal fun infrastructureAggregateTargets(phrase:String):List<Pair<String,DomainRef>> =
+        openGameplaySaveDb().use{MechanicalActorStateStore(it,activeCampaignRef().campaignId).aggregateTargets(phrase)}
 
     private fun requireActiveVisibility(audience:AudienceContext,purpose:PurposeContext) {
         val campaign=activeCampaignRef().campaignId

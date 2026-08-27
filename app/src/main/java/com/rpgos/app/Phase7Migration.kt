@@ -7,6 +7,7 @@ const val PHASE7_MIGRATION_ID = "RPGOS-7.0-SKILLS"
 object CurrentSchema {
     fun ensure(saveDb: SQLiteDatabase, campaignId: String) {
         MigrationManager().ensureV15Hardening(saveDb, campaignId)
+        Phase50MechanicalSchema.ensureReady(saveDb)
     }
 }
 

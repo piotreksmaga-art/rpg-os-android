@@ -811,6 +811,12 @@ internal fun draftReferences(draft: PlayerResolutionDraft): List<DomainRef> = bu
             is CampaignTruthChange -> Unit
             is ConditionChange -> { add(payload.subject); add(DomainRef("CONDITION", payload.conditionUid)) }
             is RuntimeChange -> { add(payload.subject); add(DomainRef("RUNTIME_COUNTER", payload.runtimeCounterUid)) }
+            is WoundChange -> add(payload.subject)
+            is SpatialChange -> add(payload.subject)
+            is EquipmentIntegrityChange -> { add(payload.subject); add(DomainRef("MECHANICAL_COMPONENT", payload.componentUid)) }
+            is StructureIntegrityChange -> { add(payload.subject); payload.componentUid?.let { add(DomainRef("MECHANICAL_COMPONENT", it)) } }
+            is MechanicalTrackChange -> add(payload.subject)
+            is AggregatePopulationChange -> add(payload.subject)
             is DevelopmentProjectChange -> {
                 add(DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid))
                 addAll(payload.evidenceRefs)

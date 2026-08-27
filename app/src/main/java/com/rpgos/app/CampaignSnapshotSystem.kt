@@ -160,12 +160,10 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
         snapshotDir.mkdirs(); reconcileOrphansLocked();val effectivePinned=pinned||kind==SnapshotKind.USER_PINNED
         val order=db.rawQuery("SELECT COALESCE(MAX(created_order),0)+1 FROM ${CampaignSnapshotSchema.CATALOG} WHERE campaign_uid=?",arrayOf(campaignUid)).use{it.moveToFirst();it.getLong(0)}
         val uid="SNAP-$campaignUid-$order-${UUID.randomUUID()}"
-        val campaignToken=compactCampaignToken()
-        val payloadToken="$campaignToken-$order"
-        // Keep the path openable by the oldest Windows-backed SQLite used in local Android tests.
-        // The compact campaign fingerprint also prevents two campaigns sharing a snapshot root
-        // from publishing or staging to the same path.
-        val staged=File(requireNotNull(snapshotDir.parentFile),".$payloadToken.tmp");val published=File(snapshotDir,"$payloadToken.db")
+        // Keep the payload name short for Windows while retaining campaign isolation when tests or
+        // recovery tooling intentionally share one snapshot directory between several campaigns.
+        val fileToken="${compactCampaignToken()}-$order"
+        val staged=File(snapshotStagingRoot(),".$fileToken.tmp");val published=File(snapshotDir,"$fileToken.db")
         db.execSQL("""INSERT INTO ${CampaignSnapshotSchema.CATALOG}(snapshot_uid,campaign_uid,snapshot_kind,snapshot_schema_version,created_order,
             created_at_epoch_ms,anchor_commit_order,anchor_transaction_uid,anchor_turn_uid,anchor_event_uid,payload_path,payload_sha256,publication_state,pinned)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",arrayOf<Any?>(uid,campaignUid,kind.name,CampaignSnapshotSchema.VERSION,order,System.currentTimeMillis(),
@@ -247,7 +245,7 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
         snapshotDir.listFiles{f->
             f.name.startsWith(".$legacyCampaignFilePrefix")&&(f.name.endsWith(".staged.db")||f.name.endsWith(".reconstructing.db"))
         }?.forEach{it.delete()}
-        snapshotDir.parentFile?.listFiles{f->f.isFile&&f.name.startsWith(".$compactCampaignFilePrefix")&&f.name.endsWith(".tmp")}
+        snapshotStagingRoot().listFiles{f->f.isFile&&f.name.startsWith(".$compactCampaignFilePrefix")&&f.name.endsWith(".tmp")}
             ?.forEach{it.delete()}
         val known=db.rawQuery("SELECT payload_path FROM ${CampaignSnapshotSchema.CATALOG}",null).use{c->buildSet{
             while(c.moveToNext())add(File(c.getString(0)).canonicalFile)
@@ -256,9 +254,12 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
             f.isFile&&(f.name.startsWith(legacyCampaignFilePrefix)||f.name.startsWith(compactCampaignFilePrefix))&&
                 f.extension=="db"&&f.canonicalFile !in known
         }?.forEach{it.delete()}
+        snapshotDir.listFiles{f->f.isFile&&f.name.startsWith(".r-${shortCampaignToken()}-")&&f.name.endsWith(".db")}?.forEach{it.delete()}
     }
 
-    private fun compactCampaignToken()="c-${sha256(campaignUid).take(32)}"
+    private fun compactCampaignToken()="c-${sha256(campaignUid).take(12)}"
+    private fun shortCampaignToken()=sha256(campaignUid).take(4)
+    private fun snapshotStagingRoot()=snapshotDir.parentFile?.parentFile?:requireNotNull(snapshotDir.parentFile)
 
     private fun find(uid:String)=list().firstOrNull{it.snapshotUid==uid}
     private fun row(c:android.database.Cursor)=CampaignSnapshotDescriptor(c.getString(0),campaignUid,SnapshotKind.valueOf(c.getString(1)),c.getInt(2),c.getLong(3),c.getLong(4),c.getLong(5),if(c.isNull(6))null else c.getString(6),if(c.isNull(7))null else c.getString(7),if(c.isNull(8))null else c.getString(8),c.getString(9),if(c.isNull(10))null else c.getString(10),SnapshotPublicationState.valueOf(c.getString(11)),c.getInt(12)!=0)
@@ -287,7 +288,7 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
         } else {
             RecoverableSnapshotPolicy.requireRecoverable(db,campaignUid,snapshotUid)
         }
-        val staging=File(snapshotDir,".${snapshot.snapshotUid}.reconstructing.db")
+        val staging=File(snapshotDir,".r-${shortCampaignToken()}-${snapshot.createdOrder}.db")
         if(staging.exists())staging.delete();File(snapshot.payloadPath).copyTo(staging)
         val payloads=CommittedReplayPayloadStore(db).after(campaignUid,snapshot.anchorCommitOrder)
         val last=TurnTransactionReceiptStore(db).lastValidCommit(campaignUid)?.commitOrder?:0L

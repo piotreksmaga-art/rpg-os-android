@@ -30,6 +30,7 @@ internal class LocalGameStore(private val context: Context) {
             val explicitBootstrap = {
                 ensureCurrentSchema(save)
                 AutoRepairEngine().repair(save)
+                materializeWorldActors(save,campaignUid)
             }
             runCatching {
                 if (GameplayMutationDatabaseGuards.isInstalled(save)) {
@@ -167,12 +168,19 @@ internal class LocalGameStore(private val context: Context) {
     }
 
     fun activePlayerRef(): ActivePlayerRef? { openGameplaySaveDb().use { db -> return ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active() } }
-    fun setActivePlayer(playerUid: String): ActivePlayerRef = withAdminReadyDb { db, campaignUid -> ActivePlayerStore(db, campaignUid).set(playerUid) }
+    fun setActivePlayer(playerUid: String): ActivePlayerRef = withAdminReadyDb { db, campaignUid ->
+        val active=ActivePlayerStore(db,campaignUid).set(playerUid)
+        materializeWorldActors(db,campaignUid)
+        active
+    }
     fun characterCreationCatalog():CharacterCreationCatalog=openGameplaySaveDb().use(::characterCreationCatalog)
     fun createPlayerCharacter(draft:PlayerCharacterCreationDraft,confirmation:PlayerCharacterCreationConfirmation):PlayerCharacterBootstrapReceipt=
         openGameplaySaveDb().use{db->
             val catalog=characterCreationCatalog(db)
-            PlayerCharacterBootstrapService(db,selection.activeCampaignRef().campaignId,selection.currentWorldPackAuthority().binding.worldPackUid,catalog).commit(draft,confirmation)
+            val campaignUid=selection.activeCampaignRef().campaignId
+            val receipt=PlayerCharacterBootstrapService(db,campaignUid,selection.currentWorldPackAuthority().binding.worldPackUid,catalog).commit(draft,confirmation)
+            materializeWorldActorsWithAuthority(db,campaignUid)
+            receipt
         }
     fun playerState(): PlayerStateSnapshot? { openGameplaySaveDb().use { db -> return PlayerStateStore(db, selection.activeCampaignRef().campaignId).load() } }
     fun statDefinitions(): List<StatDefinition> { openGameplaySaveDb().use { db -> return StatResourceStore(db, selection.activeCampaignRef().campaignId).statDefinitions() } }
@@ -208,7 +216,7 @@ internal class LocalGameStore(private val context: Context) {
     fun restoreBackup(path: String): String {
         val safety = RestoreManager(context).restoreBackup(selection.activeCampaignDirName(), path)
         val campaignUid=selection.activeCampaignRef().campaignId
-        openSaveDb().use { restored -> ensureCurrentSchema(restored);ensureCharacterCreationDefinitions(restored,campaignUid);GameplayRuntimeBootstrap.initialize(restored,campaignUid) }
+        openSaveDb().use { restored -> ensureCurrentSchema(restored);ensureCharacterCreationDefinitions(restored,campaignUid);materializeWorldActorsWithAuthority(restored,campaignUid);GameplayRuntimeBootstrap.initialize(restored,campaignUid) }
         openGameplaySaveDb().use { GameplayRuntimeBootstrap.requireReady(it, selection.activeCampaignRef().campaignId) }
         return safety.absolutePath
     }
@@ -219,17 +227,17 @@ internal class LocalGameStore(private val context: Context) {
     fun setActiveCampaign(dirName: String) {
         selection.setActiveCampaign(dirName)
         val campaignUid=selection.activeCampaignRef().campaignId
-        openSaveDb().use { db -> ensureCurrentSchema(db);ensureCharacterCreationDefinitions(db,campaignUid);GameplayRuntimeBootstrap.initialize(db,campaignUid) }
+        openSaveDb().use { db -> ensureCurrentSchema(db);ensureCharacterCreationDefinitions(db,campaignUid);materializeWorldActorsWithAuthority(db,campaignUid);GameplayRuntimeBootstrap.initialize(db,campaignUid) }
     }
     fun setActiveWorldPack(dirName: String) {
         selection.setActiveWorldPack(dirName)
         val campaignUid=selection.activeCampaignRef().campaignId
-        openSaveDb().use{db->ensureCharacterCreationDefinitions(db,campaignUid);GameplayRuntimeBootstrap.initialize(db,campaignUid)}
+        openSaveDb().use{db->ensureCharacterCreationDefinitions(db,campaignUid);materializeWorldActorsWithAuthority(db,campaignUid);GameplayRuntimeBootstrap.initialize(db,campaignUid)}
     }
     fun createCampaign(name: String): File {
         val created = selection.createCampaign(name)
         val campaignUid=selection.activeCampaignRef().campaignId
-        openSaveDb().use { db -> ensureCurrentSchema(db);ensureCharacterCreationDefinitions(db,campaignUid);GameplayRuntimeBootstrap.initialize(db,campaignUid) }
+        openSaveDb().use { db -> ensureCurrentSchema(db);ensureCharacterCreationDefinitions(db,campaignUid);materializeWorldActorsWithAuthority(db,campaignUid);GameplayRuntimeBootstrap.initialize(db,campaignUid) }
         return created
     }
     fun activeCampaignDirName(): String = selection.activeCampaignDirName()
@@ -242,13 +250,22 @@ internal class LocalGameStore(private val context: Context) {
         val active=File(saveDir,"campaign.db");val db=openGameplaySaveDb();val manager=CampaignSnapshotManager(db,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots"))
         val staged=manager.reconstructToVerifiedStaging();manager.activateVerifiedStaging(active,staged)
         val campaignUid=selection.activeCampaignRef().campaignId
-        openSaveDb().use{ensureCurrentSchema(it);ensureCharacterCreationDefinitions(it,campaignUid);GameplayRuntimeBootstrap.initialize(it,campaignUid)}
+        openSaveDb().use{ensureCurrentSchema(it);ensureCharacterCreationDefinitions(it,campaignUid);materializeWorldActorsWithAuthority(it,campaignUid);GameplayRuntimeBootstrap.initialize(it,campaignUid)}
         return active.absolutePath
     }
     fun finalizeChapter(chapter: Int, title: String): Pair<String, String> { openGameplaySaveDb().use { save -> val hash = ChapterSaveManager(save).finalizeChapter(chapter, title); CampaignSnapshotManager(save,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots")).create(SnapshotKind.AUTOMATIC);val backup = BackupManager(context).createBackup("chapter_$chapter"); return hash to backup.absolutePath } }
     internal fun applyPatch(patch: StatePatch): PatchResult { openGameplaySaveDb().use { save -> openCoreDb().use { core -> return StatePatchEngine(save, SourceOfTruthRegistry(core)).apply(patch) } } }
     private fun openSave(): SQLiteDatabase = SQLiteDatabase.openDatabase(File(saveDir, "campaign.db").absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
     private fun ensureCurrentSchema(saveDb: SQLiteDatabase) { CurrentSchema.ensure(saveDb, selection.activeCampaignRef().campaignId) }
+
+    private fun materializeWorldActors(saveDb:SQLiteDatabase,campaignUid:String){
+        if(!File(worldDir,"world.db").isFile)return
+        openWorldDb().use{world->WorldActorMechanicalBootstrap.materialize(world,saveDb,campaignUid)}
+    }
+    private fun materializeWorldActorsWithAuthority(saveDb:SQLiteDatabase,campaignUid:String){
+        val action={materializeWorldActors(saveDb,campaignUid)}
+        if(GameplayMutationDatabaseGuards.isInstalled(saveDb))withAdministrativeMutationAuthority(saveDb,campaignUid,action) else action()
+    }
 
     private fun ensureCharacterCreationDefinitions(saveDb:SQLiteDatabase,campaignUid:String){
         // Historical migration/restore fixtures can legitimately omit the World Pack package.

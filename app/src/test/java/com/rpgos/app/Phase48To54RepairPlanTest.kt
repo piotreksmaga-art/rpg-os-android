@@ -283,10 +283,12 @@ class Phase48To54RepairPlanTest{
         val cases=listOf(
             effect("R","RESOURCE_DELTA",attacker,-3,mapOf("resource_uid" to "HEALTH")) to ResourceChange::class,
             effect("C","CONDITION",payload=mapOf("condition_uid" to "STUNNED","operation" to "ADD")) to ConditionChange::class,
-            effect("W","WOUND") to RuntimeChange::class,
-            effect("M","MOVEMENT",attacker,1_000) to RuntimeChange::class,
-            effect("E","EQUIPMENT_DAMAGE") to RuntimeChange::class,
-            effect("S","STRUCTURE_DAMAGE") to RuntimeChange::class
+            effect("W","WOUND") to WoundChange::class,
+            effect("M","MOVEMENT",attacker,1_000) to SpatialChange::class,
+            effect("E","EQUIPMENT_DAMAGE") to EquipmentIntegrityChange::class,
+            effect("S","STRUCTURE_DAMAGE") to StructureIntegrityChange::class,
+            effect("MO","MORALE",magnitude=-3) to MechanicalTrackChange::class,
+            effect("AE","AGGREGATE_ELIMINATION",DomainRef("GROUP","G1"),3) to AggregatePopulationChange::class
         )
         cases.forEach{(effect,type)->
             val result=MechanicalEffectMaterializer.materialize(effect) as MechanicalEffectMaterializationResult.Materialized
@@ -329,6 +331,11 @@ class Phase48To54RepairPlanTest{
     @Test fun mechanicsEffectsCommitTogetherAndRollbackTogether(){
         SQLiteDatabase.create(null).use{db->
             createMechanicalTables(db);GroupATransactionTestFixtures.setupFinance(db,campaign)
+            withAdministrativeMutationAuthority(db,campaign){
+                MechanicalActorStateStore(db,campaign).materializeIfMissing(MechanicalActorSeed(
+                    defender,MechanicalActorKind.NPC,"TEST","N1","TEST",mapOf("POWER" to 50,"SKILL" to 50,"DEFENCE" to 50,"AGILITY" to 50,"ARMOR" to 10),
+                    listOf(MechanicalResource("HEALTH",100,100)),setOf("DEFEND")))
+            }
             val effects=listOf(
                 VerifiedMechanicsCommandEffect("W","N","OWNER","WOUND",defender,4,emptyMap(),"P","I","O"),
                 VerifiedMechanicsCommandEffect("M","N","OWNER","MOVEMENT",attacker,1_000,emptyMap(),"P","I","O"),
@@ -337,7 +344,8 @@ class Phase48To54RepairPlanTest{
             val proposal=mechanicsProposal(effects,"CMD-1")
             val identity=TurnTransactionIdentity(campaign,"TURN-1","CMD-1","TX-1")
             assertTrue(TurnTransactionBoundary.create(db,identity,proposal).commit() is TurnExecutionResult.Committed)
-            assertEquals(2L,scalar(db,"SELECT COUNT(*) FROM active_combat_effects WHERE status='active'"))
+            assertEquals(1L,scalar(db,"SELECT COUNT(*) FROM active_combat_effects WHERE status='active'"))
+            assertEquals(4L,scalar(db,"SELECT current_value FROM mechanical_actor_tracks WHERE campaign_id='$campaign' AND entity_uid='N1' AND track_uid='WOUND'"))
             assertEquals(1_000L,scalar(db,"SELECT CAST(x_coord AS INTEGER) FROM entity_positions WHERE entity_uid='P1'"))
             assertNotNull(TurnTransactionReceiptStore(db).committedTransaction("TX-1"))
 
@@ -348,6 +356,48 @@ class Phase48To54RepairPlanTest{
             assertTrue(failed.isFailure);assertEquals(beforeEffects,scalar(db,"SELECT COUNT(*) FROM active_combat_effects"));assertEquals(beforeX,scalar(db,"SELECT CAST(x_coord AS INTEGER) FROM entity_positions WHERE entity_uid='P1'"))
             assertNull(TurnTransactionReceiptStore(db).committedTransaction("TX-2"))
         }
+    }
+
+    @Test fun committedNarrationRecoverySurvivesRestartPreservesClaimsAndNeverRecommits(){
+        val root=File(System.getProperty("java.io.tmpdir"),"rpgos-p54-${System.nanoTime()}").also{it.mkdirs()}
+        try{
+            val deliveryDir=File(root,"delivery");val recoveryDir=File(root,"recovery")
+            val order=7L
+            val request=ChatTurnRequest("REQ",campaign,"TURN","CMD","TX",CommandActorRef("PLAYER","P1"),"atakuję","pl-PL",
+                VisibilityAudienceFactory.player(campaign),PurposeContext(campaign,VisibilityPurposeKinds.GAMEPLAY_NARRATION),order)
+            val receipt=TurnCommitReceipt(campaign,"TURN","CMD","TX","SEM","RESULT",order,1,"MANIFEST")
+            val authority=PersistedCommitReceiptAuthority(CommittedReceiptLookup{receipt})
+            assertNull(authority.authorize(receipt.copy(turnUid="OTHER"),TurnTransactionIdentity(campaign,"TURN","CMD","TX")))
+            FileNarrationRecoveryStore(recoveryDir).record(request,receipt)
+            var routeCalls=0;var assemblerCalls=0;var commitCalls=0
+            fun engine()=AiChatEngineFacade(
+                AiModelRoutePort{_,_,_->routeCalls++;AiRouteResult.Unavailable(listOf("OFFLINE"))},Phase43IntentValidator(),TrustedIntentResolutionPort.NONE,
+                IntentInterpretationFallback.NONE,GraphTurnPlanner(emptyList()),
+                CanonicalIterativeRetrievalPipeline(StructuredSqlRetriever(emptyList()),SemanticContextBudgetManager(),TypedContextCompletionStrategy{_,_,_->emptyList()}),
+                ContextRuntimeProfile("TEST",1_000,10,10,100,10),
+                BoundedProposalRepair(GmProposalEvaluator(StructuredGmProposalValidator(),MechanicsResolutionEngine(MechanicsResolverRegistry.fromCompositionRoot(emptyMap())))),
+                CanonicalMutationAssembler{_,_,_->assemblerCalls++;null},AuthoritativeTurnCommitPort{_,_->commitCalls++;error("COMMIT_MUST_NOT_RUN")},
+                PersistedCommitReceiptAuthority(CommittedReceiptLookup{if(it=="TX")receipt else null}),
+                CommittedNarrationContextBuilder(CommittedNarrationReadPort{identity,_,_,_->PostCommitPlayerVisibleReadback(
+                    identity.campaignUid,identity.turnUid,identity.commandUid,identity.transactionUid,order,"P38:AS-OF",emptyMap(),
+                    listOf(CommittedNarrativeFact("F1",CommittedNarrativeFactKind.MECHANICAL_RESULT,"N1","WOUND","4",order)),
+                    listOf("Przeciwnik został ranny."),emptySet(),emptySet(),"PLAYER_DECISION_POINT")}),
+                deliveryStore=FileNarrativeDeliveryStore(deliveryDir),recoveryStore=FileNarrationRecoveryStore(recoveryDir)
+            )
+            val firstEngine=engine();assertEquals(request,firstEngine.pendingNarrationRecovery(campaign)?.request)
+            val recovered=firstEngine.recoverNarration(request) as NarrativeRecoveryResult.Recovered
+            assertTrue(recovered.rebuilt);assertEquals(0,assemblerCalls);assertEquals(0,commitCalls);assertEquals(1,routeCalls)
+            val reopenedDelivery=FileNarrativeDeliveryStore(deliveryDir).find(recovered.delivery.identity)
+            assertEquals(recovered.delivery,reopenedDelivery);assertEquals(recovered.delivery.narrative.claims,reopenedDelivery?.narrative?.claims)
+            val volitionalNarrative=recovered.delivery.narrative.copy(assertsPlayerVolition=true)
+            assertNotEquals(narrativeFingerprint(recovered.delivery.narrative),narrativeFingerprint(volitionalNarrative))
+            val volitionalIdentity=NarrativeDeliveryIdentity("TX-VOLITION",order,"pl-PL")
+            val volitionalReceipt=NarrativeDeliveryReceipt("DELIVERY-VOLITION",volitionalIdentity,recovered.delivery.contextFingerprint,
+                volitionalNarrative,"TEST","MODEL",narrativeFingerprint(volitionalNarrative))
+            FileNarrativeDeliveryStore(deliveryDir).record(volitionalReceipt)
+            assertTrue(requireNotNull(FileNarrativeDeliveryStore(deliveryDir).find(volitionalIdentity)).narrative.assertsPlayerVolition)
+            assertNull(engine().pendingNarrationRecovery(campaign));assertEquals(0,assemblerCalls);assertEquals(0,commitCalls)
+        }finally{root.deleteRecursively()}
     }
 
     private fun mechanicsProposal(effects:List<VerifiedMechanicsCommandEffect>,commandUid:String):CanonicalCampaignMutationProposal{
@@ -389,7 +439,7 @@ class Phase48NativePackageAndProductionWiringTest{
     private val context:Context get()=RuntimeEnvironment.getApplication()
     @After fun cleanup(){
         context.getSharedPreferences("rpgos_selection",Context.MODE_PRIVATE).edit().clear().commit()
-        File(context.filesDir,"ai-models").deleteRecursively();File(context.filesDir,"rpgos").deleteRecursively();File(context.filesDir,"narrative-delivery").deleteRecursively()
+        File(context.filesDir,"ai-models").deleteRecursively();File(context.filesDir,"rpgos").deleteRecursively();File(context.filesDir,"narrative-delivery").deleteRecursively();File(context.filesDir,"narrative-recovery").deleteRecursively()
     }
 
     @Test fun execuTorchPackageImportIsSafeConcreteAndRemovable(){
@@ -500,22 +550,46 @@ class Phase48NativePackageAndProductionWiringTest{
         val active=createControlledPlayer(repository);val campaign=active.campaignId
         val location=repository.worldLocations().first()
         val npc=repository.infrastructureOpenWorldDb().use{CanonCharacterProjectionReader(it).list("").first()}
+        val group=LocalGameStore(context).openGameplaySaveDb().use{db->db.rawQuery(
+            "SELECT display_name,entity_kind_uid,entity_uid FROM aggregate_combat_populations WHERE campaign_id=? ORDER BY display_name LIMIT 1",arrayOf(campaign)
+        ).use{cursor->assertTrue(cursor.moveToFirst());cursor.getString(0) to DomainRef(cursor.getString(1),cursor.getString(2))}}
         LocalGameStore(context).openGameplaySaveDb().use{db->withAdministrativeMutationAuthority(db,campaign){
+            db.execSQL("UPDATE player_stats SET base_value=20000 WHERE campaign_id=? AND character_uid=?",arrayOf<Any?>(campaign,active.playerUid))
             db.updateOrInsertCompat(
                 "UPDATE entity_positions SET location_uid=?,x_coord=?,y_coord=?,last_updated_day=0,updated_chapter=0 WHERE entity_uid=?",
                 arrayOf<Any?>(location.uid,2_500.0,0.0,npc.uid),
                 "INSERT INTO entity_positions(entity_uid,location_uid,x_coord,y_coord,last_updated_day,updated_chapter) VALUES(?,?,?,?,0,0)",
                 arrayOf<Any?>(npc.uid,location.uid,2_500.0,0.0)
             )
+            db.updateOrInsertCompat(
+                "UPDATE entity_positions SET location_uid=?,x_coord=?,y_coord=?,last_updated_day=0,updated_chapter=0 WHERE entity_uid=?",
+                arrayOf<Any?>(location.uid,2_000.0,0.0,group.second.uid),
+                "INSERT INTO entity_positions(entity_uid,location_uid,x_coord,y_coord,last_updated_day,updated_chapter) VALUES(?,?,?,?,0,0)",
+                arrayOf<Any?>(group.second.uid,location.uid,2_000.0,0.0)
+            )
         }}
         val selection=AiModelSelection("CONTROLLED-MULTI-COMBAT","MODEL-1")
         val provider=DeterministicAiProvider(
             AiCapabilityContract("CONTROLLED-MULTI-COMBAT-CONTRACT",selection.providerUid,selection.modelUid,AiWorkload.entries.toSet(),maximumContextUnits=32_000),
             intentFunction={request->
-                if(request.rawInput.contains("atak",true)){
-                    val ref=IntentReference("NPC",IntentReferenceKind.DESCRIPTIVE,npc.name,"TARGET",descriptorHints=mapOf("surface" to npc.name))
+                if(request.rawInput.contains("kombin",true)){
+                    val refs=listOf(
+                        IntentReference("COMBO-MOVE-TARGET",IntentReferenceKind.DESCRIPTIVE,location.name,"TARGET",descriptorHints=mapOf("surface" to location.name)),
+                        IntentReference("COMBO-ATTACK-TARGET",IntentReferenceKind.DESCRIPTIVE,npc.name,"TARGET",descriptorHints=mapOf("surface" to npc.name))
+                    )
+                    val nodes=listOf(
+                        IntentNode("COMBO-MOVE",IntentForm.SEQUENCE_MEMBER,SemanticAction(semanticFamilyUid="MOVE",rawPhrase="zbliżam się"),participants=listOf(IntentParticipant("TARGET",referenceUid="COMBO-MOVE-TARGET"))),
+                        IntentNode("ATTACK-COMBO",IntentForm.SEQUENCE_MEMBER,SemanticAction("STRIKE","ATTACK","atakuję"),participants=listOf(IntentParticipant("TARGET",referenceUid="COMBO-ATTACK-TARGET")),dependencies=listOf(IntentDependency("COMBO-MOVE",IntentDependencyKind.BEFORE)))
+                    )
+                    IntentDocument(campaignUid=request.campaignUid,actor=request.actor,rawInput=request.rawInput,meaningState=MeaningState.UNDERSTOOD,nodes=nodes,references=refs,
+                        provenance=IntentInterpretationProvenance(IntentInterpretationSource.AI_PROVIDER,selection.providerUid,"1",digest(request.rawInput)))
+                }else if(request.rawInput.contains("atak",true)){
+                    val groupAttack=request.rawInput.contains(group.first,true)
+                    val surface=if(groupAttack)group.first else npc.name
+                    val ref=IntentReference("COMBAT-TARGET",IntentReferenceKind.DESCRIPTIVE,surface,"TARGET",descriptorHints=mapOf("surface" to surface))
                     IntentDocument(campaignUid=request.campaignUid,actor=request.actor,rawInput=request.rawInput,meaningState=MeaningState.UNDERSTOOD,
-                        nodes=listOf(IntentNode("ATTACK",IntentForm.DIRECT_ACTION,SemanticAction("STRIKE","ATTACK",request.rawInput),participants=listOf(IntentParticipant("TARGET",referenceUid="NPC")))),
+                        nodes=listOf(IntentNode(if(groupAttack)"ATTACK-GROUP" else "ATTACK",IntentForm.DIRECT_ACTION,
+                            SemanticAction(if(groupAttack)"AOE" else "STRIKE",if(groupAttack)"AREA_ATTACK" else "ATTACK",request.rawInput),participants=listOf(IntentParticipant("TARGET",referenceUid="COMBAT-TARGET")))),
                         references=listOf(ref),provenance=IntentInterpretationProvenance(IntentInterpretationSource.AI_PROVIDER,selection.providerUid,"1",digest(request.rawInput)))
                 }else{
                     val refs=listOf("R1","R2").map{uid->IntentReference(uid,IntentReferenceKind.DESCRIPTIVE,location.name,"TARGET",descriptorHints=mapOf("surface" to location.name))}
@@ -535,7 +609,7 @@ class Phase48NativePackageAndProductionWiringTest{
                         node.semanticAction.canonicalActionUid?:requireNotNull(node.semanticAction.semanticFamilyUid),targets,node.modality,GmNodeOutcomeState.PROPOSED_SUCCESS)
                 }
                 val effects=proposals.map{proposal->
-                    val combat=proposal.nodeUid=="ATTACK"
+                    val combat=proposal.nodeUid.startsWith("ATTACK")
                     MechanicsEffectRequest("EFFECT:${proposal.nodeUid}",proposal.nodeUid,if(combat)"UNIVERSAL_COMBAT" else "UNIVERSAL_MOVEMENT",if(combat)"WOUND" else "MOVEMENT",proposal.targetProjectedRefs.single())
                 }
                 GmProposalCandidate(1,"PROPOSAL:${request.requestUid}",campaign,request.plan.planUid,proposals,mechanicsEffects=effects,
@@ -546,14 +620,27 @@ class Phase48NativePackageAndProductionWiringTest{
         )
         val configuration=AiSystemConfiguration(gameMaster=AiRoleAssignment(AiRole.GAME_MASTER,AiAssignmentKind.PINNED,selection))
         fun app(repo:UnifiedGameRepository)=ProductionGameEngineCompositionRoot(context,repo,AndroidAiProviderCenterApplication(context),{configuration},{listOf(provider)}).chatApplication()
+        val combo=app(repository).play("Wykonuję kombinację: zbliżam się i atakuję ${npc.name}.")
+        assertTrue("combo=$combo",combo is ChatApplicationOutcome.Narrated)
+        assertEquals(1_000L,(repository.infrastructureMechanicalPersistence(active.playerUid).position as CombatPosition.Exact).xMillimetres)
+        assertTrue(repository.infrastructureMechanicalActor(DomainRef("NPC",npc.uid))?.conditions?.any{it.conditionUid=="WOUND"&&it.intensity>0}==true)
         val multi=app(repository).play("Idę dwa razy w stronę ${location.name}.") as ChatApplicationOutcome.Narrated
-        assertEquals(2_000L,(repository.infrastructureMechanicalPersistence(active.playerUid).position as CombatPosition.Exact).xMillimetres)
+        assertEquals(3_000L,(repository.infrastructureMechanicalPersistence(active.playerUid).position as CombatPosition.Exact).xMillimetres)
         val combat=app(repository).play("Atakuję ${npc.name}.") as ChatApplicationOutcome.Narrated
         assertTrue(combat.result.receipt.commitOrder!!>multi.result.receipt.commitOrder!!)
-        assertTrue(repository.infrastructureMechanicalPersistence(npc.uid).activeEffects.any{it.first=="WOUND"&&it.second>0})
+        assertTrue(repository.infrastructureMechanicalActor(DomainRef("NPC",npc.uid))?.conditions?.any{it.conditionUid=="WOUND"&&it.intensity>0}==true)
+        val populationBefore=requireNotNull(repository.infrastructureAggregatePopulation(group.second))
+        val groupOutcome=app(repository).play("Atakuję ${group.first} atakiem obszarowym.")
+        assertTrue("groupOutcome=$groupOutcome",groupOutcome is ChatApplicationOutcome.Narrated)
+        val groupCombat=groupOutcome as ChatApplicationOutcome.Narrated
+        assertTrue(groupCombat.result.receipt.commitOrder!!>combat.result.receipt.commitOrder!!)
+        val populationAfter=requireNotNull(repository.infrastructureAggregatePopulation(group.second))
+        assertTrue(populationAfter.activeCount<populationBefore.activeCount)
+        assertTrue(populationAfter.activeCount+populationAfter.woundedCount+populationAfter.eliminatedCount<=populationAfter.totalCount)
         val reopened=UnifiedGameRepository(context)
         assertEquals(active.playerUid,reopened.activePlayerRef()?.playerUid)
-        assertTrue(reopened.infrastructureMechanicalPersistence(npc.uid).activeEffects.any{it.first=="WOUND"&&it.second>0})
+        assertTrue(reopened.infrastructureMechanicalActor(DomainRef("NPC",npc.uid))?.conditions?.any{it.conditionUid=="WOUND"&&it.intensity>0}==true)
+        assertEquals(populationAfter,reopened.infrastructureAggregatePopulation(group.second))
     }
 
     private fun createControlledPlayer(repository:UnifiedGameRepository):ActivePlayerRef{

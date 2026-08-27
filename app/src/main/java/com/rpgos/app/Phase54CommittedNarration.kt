@@ -71,7 +71,7 @@ class CommittedNarrationContextBuilder(private val readPort:CommittedNarrationRe
         val fingerprint=sha256(listOf(
             read.campaignUid,read.turnUid,read.commandUid,read.transactionUid,read.committedOrder,read.phase38ProjectionUid,
             read.playerSnapshot.toSortedMap(),read.legalFacts.sortedBy{it.factUid},read.presentationConsequences,
-            read.campaignDivergenceUids.sorted(),read.stopPointUid
+            read.forbiddenDisclosureTokens.sorted(),read.campaignDivergenceUids.sorted(),read.stopPointUid
         ).joinToString("|"))
         return CommittedNarrationContext(
             read.campaignUid,read.turnUid,read.commandUid,read.transactionUid,read.committedOrder,read.phase38ProjectionUid,
@@ -184,24 +184,90 @@ class FileNarrativeDeliveryStore(private val directory:File):NarrativeDeliverySt
     init{directory.mkdirs()}
     override fun find(identity:NarrativeDeliveryIdentity):NarrativeDeliveryReceipt?{
         val file=file(identity);if(!file.isFile)return null
-        val parts=file.readLines(Charsets.UTF_8);if(parts.size<9)return null
-        val narrative=RenderedNarrative(unescape(parts[8]),unescape(parts[7]),identity.committedOrder)
-        return NarrativeDeliveryReceipt(unescape(parts[0]),identity,unescape(parts[1]),narrative,unescape(parts[2]),unescape(parts[3]),unescape(parts[4]))
+        return runCatching{
+            val parts=file.readLines(Charsets.UTF_8)
+            if(parts.firstOrNull()!="RPGOS-NARRATIVE-DELIVERY-V2"||parts.size<12)return null
+            val claimCount=unescape(parts[11]).toIntOrNull()?:return null
+            if(claimCount<0||parts.size!=12+claimCount*5)return null
+            val claims=(0 until claimCount).map{index->
+                val at=12+index*5
+                NarrativeSemanticClaim(unescape(parts[at]),enumValueOf(unescape(parts[at+1])),unescapeNullable(parts[at+2]),unescapeNullable(parts[at+3]),unescapeNullable(parts[at+4]))
+            }
+            val narrative=RenderedNarrative(unescape(parts[9]),unescape(parts[8]),identity.committedOrder,claims,unescape(parts[10]).toBooleanStrict())
+            NarrativeDeliveryReceipt(unescape(parts[1]),identity,unescape(parts[2]),narrative,unescape(parts[3]),unescape(parts[4]),unescape(parts[5]))
+                .takeIf{narrativeFingerprint(it.narrative)==it.narrativeFingerprint}
+        }.getOrNull()
     }
     @Synchronized override fun record(receipt:NarrativeDeliveryReceipt):NarrativeDeliveryReceipt{
-        find(receipt.identity)?.let{existing->require(existing.narrativeFingerprint==receipt.narrativeFingerprint){"RPGOS-P54:DELIVERY_IDEMPOTENCY_CONFLICT"};return existing}
+        find(receipt.identity)?.let{existing->require(existing==receipt){"RPGOS-P54:DELIVERY_IDEMPOTENCY_CONFLICT"};return existing}
         val target=file(receipt.identity);val staging=File(directory,".${target.name}.${System.nanoTime()}.partial")
-        val values=listOf(receipt.deliveryUid,receipt.contextFingerprint,receipt.providerUid,receipt.modelUid,receipt.narrativeFingerprint,
-            receipt.identity.localeUid,receipt.identity.committedOrder.toString(),receipt.narrative.stopReasonUid,receipt.narrative.text)
-        staging.writeText(values.joinToString("\n"){escape(it)},Charsets.UTF_8)
+        val values=buildList{
+            add("RPGOS-NARRATIVE-DELIVERY-V2")
+            listOf(receipt.deliveryUid,receipt.contextFingerprint,receipt.providerUid,receipt.modelUid,receipt.narrativeFingerprint,
+                receipt.identity.localeUid,receipt.identity.committedOrder.toString(),receipt.narrative.stopReasonUid,receipt.narrative.text,
+                receipt.narrative.assertsPlayerVolition.toString(),receipt.narrative.claims.size.toString()).forEach{add(escape(it))}
+            receipt.narrative.claims.forEach{claim->
+                add(escape(claim.claimUid));add(escape(claim.kind.name));add(escapeNullable(claim.supportFactUid));add(escapeNullable(claim.predicateUid));add(escapeNullable(claim.valueCanonical))
+            }
+        }
+        staging.writeText(values.joinToString("\n"),Charsets.UTF_8)
         if(!staging.renameTo(target)){staging.copyTo(target,true);staging.delete()}
         return receipt
     }
     private fun file(identity:NarrativeDeliveryIdentity)=File(directory,sha256("${identity.transactionUid}|${identity.committedOrder}|${identity.localeUid}")+".delivery")
     private fun escape(value:String)=java.util.Base64.getEncoder().encodeToString(value.toByteArray(Charsets.UTF_8))
     private fun unescape(value:String)=String(java.util.Base64.getDecoder().decode(value),Charsets.UTF_8)
+    private fun escapeNullable(value:String?)=value?.let(::escape)?:"-"
+    private fun unescapeNullable(value:String)=if(value=="-")null else unescape(value)
+    private fun sha256(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString(""){"%02x".format(it)}
+}
+
+data class PendingNarrationRecovery(val request:ChatTurnRequest,val committedOrder:Long){init{require(committedOrder>0)}}
+interface NarrationRecoveryStore{
+    fun record(request:ChatTurnRequest,receipt:TurnCommitReceipt)
+    fun pending(campaignUid:String):PendingNarrationRecovery?
+    fun clear(transactionUid:String)
+}
+class InMemoryNarrationRecoveryStore:NarrationRecoveryStore{
+    private val values=linkedMapOf<String,PendingNarrationRecovery>()
+    @Synchronized override fun record(request:ChatTurnRequest,receipt:TurnCommitReceipt){
+        require(receipt.transactionUid==request.transactionUid);val value=PendingNarrationRecovery(request,requireNotNull(receipt.commitOrder))
+        val old=values[request.transactionUid];require(old==null||old==value){"RPGOS-P54:RECOVERY_IDEMPOTENCY_CONFLICT"};values[request.transactionUid]=value
+    }
+    @Synchronized override fun pending(campaignUid:String)=values.values.filter{it.request.campaignUid==campaignUid}.maxByOrNull{it.committedOrder}
+    @Synchronized override fun clear(transactionUid:String){values.remove(transactionUid)}
+}
+
+/** Durable post-commit recovery marker. It contains presentation identity only and no mutation material. */
+class FileNarrationRecoveryStore(private val directory:File):NarrationRecoveryStore{
+    init{directory.mkdirs()}
+    @Synchronized override fun record(request:ChatTurnRequest,receipt:TurnCommitReceipt){
+        require(receipt.campaignUid==request.campaignUid&&receipt.turnUid==request.turnUid&&receipt.commandUid==request.commandUid&&receipt.transactionUid==request.transactionUid)
+        val order=requireNotNull(receipt.commitOrder);val target=file(request.transactionUid)
+        read(target)?.let{existing->require(existing==PendingNarrationRecovery(request,order)){"RPGOS-P54:RECOVERY_IDEMPOTENCY_CONFLICT"};return}
+        val principal=request.audience.principal
+        val raw=listOf("RPGOS-NARRATIVE-RECOVERY-V1",request.requestUid,request.campaignUid,request.turnUid,request.commandUid,request.transactionUid,
+            request.actor.actorKindUid,request.actor.actorUid,request.input,request.localeUid,request.audience.audienceKindUid,principal?.kindUid.orEmpty(),principal?.uid.orEmpty(),
+            request.purpose.purposeUid,request.atOrder?.toString().orEmpty(),order.toString())
+        val staging=File(directory,".${target.name}.${System.nanoTime()}.partial")
+        staging.writeText(raw.mapIndexed{index,value->if(index==0)value else escape(value)}.joinToString("\n"),Charsets.UTF_8)
+        if(!staging.renameTo(target)){staging.copyTo(target,true);staging.delete()}
+    }
+    @Synchronized override fun pending(campaignUid:String)=directory.listFiles{file->file.name.endsWith(".recovery")}.orEmpty().mapNotNull(::read)
+        .filter{it.request.campaignUid==campaignUid}.maxByOrNull{it.committedOrder}
+    @Synchronized override fun clear(transactionUid:String){val target=file(transactionUid);if(target.isFile&&!target.delete())target.writeText("",Charsets.UTF_8)}
+    private fun read(file:File):PendingNarrationRecovery?=runCatching{
+        val p=file.readLines(Charsets.UTF_8);if(p.size!=16||p[0]!="RPGOS-NARRATIVE-RECOVERY-V1")return null
+        val v=p.drop(1).map(::unescape);val campaign=v[1]
+        val principal=if(v[10].isBlank()||v[11].isBlank())null else VisibilityPrincipalRef(v[10],v[11])
+        PendingNarrationRecovery(ChatTurnRequest(v[0],campaign,v[2],v[3],v[4],CommandActorRef(v[5],v[6]),v[7],v[8],
+            AudienceContext(campaign,v[9],principal),PurposeContext(campaign,v[12]),v[13].toLongOrNull()),v[14].toLong())
+    }.getOrNull()
+    private fun file(transactionUid:String)=File(directory,sha256(transactionUid)+".recovery")
+    private fun escape(value:String)=java.util.Base64.getEncoder().encodeToString(value.toByteArray(Charsets.UTF_8))
+    private fun unescape(value:String)=String(java.util.Base64.getDecoder().decode(value),Charsets.UTF_8)
     private fun sha256(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString(""){"%02x".format(it)}
 }
 
 internal fun narrativeFingerprint(narrative:RenderedNarrative)=MessageDigest.getInstance("SHA-256")
-    .digest("${narrative.committedOrder}|${narrative.stopReasonUid}|${narrative.text}|${narrative.claims}".toByteArray()).joinToString(""){"%02x".format(it)}
+    .digest("${narrative.committedOrder}|${narrative.stopReasonUid}|${narrative.text}|${narrative.claims}|${narrative.assertsPlayerVolition}".toByteArray()).joinToString(""){"%02x".format(it)}

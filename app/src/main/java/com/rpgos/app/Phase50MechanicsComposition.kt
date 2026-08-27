@@ -34,15 +34,44 @@ object MechanicalEffectMaterializer{
                 val assetKind=effect.canonicalPayload["asset_kind_uid"]?:return rejected(effect,"ASSET_KIND_UID_REQUIRED")
                 change(effect,PlayerChangeKinds.ASSET,AssetChange(OwnedAssetRef(assetKind,effect.target.uid),"DESTROYED"))
             }
-            "WOUND","PERSISTENT_EFFECT","MOVEMENT","DISPLACEMENT","EQUIPMENT","EQUIPMENT_DAMAGE","STRUCTURE","STRUCTURE_DAMAGE",
-            "MORALE","COHESION","FORMATION","ENVIRONMENT","AGGREGATE_ELIMINATION","AGGREGATE_INJURY","AGGREGATE_CONDITION"->{
-                if(effect.magnitude==0L)return rejected(effect,"ZERO_RUNTIME_EFFECT")
-                val runtimeKind=when(kind){
-                    "DISPLACEMENT"->"MOVEMENT";"EQUIPMENT"->"EQUIPMENT_DAMAGE";"STRUCTURE"->"STRUCTURE_DAMAGE"
-                    "AGGREGATE_CONDITION"->"AGGREGATE_CONDITION:${effect.canonicalPayload["condition_uid"]?:return rejected(effect,"CONDITION_UID_REQUIRED")}"
+            "WOUND"->{
+                if(effect.magnitude<=0L)return rejected(effect,"POSITIVE_WOUND_REQUIRED")
+                change(effect,PlayerChangeKinds.WOUND,WoundChange(effect.target,ExactLongDelta.of(effect.magnitude),effect.canonicalPayload["severity_uid"]))
+            }
+            "MOVEMENT","DISPLACEMENT"->{
+                if(effect.magnitude==0L)return rejected(effect,"ZERO_SPATIAL_EFFECT")
+                change(effect,PlayerChangeKinds.SPATIAL,SpatialChange(effect.target,effect.magnitude))
+            }
+            "EQUIPMENT","EQUIPMENT_DAMAGE"->{
+                if(effect.magnitude<=0L)return rejected(effect,"POSITIVE_EQUIPMENT_DAMAGE_REQUIRED")
+                val component=effect.canonicalPayload["component_uid"]?:"EQUIPPED_ARMOR"
+                change(effect,PlayerChangeKinds.EQUIPMENT_INTEGRITY,EquipmentIntegrityChange(effect.target,component,ExactLongDelta.of(effect.magnitude)))
+            }
+            "STRUCTURE","STRUCTURE_DAMAGE"->{
+                if(effect.magnitude<=0L)return rejected(effect,"POSITIVE_STRUCTURE_DAMAGE_REQUIRED")
+                change(effect,PlayerChangeKinds.STRUCTURE_INTEGRITY,StructureIntegrityChange(effect.target,effect.canonicalPayload["component_uid"],ExactLongDelta.of(effect.magnitude)))
+            }
+            "MORALE","COHESION","FORMATION","ENVIRONMENT","PERSISTENT_EFFECT"->{
+                if(effect.magnitude==0L)return rejected(effect,"ZERO_TRACK_EFFECT")
+                val track=when(kind){
+                    "PERSISTENT_EFFECT"->effect.canonicalPayload["effect_uid"]?:return rejected(effect,"EFFECT_UID_REQUIRED")
+                    "ENVIRONMENT"->effect.canonicalPayload["environment_track_uid"]?:"ENVIRONMENT"
                     else->kind
                 }
-                change(effect,PlayerChangeKinds.RUNTIME,RuntimeChange(effect.target,"RPGOS-MECHANICS:$runtimeKind:${safeUid(effect.effectUid)}",ExactLongDelta.of(effect.magnitude)))
+                change(effect,PlayerChangeKinds.MECHANICAL_TRACK,MechanicalTrackChange(effect.target,track,ExactLongDelta.of(effect.magnitude)))
+            }
+            "AGGREGATE_ELIMINATION"->{
+                if(effect.magnitude<=0L)return rejected(effect,"POSITIVE_AGGREGATE_COUNT_REQUIRED")
+                change(effect,PlayerChangeKinds.AGGREGATE_POPULATION,AggregatePopulationChange(effect.target,eliminatedDelta=effect.magnitude))
+            }
+            "AGGREGATE_INJURY"->{
+                if(effect.magnitude<=0L)return rejected(effect,"POSITIVE_AGGREGATE_COUNT_REQUIRED")
+                change(effect,PlayerChangeKinds.AGGREGATE_POPULATION,AggregatePopulationChange(effect.target,woundedDelta=effect.magnitude))
+            }
+            "AGGREGATE_CONDITION"->{
+                if(effect.magnitude<=0L)return rejected(effect,"POSITIVE_AGGREGATE_COUNT_REQUIRED")
+                val condition=effect.canonicalPayload["condition_uid"]?:return rejected(effect,"CONDITION_UID_REQUIRED")
+                change(effect,PlayerChangeKinds.AGGREGATE_POPULATION,AggregatePopulationChange(effect.target,conditionUid=condition,conditionAffectedDelta=effect.magnitude))
             }
             else->return rejected(effect,"UNSUPPORTED_EFFECT_KIND:$kind")
         }

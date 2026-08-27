@@ -367,6 +367,12 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
         is CampaignTruthChange -> "CAMPAIGN_TRUTH_CHANGE"
         is ConditionChange -> "CONDITION_CHANGE"
         is RuntimeChange -> "RUNTIME_CHANGE"
+        is WoundChange -> "WOUND_CHANGE"
+        is SpatialChange -> "SPATIAL_CHANGE"
+        is EquipmentIntegrityChange -> "EQUIPMENT_INTEGRITY_CHANGE"
+        is StructureIntegrityChange -> "STRUCTURE_INTEGRITY_CHANGE"
+        is MechanicalTrackChange -> "MECHANICAL_TRACK_CHANGE"
+        is AggregatePopulationChange -> "AGGREGATE_POPULATION_CHANGE"
         is DevelopmentProjectChange -> "DEVELOPMENT_PROJECT_CHANGE"
         is KnowledgeAcquisitionChange -> "KNOWLEDGE_ACQUISITION_CHANGE"
         is AccessAuthorityChange -> "ACCESS_AUTHORITY_CHANGE"
@@ -443,6 +449,25 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
             }
             is RuntimeChange -> {
                 domainRef("SUBJECT", payload.subject); field("RUNTIME_COUNTER_UID", payload.runtimeCounterUid); longField("DELTA", payload.delta.units)
+            }
+            is WoundChange -> {
+                domainRef("SUBJECT", payload.subject); longField("SEVERITY_DELTA", payload.severityDelta.units); nullableField("SEVERITY_UID", payload.severityUid)
+            }
+            is SpatialChange -> {
+                domainRef("SUBJECT", payload.subject); longField("DELTA_X_MILLIMETRES", payload.deltaXMillimetres); longField("DELTA_Y_MILLIMETRES", payload.deltaYMillimetres)
+            }
+            is EquipmentIntegrityChange -> {
+                domainRef("SUBJECT", payload.subject); field("COMPONENT_UID", payload.componentUid); longField("DAMAGE_DELTA", payload.damageDelta.units)
+            }
+            is StructureIntegrityChange -> {
+                domainRef("SUBJECT", payload.subject); nullableField("COMPONENT_UID", payload.componentUid); longField("DAMAGE_DELTA", payload.damageDelta.units)
+            }
+            is MechanicalTrackChange -> {
+                domainRef("SUBJECT", payload.subject); field("TRACK_UID", payload.trackUid); longField("DELTA", payload.delta.units)
+            }
+            is AggregatePopulationChange -> {
+                domainRef("SUBJECT", payload.subject); longField("ELIMINATED_DELTA", payload.eliminatedDelta); longField("WOUNDED_DELTA", payload.woundedDelta)
+                nullableField("CONDITION_UID", payload.conditionUid); longField("CONDITION_AFFECTED_DELTA", payload.conditionAffectedDelta)
             }
             is DevelopmentProjectChange -> {
                 field("PROJECT_UID", payload.projectUid); field("WORK_RESULT_KIND_UID", payload.workResultKindUid)

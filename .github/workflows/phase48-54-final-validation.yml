@@ -3,7 +3,7 @@ name: Phase48-54 Final Validation
 on:
   workflow_dispatch:
   push:
-    branches: [ "codex/phase-48-54-final" ]
+    branches: [ "codex/phase-48-54-final", "codex/phase-48-54-repair" ]
 
 permissions:
   contents: read
@@ -31,6 +31,9 @@ jobs:
           gradle --no-daemon :app:testDebugUnitTest \
             --tests 'com.rpgos.app.Phase43To54VerticalSliceTest' \
             --tests 'com.rpgos.app.Phase48To54FinalPlanTest' \
+            --tests 'com.rpgos.app.Phase48To54RepairPlanTest' \
+            --tests 'com.rpgos.app.Phase48NativePackageAndProductionWiringTest' \
+            --tests 'com.rpgos.app.AiProviderConformanceSuiteTest' \
             --stacktrace
 
   full-jvm:

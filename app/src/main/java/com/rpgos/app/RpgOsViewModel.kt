@@ -45,7 +45,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     val developerDiagnostic: StateFlow<String> = _developerDiagnostic
 
     private val _messages = MutableStateFlow(
-        listOf(ChatMessage("system", "RPG OS ALPHA 1.2.0-alpha6-ai146 • Role-based AI Provider Center • committed-narrative safety."))
+        listOf(ChatMessage("system", "RPG OS ALPHA 1.3.0-alpha7-core54 • pełny Core Phase 1–54 • trwała mechanika i bezpieczna narracja."))
     )
     val messages: StateFlow<List<ChatMessage>> = _messages
 
@@ -229,6 +229,11 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     init {
         providerCenterApplication.onOpenRouterCallback{callback->completeOpenRouter(callback)}
         store.bootstrap()
+        pendingNarrationRecovery=runCatching{chatApplication.pendingRecovery()}.onFailure{DiagnosticLogger.log(app,"NARRATIVE_RECOVERY_DISCOVERY_FAILED",it)}.getOrNull()
+        pendingNarrationRecovery?.let{token->_chatTurnUi.value=ChatTurnUiState(
+            ChatTurnUiStage.COMMITTED_NARRATION_PENDING,token.request.requestUid,
+            "Ostatnia tura jest zapisana. Narrację można bezpiecznie odzyskać.",canRetryNarration=true
+        )}
         if(store.activePlayerRef()==null)_messages.value+=ChatMessage("gm","Zanim rozpoczniemy przygodę, wspólnie stworzymy Twoją postać. Opowiedz mi, kim chcesz grać.")
         refresh()
         buildStartupContext()

@@ -386,14 +386,14 @@ Indeks techniczny wspierający `docs/Architektura projektu.md` i `docs/Roadmap.m
 - `app/src/main/java/com/rpgos/app/Phase49To53GmPipeline.kt` — structured GM proposal, mechanics proofs, candidate consistency seam, factual frontier i bounded no-reroll repair
 - `app/src/main/java/com/rpgos/app/Phase50UniversalMechanics.kt` — universal mechanical actors, world generation, immutable combat, perception-gated reactions, typed effects i replay evidence
 - `app/src/main/java/com/rpgos/app/Phase50UniversalCombatEngine.kt` — jeden universal Combat Engine: spatial/timing/detection/reaction/clash/contest/objectives, Core statuses, generic AoE, O(1) individual/group/unit aggregates i deterministic evidence
-- `app/src/main/java/com/rpgos/app/Phase50MechanicalStateStore.kt` — persistent non-player mechanical state oraz materializacja typed/aggregate effects
 - `app/src/main/java/com/rpgos/app/Phase50MechanicsComposition.kt` — routing Phase50 effects do istniejących canonical domain ownerów
 - `app/src/main/java/com/rpgos/app/ProductionGameEngineCompositionRoot.kt` — jeden production composition root, combat snapshot/ability ports, staged multi-action assembler i Android chat engine wiring
+- `app/src/main/java/com/rpgos/app/Phase50MechanicalStateStore.kt` — canonical persistent mechanical state PC/NPC/world actor/group/unit, aggregate population/conditions, one-time materialization i typed TurnTransaction appliers
 - `app/src/main/java/com/rpgos/app/PlayerCharacterBootstrap.kt` — uniwersalny fingerprinted character draft/confirmation contract i atomowy bootstrap postaci gracza
 - `app/src/main/java/com/rpgos/app/CharacterCreationDefinitionBootstrap.kt` — aktywny typed World Pack definition import, wąski legacy bridge i neutralny namespaced fallback
 - `app/src/main/java/com/rpgos/app/SqliteCompatibility.kt` — bezpieczny update-then-insert dla najstarszego wspieranego SQLite
 - `app/src/main/java/com/rpgos/app/Phase51CandidateStateConsistency.kt` — pure candidate-state projection/validation dla kluczowych domen
-- `app/src/main/java/com/rpgos/app/Phase54CommittedNarration.kt` — exact committed readback, narrative semantic firewall/repair/fallback i idempotent delivery/recovery store
+- `app/src/main/java/com/rpgos/app/Phase54CommittedNarration.kt` — exact committed readback, narrative semantic firewall/repair/fallback, full-fidelity idempotent delivery oraz durable process-restart recovery store
 - `app/src/main/java/com/rpgos/app/Phase54AiChatEngineFacade.kt` — Chat→Engine facade, canonical assembler/commit ports, post-commit readback i recovery
 - `app/src/main/java/com/rpgos/app/Phase48To54ChatApplication.kt` — application-only UI boundary; canonical facade adapter oraz quarantined narration-only legacy compatibility
 - `app/src/main/java/com/rpgos/app/Phase65DirectorEngine.kt` — wymagany Phase65 Director candidate/job/cadence/dedup/stale-validation slice bez mutation authority
