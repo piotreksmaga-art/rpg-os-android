@@ -32,6 +32,35 @@ data class AiProviderCenterUiState(
     val lastDirectorCommittedOrder:Long?=null
 )
 
+fun AiProviderCenterUiState.reconcileLocalAvailability(
+    artifactInstalled:Boolean=localArtifactInstalled,
+    runtimeAvailable:Boolean=localRuntimeAvailable,
+    admission:LocalAdmissionResult?=localAdmission
+):AiProviderCenterUiState{
+    val availability=when{
+        !artifactInstalled->AiAvailabilityState.NOT_CONFIGURED
+        !runtimeAvailable->AiAvailabilityState.UNAVAILABLE
+        admission is LocalAdmissionResult.Admitted->AiAvailabilityState.READY
+        admission is LocalAdmissionResult.Rejected->AiAvailabilityState.UNAVAILABLE
+        else->AiAvailabilityState.DEGRADED
+    }
+    val reason=when{
+        !artifactInstalled->"MODEL_ARTIFACT_REQUIRED"
+        !runtimeAvailable->"LOCAL_RUNTIME_UNAVAILABLE"
+        admission is LocalAdmissionResult.Admitted->"LOCAL_MODEL_READY"
+        admission is LocalAdmissionResult.Rejected->"LOCAL_ADMISSION:${admission.reasonUids.joinToString(",")}"
+        else->"MODEL_INSTALLED_RUNTIME_CHECK_PENDING"
+    }
+    return copy(
+        localArtifactInstalled=artifactInstalled,
+        localRuntimeAvailable=runtimeAvailable,
+        localAdmission=admission,
+        modelOptions=modelOptions.map{option->
+            if(option.providerKind==AiProviderKind.LOCAL)option.copy(availability=availability,reasonUid=reason) else option
+        }
+    )
+}
+
 object AiProviderCenterStateFactory{
     fun initial(settings:AiSystemConfiguration,artifactInstalled:Boolean,openRouter:CloudConnectionStatus,profile:LocalModelProfile=BielikLocalModelProfiles.DEFAULT_ANDROID):AiProviderCenterUiState{
         val local=settings.localModelSettings?:LocalRecommendedSettings.forProfile(profile)
@@ -60,6 +89,20 @@ data class OpenRouterConnectionResult(
     val models:List<CloudModelProfile>
 )
 
+fun openRouterFailureMessagePl(reasonUid:String?)=when(reasonUid){
+    "OPENROUTER_AUTH_HTTP_400","OPENROUTER_AUTH_HTTP_403"->"OpenRouter odrzucił kod logowania. Rozpocznij połączenie ponownie albo użyj własnego klucza API."
+    "OPENROUTER_AUTH_HTTP_405"->"OpenRouter odrzucił metodę wymiany kodu. Zaktualizuj aplikację do najnowszej wersji."
+    "OPENROUTER_AUTH_HTTP_408","OPENROUTER_AUTH_HTTP_429"->"OpenRouter jest chwilowo zajęty. Odczekaj moment i spróbuj ponownie."
+    "OPENROUTER_AUTH_NETWORK_IO"->"Telefon nie zdołał połączyć się z endpointem OpenRouter. Sprawdź Internet, VPN i prywatny DNS."
+    "OPENROUTER_AUTH_RESPONSE_INVALID","OPENROUTER_AUTH_CLIENT_FAILURE","OPENROUTER_AUTH_EXCHANGE_UNEXPECTED"->"OpenRouter zwrócił odpowiedź, której aplikacja nie mogła bezpiecznie przyjąć."
+    "OPENROUTER_CREDENTIAL_STORAGE_FAILED","OPENROUTER_CREDENTIAL_STORAGE_UNAVAILABLE"->"Android nie zdołał bezpiecznie zapisać klucza. Ponowienie naprawi nieaktualny wpis Keystore; jeśli błąd wróci, uruchom ponownie telefon."
+    "OPENROUTER_MODELS_HTTP_401","OPENROUTER_MODELS_HTTP_403"->"Klucz API został odrzucony przez OpenRouter."
+    "MANUAL_API_KEY_FORMAT_INVALID","MANUAL_API_KEY_REJECTED"->"Klucz API ma nieprawidłowy format."
+    "CALLBACK_IDENTITY_MISMATCH","NO_PENDING_PKCE"->"Sesja logowania wygasła. Rozpocznij połączenie ponownie."
+    null->"Połączenie nie powiodło się. Spróbuj ponownie."
+    else->if(reasonUid.startsWith("OPENROUTER_AUTH_HTTP_5"))"OpenRouter ma chwilowy błąd serwera. Spróbuj ponownie później." else "Połączenie nie powiodło się."
+}
+
 /** Application owner for provider setup. ViewModels receive typed results, never raw SDK/HTTP/runtime handles. */
 class AndroidAiProviderCenterApplication(context:Context){
     private val app=context.applicationContext
@@ -80,10 +123,8 @@ class AndroidAiProviderCenterApplication(context:Context){
         val profile=profileFor(configuration.localModelSettings?.modelUid)
         val settings=configuration.localModelSettings?:LocalRecommendedSettings.forProfile(profile)
         val installed=artifacts.find(profile.modelUid,settings.variantUid)!=null
-        return AiProviderCenterStateFactory.initial(configuration,installed,auth.status(),profile).copy(
-            localRuntimeAvailable=true,
-            localAdmission=localAdmission(settings)
-        )
+        return AiProviderCenterStateFactory.initial(configuration,installed,auth.status(),profile)
+            .reconcileLocalAvailability(installed,true,localAdmission(settings))
     }
 
     fun onOpenRouterCallback(callback:(OpenRouterConnectionResult)->Unit){

@@ -48,6 +48,7 @@ class OpenRouterConnectionRecoveryTest {
         val body = URL("${endpoint.callbackUrl}?code=REJECTED-CODE").readText()
 
         assertTrue(body.contains("nie zakończył połączenia"))
+        assertTrue(body.contains("OPENROUTER_AUTH_HTTP_403"))
         assertTrue(!body.contains("RPG OS połączono z OpenRouter"))
     }
 
@@ -67,6 +68,64 @@ class OpenRouterConnectionRecoveryTest {
         assertEquals(CloudAuthState.ERROR, result.state)
         assertEquals("OPENROUTER_AUTH_HTTP_403", result.reasonUid)
         assertEquals(CloudAuthState.DISCONNECTED, auth.status().state)
+    }
+
+    @Test
+    fun successfulExchange_failsClosedWhenCredentialCannotBePersistedAndClearsReturnedKey() {
+        val exchangedKey = "sk-or-v1-key-returned-by-openrouter".toCharArray()
+        val auth = OpenRouterPkceAuthPort(
+            object : SecretStore {
+                override fun put(secretUid: String, value: CharArray) = error("keystore unavailable")
+                override fun get(secretUid: String): CharArray? = null
+                override fun remove(secretUid: String) = Unit
+            },
+            callbackFactory(),
+            OpenRouterCodeExchange { _, _ -> exchangedKey to "user-1" },
+        )
+
+        val authorization = auth.beginConnect()
+        val result = auth.complete(CloudAuthCallback(authorization.callbackUrl, "AUTH-CODE"))
+
+        assertEquals(CloudAuthState.ERROR, result.state)
+        assertEquals("OPENROUTER_CREDENTIAL_STORAGE_FAILED", result.reasonUid)
+        assertTrue(exchangedKey.all { it == '\u0000' })
+    }
+
+    @Test
+    fun successfulExchange_failsClosedWhenCredentialReadbackDoesNotMatch() {
+        val auth = OpenRouterPkceAuthPort(
+            object : SecretStore {
+                override fun put(secretUid: String, value: CharArray) = Unit
+                override fun get(secretUid: String): CharArray = "sk-or-v1-different-key".toCharArray()
+                override fun remove(secretUid: String) = Unit
+            },
+            callbackFactory(),
+            OpenRouterCodeExchange { _, _ -> "sk-or-v1-key-returned-by-openrouter".toCharArray() to null },
+        )
+
+        val authorization = auth.beginConnect()
+        val result = auth.complete(CloudAuthCallback(authorization.callbackUrl, "AUTH-CODE"))
+
+        assertEquals(CloudAuthState.ERROR, result.state)
+        assertEquals("OPENROUTER_CREDENTIAL_STORAGE_FAILED", result.reasonUid)
+    }
+
+    @Test
+    fun storageReadFailure_isReportedWithoutCrashingSettings() {
+        val auth = OpenRouterPkceAuthPort(
+            object : SecretStore {
+                override fun put(secretUid: String, value: CharArray) = Unit
+                override fun get(secretUid: String): CharArray? = error("invalid restored keystore entry")
+                override fun remove(secretUid: String) = Unit
+            },
+            callbackFactory(),
+            OpenRouterCodeExchange { _, _ -> error("unused") },
+        )
+
+        val result = auth.status()
+
+        assertEquals(CloudAuthState.ERROR, result.state)
+        assertEquals("OPENROUTER_CREDENTIAL_STORAGE_UNAVAILABLE", result.reasonUid)
     }
 
     @Test
@@ -104,6 +163,26 @@ class OpenRouterConnectionRecoveryTest {
         assertEquals("MANUAL_API_KEY_REJECTED", result.reasonUid)
         assertTrue(supplied.all { it == '\u0000' })
         assertNull(auth.accessCredential())
+    }
+
+    @Test
+    fun manualCredential_reportsStorageFailureInsteadOfInvalidFormat() {
+        val auth = OpenRouterPkceAuthPort(
+            object : SecretStore {
+                override fun put(secretUid: String, value: CharArray) = error("keystore unavailable")
+                override fun get(secretUid: String): CharArray? = null
+                override fun remove(secretUid: String) = Unit
+            },
+            callbackFactory(),
+            OpenRouterCodeExchange { _, _ -> error("unused") },
+        )
+        val supplied = "sk-or-v1-valid-mobile-test-key".toCharArray()
+
+        val result = auth.connectWithCredential(supplied)
+
+        assertEquals(CloudAuthState.ERROR, result.state)
+        assertEquals("OPENROUTER_CREDENTIAL_STORAGE_FAILED", result.reasonUid)
+        assertTrue(supplied.all { it == '\u0000' })
     }
 
     private fun callbackFactory() = OpenRouterCallbackEndpointFactory { nonce ->

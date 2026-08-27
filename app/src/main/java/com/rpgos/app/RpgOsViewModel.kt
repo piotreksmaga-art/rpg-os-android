@@ -356,7 +356,8 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun updateLocalAiSettings(settings:LocalModelSettings){
         val admission=providerCenterApplication.localAdmission(settings)
-        _aiProviderCenter.value=_aiProviderCenter.value.copy(localSettings=settings,localAdmission=admission)
+        _aiProviderCenter.value=_aiProviderCenter.value.copy(localSettings=settings)
+            .reconcileLocalAvailability(admission=admission)
         if(admission is LocalAdmissionResult.Admitted)persistAi(_settings.value.ai.copy(localModelSettings=settings))
     }
 
@@ -365,7 +366,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     fun importBielikArtifact(uri:android.net.Uri){
         viewModelScope.launch{
             runCatching{providerCenterApplication.importBielikArtifact(uri,_aiProviderCenter.value.localSettings)}.onSuccess{
-                _aiProviderCenter.value=_aiProviderCenter.value.copy(localArtifactInstalled=true)
+                _aiProviderCenter.value=_aiProviderCenter.value.reconcileLocalAvailability(artifactInstalled=true)
                 updateLocalAiSettings(_aiProviderCenter.value.localSettings)
                 _messages.value=_messages.value+ChatMessage("system","Model lokalny został bezpiecznie zaimportowany.")
             }.onFailure{
@@ -410,17 +411,8 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         )
         if(result.state==CloudAuthState.ERROR)DiagnosticLogger.log(getApplication(),"OPENROUTER_CONNECT_FAILED",message=result.reasonUid)
         _messages.value=_messages.value+ChatMessage(
-            "system",if(result.state==CloudAuthState.CONNECTED)"OpenRouter połączony." else "Połączenie OpenRouter nie powiodło się: ${openRouterReasonText(result.reasonUid)}"
+            "system",if(result.state==CloudAuthState.CONNECTED)"OpenRouter połączony." else "Połączenie OpenRouter nie powiodło się: ${openRouterFailureMessagePl(result.reasonUid)}${result.reasonUid?.let{" (kod: $it)"}.orEmpty()}"
         )
-    }
-
-    private fun openRouterReasonText(reasonUid:String?)=when(reasonUid){
-        "OPENROUTER_AUTH_HTTP_403"->"kod autoryzacji został odrzucony. Spróbuj ponownie lub użyj klucza API."
-        "OPENROUTER_AUTH_HTTP_400"->"OpenRouter odrzucił żądanie. Spróbuj ponownie."
-        "MANUAL_API_KEY_FORMAT_INVALID","MANUAL_API_KEY_REJECTED"->"klucz API ma nieprawidłowy format."
-        "OPENROUTER_MODELS_HTTP_401","OPENROUTER_MODELS_HTTP_403"->"klucz API został odrzucony."
-        "CALLBACK_IDENTITY_MISMATCH","NO_PENDING_PKCE"->"sesja logowania wygasła. Rozpocznij połączenie ponownie."
-        else->"sprawdź Internet i spróbuj ponownie."
     }
 
     private fun persistAi(ai:AiSystemConfiguration){
