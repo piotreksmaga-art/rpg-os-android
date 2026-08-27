@@ -17,6 +17,7 @@ import java.io.File
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.URI
+import java.io.IOException
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.util.Base64
@@ -31,24 +32,45 @@ import javax.crypto.spec.GCMParameterSpec
 /** API secrets are encrypted with an Android Keystore key and never share campaign/save storage. */
 class AndroidKeystoreSecretStore(context:Context):SecretStore{
     private val prefs=context.getSharedPreferences("rpgos_ai_secrets",Context.MODE_PRIVATE)
+    private val lock=Any()
     override fun put(secretUid:String,value:CharArray){
+        synchronized(lock){
+            try{encryptAndPersist(secretUid,value)}catch(firstFailure:Throwable){
+                resetBrokenKeyMaterial(secretUid)
+                try{encryptAndPersist(secretUid,value)}catch(retryFailure:Throwable){
+                    retryFailure.addSuppressed(firstFailure)
+                    throw retryFailure
+                }
+            }
+        }
+    }
+    private fun encryptAndPersist(secretUid:String,value:CharArray){
         val cipher=Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE,key())
         val plain=value.concatToString().toByteArray(Charsets.UTF_8)
         try{
             val encrypted=cipher.doFinal(plain)
-            prefs.edit().putString("$secretUid.iv",b64(cipher.iv)).putString("$secretUid.data",b64(encrypted)).apply()
+            check(prefs.edit().putString("$secretUid.iv",b64(cipher.iv)).putString("$secretUid.data",b64(encrypted)).commit()){
+                "RPGOS-P48:CREDENTIAL_PERSISTENCE_FAILED"
+            }
         }finally{plain.fill(0)}
     }
     override fun get(secretUid:String):CharArray?{
-        val iv=prefs.getString("$secretUid.iv",null)?.let(::decode)?:return null
-        val data=prefs.getString("$secretUid.data",null)?.let(::decode)?:return null
-        val cipher=Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,iv))
-        val plain=cipher.doFinal(data)
-        return try{plain.toString(Charsets.UTF_8).toCharArray()}finally{plain.fill(0)}
+        synchronized(lock){
+            val iv=prefs.getString("$secretUid.iv",null)?.let(::decode)?:return null
+            val data=prefs.getString("$secretUid.data",null)?.let(::decode)?:return null
+            val cipher=Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,iv))
+            val plain=cipher.doFinal(data)
+            return try{plain.toString(Charsets.UTF_8).toCharArray()}finally{plain.fill(0)}
+        }
     }
-    override fun remove(secretUid:String){prefs.edit().remove("$secretUid.iv").remove("$secretUid.data").apply()}
+    override fun remove(secretUid:String){synchronized(lock){prefs.edit().remove("$secretUid.iv").remove("$secretUid.data").commit()}}
+    private fun resetBrokenKeyMaterial(secretUid:String){
+        val store=KeyStore.getInstance("AndroidKeyStore").apply{load(null)}
+        if(store.containsAlias(KEY_ALIAS))store.deleteEntry(KEY_ALIAS)
+        prefs.edit().remove("$secretUid.iv").remove("$secretUid.data").commit()
+    }
     private fun key():SecretKey{
         val store=KeyStore.getInstance("AndroidKeyStore").apply{load(null)}
         (store.getKey(KEY_ALIAS,null) as? SecretKey)?.let{return it}
@@ -93,7 +115,7 @@ class OpenRouterLoopbackCallbackServer:OpenRouterCallbackEndpointFactory{
             val result=if(accepted)runCatching{consumer?.invoke(CloudAuthCallback(callback,code!!))}.getOrNull() else null
             val body=when{
                 result?.state==CloudAuthState.CONNECTED->"RPG OS połączono z OpenRouter. Możesz wrócić do aplikacji."
-                accepted->"Autoryzacja dotarła, ale OpenRouter nie zakończył połączenia. Wróć do RPG OS, aby zobaczyć dokładny powód i spróbować ponownie."
+                accepted->"Autoryzacja dotarła, ale OpenRouter nie zakończył połączenia. Kod: ${safeReason(result?.reasonUid)}. Wróć do RPG OS i spróbuj ponownie."
                 else->"Nie udało się odebrać autoryzacji. Wróć do RPG OS i spróbuj ponownie."
             }
             val payload="<html><head><meta charset=\"utf-8\"></head><body><h2>$body</h2></body></html>".toByteArray(Charsets.UTF_8)
@@ -103,6 +125,7 @@ class OpenRouterLoopbackCallbackServer:OpenRouterCallbackEndpointFactory{
             }
         }}}catch(_:Throwable){/* typed timeout remains visible through CloudAuthPort status */}
     }
+    private fun safeReason(reasonUid:String?)=reasonUid?.takeIf{it.matches(Regex("[A-Z0-9_:-]{1,96}"))}?:"OPENROUTER_CALLBACK_FAILED"
 }
 
 class OpenRouterHttpClient(
@@ -112,11 +135,26 @@ class OpenRouterHttpClient(
     override fun exchange(code:String,verifier:String):Pair<CharArray,String?>{
         val body=JSONObject().put("code",code).put("code_verifier",verifier).put("code_challenge_method","S256")
         val request=Request.Builder().url("https://openrouter.ai/api/v1/auth/keys")
+            .header("Accept","application/json")
+            .header("HTTP-Referer","https://github.com/piotreksmaga-art/rpg-os-android")
+            .header("X-OpenRouter-Title","RPG OS")
             .post(body.toString().toRequestBody(JSON)).build()
-        client.newCall(request).execute().use{response->
-            if(!response.isSuccessful)throw AiTransportException("OPENROUTER_AUTH_HTTP_${response.code}",response.code>=500)
-            val json=JSONObject(response.body.string())
-            return json.getString("key").toCharArray() to json.optString("user_id").takeIf{it.isNotBlank()}
+        try{
+            client.newCall(request).execute().use{response->
+                if(!response.isSuccessful)throw AiTransportException("OPENROUTER_AUTH_HTTP_${response.code}",response.code>=500||response.code==408||response.code==429)
+                val json=try{JSONObject(response.body.string())}catch(failure:Throwable){
+                    throw AiTransportException("OPENROUTER_AUTH_RESPONSE_INVALID",false,failure)
+                }
+                val key=json.optString("key").takeIf{it.startsWith("sk-or-")&&it.length>=20}
+                    ?:throw AiTransportException("OPENROUTER_AUTH_RESPONSE_INVALID")
+                return key.toCharArray() to json.optString("user_id").takeIf{it.isNotBlank()&&it!="null"}
+            }
+        }catch(failure:AiTransportException){
+            throw failure
+        }catch(failure:IOException){
+            throw AiTransportException("OPENROUTER_AUTH_NETWORK_IO",true,failure)
+        }catch(failure:Throwable){
+            throw AiTransportException("OPENROUTER_AUTH_CLIENT_FAILURE",false,failure)
         }
     }
     override fun discoverModels(credential:CharArray):List<CloudModelProfile>{

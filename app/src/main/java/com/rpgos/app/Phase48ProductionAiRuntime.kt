@@ -439,7 +439,11 @@ class OpenRouterPkceAuthPort(
     private val pending=AtomicReference<Pending?>(null)
     private val account=AtomicReference<String?>(null)
     override fun status():CloudConnectionStatus{
-        val credentialPresent=secretStore.get(CREDENTIAL_UID)?.let{credential->credential.fill('\u0000');true}?:false
+        val credentialPresent=try{
+            secretStore.get(CREDENTIAL_UID)?.let{credential->credential.fill('\u0000');true}?:false
+        }catch(_:Throwable){
+            return CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid="OPENROUTER_CREDENTIAL_STORAGE_UNAVAILABLE")
+        }
         return when{
         credentialPresent->CloudConnectionStatus(providerUid,CloudAuthState.CONNECTED,account.get())
         pending.get()!=null->CloudConnectionStatus(providerUid,CloudAuthState.CONNECTING)
@@ -458,29 +462,57 @@ class OpenRouterPkceAuthPort(
     override fun complete(callback:CloudAuthCallback):CloudConnectionStatus{
         val state=pending.getAndSet(null)?:return CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid="NO_PENDING_PKCE")
         if(callback.callbackUrl.substringBefore('?')!=state.callbackUrl.substringBefore('?'))return CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid="CALLBACK_IDENTITY_MISMATCH")
-        return try{
-            val (key,user)=exchange.exchange(callback.authorizationCode,state.verifier)
-            try{
-                require(key.isNotEmpty())
-                secretStore.put(CREDENTIAL_UID,key);account.set(user)
-                CloudConnectionStatus(providerUid,CloudAuthState.CONNECTED,user)
-            }finally{key.fill('\u0000')}
+        val exchanged=try{
+            exchange.exchange(callback.authorizationCode,state.verifier)
         }catch(failure:AiTransportException){
-            CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid=failure.reasonUid)
-        }catch(_:Throwable){CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid="AUTH_CODE_EXCHANGE_FAILED")}
+            return CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid=failure.reasonUid)
+        }catch(_:Throwable){
+            return CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid="OPENROUTER_AUTH_EXCHANGE_UNEXPECTED")
+        }
+        val (key,user)=exchanged
+        return try{
+            if(key.isEmpty())return CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid="OPENROUTER_AUTH_RESPONSE_INVALID")
+            if(!persistCredential(key)){
+                return CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid="OPENROUTER_CREDENTIAL_STORAGE_FAILED")
+            }
+            account.set(user)
+            CloudConnectionStatus(providerUid,CloudAuthState.CONNECTED,user)
+        }finally{key.fill('\u0000')}
     }
     fun connectWithCredential(credential:CharArray):CloudConnectionStatus{
         pending.set(null)
         return try{
-            require(credential.size>=20&&credential.concatToString().startsWith("sk-or-"))
-            secretStore.put(CREDENTIAL_UID,credential);account.set(null)
+            if(credential.size<20||!credential.concatToString().startsWith("sk-or-")){
+                return CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid="MANUAL_API_KEY_REJECTED")
+            }
+            if(!persistCredential(credential)){
+                return CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid="OPENROUTER_CREDENTIAL_STORAGE_FAILED")
+            }
+            account.set(null)
             CloudConnectionStatus(providerUid,CloudAuthState.CONNECTED)
-        }catch(_:Throwable){
-            CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid="MANUAL_API_KEY_REJECTED")
         }finally{credential.fill('\u0000')}
     }
     override fun accessCredential()=secretStore.get(CREDENTIAL_UID)
     override fun disconnect(){secretStore.remove(CREDENTIAL_UID);pending.set(null);account.set(null)}
+    private fun persistCredential(value:CharArray):Boolean{
+        return try{
+            secretStore.put(CREDENTIAL_UID,value)
+            val stored=secretStore.get(CREDENTIAL_UID)
+            try{stored!=null&&constantTimeEquals(value,stored)}finally{stored?.fill('\u0000')}
+        }catch(_:Throwable){
+            false
+        }.also{stored->if(!stored)runCatching{secretStore.remove(CREDENTIAL_UID)}}
+    }
+    private fun constantTimeEquals(first:CharArray,second:CharArray):Boolean{
+        var difference=first.size xor second.size
+        val count=maxOf(first.size,second.size)
+        for(index in 0 until count){
+            val left=if(index<first.size)first[index].code else 0
+            val right=if(index<second.size)second[index].code else 0
+            difference=difference or (left xor right)
+        }
+        return difference==0
+    }
     private fun base64Url(value:ByteArray)=Base64.getUrlEncoder().withoutPadding().encodeToString(value)
     private fun urlEncode(value:String)=java.net.URLEncoder.encode(value,Charsets.UTF_8.name())
     companion object{private const val CREDENTIAL_UID="openrouter.user-controlled-api-key"}

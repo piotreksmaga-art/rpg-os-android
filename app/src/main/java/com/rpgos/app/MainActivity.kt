@@ -2629,16 +2629,10 @@ private fun AiProviderCenterScreen(vm:RpgOsViewModel){
                     CloudAuthState.EXPIRED->"Połączenie wygasło"
                     CloudAuthState.DISCONNECTED->"Niepołączony"
                 },color=if(state.openRouterStatus.state==CloudAuthState.CONNECTED)MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
-                if(state.openRouterStatus.state==CloudAuthState.ERROR)Text(
-                    when(state.openRouterStatus.reasonUid){
-                        "OPENROUTER_AUTH_HTTP_403"->"OpenRouter odrzucił kod logowania. Spróbuj ponownie albo użyj własnego klucza API poniżej."
-                        "OPENROUTER_AUTH_HTTP_400"->"OpenRouter odrzucił żądanie logowania. Rozpocznij je ponownie."
-                        "OPENROUTER_MODELS_HTTP_401","OPENROUTER_MODELS_HTTP_403"->"Klucz API został odrzucony przez OpenRouter."
-                        "MANUAL_API_KEY_FORMAT_INVALID","MANUAL_API_KEY_REJECTED"->"Klucz API ma nieprawidłowy format."
-                        "CALLBACK_IDENTITY_MISMATCH","NO_PENDING_PKCE"->"Sesja logowania wygasła. Rozpocznij ją ponownie."
-                        else->"Sprawdź połączenie z Internetem i spróbuj ponownie."
-                    },color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall
-                )
+                if(state.openRouterStatus.state==CloudAuthState.ERROR){
+                    Text(openRouterFailureMessagePl(state.openRouterStatus.reasonUid),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
+                    state.openRouterStatus.reasonUid?.let{Text("Kod diagnostyczny: $it",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.labelSmall)}
+                }
                 Text("Logowanie używa oficjalnego PKCE i lokalnego callbacku. Klucz jest szyfrowany poza kampanią.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(10.dp))
                 if(state.openRouterStatus.state==CloudAuthState.CONNECTED)OutlinedButton(onClick=vm::disconnectOpenRouter,modifier=Modifier.fillMaxWidth()){Text("Rozłącz")}
