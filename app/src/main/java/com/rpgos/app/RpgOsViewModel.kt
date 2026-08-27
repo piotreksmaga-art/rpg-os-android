@@ -6,10 +6,14 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     private val store = LocalGameStore(app)
+    private val repository = UnifiedGameRepository(app)
     private val appSettings = AppSettings(app)
+    private val providerCenterApplication=AndroidAiProviderCenterApplication(app)
     private fun playerAudience() = VisibilityAudienceFactory.player(store.activeCampaignId())
     private fun playerPurpose(uid:String) = PurposeContext(store.activeCampaignId(),uid)
     private fun diagnosticAudience() = VisibilityAudienceFactory.diagnostic(store.activeCampaignId())
@@ -18,6 +22,22 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     private val _settings = MutableStateFlow(appSettings.load())
     val settings: StateFlow<RpgOsSettings> = _settings
 
+    private val _aiProviderCenter=MutableStateFlow(providerCenterApplication.initialState(_settings.value.ai))
+    val aiProviderCenter:StateFlow<AiProviderCenterUiState> = _aiProviderCenter
+
+    private val _chatTurnUi=MutableStateFlow(ChatTurnUiState())
+    val chatTurnUi:StateFlow<ChatTurnUiState> = _chatTurnUi
+    @Volatile private var activeAiCancellation:MutableAiCancellationSignal?=null
+    private var pendingNarrationRecovery:ChatNarrationRecoveryToken?=null
+    private val productionEngine by lazy{
+        ProductionGameEngineCompositionRoot(app,repository,providerCenterApplication,configuration={_settings.value.ai})
+    }
+    private val chatApplication:ChatApplicationPort by lazy{
+        DynamicCanonicalChatApplication{productionEngine.chatApplication()}
+    }
+    private val characterCreationApplication by lazy{productionEngine.characterCreationApplication()}
+    private var pendingCharacterCreationUid:String?=null
+
     private val _developerStatus = MutableStateFlow("Nie uruchomiono testów.")
     val developerStatus: StateFlow<String> = _developerStatus
 
@@ -25,7 +45,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     val developerDiagnostic: StateFlow<String> = _developerDiagnostic
 
     private val _messages = MutableStateFlow(
-        listOf(ChatMessage("system", "RPG OS ALPHA 1.2.0-alpha4 • UI Refresh • GitHub Updater • ContextBundle Engine v1."))
+        listOf(ChatMessage("system", "RPG OS ALPHA 1.3.0-alpha7-core54 • pełny Core Phase 1–54 • trwała mechanika i bezpieczna narracja."))
     )
     val messages: StateFlow<List<ChatMessage>> = _messages
 
@@ -207,7 +227,14 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     val lastContextSummary: StateFlow<String> = _lastContextSummary
 
     init {
+        providerCenterApplication.onOpenRouterCallback{callback->completeOpenRouter(callback)}
         store.bootstrap()
+        pendingNarrationRecovery=runCatching{chatApplication.pendingRecovery()}.onFailure{DiagnosticLogger.log(app,"NARRATIVE_RECOVERY_DISCOVERY_FAILED",it)}.getOrNull()
+        pendingNarrationRecovery?.let{token->_chatTurnUi.value=ChatTurnUiState(
+            ChatTurnUiStage.COMMITTED_NARRATION_PENDING,token.request.requestUid,
+            "Ostatnia tura jest zapisana. Narrację można bezpiecznie odzyskać.",canRetryNarration=true
+        )}
+        if(store.activePlayerRef()==null)_messages.value+=ChatMessage("gm","Zanim rozpoczniemy przygodę, wspólnie stworzymy Twoją postać. Opowiedz mi, kim chcesz grać.")
         refresh()
         buildStartupContext()
     }
@@ -263,6 +290,75 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         appSettings.save(newSettings)
         _settings.value = newSettings
         _messages.value = _messages.value + ChatMessage("system", "Ustawienia zapisane.")
+    }
+
+    fun assignAiRole(role:AiRole,selection:AiModelSelection?){
+        val assignment=if(selection==null)AiRoleAssignment(role) else AiRoleAssignment(role,AiAssignmentKind.PINNED,selection)
+        val ai=when(role){
+            AiRole.GAME_MASTER->_settings.value.ai.copy(gameMaster=assignment)
+            AiRole.DIRECTOR_SCENARIST->_settings.value.ai.copy(director=assignment)
+        }
+        persistAi(ai)
+    }
+
+    fun updateAiPrivacy(policy:AiPrivacyPolicy){persistAi(_settings.value.ai.copy(privacy=policy))}
+
+    fun updateLocalAiSettings(settings:LocalModelSettings){
+        val admission=providerCenterApplication.localAdmission(settings)
+        _aiProviderCenter.value=_aiProviderCenter.value.copy(localSettings=settings,localAdmission=admission)
+        if(admission is LocalAdmissionResult.Admitted)persistAi(_settings.value.ai.copy(localModelSettings=settings))
+    }
+
+    fun resetLocalAiSettings(){updateLocalAiSettings(LocalRecommendedSettings.forProfile(BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH))}
+
+    fun importBielikArtifact(uri:android.net.Uri){
+        viewModelScope.launch{
+            runCatching{providerCenterApplication.importBielikArtifact(uri,_aiProviderCenter.value.localSettings)}.onSuccess{
+                _aiProviderCenter.value=_aiProviderCenter.value.copy(localArtifactInstalled=true)
+                updateLocalAiSettings(_aiProviderCenter.value.localSettings)
+                _messages.value=_messages.value+ChatMessage("system","Model lokalny został bezpiecznie zaimportowany.")
+            }.onFailure{
+                DiagnosticLogger.log(getApplication(),"LOCAL_MODEL_IMPORT_FAILED",it)
+                _messages.value=_messages.value+ChatMessage("system","Import modelu nie powiódł się: ${it.message}")
+            }
+        }
+    }
+
+    fun beginOpenRouterConnect():String{
+        val authorization=providerCenterApplication.beginOpenRouterConnect()
+        _aiProviderCenter.value=_aiProviderCenter.value.copy(openRouterStatus=providerCenterApplication.openRouterStatus())
+        return authorization.authorizationUrl
+    }
+
+    fun disconnectOpenRouter(){
+        _aiProviderCenter.value=_aiProviderCenter.value.copy(
+            openRouterStatus=providerCenterApplication.disconnectOpenRouter(),modelOptions=_aiProviderCenter.value.modelOptions.filterNot{it.providerKind==AiProviderKind.CLOUD}
+        )
+        val ai=_settings.value.ai
+        persistAi(ai.copy(
+            gameMaster=ai.gameMaster.takeUnless{it.pinned?.providerUid=="OPENROUTER"}?:AiRoleAssignment(AiRole.GAME_MASTER),
+            director=ai.director.takeUnless{it.pinned?.providerUid=="OPENROUTER"}?:AiRoleAssignment(AiRole.DIRECTOR_SCENARIST)
+        ))
+    }
+
+    private fun completeOpenRouter(callback:CloudAuthCallback){
+        viewModelScope.launch{
+            val connection=providerCenterApplication.completeOpenRouter(callback)
+            val result=connection.status
+            val models=connection.models
+            val local=_aiProviderCenter.value.modelOptions.filterNot{it.providerKind==AiProviderKind.CLOUD}
+            _aiProviderCenter.value=_aiProviderCenter.value.copy(
+                openRouterStatus=result,modelOptions=local+models.sortedBy{it.displayName}.map{
+                    AiModelOptionUi(AiModelSelection(it.providerUid,it.modelUid),it.displayName,AiProviderKind.CLOUD,AiAvailabilityState.READY,"OPENROUTER_CONNECTED")
+                }
+            )
+            _messages.value=_messages.value+ChatMessage("system",if(result.state==CloudAuthState.CONNECTED)"OpenRouter połączony." else "Połączenie OpenRouter nie powiodło się.")
+        }
+    }
+
+    private fun persistAi(ai:AiSystemConfiguration){
+        val updated=_settings.value.copy(ai=ai);appSettings.save(updated);_settings.value=updated
+        _aiProviderCenter.value=_aiProviderCenter.value.copy(gameMasterAssignment=ai.gameMaster,directorAssignment=ai.director,privacy=ai.privacy,localSettings=ai.localModelSettings?:_aiProviderCenter.value.localSettings)
     }
 
     fun generateSceneImage(contextApp: android.content.Context, title: String, scenePrompt: String) {
@@ -589,105 +685,67 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun send(text: String) {
         if (text.isBlank()) return
+        if(activeAiCancellation!=null)return
+        val cancellation=MutableAiCancellationSignal().also{activeAiCancellation=it}
+        val requestUid="CHAT:${System.currentTimeMillis()}"
+        _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.INTERPRETING,requestUid,"Rozumiem Twoją decyzję…",canCancel=true)
         _messages.value = _messages.value + ChatMessage("player", text)
 
         viewModelScope.launch {
             val app = getApplication<Application>()
-            val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1
-
             try {
-                DiagnosticLogger.log(app, "SEND_START", message = "chapter=$chapter")
-                _messages.value = _messages.value + ChatMessage("system", "Budowanie ContextBundle...")
-
-                val context = try {
-                    store.buildContext(text, chapter,playerAudience(),playerPurpose(VisibilityPurposeKinds.GAMEPLAY_NARRATION))
-                } catch (t: Throwable) {
-                    DiagnosticLogger.log(app, "CONTEXT_GUARDED", t)
-                    _messages.value = _messages.value + ChatMessage(
-                        "system",
-                        "ContextBuilder zgłosił błąd. Używam bezpiecznego kontekstu awaryjnego."
-                    )
-                    ContextBundle(
-                        playerStatus = mapOf("chapter" to chapter, "player_input" to text, "fallback" to true),
-                        scene = mapOf("query" to text),
-                        time = emptyMap(),
-                        activeThreads = emptyList(),
-                        relevantNpcs = emptyList(),
-                        npcKnowledge = emptyList(),
-                        missions = emptyList(),
-                        worldPressures = emptyList(),
-                        canonConstraints = emptyList(),
-                        recentChronicle = emptyList(),
-                        retrievedLongTermMemory = emptyList(),
-                        visibilityEnvelope = VisibilityAuthorityService().envelope(playerAudience(),playerPurpose(VisibilityPurposeKinds.GAMEPLAY_NARRATION))
-                    )
-                }
-
-                _visualSuggestions.value = runCatching {
-                    VisualSuggestionEngine().suggest(text, context)
-                }.getOrElse {
-                    DiagnosticLogger.log(app, "VISUAL_SUGGESTIONS_GUARDED", it)
-                    emptyList()
-                }
-
-                _lastContextSummary.value =
-                    "ContextBundle v1: wątki=${context.activeThreads.size}, NPC=${context.relevantNpcs.size}, " +
-                    "wiedza=${context.npcKnowledge.size}, misje=${context.missions.size}, " +
-                    "wydarzenia=${context.activeWorldEvents.size}, techniki=${context.playerTechniques.size}, " +
-                    "pamięć=${context.retrievedLongTermMemory.size}"
-
-                _messages.value = _messages.value + ChatMessage(
-                    "system",
-                    "ContextBundle gotowy. Łączenie z backendem..."
-                )
-
-                val result = try {
-                    BackendClient(_settings.value.backendUrl).sendTurn(text, chapter, context)
-                } catch (t: Throwable) {
-                    DiagnosticLogger.log(app, "BACKEND_GUARDED", t)
-                    _messages.value = _messages.value + ChatMessage(
-                        "system",
-                        "Backend AI nie odpowiedział. Automatycznie uruchamiam tryb awaryjny."
-                    )
-                    SafeDemoGameMaster().respond(text, context, chapter)
-                }
-
-                _messages.value = _messages.value + ChatMessage("gm", result.narration)
-
-                result.patch?.let { patch ->
-                    try {
-                        val applied = store.applyPatch(patch)
-                        _messages.value = _messages.value + ChatMessage(
-                            "system",
-                            if (applied.success) "Zapisano ${applied.appliedOperations} zmian."
-                            else "StatePatch odrzucony: ${applied.message}"
-                        )
-
-                        if (applied.success) {
-                            if (_settings.value.autoBackup) {
-                                try {
-                                    val saveInfo = store.finalizeChapter(chapter, "Rozdział $chapter")
-                                    _messages.value = _messages.value + ChatMessage(
-                                        "system",
-                                        "Rozdział zapisany. Manifest=${saveInfo.first.take(12)}… Backup utworzony."
-                                    )
-                                } catch (t: Throwable) {
-                                    DiagnosticLogger.log(app, "AUTOSAVE_GUARDED", t)
-                                    _messages.value = _messages.value + ChatMessage(
-                                        "system",
-                                        "Autosave nie powiódł się, ale gra działa dalej."
-                                    )
-                                }
-                            }
-                            runCatching { refresh() }
-                                .onFailure { DiagnosticLogger.log(app, "REFRESH_GUARDED", it) }
+                DiagnosticLogger.log(app, "SEND_START", message = "request=$requestUid")
+                if(repository.activePlayerRef()==null){
+                    _chatTurnUi.value=_chatTurnUi.value.copy(stage=ChatTurnUiStage.GENERATING_PROPOSAL,statusText="Mistrz Gry pomaga stworzyć postać…")
+                    when(val creation=withContext(Dispatchers.IO){characterCreationApplication.play(text,cancellation)}){
+                        is CharacterCreationApplicationOutcome.Question->{
+                            _messages.value+=ChatMessage("gm",creation.text)
+                            _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.CLARIFICATION,requestUid,"Tworzenie postaci — czekam na Twój wybór")
                         }
-                    } catch (t: Throwable) {
-                        DiagnosticLogger.log(app, "STATEPATCH_GUARDED", t)
-                        _messages.value = _messages.value + ChatMessage(
-                            "system",
-                            "StatePatch został bezpiecznie zablokowany: ${t.message ?: t::class.simpleName}"
-                        )
+                        is CharacterCreationApplicationOutcome.AwaitingExplicitConfirmation->{
+                            pendingCharacterCreationUid=creation.creationUid
+                            _messages.value+=ChatMessage("gm",creation.summary)
+                            _messages.value+=ChatMessage("system","Sprawdź podsumowanie. Postać nie została jeszcze zapisana — użyj przycisku „Potwierdź postać”.")
+                            _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.CLARIFICATION,requestUid,"Projekt postaci czeka na Twoje potwierdzenie",canConfirmCharacterCreation=true)
+                        }
+                        is CharacterCreationApplicationOutcome.Created->Unit
+                        is CharacterCreationApplicationOutcome.Failed->_chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.FAILED,requestUid,"Nie udało się przygotować postaci.",reasonUid=creation.reasonUid)
+                        is CharacterCreationApplicationOutcome.Cancelled->_chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.CANCELLED,requestUid,"Tworzenie postaci anulowane.",reasonUid=creation.reasonUid)
+                    }
+                    return@launch
+                }
+                _chatTurnUi.value=_chatTurnUi.value.copy(stage=ChatTurnUiStage.BUILDING_CONTEXT,statusText="Buduję bezpieczny kontekst…")
+                _chatTurnUi.value=_chatTurnUi.value.copy(stage=ChatTurnUiStage.GENERATING_PROPOSAL,statusText="Mistrz Gry przygotowuje propozycję…")
+                val applicationOutcome=withContext(Dispatchers.IO){chatApplication.play(text,cancellation)}
+                when(val outcome=applicationOutcome){
+                    is ChatApplicationOutcome.Narrated->{
+                        _chatTurnUi.value=_chatTurnUi.value.copy(stage=ChatTurnUiStage.NARRATING,statusText="Odbieram zatwierdzoną narrację…",canCancel=false)
+                        _messages.value+=ChatMessage("gm",outcome.result.narrative.text)
+                        _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.COMPLETED,requestUid,"Tura zapisana i zakończona",committedOrder=outcome.result.receipt.commitOrder)
+                        runCatching{refresh()}.onFailure{DiagnosticLogger.log(app,"REFRESH_GUARDED",it)}
+                    }
+                    is ChatApplicationOutcome.CommittedNarrationPending->{
+                        pendingNarrationRecovery=outcome.recovery
+                        _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.COMMITTED_NARRATION_PENDING,requestUid,"Tura jest zapisana. Narrację można bezpiecznie ponowić.",canRetryNarration=true,committedOrder=outcome.result.receipt.commitOrder,reasonUid=outcome.result.reasonUid)
+                    }
+                    is ChatApplicationOutcome.Clarification->{
+                        _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.CLARIFICATION,requestUid,"Potrzebuję doprecyzowania decyzji.",reasonUid=outcome.reasonUids.joinToString("|"))
+                        _messages.value+=ChatMessage("system","Doprecyzuj proszę, co dokładnie chcesz zrobić.")
+                    }
+                    is ChatApplicationOutcome.Rejected->{
+                        _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.FAILED,requestUid,"Ta decyzja wymaga bezpiecznego rozstrzygnięcia.",reasonUid=outcome.reasonUids.joinToString("|"))
+                    }
+                    is ChatApplicationOutcome.Failed->{
+                        _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.FAILED,requestUid,"Nie udało się ukończyć tury.",reasonUid=outcome.reasonUid)
+                    }
+                    is ChatApplicationOutcome.Cancelled->{
+                        _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.CANCELLED,requestUid,if(outcome.mutationState==TurnMutationState.COMMITTED)"Tura została zapisana; narracja oczekuje na odzyskanie." else "Tura anulowana przed zapisem.",reasonUid="CANCELLED:${outcome.stage}")
+                    }
+                    is ChatApplicationOutcome.NonAuthoritativeNarration->{
+                        _chatTurnUi.value=_chatTurnUi.value.copy(stage=ChatTurnUiStage.NARRATING,statusText="Tryb zgodności — bez zmiany stanu gry",canCancel=false)
+                        _messages.value+=ChatMessage("gm",outcome.text)
+                        _messages.value+=ChatMessage("system","Ta odpowiedź pochodzi ze starego trybu narracyjnego; żadna zmiana stanu nie została przyjęta. (${outcome.reasonUid})")
+                        _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.COMPLETED,requestUid,"Narracja zakończona bez zmiany stanu",reasonUid=outcome.reasonUid)
                     }
                 }
 
@@ -700,7 +758,54 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                 )
                 _lastContextSummary.value =
                     "Anti-Crash: ${t::class.simpleName}: ${t.message ?: "brak szczegółów"}"
+                _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.FAILED,requestUid,"Tura nie została ukończona.",reasonUid=t.message?:t::class.simpleName)
+            }finally{
+                activeAiCancellation=null
             }
+        }
+    }
+
+    fun cancelCurrentAiTurn(){activeAiCancellation?.cancel()}
+
+    fun confirmCharacterCreation(){
+        val creationUid=pendingCharacterCreationUid?:return
+        if(activeAiCancellation!=null)return
+        viewModelScope.launch{
+            val actionUid="CHARACTER-CONFIRM:${System.currentTimeMillis()}"
+            _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.COMMITTING,actionUid,"Zapisuję potwierdzoną postać…")
+            when(val outcome=withContext(Dispatchers.IO){characterCreationApplication.confirm(creationUid,actionUid)}){
+                is CharacterCreationApplicationOutcome.Created->{
+                    pendingCharacterCreationUid=null
+                    _messages.value+=ChatMessage("system","Postać ${outcome.receipt.playerUid} została utworzona i jest gotowa do gry.")
+                    _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.COMPLETED,actionUid,"Postać utworzona")
+                    refresh()
+                }
+                is CharacterCreationApplicationOutcome.Failed->_chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.FAILED,actionUid,"Nie udało się zapisać postaci.",canConfirmCharacterCreation=true,reasonUid=outcome.reasonUid)
+                else->_chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.FAILED,actionUid,"Nieprawidłowy stan tworzenia postaci.",canConfirmCharacterCreation=true)
+            }
+        }
+    }
+
+    fun retryCommittedNarration(){
+        val token=pendingNarrationRecovery?:run{
+            _messages.value+=ChatMessage("system","Brak zapisanej tury oczekującej na narrację.")
+            return
+        }
+        if(activeAiCancellation!=null)return
+        val cancellation=MutableAiCancellationSignal().also{activeAiCancellation=it}
+        viewModelScope.launch{
+            try{
+                _chatTurnUi.value=_chatTurnUi.value.copy(stage=ChatTurnUiStage.NARRATING,statusText="Odzyskuję narrację wyłącznie z zapisanego rezultatu…",canCancel=false)
+                val recoveryOutcome=withContext(Dispatchers.IO){chatApplication.recover(token,cancellation)}
+                when(val recovered=recoveryOutcome){
+                    is NarrativeRecoveryResult.Recovered->{
+                        _messages.value+=ChatMessage("gm",recovered.delivery.narrative.text)
+                        pendingNarrationRecovery=null
+                        _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.COMPLETED,token.request.requestUid,"Narracja odzyskana",committedOrder=recovered.delivery.identity.committedOrder)
+                    }
+                    is NarrativeRecoveryResult.Unavailable->_chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.COMMITTED_NARRATION_PENDING,token.request.requestUid,"Zapis jest bezpieczny, ale narracja nadal niedostępna.",canRetryNarration=true,reasonUid=recovered.reasonUid)
+                }
+            }finally{activeAiCancellation=null}
         }
     }
 

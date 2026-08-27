@@ -132,6 +132,53 @@ data class RuntimeChange(
     val delta: ExactLongDelta
 ) : PlayerDomainChangePayload
 
+/** Phase50 canonical owner payloads. These are authoritative domain changes, never scratch counters. */
+data class WoundChange(
+    val subject: DomainRef,
+    val severityDelta: ExactLongDelta,
+    val severityUid: String? = null
+) : PlayerDomainChangePayload
+
+data class SpatialChange(
+    val subject: DomainRef,
+    val deltaXMillimetres: Long,
+    val deltaYMillimetres: Long = 0
+) : PlayerDomainChangePayload {
+    init { require(deltaXMillimetres != 0L || deltaYMillimetres != 0L) }
+}
+
+data class EquipmentIntegrityChange(
+    val subject: DomainRef,
+    val componentUid: String,
+    val damageDelta: ExactLongDelta
+) : PlayerDomainChangePayload
+
+data class StructureIntegrityChange(
+    val subject: DomainRef,
+    val componentUid: String? = null,
+    val damageDelta: ExactLongDelta
+) : PlayerDomainChangePayload
+
+data class MechanicalTrackChange(
+    val subject: DomainRef,
+    val trackUid: String,
+    val delta: ExactLongDelta
+) : PlayerDomainChangePayload
+
+data class AggregatePopulationChange(
+    val subject: DomainRef,
+    val eliminatedDelta: Long = 0,
+    val woundedDelta: Long = 0,
+    val conditionUid: String? = null,
+    val conditionAffectedDelta: Long = 0
+) : PlayerDomainChangePayload {
+    init {
+        require(eliminatedDelta >= 0 && woundedDelta >= 0 && conditionAffectedDelta >= 0)
+        require(eliminatedDelta > 0 || woundedDelta > 0 || conditionAffectedDelta > 0)
+        require((conditionUid == null) == (conditionAffectedDelta == 0L))
+    }
+}
+
 class DevelopmentProjectChange private constructor(
     val projectUid: String,
     val workResultKindUid: String,
@@ -172,6 +219,12 @@ object PlayerChangeKinds {
     const val CAMPAIGN_TRUTH = "RPGOS-CHANGE:CAMPAIGN_TRUTH"
     const val CONDITION = "RPGOS-CHANGE:CONDITION"
     const val RUNTIME = "RPGOS-CHANGE:RUNTIME_COUNTER"
+    const val WOUND = "RPGOS-CHANGE:WOUND"
+    const val SPATIAL = "RPGOS-CHANGE:SPATIAL"
+    const val EQUIPMENT_INTEGRITY = "RPGOS-CHANGE:EQUIPMENT_INTEGRITY"
+    const val STRUCTURE_INTEGRITY = "RPGOS-CHANGE:STRUCTURE_INTEGRITY"
+    const val MECHANICAL_TRACK = "RPGOS-CHANGE:MECHANICAL_TRACK"
+    const val AGGREGATE_POPULATION = "RPGOS-CHANGE:AGGREGATE_POPULATION"
     const val DEVELOPMENT_PROJECT = "RPGOS-CHANGE:DEVELOPMENT_PROJECT_WORK"
     const val ACCESS_AUTHORITY = "RPGOS-CHANGE:ACCESS_AUTHORITY"
 }

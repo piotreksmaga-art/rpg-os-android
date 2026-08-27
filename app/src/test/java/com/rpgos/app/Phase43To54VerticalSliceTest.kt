@@ -93,9 +93,9 @@ class Phase43To54VerticalSliceTest{
         val plan=readOnlyPlan()
         val context=safeEmptyContext(plan)
         val candidate=GmProposalCandidate(
-            proposalUid="BAD",campaignUid=campaign,planUid=plan.planUid,nodeProposals=listOf(GmNodeProposal("N","OK","result")),
+            proposalUid="BAD",campaignUid=campaign,planUid=plan.planUid,nodeProposals=listOf(GmNodeProposal("N","OK","result",actor,"READ",emptyList(),IntentModality.ATTEMPT_NOW,GmNodeOutcomeState.PROPOSED_SUCCESS)),
             proposedClaims=listOf(ProposedWorldClaim("CLAIM","N",ProposedClaimKind.PROJECTED_FACT_CONCLUSION,null,"IS_TRUE","yes")),
-            narrativeBlueprint=NarrativeBlueprint(listOf("DESCRIBE"),stopPointUid="PLAYER_AGENCY"),providerUid="A",modelUid="MODEL-A"
+            narrativeBlueprint=NarrativeBlueprint(listOf("DESCRIBE"),stopPointUid="PLAYER_AGENCY"),providerUid="A",modelUid="MODEL-A",intentFingerprint=plan.intent.canonicalFingerprint()
         )
         val evaluator=evaluator()
         val rejected=evaluator.evaluate(candidate,AiGmProposalRequest("Q",plan,context)) as GmProposalEvaluation.Rejected
@@ -110,7 +110,10 @@ class Phase43To54VerticalSliceTest{
             override fun decodeProposal(payload:String):GmProposalCandidate=throw IllegalArgumentException("invalid")
             override fun encodeRepair(request:AiRepairRequest)="repair"
             override fun encodeNarrative(request:AiNarrativeRequest)="narrative"
+            override fun encodeNarrativeRepair(request:AiNarrativeRepairRequest)="narrative-repair"
             override fun decodeNarrative(payload:String):RenderedNarrative=throw IllegalArgumentException("invalid")
+            override fun encodeDirector(request:AiDirectorRequest)="director"
+            override fun decodeDirector(payload:String):DirectorBundle=throw IllegalArgumentException("invalid")
         }
         val capabilities=capabilities("REMOTE")
         val unavailable=TransportAiProviderAdapter(capabilities,AiStructuredTransport{_,_->AiProviderResult.Failure(AiProviderFailureKind.UNAVAILABLE,"OFFLINE")},codec)
@@ -125,8 +128,8 @@ class Phase43To54VerticalSliceTest{
             GroupATransactionTestFixtures.setupFinance(db,campaign)
             var assembled=0;var committed=0;var narrativeSawReceipt=false
             val provider=provider("P") { request->
-                narrativeSawReceipt=request.receipt.commitOrder!=null&&TurnTransactionReceiptStore(db).committedTransaction(request.receipt.transactionUid)==request.receipt
-                RenderedNarrative("The transfer is complete.","PLAYER_AGENCY",request.receipt.commitOrder!!)
+                narrativeSawReceipt=TurnTransactionReceiptStore(db).committedTransaction(request.context.transactionUid)?.commitOrder==request.context.committedOrder
+                RenderedNarrative("The transfer is complete.","PLAYER_AGENCY",request.context.committedOrder)
             }
             val facade=facade(
                 db,provider,
@@ -153,7 +156,7 @@ class Phase43To54VerticalSliceTest{
                 capabilities("BAD"),
                 intentFunction={intentFor(it.rawInput)},
                 proposalFunction={request->validProposal(request,"BAD").copy(planUid="FOREIGN")},
-                narrativeFunction={RenderedNarrative("never","STOP",it.receipt.commitOrder!!)}
+                narrativeFunction={RenderedNarrative("never",it.context.stopPointUid,it.context.committedOrder)}
             )
             val facade=facade(db,invalidProvider,CanonicalMutationAssembler{request,_,_->assembled++;GroupATransactionTestFixtures.admittedFinancialProposal(campaign,request.commandUid)},AuthoritativeTurnCommitPort{identity,proposal->committed++;TurnTransactionBoundary.create(db,identity,proposal).commit()})
             val result=facade.play(chatRequest("BAD","CMD-BAD","TX-BAD"))
@@ -196,14 +199,18 @@ class Phase43To54VerticalSliceTest{
     private fun capabilities(uid:String)=AiCapabilityContract(
         "CONTRACT:$uid",uid,"MODEL-$uid",AiWorkload.entries.toSet(),maximumContextUnits=16_000
     )
-    private fun provider(uid:String,narrative:(AiNarrativeRequest)->RenderedNarrative={RenderedNarrative("done","PLAYER_AGENCY",it.receipt.commitOrder!!)}):AiProvider=
+    private fun provider(uid:String,narrative:(AiNarrativeRequest)->RenderedNarrative={RenderedNarrative("done",it.context.stopPointUid,it.context.committedOrder)}):AiProvider=
         DeterministicAiProvider(capabilities(uid),intentFunction={intentFor(it.rawInput)},proposalFunction={validProposal(it,uid)},narrativeFunction=narrative)
     private fun validProposal(request:AiGmProposalRequest,providerUid:String)=GmProposalCandidate(
         proposalUid="PROPOSAL:${request.requestUid}",campaignUid=campaign,planUid=request.plan.planUid,
-        nodeProposals=request.plan.steps.map{GmNodeProposal(it.nodeUid,"SUCCESS","resolved")},
+        nodeProposals=request.plan.steps.map{step->
+            val node=request.plan.intent.nodes.single{it.nodeUid==step.nodeUid}
+            val targets=node.participants.mapNotNull{part->part.referenceUid?.let{uid->request.plan.intent.references.singleOrNull{it.referenceUid==uid}?.resolvedProjectedRef}}
+            GmNodeProposal(step.nodeUid,"SUCCESS","resolved",request.plan.intent.actor,node.semanticAction.canonicalActionUid?:node.semanticAction.semanticFamilyUid!!,targets,node.modality,GmNodeOutcomeState.PROPOSED_SUCCESS)
+        },
         mechanicsEffects=request.plan.steps.filter{it.sideEffectClass==CapabilitySideEffectClass.PROPOSED_WORLD_EFFECT}.map{
             MechanicsEffectRequest("EFFECT:${it.nodeUid}",it.nodeUid,it.mechanicsOwnerUid!!,"TRANSFER",parameters=mapOf("amount" to "5"))
-        },narrativeBlueprint=NarrativeBlueprint(listOf("SHOW_OUTCOME"),stopPointUid="PLAYER_AGENCY"),providerUid=providerUid,modelUid="MODEL-$providerUid"
+        },narrativeBlueprint=NarrativeBlueprint(listOf("SHOW_OUTCOME"),stopPointUid="PLAYER_AGENCY"),providerUid=providerUid,modelUid="MODEL-$providerUid",intentFingerprint=request.plan.intent.canonicalFingerprint()
     )
     private fun evaluator()=GmProposalEvaluator(
         StructuredGmProposalValidator(),MechanicsResolutionEngine(MechanicsResolverRegistry.fromCompositionRoot(mapOf("FINANCE" to MechanicsRuleResolver{effect,_->
@@ -211,11 +218,17 @@ class Phase43To54VerticalSliceTest{
         })))
     )
     private fun facade(db:SQLiteDatabase,provider:AiProvider,assembler:CanonicalMutationAssembler,commit:AuthoritativeTurnCommitPort)=AiChatEngineFacade(
-        AiProviderRegistry.fromCompositionRoot(listOf(provider)),provider.capabilities.providerUid,Phase43IntentValidator(),TrustedIntentResolutionPort.NONE,IntentInterpretationFallback.NONE,
+        FixedAiModelRoute(provider),Phase43IntentValidator(),TrustedIntentResolutionPort.NONE,IntentInterpretationFallback.NONE,
         GraphTurnPlanner(listOf(capability(false))),
         CanonicalIterativeRetrievalPipeline(StructuredSqlRetriever(emptyList()),SemanticContextBudgetManager(),TypedContextCompletionStrategy{_,_,_->emptyList()}),
         ContextRuntimeProfile("E2E",16_000,200,200,1_000,200),BoundedProposalRepair(evaluator()),assembler,commit,
-        PersistedCommitReceiptAuthority(CommittedReceiptLookup{TurnTransactionReceiptStore(db).committedTransaction(it)})
+        PersistedCommitReceiptAuthority(CommittedReceiptLookup{TurnTransactionReceiptStore(db).committedTransaction(it)}),
+        CommittedNarrationContextBuilder(CommittedNarrationReadPort{identity,receipt,_,_->PostCommitPlayerVisibleReadback(
+            identity.campaignUid,identity.turnUid,identity.commandUid,identity.transactionUid,receipt.commitOrder!!,"P38:TEST",
+            mapOf("balance" to FinancialStore(db,campaign).balance("A").toString()),
+            listOf(CommittedNarrativeFact("FACT:BALANCE",CommittedNarrativeFactKind.MECHANICAL_RESULT,"A","BALANCE",FinancialStore(db,campaign).balance("A").toString(),receipt.commitOrder!!)),
+            listOf("The transfer is complete."),emptySet(),emptySet(),"PLAYER_AGENCY"
+        )})
     )
     private fun chatRequest(uid:String,command:String,transaction:String)=ChatTurnRequest(
         uid,campaign,"TURN:$uid",command,transaction,actor,"transfer funds","en-US",audience,purpose

@@ -459,6 +459,54 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
         validate = { refAndUidErrors(it.subject, it.runtimeCounterUid) },
         conflicts = { setOf(compositeConflictKey("RUNTIME", it.subject.kindUid, it.subject.uid, it.runtimeCounterUid)) }
     ),
+    PlayerChangeKinds.WOUND to simpleCodec(
+        WoundChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
+        setOf("subject","severityDeltaUnits","severityUid"),
+        encode = { pcsObj("subject" to encodeChangeSetRef(it.subject),"severityDeltaUnits" to pcsJ(it.severityDelta.units),"severityUid" to pcsJn(it.severityUid)) },
+        decode = { WoundChange(decodeChangeSetRef(it.pcsReqObject("subject")),ExactLongDelta.of(it.pcsReqLong("severityDeltaUnits")),it.pcsOptString("severityUid")) },
+        validate = { buildList{if(!validRef(it.subject))add("INVALID_WOUND_SUBJECT");if(it.severityUid?.isBlank()==true)add("INVALID_WOUND_SEVERITY")} },
+        conflicts = { emptySet() }
+    ),
+    PlayerChangeKinds.SPATIAL to simpleCodec(
+        SpatialChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
+        setOf("subject","deltaXMillimetres","deltaYMillimetres"),
+        encode = { pcsObj("subject" to encodeChangeSetRef(it.subject),"deltaXMillimetres" to pcsJ(it.deltaXMillimetres),"deltaYMillimetres" to pcsJ(it.deltaYMillimetres)) },
+        decode = { SpatialChange(decodeChangeSetRef(it.pcsReqObject("subject")),it.pcsReqLong("deltaXMillimetres"),it.pcsReqLong("deltaYMillimetres")) },
+        validate = { buildList{if(!validRef(it.subject))add("INVALID_SPATIAL_SUBJECT");if(it.deltaXMillimetres==0L&&it.deltaYMillimetres==0L)add("ZERO_SPATIAL_DELTA")} },
+        conflicts = { emptySet() }
+    ),
+    PlayerChangeKinds.EQUIPMENT_INTEGRITY to simpleCodec(
+        EquipmentIntegrityChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
+        setOf("subject","componentUid","damageDeltaUnits"),
+        encode = { pcsObj("subject" to encodeChangeSetRef(it.subject),"componentUid" to pcsJ(it.componentUid),"damageDeltaUnits" to pcsJ(it.damageDelta.units)) },
+        decode = { EquipmentIntegrityChange(decodeChangeSetRef(it.pcsReqObject("subject")),it.pcsReqString("componentUid"),ExactLongDelta.of(it.pcsReqLong("damageDeltaUnits"))) },
+        validate = { buildList{if(!validRef(it.subject)||it.componentUid.isBlank())add("INVALID_EQUIPMENT_INTEGRITY_CHANGE");if(it.damageDelta.units<=0)add("INVALID_EQUIPMENT_DAMAGE")} },
+        conflicts = { emptySet() }
+    ),
+    PlayerChangeKinds.STRUCTURE_INTEGRITY to simpleCodec(
+        StructureIntegrityChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
+        setOf("subject","componentUid","damageDeltaUnits"),
+        encode = { pcsObj("subject" to encodeChangeSetRef(it.subject),"componentUid" to pcsJn(it.componentUid),"damageDeltaUnits" to pcsJ(it.damageDelta.units)) },
+        decode = { StructureIntegrityChange(decodeChangeSetRef(it.pcsReqObject("subject")),it.pcsOptString("componentUid"),ExactLongDelta.of(it.pcsReqLong("damageDeltaUnits"))) },
+        validate = { buildList{if(!validRef(it.subject)||it.componentUid?.isBlank()==true)add("INVALID_STRUCTURE_INTEGRITY_CHANGE");if(it.damageDelta.units<=0)add("INVALID_STRUCTURE_DAMAGE")} },
+        conflicts = { emptySet() }
+    ),
+    PlayerChangeKinds.MECHANICAL_TRACK to simpleCodec(
+        MechanicalTrackChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
+        setOf("subject","trackUid","deltaUnits"),
+        encode = { pcsObj("subject" to encodeChangeSetRef(it.subject),"trackUid" to pcsJ(it.trackUid),"deltaUnits" to pcsJ(it.delta.units)) },
+        decode = { MechanicalTrackChange(decodeChangeSetRef(it.pcsReqObject("subject")),it.pcsReqString("trackUid"),ExactLongDelta.of(it.pcsReqLong("deltaUnits"))) },
+        validate = { refAndUidErrors(it.subject,it.trackUid) },
+        conflicts = { emptySet() }
+    ),
+    PlayerChangeKinds.AGGREGATE_POPULATION to simpleCodec(
+        AggregatePopulationChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
+        setOf("subject","eliminatedDelta","woundedDelta","conditionUid","conditionAffectedDelta"),
+        encode = { pcsObj("subject" to encodeChangeSetRef(it.subject),"eliminatedDelta" to pcsJ(it.eliminatedDelta),"woundedDelta" to pcsJ(it.woundedDelta),"conditionUid" to pcsJn(it.conditionUid),"conditionAffectedDelta" to pcsJ(it.conditionAffectedDelta)) },
+        decode = { AggregatePopulationChange(decodeChangeSetRef(it.pcsReqObject("subject")),it.pcsReqLong("eliminatedDelta"),it.pcsReqLong("woundedDelta"),it.pcsOptString("conditionUid"),it.pcsReqLong("conditionAffectedDelta")) },
+        validate = { buildList{if(!validRef(it.subject)||it.subject.kindUid.uppercase() !in setOf("GROUP","UNIT"))add("INVALID_AGGREGATE_SUBJECT");if(it.eliminatedDelta<0||it.woundedDelta<0||it.conditionAffectedDelta<0)add("INVALID_AGGREGATE_DELTA");if(it.eliminatedDelta==0L&&it.woundedDelta==0L&&it.conditionAffectedDelta==0L)add("EMPTY_AGGREGATE_DELTA");if((it.conditionUid==null)!=(it.conditionAffectedDelta==0L))add("INVALID_AGGREGATE_CONDITION")} },
+        conflicts = { emptySet() }
+    ),
     PlayerChangeKinds.DEVELOPMENT_PROJECT to simpleCodec(
         DevelopmentProjectChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
         setOf("projectUid", "workResultKindUid", "progressDeltaUnits", "evidenceRefs"),

@@ -127,9 +127,12 @@ internal class TechniqueStore(private val db: SQLiteDatabase, private val campai
         if (legacyExactExists(t.characterUid, t.techniqueUid) && mapping(t.characterUid, t.techniqueUid) == null) {
             error("Mixed legacy + typed Technique with same UID requires explicit mapping: ${t.techniqueUid}")
         }
-        db.execSQL(
-            """INSERT INTO player_techniques_v2(campaign_id,character_uid,technique_uid,base_mastery,progress_value,progress_semantics_uid,learned_chapter,last_used_chapter,usage_count,success_count,failure_count,is_equipped,notes,entry_version,provenance) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(campaign_id,character_uid,technique_uid) DO UPDATE SET base_mastery=excluded.base_mastery,progress_value=excluded.progress_value,progress_semantics_uid=excluded.progress_semantics_uid,learned_chapter=excluded.learned_chapter,last_used_chapter=excluded.last_used_chapter,usage_count=excluded.usage_count,success_count=excluded.success_count,failure_count=excluded.failure_count,is_equipped=excluded.is_equipped,notes=excluded.notes,entry_version=excluded.entry_version,provenance=excluded.provenance""",
-            arrayOf<Any?>(t.campaignId, t.characterUid, t.techniqueUid, t.baseMastery, t.progressValue, t.progressSemanticsUid, t.learnedChapter, t.lastUsedChapter, t.usageCount, t.successCount, t.failureCount, if (t.isEquipped) 1 else 0, t.notes, t.entryVersion, t.provenance)
+        val mutable=arrayOf<Any?>(t.baseMastery,t.progressValue,t.progressSemanticsUid,t.learnedChapter,t.lastUsedChapter,t.usageCount,t.successCount,t.failureCount,if(t.isEquipped)1 else 0,t.notes,t.entryVersion,t.provenance)
+        db.updateOrInsertCompat(
+            "UPDATE player_techniques_v2 SET base_mastery=?,progress_value=?,progress_semantics_uid=?,learned_chapter=?,last_used_chapter=?,usage_count=?,success_count=?,failure_count=?,is_equipped=?,notes=?,entry_version=?,provenance=? WHERE campaign_id=? AND character_uid=? AND technique_uid=?",
+            arrayOf<Any?>(*mutable,t.campaignId,t.characterUid,t.techniqueUid),
+            "INSERT INTO player_techniques_v2(campaign_id,character_uid,technique_uid,base_mastery,progress_value,progress_semantics_uid,learned_chapter,last_used_chapter,usage_count,success_count,failure_count,is_equipped,notes,entry_version,provenance) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            arrayOf<Any?>(t.campaignId,t.characterUid,t.techniqueUid,t.baseMastery,t.progressValue,t.progressSemanticsUid,t.learnedChapter,t.lastUsedChapter,t.usageCount,t.successCount,t.failureCount,if(t.isEquipped)1 else 0,t.notes,t.entryVersion,t.provenance)
         )
     }
 

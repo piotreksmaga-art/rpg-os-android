@@ -12,7 +12,8 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         DERIVED_PRESENTATION,
         ADMINISTRATIVE_MIGRATION_RECOVERY,
         OPERATIONAL_GUARD,
-        UI_SETTINGS
+        UI_SETTINGS,
+        EXTERNAL_AI_CONFIGURATION
     }
 
     /** Closed inventory of production source files that contain a durable state write sink. */
@@ -28,6 +29,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "ModifierStore.kt",
             "OwnershipReferenceRegistry.kt",
             "OwnershipStore.kt",
+            "Phase50MechanicalStateStore.kt",
             "Phase35CanonDivergence.kt",
             "Phase37WorldActorKnowledge.kt",
             "Phase38AccessAuthority.kt",
@@ -36,7 +38,8 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "ProgressionProfileStore.kt",
             "SkillStore.kt",
             "StatResourceStore.kt",
-            "TechniqueStore.kt"
+            "TechniqueStore.kt",
+            "PlayerCharacterBootstrap.kt"
         ).forEach { put(it, WriterClass.CANONICAL_DOMAIN) }
 
         listOf(
@@ -48,6 +51,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         listOf(
             "ChapterSaveManager.kt",
             "GalleryService.kt",
+            "Phase54CommittedNarration.kt",
             "VisualLibrary.kt"
         ).forEach { put(it, WriterClass.DERIVED_PRESENTATION) }
 
@@ -56,6 +60,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "BackupManager.kt",
             "CampaignSnapshotSystem.kt",
             "CampaignSelectionManager.kt",
+            "CharacterCreationDefinitionBootstrap.kt",
             "CanonicalPackageReplacement.kt",
             "ContentUpdateManager.kt",
             "FilePickerBridge.kt",
@@ -86,7 +91,9 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
 
         put("GameplayMutationGate.kt", WriterClass.OPERATIONAL_GUARD)
         put("DiagnosticLogger.kt", WriterClass.OPERATIONAL_GUARD)
+        put("SqliteCompatibility.kt", WriterClass.OPERATIONAL_GUARD)
         put("AppSettings.kt", WriterClass.UI_SETTINGS)
+        put("OpenRouterAndroidInfrastructure.kt", WriterClass.EXTERNAL_AI_CONFIGURATION)
     }
 
     private val durableWriteMarkers = listOf(
@@ -104,7 +111,8 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         ".renameTo(",
         ".deleteRecursively(",
         ".openOutputStream(",
-        "getSharedPreferences("
+        "getSharedPreferences(",
+        "updateOrInsertCompat("
     )
 
     @Test

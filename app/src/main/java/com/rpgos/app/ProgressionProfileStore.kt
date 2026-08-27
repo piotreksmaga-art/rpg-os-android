@@ -63,8 +63,12 @@ internal class ProgressionProfileStore(
         require(entry.campaignId == campaignId) { "TalentEntry belongs to another campaign" }
         val d = domain(entry.domainUid) ?: error("Progression domain does not exist: ${entry.domainUid}")
         require(d.appliesToTalent) { "Domain ${entry.domainUid} does not support Talent" }
-        db.execSQL("""INSERT INTO talent_profile_entries(campaign_id,character_uid,domain_uid,base_value,entry_version,provenance) VALUES(?,?,?,?,?,?) ON CONFLICT(campaign_id,character_uid,domain_uid) DO UPDATE SET base_value=excluded.base_value,entry_version=excluded.entry_version,provenance=excluded.provenance""",
-            arrayOf<Any?>(entry.campaignId,entry.characterUid,entry.domainUid,normalizeZero(entry.baseValue),entry.entryVersion,entry.provenance))
+        db.updateOrInsertCompat(
+            "UPDATE talent_profile_entries SET base_value=?,entry_version=?,provenance=? WHERE campaign_id=? AND character_uid=? AND domain_uid=?",
+            arrayOf<Any?>(normalizeZero(entry.baseValue),entry.entryVersion,entry.provenance,entry.campaignId,entry.characterUid,entry.domainUid),
+            "INSERT INTO talent_profile_entries(campaign_id,character_uid,domain_uid,base_value,entry_version,provenance) VALUES(?,?,?,?,?,?)",
+            arrayOf<Any?>(entry.campaignId,entry.characterUid,entry.domainUid,normalizeZero(entry.baseValue),entry.entryVersion,entry.provenance)
+        )
     }
 
     internal fun savePotential(entry: PotentialEntry) {
@@ -72,8 +76,12 @@ internal class ProgressionProfileStore(
         require(entry.campaignId == campaignId) { "PotentialEntry belongs to another campaign" }
         val d = domain(entry.domainUid) ?: error("Progression domain does not exist: ${entry.domainUid}")
         require(d.appliesToPotential) { "Domain ${entry.domainUid} does not support Potential" }
-        db.execSQL("""INSERT INTO potential_profile_entries(campaign_id,character_uid,domain_uid,dimension_uid,base_value,entry_version,provenance) VALUES(?,?,?,?,?,?,?) ON CONFLICT(campaign_id,character_uid,domain_uid,dimension_uid) DO UPDATE SET base_value=excluded.base_value,entry_version=excluded.entry_version,provenance=excluded.provenance""",
-            arrayOf<Any?>(entry.campaignId,entry.characterUid,entry.domainUid,entry.dimensionUid,normalizeZero(entry.baseValue),entry.entryVersion,entry.provenance))
+        db.updateOrInsertCompat(
+            "UPDATE potential_profile_entries SET base_value=?,entry_version=?,provenance=? WHERE campaign_id=? AND character_uid=? AND domain_uid=? AND dimension_uid=?",
+            arrayOf<Any?>(normalizeZero(entry.baseValue),entry.entryVersion,entry.provenance,entry.campaignId,entry.characterUid,entry.domainUid,entry.dimensionUid),
+            "INSERT INTO potential_profile_entries(campaign_id,character_uid,domain_uid,dimension_uid,base_value,entry_version,provenance) VALUES(?,?,?,?,?,?,?)",
+            arrayOf<Any?>(entry.campaignId,entry.characterUid,entry.domainUid,entry.dimensionUid,normalizeZero(entry.baseValue),entry.entryVersion,entry.provenance)
+        )
     }
 
     fun preserveLegacyEvidence(evidence: LegacyProgressionEvidence) {

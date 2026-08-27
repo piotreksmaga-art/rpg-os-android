@@ -70,6 +70,8 @@ object PlayerCommandKinds {
     const val CHANGE_PROJECT_LIFECYCLE = "RPGOS-COMMAND:CHANGE_PROJECT_LIFECYCLE"
     const val COMPLETE_PROJECT = "RPGOS-COMMAND:COMPLETE_PROJECT"
     const val CANCEL_PROJECT = "RPGOS-COMMAND:CANCEL_PROJECT"
+    /** One aggregate, verified mechanics command for one canonical turn. */
+    const val APPLY_VERIFIED_MECHANICS = "RPGOS-COMMAND:APPLY_VERIFIED_MECHANICS"
 }
 
 data class TrainCommandPayload(val focus: DomainRef, val effortUnits: Long, val methodUid: String? = null) : PlayerCommandPayload
@@ -89,6 +91,34 @@ data class TransferFundsCommandPayload(val fromAccountUid: String, val toAccount
 data class AcquireAssetCommandPayload(val assetKindUid: String, val requestedTermsRef: DomainRef? = null) : PlayerCommandPayload
 data class EnterObligationCommandPayload(val obligationTypeUid: String, val counterparty: DomainRef, val principalMinor: Long?, val currencyUid: String?) : PlayerCommandPayload
 data class SettleObligationCommandPayload(val obligationUid: String, val requestedAmountMinor: Long? = null) : PlayerCommandPayload
+
+data class VerifiedMechanicsCommandEffect(
+    val effectUid:String,
+    val nodeUid:String,
+    val mechanicsOwnerUid:String,
+    val effectKindUid:String,
+    val target:DomainRef,
+    val magnitude:Long,
+    val canonicalPayload:Map<String,String>,
+    val proofUid:String,
+    val deterministicInputFingerprint:String,
+    val deterministicOutputFingerprint:String
+) {
+    init {
+        require(listOf(effectUid,nodeUid,mechanicsOwnerUid,effectKindUid,proofUid,deterministicInputFingerprint,deterministicOutputFingerprint).none{it.isBlank()})
+        require(validRef(target)&&canonicalPayload.keys.none{it.isBlank()}&&canonicalPayload.values.none{it.length>512})
+    }
+}
+
+data class ApplyVerifiedMechanicsCommandPayload(
+    val planUid:String,
+    val effects:List<VerifiedMechanicsCommandEffect>
+):PlayerCommandPayload {
+    init {
+        require(planUid.isNotBlank()&&effects.isNotEmpty())
+        require(effects.map{it.effectUid}.distinct().size==effects.size)
+    }
+}
 
 data class StartProjectCommandPayload(
     val projectTypeUid: String,

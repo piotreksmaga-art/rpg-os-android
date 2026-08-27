@@ -20,6 +20,7 @@ object RuntimeTruthLayerRegistry {
         f("CANON_DIVERGENCE",RuntimeTruthLayer.AUTHORITATIVE,"campaign_canon_divergences"),
         f("ACTIVE_PLAYER_IDENTITY",RuntimeTruthLayer.AUTHORITATIVE,"active_player_ref"),
         f("BASE_STATS_RESOURCES",RuntimeTruthLayer.AUTHORITATIVE,"player_stats","player_resources"),
+        RuntimeStateFamily("MECHANICAL_ACTOR_AND_AGGREGATE_STATE",setOf(RuntimeTruthLayer.AUTHORITATIVE),Phase50MechanicalSchema.authoritativeTables),
         f("PROGRESSION_PROFILES",RuntimeTruthLayer.AUTHORITATIVE,"talent_profile_entries","potential_profile_entries"),
         f("SKILLS_TECHNIQUES",RuntimeTruthLayer.AUTHORITATIVE,"player_skills_v2","player_techniques_v2"),
         f("INNATE_EVOLUTION",RuntimeTruthLayer.AUTHORITATIVE,"player_origins_v2","player_innate_features","player_evolution_states","player_evolution_stages","player_form_unlocks","player_active_forms"),

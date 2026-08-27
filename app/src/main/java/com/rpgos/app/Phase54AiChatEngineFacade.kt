@@ -1,7 +1,7 @@
 package com.rpgos.app
 
 enum class TurnMutationState { NOT_STARTED, COMMITTED, UNVERIFIED }
-enum class AiTurnStage { INTERPRETATION, INTENT_VALIDATION, PLANNING, CONTEXT, PROPOSAL, VALIDATION_REPAIR, ASSEMBLY, COMMIT, NARRATIVE }
+enum class AiTurnStage { INTERPRETATION, INTENT_VALIDATION, PLANNING, CONTEXT, PROPOSAL, VALIDATION_REPAIR, ASSEMBLY, COMMIT, NARRATIVE_READBACK, NARRATIVE, NARRATIVE_VALIDATION, DELIVERY }
 
 data class ChatTurnRequest(
     val requestUid:String,
@@ -27,7 +27,9 @@ sealed interface ChatTurnResult{
         val receipt:TurnCommitReceipt,
         val planUid:String,
         val proposalUid:String,
-        val repairAttempts:Int
+        val repairAttempts:Int,
+        val delivery:NarrativeDeliveryReceipt,
+        val deterministicFallback:Boolean
     ):ChatTurnResult{override val mutationState=TurnMutationState.COMMITTED}
     data class CommittedWithoutNarrative(
         val receipt:TurnCommitReceipt,
@@ -79,23 +81,37 @@ class AuthoritativeCommitEvidence internal constructor(
 
 class PersistedCommitReceiptAuthority(private val lookup:CommittedReceiptLookup){
     fun authorize(receipt:TurnCommitReceipt,identity:TurnTransactionIdentity):AuthoritativeCommitEvidence?{
-        if(receipt.campaignUid!=identity.campaignUid||receipt.commandUid!=identity.commandUid)return null
+        if(receipt.campaignUid!=identity.campaignUid||receipt.turnUid!=identity.turnUid||receipt.commandUid!=identity.commandUid||receipt.transactionUid!=identity.transactionUid)return null
         if(receipt.commitOrder?.let{it>0L}!=true||receipt.receiptVersion<TURN_TRANSACTION_RECEIPT_VERSION)return null
         if(receipt.requiredEventCount==null||receipt.requiredEventManifestFingerprint.isNullOrBlank())return null
         if(lookup.find(receipt.transactionUid)!=receipt)return null
         return AuthoritativeCommitEvidence(receipt,identity)
     }
+    fun findAndAuthorize(identity:TurnTransactionIdentity):AuthoritativeCommitEvidence? =
+        lookup.find(identity.transactionUid)?.let{authorize(it,identity)}
 }
 
 class CanonicalCommitException(val reasonUid:String,cause:Throwable?=null):RuntimeException(reasonUid,cause){init{require(reasonUid.isNotBlank())}}
+
+fun interface AiModelRoutePort{fun route(role:AiRole,workload:AiWorkload,requiredContextUnits:Int):AiRouteResult}
+class FixedAiModelRoute(private val provider:AiProvider):AiModelRoutePort{
+    override fun route(role:AiRole,workload:AiWorkload,requiredContextUnits:Int):AiRouteResult =
+        if(workload !in provider.capabilities.supportedWorkloads||provider.capabilities.maximumContextUnits<requiredContextUnits)
+            AiRouteResult.Unavailable(listOf("FIXED_PROVIDER_CAPABILITY_MISMATCH"))
+        else AiRouteResult.Selected(provider,false,"FIXED_COMPOSITION_ROOT_ROUTE")
+}
+
+sealed interface NarrativeRecoveryResult{
+    data class Recovered(val delivery:NarrativeDeliveryReceipt,val rebuilt:Boolean):NarrativeRecoveryResult
+    data class Unavailable(val reasonUid:String):NarrativeRecoveryResult
+}
 
 /**
  * Provider-independent application facade. AI may interpret and propose; only the assembler,
  * canonical transaction port and persisted-receipt authority can cross the mutation boundary.
  */
 class AiChatEngineFacade(
-    private val providerRegistry:AiProviderRegistry,
-    private val providerUid:String,
+    private val modelRoute:AiModelRoutePort,
     private val intentValidator:Phase43IntentValidator,
     private val intentResolution:TrustedIntentResolutionPort,
     private val intentFallback:IntentInterpretationFallback,
@@ -105,12 +121,18 @@ class AiChatEngineFacade(
     private val proposalRepair:BoundedProposalRepair,
     private val assembler:CanonicalMutationAssembler,
     private val commitPort:AuthoritativeTurnCommitPort,
-    private val receiptAuthority:PersistedCommitReceiptAuthority
+    private val receiptAuthority:PersistedCommitReceiptAuthority,
+    private val narrationContextBuilder:CommittedNarrationContextBuilder,
+    private val narrativeRenderer:CommittedNarrativeRenderer=CommittedNarrativeRenderer(),
+    private val deliveryStore:NarrativeDeliveryStore=InMemoryNarrativeDeliveryStore(),
+    private val recoveryStore:NarrationRecoveryStore=InMemoryNarrationRecoveryStore(),
+    private val recoveryDiscovery:()->ChatTurnRequest?={null}
 ){
     fun play(request:ChatTurnRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):ChatTurnResult{
         if(cancellation.isCancelled())return ChatTurnResult.Cancelled(AiTurnStage.INTERPRETATION,TurnMutationState.NOT_STARTED)
-        val provider=try{providerRegistry.require(providerUid,AiWorkload.INTENT_INTERPRETATION)}catch(_:IllegalArgumentException){
-            return ChatTurnResult.Failed(AiTurnStage.INTERPRETATION,"AI_PROVIDER_UNAVAILABLE",TurnMutationState.NOT_STARTED)
+        val provider=when(val route=modelRoute.route(AiRole.GAME_MASTER,AiWorkload.INTENT_INTERPRETATION,0)){
+            is AiRouteResult.Selected->route.provider
+            is AiRouteResult.Unavailable->return ChatTurnResult.Failed(AiTurnStage.INTERPRETATION,route.reasonUids.joinToString("|"),TurnMutationState.NOT_STARTED)
         }
         if(PHASE43_INTENT_SCHEMA_VERSION !in provider.capabilities.intentSchemaVersions)return ChatTurnResult.Failed(
             AiTurnStage.INTERPRETATION,"PROVIDER_INTENT_SCHEMA_UNSUPPORTED",TurnMutationState.NOT_STARTED
@@ -141,8 +163,9 @@ class AiChatEngineFacade(
         val context=contextPipeline.execute(plan,contextProfile)
         if(context.state!=ContextCompletionState.COMPLETE||!context.budgeted.safeForAi)return ChatTurnResult.Rejected(AiTurnStage.CONTEXT,(context.budgeted.reasonUids+context.terminationUid).distinct())
         if(cancellation.isCancelled())return ChatTurnResult.Cancelled(AiTurnStage.PROPOSAL,TurnMutationState.NOT_STARTED)
-        val proposalProvider=try{providerRegistry.require(providerUid,AiWorkload.GM_PROPOSAL)}catch(_:IllegalArgumentException){
-            return ChatTurnResult.Failed(AiTurnStage.PROPOSAL,"AI_PROVIDER_UNAVAILABLE",TurnMutationState.NOT_STARTED)
+        val proposalProvider=when(val route=modelRoute.route(AiRole.GAME_MASTER,AiWorkload.GM_PROPOSAL,context.budgeted.finalSerializedUnits)){
+            is AiRouteResult.Selected->route.provider
+            is AiRouteResult.Unavailable->return ChatTurnResult.Failed(AiTurnStage.PROPOSAL,route.reasonUids.joinToString("|"),TurnMutationState.NOT_STARTED)
         }
         if(context.budgeted.finalSerializedUnits>proposalProvider.capabilities.maximumContextUnits)return ChatTurnResult.Rejected(AiTurnStage.CONTEXT,listOf("PROVIDER_CONTEXT_LIMIT"))
         if(proposalRequestVersionUnsupported(proposalProvider))return ChatTurnResult.Failed(
@@ -178,18 +201,62 @@ class AiChatEngineFacade(
             return ChatTurnResult.Failed(AiTurnStage.COMMIT,failure.reasonUid,TurnMutationState.NOT_STARTED)
         }
         val evidence=receiptAuthority.authorize(receipt,identity)?:return ChatTurnResult.Failed(AiTurnStage.COMMIT,"COMMIT_RECEIPT_NOT_AUTHORITATIVE",TurnMutationState.UNVERIFIED)
+        try{recoveryStore.record(request,receipt)}catch(failure:Throwable){
+            return ChatTurnResult.CommittedWithoutNarrative(receipt,plan.planUid,verified.candidate.proposalUid,"RECOVERY_MARKER_PERSIST_FAILED")
+        }
         if(cancellation.isCancelled())return ChatTurnResult.CommittedWithoutNarrative(receipt,plan.planUid,verified.candidate.proposalUid,"CANCELLED_AFTER_COMMIT")
-        val narrativeProvider=try{providerRegistry.require(providerUid,AiWorkload.NARRATIVE_RENDER)}catch(_:IllegalArgumentException){
-            return ChatTurnResult.CommittedWithoutNarrative(receipt,plan.planUid,verified.candidate.proposalUid,"NARRATIVE_PROVIDER_UNAVAILABLE")
+        val narrationContext=try{narrationContextBuilder.build(evidence,request.audience,request.purpose)}catch(failure:Throwable){
+            return ChatTurnResult.CommittedWithoutNarrative(receipt,plan.planUid,verified.candidate.proposalUid,failure.message?:"POST_COMMIT_READBACK_REJECTED")
         }
-        val narrativeRequest=AiNarrativeRequest("${request.requestUid}:NARRATIVE",request.campaignUid,verified,evidence,request.localeUid)
-        return when(val rendered=narrativeProvider.renderNarrative(narrativeRequest,cancellation)){
-            is AiProviderResult.Success->{
-                if(rendered.value.committedOrder!=receipt.commitOrder)ChatTurnResult.CommittedWithoutNarrative(receipt,plan.planUid,verified.candidate.proposalUid,"NARRATIVE_COMMIT_ORDER_MISMATCH")
-                else ChatTurnResult.Narrated(rendered.value,receipt,plan.planUid,verified.candidate.proposalUid,repaired.attempts)
-            }
-            is AiProviderResult.Failure->ChatTurnResult.CommittedWithoutNarrative(receipt,plan.planUid,verified.candidate.proposalUid,rendered.reasonUid)
+        return try{deliver(request,narrationContext,receipt,plan.planUid,verified.candidate.proposalUid,repaired.attempts,cancellation)}
+        catch(failure:Throwable){ChatTurnResult.CommittedWithoutNarrative(receipt,plan.planUid,verified.candidate.proposalUid,failure.message?:"NARRATIVE_DELIVERY_FAILED")}
+    }
+
+    /** Recovery starts from a persisted receipt/readback and never calls planner, mechanics, assembler or commit. */
+    fun recoverNarration(request:ChatTurnRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):NarrativeRecoveryResult{
+        val identity=TurnTransactionIdentity(request.campaignUid,request.turnUid,request.commandUid,request.transactionUid)
+        val evidence=receiptAuthority.findAndAuthorize(identity)?:return NarrativeRecoveryResult.Unavailable("COMMIT_RECEIPT_NOT_FOUND_OR_INVALID")
+        val context=try{narrationContextBuilder.build(evidence,request.audience,request.purpose)}catch(failure:Throwable){
+            return NarrativeRecoveryResult.Unavailable(failure.message?:"POST_COMMIT_READBACK_REJECTED")
         }
+        val deliveryIdentity=NarrativeDeliveryIdentity(identity.transactionUid,context.committedOrder,request.localeUid)
+        deliveryStore.find(deliveryIdentity)?.let{runCatching{recoveryStore.clear(identity.transactionUid)};return NarrativeRecoveryResult.Recovered(it,false)}
+        val result=try{deliver(request,context,evidence.receipt,"RECOVERED_PLAN","RECOVERED_PROPOSAL",0,cancellation)}
+            catch(failure:Throwable){return NarrativeRecoveryResult.Unavailable(failure.message?:"NARRATIVE_RECOVERY_FAILED")}
+        return if(result is ChatTurnResult.Narrated)NarrativeRecoveryResult.Recovered(result.delivery,true)
+        else NarrativeRecoveryResult.Unavailable((result as? ChatTurnResult.CommittedWithoutNarrative)?.reasonUid?:"NARRATIVE_RECOVERY_FAILED")
+    }
+
+    fun pendingNarrationRecovery(campaignUid:String):ChatNarrationRecoveryToken?{
+        val request=recoveryStore.pending(campaignUid)?.request?:recoveryDiscovery()?.takeIf{it.campaignUid==campaignUid}?:return null
+        val identity=TurnTransactionIdentity(request.campaignUid,request.turnUid,request.commandUid,request.transactionUid)
+        val evidence=receiptAuthority.findAndAuthorize(identity)?:return null
+        val order=evidence.receipt.commitOrder?:return null
+        if(deliveryStore.find(NarrativeDeliveryIdentity(identity.transactionUid,order,request.localeUid))!=null){runCatching{recoveryStore.clear(identity.transactionUid)};return null}
+        runCatching{recoveryStore.record(request,evidence.receipt)}
+        return ChatNarrationRecoveryToken(request)
+    }
+
+    private fun deliver(
+        request:ChatTurnRequest,context:CommittedNarrationContext,receipt:TurnCommitReceipt,planUid:String,proposalUid:String,
+        proposalRepairAttempts:Int,cancellation:AiCancellationSignal
+    ):ChatTurnResult{
+        val identity=NarrativeDeliveryIdentity(request.transactionUid,context.committedOrder,request.localeUid)
+        deliveryStore.find(identity)?.let{runCatching{recoveryStore.clear(request.transactionUid)};return ChatTurnResult.Narrated(it.narrative,receipt,planUid,proposalUid,proposalRepairAttempts,it,false)}
+        if(cancellation.isCancelled())return ChatTurnResult.CommittedWithoutNarrative(receipt,planUid,proposalUid,"CANCELLED_AFTER_COMMIT")
+        val selected=modelRoute.route(AiRole.GAME_MASTER,AiWorkload.NARRATIVE_RENDER,context.legalFacts.size+context.playerSnapshot.size)
+        val provider=(selected as? AiRouteResult.Selected)?.provider
+        val outcome=if(provider==null)narrativeRenderer.fallbackOnly(context,"NARRATIVE_PROVIDER_UNAVAILABLE")
+        else narrativeRenderer.render(provider,AiNarrativeRequest("${request.requestUid}:NARRATIVE",context,request.localeUid),cancellation)
+        val providerUid=provider?.capabilities?.providerUid?:"DETERMINISTIC_FALLBACK"
+        val modelUid=provider?.capabilities?.modelUid?:"COMMITTED_CONTEXT_RENDERER_V1"
+        val fingerprint=narrativeFingerprint(outcome.narrative)
+        val delivery=deliveryStore.record(NarrativeDeliveryReceipt(
+            "DELIVERY:${request.transactionUid}:${context.committedOrder}:${request.localeUid}",identity,context.contextFingerprint,
+            outcome.narrative,providerUid,modelUid,fingerprint
+        ))
+        runCatching{recoveryStore.clear(request.transactionUid)}
+        return ChatTurnResult.Narrated(delivery.narrative,receipt,planUid,proposalUid,proposalRepairAttempts,delivery,outcome.usedFallback)
     }
 
     private fun proposalRequestVersionUnsupported(provider:AiProvider)=1 !in provider.capabilities.gmProposalSchemaVersions

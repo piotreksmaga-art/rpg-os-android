@@ -4,6 +4,8 @@ import kotlin.reflect.KClass
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 
 internal fun coreCommandCodecs(): Map<String, TypedCommandCodec<out PlayerCommandPayload>> = linkedMapOf(
@@ -150,6 +152,40 @@ internal fun coreCommandCodecs(): Map<String, TypedCommandCodec<out PlayerComman
         { jobj("projectUid" to j(it.projectUid), "reasonUid" to jn(it.reasonUid), "reasonText" to jn(it.reasonText)) },
         { CancelProjectCommandPayload(it.reqString("projectUid"), it.optString("reasonUid"), it.optString("reasonText")) },
         { nonblank(it.projectUid, "INVALID_PROJECT_UID") }
+    ),
+    PlayerCommandKinds.APPLY_VERIFIED_MECHANICS to codec(
+        ApplyVerifiedMechanicsCommandPayload::class,
+        { payload->jobj(
+            "planUid" to j(payload.planUid),
+            "effects" to buildJsonArray{
+                payload.effects.forEach{effect->
+                    add(buildJsonObject{
+                        put("effectUid",j(effect.effectUid));put("nodeUid",j(effect.nodeUid));put("mechanicsOwnerUid",j(effect.mechanicsOwnerUid))
+                        put("effectKindUid",j(effect.effectKindUid));put("target",encodeRef(effect.target));put("magnitude",j(effect.magnitude))
+                        put("canonicalPayload",buildJsonObject{effect.canonicalPayload.toSortedMap().forEach{(key,value)->put(key,j(value))}})
+                        put("proofUid",j(effect.proofUid));put("deterministicInputFingerprint",j(effect.deterministicInputFingerprint));put("deterministicOutputFingerprint",j(effect.deterministicOutputFingerprint))
+                    })
+                }
+            }
+        ) },
+        { obj->ApplyVerifiedMechanicsCommandPayload(obj.reqString("planUid"),obj.reqArray("effects").map{element->
+            val effect=element.jsonObject.requireOnlyKeys(setOf("effectUid","nodeUid","mechanicsOwnerUid","effectKindUid","target","magnitude","canonicalPayload","proofUid","deterministicInputFingerprint","deterministicOutputFingerprint"))
+            VerifiedMechanicsCommandEffect(
+                effect.reqString("effectUid"),effect.reqString("nodeUid"),effect.reqString("mechanicsOwnerUid"),effect.reqString("effectKindUid"),
+                decodeRef(effect.reqObject("target")),effect.reqLong("magnitude"),effect.reqObject("canonicalPayload").mapValues{entry->
+                    val primitive=entry.value as? JsonPrimitive?:throw PlayerCommandStructuralException("INVALID_MECHANICS_PAYLOAD_VALUE")
+                    if(!primitive.isString)throw PlayerCommandStructuralException("INVALID_MECHANICS_PAYLOAD_VALUE")
+                    primitive.content
+                },effect.reqString("proofUid"),effect.reqString("deterministicInputFingerprint"),effect.reqString("deterministicOutputFingerprint")
+            )
+        }) },
+        { payload->combine(
+            nonblank(payload.planUid,"INVALID_PLAN_UID"),
+            errorIf(payload.effects.isEmpty(),"EMPTY_MECHANICS_EFFECTS"),
+            errorIf(payload.effects.map{it.effectUid}.distinct().size!=payload.effects.size,"DUPLICATE_MECHANICS_EFFECT_UID"),
+            errorIf(payload.effects.any{!validRef(it.target)},"INVALID_MECHANICS_TARGET"),
+            errorIf(payload.effects.any{effect->listOf(effect.effectUid,effect.nodeUid,effect.mechanicsOwnerUid,effect.effectKindUid,effect.proofUid,effect.deterministicInputFingerprint,effect.deterministicOutputFingerprint).any{it.isBlank()}},"INVALID_MECHANICS_EFFECT")
+        ) }
     )
 )
 

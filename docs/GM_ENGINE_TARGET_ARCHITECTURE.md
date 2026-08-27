@@ -1138,6 +1138,12 @@ AiProvider may route:
 
 Architecture must not depend on one specific API/model.
 
+### Current production integration candidate
+
+Android chat uses one `ProductionGameEngineCompositionRoot`; controlled, local ExecuTorch/Bielik and cloud OpenRouter adapters enter through the same `AiProvider` semantic port. OpenRouter requests use workload-specific strict JSON Schema, then Core codecs and Phase43–54 validators independently revalidate identity, agency, knowledge and mutation boundaries. Provider output never receives DB or commit authority.
+
+New-campaign character creation is another provider-independent workload. The GM may ask for missing choices and prepare a complete universal draft (identity/gender/stats/resources/talent/potential/skills/techniques/origin/innate/start), but only a separately confirmed fingerprinted draft is atomically committed. Definition content belongs to the active World Pack; workflow, validation and authority belong to Core.
+
 ## 49. Structured GM Output
 
 AI output is structured, not narration-only.
@@ -1176,6 +1182,8 @@ Before commit validate:
 - Player Domain invariants
 
 Counterfactual Guard rejects invented prior history.
+
+Universal Combat is resolved locally before this guard and never by narrative AI. Core owns stable status semantics such as burning, poison, paralysis and frozen; World Pack abilities bind to those statuses with typed application chances. AoE shape is generic rather than fireball-specific. Large individual-vs-group, group-vs-group and unit-vs-unit engagements use aggregate bounded resolution without expanding every member, while the later World Simulation phase remains owner of LOD lifecycle and background simulation.
 
 ## 51. Repair Pass
 

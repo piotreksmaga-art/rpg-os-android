@@ -3,6 +3,13 @@ package com.rpgos.app
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import java.io.File
+import kotlin.math.roundToLong
+
+internal data class InfrastructureMechanicalPersistence(
+    val activeEffects:List<Pair<String,Long>>,
+    val position:CombatPosition?,
+    val stateVersion:Long
+)
 
 /** Canonical repository facade for the application layer. */
 class UnifiedGameRepository(context: Context) : CampaignRepository {
@@ -15,6 +22,9 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun activeCampaignRef(): ActiveCampaignRef = selection.activeCampaignRef()
     override fun activePlayerRef(): ActivePlayerRef? = store.activePlayerRef()
     override fun setActivePlayer(playerUid: String): ActivePlayerRef = store.setActivePlayer(playerUid)
+    fun characterCreationCatalog():CharacterCreationCatalog=store.characterCreationCatalog()
+    fun createPlayerCharacter(draft:PlayerCharacterCreationDraft,confirmation:PlayerCharacterCreationConfirmation):PlayerCharacterBootstrapReceipt=
+        store.createPlayerCharacter(draft,confirmation)
     internal fun infrastructurePlayerState(): PlayerStateSnapshot? = store.playerState()
     override fun protectedReads(): ProtectedCampaignReadRepository =
         ProtectedCampaignReadRepository.owned(::openGameplaySaveDb, activeCampaignRef().campaignId, ::activePlayerRef)
@@ -33,6 +43,45 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     private fun openGameplaySaveDb(): SQLiteDatabase = store.openGameplaySaveDb()
     internal fun infrastructureOpenWorldDb(): SQLiteDatabase = store.openWorldDb()
     internal fun infrastructureOpenCoreDb(): SQLiteDatabase = store.openCoreDb()
+    internal fun infrastructureReceipt(transactionUid:String):TurnCommitReceipt? =
+        openGameplaySaveDb().use{TurnTransactionReceiptStore(it).committedTransaction(transactionUid)}
+    internal fun infrastructureLastCommitOrder():Long =
+        openGameplaySaveDb().use{TurnTransactionReceiptStore(it).lastValidCommit(activeCampaignRef().campaignId)?.commitOrder?:0L}
+    internal fun infrastructureLastReceipt():TurnCommitReceipt? =
+        openGameplaySaveDb().use{TurnTransactionReceiptStore(it).lastValidCommit(activeCampaignRef().campaignId)}
+    internal fun infrastructureReplayPayload(transactionUid:String,committedOrder:Long):CommittedReplayPayload? =
+        openGameplaySaveDb().use{db->CommittedReplayPayloadStore(db).after(activeCampaignRef().campaignId,(committedOrder-1).coerceAtLeast(0)).singleOrNull{it.identity.transactionUid==transactionUid}}
+    internal fun infrastructureWorldPackAuthority():CurrentWorldPackAuthority = CampaignSelectionManager(context).currentWorldPackAuthority()
+    internal fun infrastructureMechanicalPersistence(entityUid:String):InfrastructureMechanicalPersistence = openGameplaySaveDb().use{db->
+        val effects=mutableListOf<Pair<String,Long>>();var version=0L
+        db.rawQuery(
+            "SELECT effect_key,magnitude,started_chapter FROM active_combat_effects WHERE entity_uid=? AND status='active' ORDER BY started_chapter,active_effect_uid",
+            arrayOf(entityUid)
+        ).use{cursor->while(cursor.moveToNext()){
+            effects+=cursor.getString(0) to cursor.getDouble(1).roundToLong()
+            version=maxOf(version,cursor.getLong(2))
+        }}
+        val position=db.rawQuery(
+            "SELECT location_uid,x_coord,y_coord,updated_chapter FROM entity_positions WHERE entity_uid=? LIMIT 1",
+            arrayOf(entityUid)
+        ).use{cursor->
+            if(!cursor.moveToFirst())null else{
+                version=maxOf(version,if(cursor.isNull(3))0L else cursor.getLong(3))
+                when{
+                    !cursor.isNull(1)&&!cursor.isNull(2)->CombatPosition.Exact(cursor.getDouble(1).roundToLong(),cursor.getDouble(2).roundToLong())
+                    !cursor.isNull(0)&&cursor.getString(0).isNotBlank()->CombatPosition.Zone(cursor.getString(0))
+                    else->null
+                }
+            }
+        }
+        InfrastructureMechanicalPersistence(effects,position,version)
+    }
+    internal fun infrastructureMechanicalActor(ref:DomainRef):MechanicalActorView? =
+        openGameplaySaveDb().use{MechanicalActorStateStore(it,activeCampaignRef().campaignId).actor(ref)}
+    internal fun infrastructureAggregatePopulation(ref:DomainRef):AggregateMechanicalPopulation? =
+        openGameplaySaveDb().use{MechanicalActorStateStore(it,activeCampaignRef().campaignId).population(ref)}
+    internal fun infrastructureAggregateTargets(phrase:String):List<Pair<String,DomainRef>> =
+        openGameplaySaveDb().use{MechanicalActorStateStore(it,activeCampaignRef().campaignId).aggregateTargets(phrase)}
 
     private fun requireActiveVisibility(audience:AudienceContext,purpose:PurposeContext) {
         val campaign=activeCampaignRef().campaignId

@@ -338,6 +338,12 @@ internal class CampaignEventStore(private val db: SQLiteDatabase, private val ca
             is CampaignTruthChange -> PlayerChangeKinds.CAMPAIGN_TRUTH
             is ConditionChange -> PlayerChangeKinds.CONDITION
             is RuntimeChange -> PlayerChangeKinds.RUNTIME
+            is WoundChange -> PlayerChangeKinds.WOUND
+            is SpatialChange -> PlayerChangeKinds.SPATIAL
+            is EquipmentIntegrityChange -> PlayerChangeKinds.EQUIPMENT_INTEGRITY
+            is StructureIntegrityChange -> PlayerChangeKinds.STRUCTURE_INTEGRITY
+            is MechanicalTrackChange -> PlayerChangeKinds.MECHANICAL_TRACK
+            is AggregatePopulationChange -> PlayerChangeKinds.AGGREGATE_POPULATION
             is DevelopmentProjectChange -> PlayerChangeKinds.DEVELOPMENT_PROJECT
             is KnowledgeAcquisitionChange -> PHASE37_KNOWLEDGE_CHANGE_KIND
             is AccessAuthorityChange -> PlayerChangeKinds.ACCESS_AUTHORITY
@@ -372,6 +378,12 @@ internal class CampaignEventStore(private val db: SQLiteDatabase, private val ca
         is CampaignTruthChange -> DomainRef("CAMPAIGN_TRUTH", payload.truthUid)
         is ConditionChange -> payload.subject
         is RuntimeChange -> payload.subject
+        is WoundChange -> payload.subject
+        is SpatialChange -> payload.subject
+        is EquipmentIntegrityChange -> payload.subject
+        is StructureIntegrityChange -> payload.subject
+        is MechanicalTrackChange -> payload.subject
+        is AggregatePopulationChange -> payload.subject
         is DevelopmentProjectChange -> DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid)
         is KnowledgeAcquisitionChange -> DomainRef(payload.acquisition.holder.holderKindUid, payload.acquisition.holder.holderUid)
         is AccessAuthorityChange -> DomainRef(payload.principalKindUid, payload.principalUid)
