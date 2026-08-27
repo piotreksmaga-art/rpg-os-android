@@ -235,11 +235,24 @@ internal class LocalGameStore(private val context: Context) {
         openSaveDb().use{db->ensureCharacterCreationDefinitions(db,campaignUid);materializeWorldActorsWithAuthority(db,campaignUid);GameplayRuntimeBootstrap.initialize(db,campaignUid)}
     }
     fun createCampaign(name: String): File {
+        val previousCampaign=selection.activeCampaignDirName()
         val created = selection.createCampaign(name)
-        val campaignUid=selection.activeCampaignRef().campaignId
-        openSaveDb().use { db -> ensureCurrentSchema(db);ensureCharacterCreationDefinitions(db,campaignUid);materializeWorldActorsWithAuthority(db,campaignUid);GameplayRuntimeBootstrap.initialize(db,campaignUid) }
-        return created
+        try{
+            val campaignUid=selection.activeCampaignRef().campaignId
+            openSaveDb().use { db -> ensureCurrentSchema(db);ensureCharacterCreationDefinitions(db,campaignUid);materializeWorldActorsWithAuthority(db,campaignUid);GameplayRuntimeBootstrap.initialize(db,campaignUid) }
+            return created
+        }catch(t:Throwable){
+            // A failed post-clone migration/bootstrap must not leave a broken campaign selected.
+            // Restore the previous authority first; the incomplete clone can then be quarantined
+            // through the same recoverable trash path used by the user-facing campaign manager.
+            runCatching{selection.setActiveCampaign(previousCampaign)}
+                .onFailure{DiagnosticLogger.log(context,"CAMPAIGN_CREATE_ROLLBACK_SELECTION_FAILED",it)}
+            runCatching{selection.moveCampaignToTrash(created.name)}
+                .onFailure{DiagnosticLogger.log(context,"CAMPAIGN_CREATE_QUARANTINE_FAILED",it)}
+            throw t
+        }
     }
+    fun moveCampaignToTrash(dirName:String):File = selection.moveCampaignToTrash(dirName)
     fun activeCampaignDirName(): String = selection.activeCampaignDirName()
     fun activeWorldPackDirName(): String = selection.activeWorldPackDirName()
     fun packageManager(): RpgPackageManager = RpgPackageManager(context)

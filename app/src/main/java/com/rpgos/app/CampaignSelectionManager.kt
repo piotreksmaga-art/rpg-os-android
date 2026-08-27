@@ -207,6 +207,42 @@ class CampaignSelectionManager private constructor(
         }
     }
 
+    /**
+     * Removes a selectable campaign without destroying it. The directory is atomically moved to
+     * the hidden saves/.trash directory, so it no longer appears in normal campaign listings but
+     * can still be recovered manually if the user removed it by mistake.
+     *
+     * The bundled template and the active campaign are protected. Callers must make another
+     * campaign active before archiving the current one.
+     */
+    fun moveCampaignToTrash(dirName: String): File = CanonicalPackageAuthorityGate.mutate {
+        require(File(dirName).name == dirName && dirName.endsWith(".campaign")) {
+            "Nieprawidłowa nazwa katalogu kampanii."
+        }
+        require(dirName != ActiveCampaignRef.DEFAULT_DIRECTORY) {
+            "Nie można usunąć domyślnej kampanii systemowej."
+        }
+        require(dirName != activeCampaignDirName()) {
+            "Nie można usunąć aktywnej kampanii. Najpierw aktywuj inną kampanię."
+        }
+
+        val source = File(saves, dirName)
+        require(source.isDirectory) { "Nie znaleziono kampanii $dirName" }
+        require(source.canonicalFile.parentFile == saves.canonicalFile) {
+            "Kampania znajduje się poza katalogiem zapisów."
+        }
+
+        val trash = File(saves, ".trash")
+        check(trash.isDirectory || trash.mkdirs()) { "Nie udało się utworzyć kosza kampanii." }
+        val baseName = dirName.removeSuffix(".campaign")
+        val destination = File(
+            trash,
+            "$baseName-deleted-${System.currentTimeMillis()}-${UUID.randomUUID()}.campaign"
+        )
+        check(source.renameTo(destination)) { "Nie udało się przenieść kampanii do kosza." }
+        destination
+    }
+
     private fun rewriteClonedCampaignManifestId(campaignDir: File, campaignId: String) {
         val manifest = File(campaignDir, "campaign.json")
         if (!manifest.isFile) return

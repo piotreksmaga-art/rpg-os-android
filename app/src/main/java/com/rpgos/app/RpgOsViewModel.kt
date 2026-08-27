@@ -9,6 +9,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+data class CampaignCreationUiState(
+    val inProgress:Boolean=false,
+    val completedCampaignDir:String?=null,
+    val errorMessage:String?=null
+)
+
+data class CampaignManagementUiState(
+    val inProgressCampaignDir:String?=null,
+    val notice:String?=null,
+    val errorMessage:String?=null
+)
+
 class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     private val store = LocalGameStore(app)
     private val repository = UnifiedGameRepository(app)
@@ -45,7 +57,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     val developerDiagnostic: StateFlow<String> = _developerDiagnostic
 
     private val _messages = MutableStateFlow(
-        listOf(ChatMessage("system", "RPG OS ALPHA 1.3.0-alpha7-core54 • pełny Core Phase 1–54 • trwała mechanika i bezpieczna narracja."))
+        listOf(ChatMessage("system", "RPG OS ${BuildConfig.VERSION_NAME} • pełny Core Phase 1–54 • trwała mechanika i bezpieczna narracja."))
     )
     val messages: StateFlow<List<ChatMessage>> = _messages
 
@@ -68,6 +80,12 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _campaigns = MutableStateFlow<List<CampaignInfo>>(emptyList())
     val campaigns: StateFlow<List<CampaignInfo>> = _campaigns
+
+    private val _campaignCreationUi = MutableStateFlow(CampaignCreationUiState())
+    val campaignCreationUi:StateFlow<CampaignCreationUiState> = _campaignCreationUi
+
+    private val _campaignManagementUi = MutableStateFlow(CampaignManagementUiState())
+    val campaignManagementUi:StateFlow<CampaignManagementUiState> = _campaignManagementUi
 
     private val _backups = MutableStateFlow<List<String>>(emptyList())
     val backups: StateFlow<List<String>> = _backups
@@ -583,15 +601,60 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun createAndActivateCampaign(name: String) {
+        if(_campaignCreationUi.value.inProgress)return
         val clean = name.trim().ifBlank { "Nowa kampania" }
-        val dir = store.createCampaign(clean)
-        store.setActiveCampaign(dir.name)
-        refresh()
-        _messages.value = _messages.value + ChatMessage(
-            "system",
-            "Utworzono i aktywowano kampanię: ${dir.name}"
-        )
+        _campaignCreationUi.value=CampaignCreationUiState(inProgress=true)
+        viewModelScope.launch {
+            try {
+                val dir=withContext(Dispatchers.IO){
+                    val created=store.createCampaign(clean)
+                    store.setActiveCampaign(created.name)
+                    refresh()
+                    created
+                }
+                _messages.value = _messages.value + ChatMessage(
+                    "system",
+                    "Utworzono i aktywowano kampanię: ${dir.name}"
+                )
+                _campaignCreationUi.value=CampaignCreationUiState(completedCampaignDir=dir.name)
+            }catch(t:Throwable){
+                val app=getApplication<Application>()
+                DiagnosticLogger.log(app,"CAMPAIGN_CREATE_FAILED",t)
+                _campaignCreationUi.value=CampaignCreationUiState(
+                    errorMessage=t.message?.takeIf{it.isNotBlank()}?:"Nie udało się utworzyć kampanii."
+                )
+            }
+        }
     }
+
+    fun consumeCampaignCreationCompletion(){
+        if(_campaignCreationUi.value.completedCampaignDir!=null)_campaignCreationUi.value=CampaignCreationUiState()
+    }
+
+    fun moveCampaignToTrash(dirName:String){
+        if(_campaignManagementUi.value.inProgressCampaignDir!=null)return
+        _campaignManagementUi.value=CampaignManagementUiState(inProgressCampaignDir=dirName)
+        viewModelScope.launch{
+            try{
+                val removed=withContext(Dispatchers.IO){
+                    val destination=store.moveCampaignToTrash(dirName)
+                    refresh()
+                    destination
+                }
+                _campaignManagementUi.value=CampaignManagementUiState(
+                    notice="Kampanię przeniesiono do bezpiecznego kosza: ${removed.nameWithoutExtension}."
+                )
+            }catch(t:Throwable){
+                val app=getApplication<Application>()
+                DiagnosticLogger.log(app,"CAMPAIGN_TRASH_FAILED",t)
+                _campaignManagementUi.value=CampaignManagementUiState(
+                    errorMessage=t.message?.takeIf{it.isNotBlank()}?:"Nie udało się usunąć kampanii."
+                )
+            }
+        }
+    }
+
+    fun clearCampaignManagementMessage(){_campaignManagementUi.value=CampaignManagementUiState()}
 
 
     fun loadDeveloperDiagnostics() {

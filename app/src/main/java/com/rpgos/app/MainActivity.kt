@@ -232,6 +232,7 @@ fun RpgOsApp(vm: RpgOsViewModel) {
     var route by remember { mutableStateOf(AppRoute.HOME) }
     when (route) {
         AppRoute.HOME -> HomeScreen(
+            vm = vm,
             onNewGame = { route = AppRoute.NEW_GAME },
             onContinue = { route = AppRoute.CONTINUE },
             onSaves = { route = AppRoute.SAVES },
@@ -286,6 +287,7 @@ fun RpgOsApp(vm: RpgOsViewModel) {
 
 @Composable
 private fun HomeScreen(
+    vm: RpgOsViewModel,
     onNewGame: () -> Unit,
     onContinue: () -> Unit,
     onSaves: () -> Unit,
@@ -293,6 +295,13 @@ private fun HomeScreen(
     onSettings: () -> Unit,
     onAbout: () -> Unit
 ) {
+    val campaigns by vm.campaigns.collectAsState()
+    val backups by vm.backups.collectAsState()
+    val worldPacks by vm.worldPacks.collectAsState()
+    val alphaLabel=remember(BuildConfig.VERSION_NAME){
+        Regex("alpha(\\d+)",RegexOption.IGNORE_CASE).find(BuildConfig.VERSION_NAME)
+            ?.groupValues?.getOrNull(1)?.let{"ALPHA $it"}?:"ALPHA"
+    }
     GradientScreen {
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
@@ -314,7 +323,7 @@ private fun HomeScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text("✦", color = Color(0xFF63E6FF), style = MaterialTheme.typography.labelLarge)
-                            Text("ALPHA 5", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = Color(0xFF5DDCFF))
+                            Text(alphaLabel, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = Color(0xFF5DDCFF))
                             Text("•", color = Color(0xFF5D7690))
                             Text(BuildConfig.VERSION_NAME, style = MaterialTheme.typography.labelMedium, color = Color(0xFFD8E9F7))
                         }
@@ -398,10 +407,10 @@ private fun HomeScreen(
                         Modifier.padding(16.dp),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        StatMini("1", "Światów")
-                        StatMini("2", "Kampanie")
-                        StatMini("3", "Backupy")
-                        StatMini("ALPHA 5", "Wersja")
+                        StatMini(worldPacks.size.toString(), "Światów")
+                        StatMini(campaigns.count{File(it.path).name!=ActiveCampaignRef.DEFAULT_DIRECTORY}.toString(), "Kampanie")
+                        StatMini(backups.size.toString(), "Backupy")
+                        StatMini(alphaLabel, "Wersja")
                     }
                 }
             }
@@ -817,6 +826,14 @@ private fun NarutoSetupScreen(
     onEnterCampaign: () -> Unit
 ) {
     var campaignName by remember { mutableStateOf("") }
+    val creationUi by vm.campaignCreationUi.collectAsState()
+
+    LaunchedEffect(creationUi.completedCampaignDir){
+        if(creationUi.completedCampaignDir!=null){
+            vm.consumeCampaignCreationCompletion()
+            onEnterCampaign()
+        }
+    }
 
     StandardPage(title = "Naruto • Nowa kampania", onBack = onBack) {
         LazyColumn(
@@ -852,11 +869,22 @@ private fun NarutoSetupScreen(
                         Button(
                             onClick = {
                                 vm.createAndActivateCampaign(campaignName)
-                                onEnterCampaign()
                             },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !creationUi.inProgress
                         ) {
-                            Text("Rozpocznij kampanię")
+                            if(creationUi.inProgress){
+                                CircularProgressIndicator(
+                                    modifier=Modifier.size(20.dp),
+                                    strokeWidth=2.dp
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text("Tworzenie kampanii…")
+                            }else Text("Rozpocznij kampanię")
+                        }
+                        creationUi.errorMessage?.let{message->
+                            Spacer(Modifier.height(10.dp))
+                            Text(message,color=MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -1854,9 +1882,26 @@ private fun PackagesScreen(vm:RpgOsViewModel){
     val activeCampaign by vm.activeCampaign.collectAsState()
     val worlds by vm.worldPacks.collectAsState()
     val activeWorldPack by vm.activeWorldPack.collectAsState()
+    val managementUi by vm.campaignManagementUi.collectAsState()
 
     var tab by remember { mutableStateOf("Kampanie") }
     var newCampaignName by remember { mutableStateOf("") }
+    var campaignPendingRemoval by remember { mutableStateOf<CampaignInfo?>(null) }
+
+    campaignPendingRemoval?.let{campaign->
+        AlertDialog(
+            onDismissRequest={campaignPendingRemoval=null},
+            title={Text("Usunąć kampanię?")},
+            text={Text("„${campaign.name}” zniknie z listy kampanii i zostanie przeniesiona do bezpiecznego kosza. Aktywnej ani systemowej kampanii nie można usunąć.")},
+            confirmButton={
+                TextButton(onClick={
+                    vm.moveCampaignToTrash(File(campaign.path).name)
+                    campaignPendingRemoval=null
+                }){Text("Przenieś do kosza",color=MaterialTheme.colorScheme.error)}
+            },
+            dismissButton={TextButton(onClick={campaignPendingRemoval=null}){Text("Anuluj")}}
+        )
+    }
 
     GradientScreen {
         LazyColumn(
@@ -1908,6 +1953,22 @@ private fun PackagesScreen(vm:RpgOsViewModel){
             }
 
             if(tab == "Kampanie") {
+                managementUi.notice?.let{message->
+                    item{
+                        AssistChip(
+                            onClick={vm.clearCampaignManagementMessage()},
+                            label={Text(message)},
+                            trailingIcon={Text("×")}
+                        )
+                    }
+                }
+                managementUi.errorMessage?.let{message->
+                    item{
+                        TextButton(onClick={vm.clearCampaignManagementMessage()}){
+                            Text(message,color=MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
                 item {
                     Text(
                         "Aktywne kampanie",
@@ -1983,6 +2044,17 @@ private fun PackagesScreen(vm:RpgOsViewModel){
                                 modifier = Modifier.fillMaxWidth(),
                                 brush = if(active) TealGradient else BlueGradient
                             )
+
+                            if(dirName!=ActiveCampaignRef.DEFAULT_DIRECTORY){
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick={campaignPendingRemoval=campaign},
+                                    modifier=Modifier.fillMaxWidth(),
+                                    enabled=!active && managementUi.inProgressCampaignDir==null
+                                ){
+                                    Text(if(active)"Najpierw aktywuj inną kampanię" else "Usuń kampanię")
+                                }
+                            }
                         }
                     }
                 }
@@ -2315,7 +2387,38 @@ private fun AiRoleAssignmentPanel(
     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){Text(label,Modifier.weight(1f));Switch(value,onChange)}
 }
 
+private enum class SettingsSection(val label:String){
+    AI("Modele AI"),
+    SYSTEM("System i aktualizacje")
+}
+
 @Composable private fun SettingsScreen(vm:RpgOsViewModel){
+    var section by remember{mutableStateOf(SettingsSection.AI)}
+
+    GradientScreen{
+        Column(Modifier.fillMaxSize()){
+            SingleChoiceSegmentedButtonRow(
+                modifier=Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=12.dp)
+            ){
+                SettingsSection.entries.forEachIndexed{index,item->
+                    SegmentedButton(
+                        selected=section==item,
+                        onClick={section=item},
+                        shape=SegmentedButtonDefaults.itemShape(index,SettingsSection.entries.size)
+                    ){Text(item.label)}
+                }
+            }
+            Box(Modifier.fillMaxWidth().weight(1f)){
+                when(section){
+                    SettingsSection.AI->AiProviderCenterScreen(vm)
+                    SettingsSection.SYSTEM->SystemSettingsScreen(vm)
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun SystemSettingsScreen(vm:RpgOsViewModel){
     val context=LocalContext.current
     val current by vm.settings.collectAsState()
     val updateStatus by vm.updateStatus.collectAsState()
