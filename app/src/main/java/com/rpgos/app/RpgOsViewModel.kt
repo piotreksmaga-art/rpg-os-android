@@ -12,11 +12,24 @@ import kotlinx.coroutines.withContext
 data class CampaignCreationUiState(
     val inProgress:Boolean=false,
     val completedCampaignDir:String?=null,
+    val requiresCharacterCreation:Boolean=false,
     val errorMessage:String?=null
 )
 
 data class CampaignManagementUiState(
     val inProgressCampaignDir:String?=null,
+    val notice:String?=null,
+    val errorMessage:String?=null
+)
+
+data class PackageTransferUiState(
+    val inProgress:Boolean=false,
+    val notice:String?=null,
+    val errorMessage:String?=null
+)
+
+data class SaveRecoveryUiState(
+    val inProgress:Boolean=false,
     val notice:String?=null,
     val errorMessage:String?=null
 )
@@ -69,6 +82,12 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     )
     val characterPanel: StateFlow<CharacterPanelSnapshot> = _characterPanel
 
+    private val _characterPanelV2=MutableStateFlow<CharacterPanelSnapshotV2?>(null)
+    val characterPanelV2:StateFlow<CharacterPanelSnapshotV2?> = _characterPanelV2
+
+    private val _hasActivePlayer=MutableStateFlow(false)
+    val hasActivePlayer:StateFlow<Boolean> = _hasActivePlayer
+
     private val _time = MutableStateFlow(TimeSnapshot())
     val time: StateFlow<TimeSnapshot> = _time
 
@@ -89,6 +108,15 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _backups = MutableStateFlow<List<String>>(emptyList())
     val backups: StateFlow<List<String>> = _backups
+
+    private val _snapshots = MutableStateFlow<List<CampaignSnapshotDescriptor>>(emptyList())
+    val snapshots:StateFlow<List<CampaignSnapshotDescriptor>> = _snapshots
+
+    private val _packageTransferUi=MutableStateFlow(PackageTransferUiState())
+    val packageTransferUi:StateFlow<PackageTransferUiState> = _packageTransferUi
+
+    private val _saveRecoveryUi=MutableStateFlow(SaveRecoveryUiState())
+    val saveRecoveryUi:StateFlow<SaveRecoveryUiState> = _saveRecoveryUi
 
     private val _npcs = MutableStateFlow<List<NpcListItem>>(emptyList())
     val npcs: StateFlow<List<NpcListItem>> = _npcs
@@ -277,13 +305,18 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refresh() {
+        _hasActivePlayer.value = store.activePlayerRef()!=null
         _status.value = store.status()
         _characterPanel.value = store.fullCharacterPanel(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _characterPanelV2.value = runCatching{
+            store.fullCharacterPanelV2(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        }.onFailure{DiagnosticLogger.log(getApplication<Application>(),"CHARACTER_PANEL_V2_REFRESH_FAILED",it)}.getOrNull()
         _time.value = store.time()
         _chronicle.value = store.chronicle()
         _worldPacks.value = store.packageManager().listWorldPacks()
         _campaigns.value = store.packageManager().listCampaigns()
         _backups.value = store.backups()
+        _snapshots.value = runCatching{store.snapshots()}.getOrDefault(emptyList())
         _npcs.value = store.npcs("",playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
         _relationEdges.value = store.relationEdges(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
         _economies.value = store.economies(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
@@ -570,12 +603,135 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun restoreBackup(path: String) {
-        val safety = store.restoreBackup(path)
-        refresh()
-        _messages.value = _messages.value + ChatMessage(
-            "system",
-            "Przywrócono backup. Poprzedni stan zabezpieczono jako: $safety"
-        )
+        if(_saveRecoveryUi.value.inProgress)return
+        _saveRecoveryUi.value=SaveRecoveryUiState(inProgress=true)
+        viewModelScope.launch{
+            try{
+                val safety=withContext(Dispatchers.IO){store.restoreBackup(path).also{refresh()}}
+                resetConversationForActiveCampaign(store.activeCampaignDirName())
+                _messages.value = _messages.value + ChatMessage("system","Przywrócono backup. Poprzedni stan zabezpieczono jako: $safety")
+                _saveRecoveryUi.value=SaveRecoveryUiState(notice="Backup przywrócony. Poprzedni stan został zabezpieczony.")
+            }catch(t:Throwable){
+                DiagnosticLogger.log(getApplication(),"BACKUP_RESTORE_FAILED",t)
+                _saveRecoveryUi.value=SaveRecoveryUiState(errorMessage=t.message?:"Nie udało się przywrócić backupu.")
+            }
+        }
+    }
+
+    fun createManualSnapshot(){
+        if(_saveRecoveryUi.value.inProgress)return
+        _saveRecoveryUi.value=SaveRecoveryUiState(inProgress=true)
+        viewModelScope.launch{
+            try{
+                val snapshot=withContext(Dispatchers.IO){store.createSnapshot(SnapshotKind.USER_PINNED,true).also{refresh()}}
+                _saveRecoveryUi.value=SaveRecoveryUiState(notice="Utworzono przypięty snapshot ${snapshot.snapshotUid.takeLast(8)}.")
+            }catch(t:Throwable){
+                DiagnosticLogger.log(getApplication(),"SNAPSHOT_CREATE_FAILED",t)
+                _saveRecoveryUi.value=SaveRecoveryUiState(errorMessage=t.message?:"Nie udało się utworzyć snapshotu.")
+            }
+        }
+    }
+
+    fun restoreSnapshot(snapshotUid:String){
+        if(_saveRecoveryUi.value.inProgress)return
+        _saveRecoveryUi.value=SaveRecoveryUiState(inProgress=true)
+        viewModelScope.launch{
+            try{
+                withContext(Dispatchers.IO){store.restoreSnapshot(snapshotUid);refresh()}
+                resetConversationForActiveCampaign(store.activeCampaignDirName())
+                _saveRecoveryUi.value=SaveRecoveryUiState(notice="Snapshot został zweryfikowany i przywrócony.")
+            }catch(t:Throwable){
+                DiagnosticLogger.log(getApplication(),"SNAPSHOT_RESTORE_FAILED",t)
+                _saveRecoveryUi.value=SaveRecoveryUiState(errorMessage=t.message?:"Nie udało się przywrócić snapshotu.")
+            }
+        }
+    }
+
+    fun clearSaveRecoveryMessage(){_saveRecoveryUi.value=SaveRecoveryUiState()}
+
+    fun importCampaign(uri:android.net.Uri){
+        transferPackage("CAMPAIGN_IMPORT_FAILED"){
+            val app=getApplication<Application>();val manager=RpgPackageManager(app)
+            val source=copyUriToCache(uri,"campaign-import")
+            try{
+                val base=safePackageBaseName(displayName(uri),"Importowana_kampania")
+                val existing=manager.listCampaigns().map{java.io.File(it.path).name}.toSet()
+                val target=uniquePackageName(base,".campaign",existing)
+                val result=manager.validatedImportCampaign(source,target)
+                require(result.ok){result.message}
+                store.setActiveCampaign(target);refresh();resetConversationForActiveCampaign(target)
+                "Zaimportowano i aktywowano kampanię ${target.removeSuffix(".campaign")}."
+            }finally{source.delete()}
+        }
+    }
+
+    fun importWorldPack(uri:android.net.Uri){
+        transferPackage("WORLD_PACK_IMPORT_FAILED"){
+            val app=getApplication<Application>();val manager=RpgPackageManager(app)
+            val source=copyUriToCache(uri,"worldpack-import")
+            try{
+                val base=safePackageBaseName(displayName(uri),"Importowany_swiat")
+                val existing=manager.listWorldPacks().map{java.io.File(it.path).name}.toSet()
+                val target=uniquePackageName(base,".worldpack",existing)
+                val result=manager.validatedImportWorldPack(source,target)
+                require(result.ok){result.message}
+                store.setActiveWorldPack(target);refresh()
+                "Zaimportowano i aktywowano World Pack ${target.removeSuffix(".worldpack")}."
+            }finally{source.delete()}
+        }
+    }
+
+    fun exportActiveCampaign(uri:android.net.Uri){
+        transferPackage("CAMPAIGN_EXPORT_FAILED"){
+            val app=getApplication<Application>();val temp=java.io.File(app.cacheDir,"campaign-export-${java.util.UUID.randomUUID()}.zip")
+            try{
+                store.packageManager().exportCampaign(store.activeCampaignDirName(),temp)
+                app.contentResolver.openOutputStream(uri,"w")?.use{out->temp.inputStream().use{it.copyTo(out)}}
+                    ?:error("Nie można otworzyć pliku docelowego.")
+                "Wyeksportowano aktywną kampanię."
+            }finally{temp.delete()}
+        }
+    }
+
+    fun clearPackageTransferMessage(){_packageTransferUi.value=PackageTransferUiState()}
+
+    private fun transferPackage(logUid:String,operation:()->String){
+        if(_packageTransferUi.value.inProgress)return
+        _packageTransferUi.value=PackageTransferUiState(inProgress=true)
+        viewModelScope.launch{
+            try{
+                val notice=withContext(Dispatchers.IO){operation()}
+                _packageTransferUi.value=PackageTransferUiState(notice=notice)
+            }catch(t:Throwable){
+                DiagnosticLogger.log(getApplication(),logUid,t)
+                _packageTransferUi.value=PackageTransferUiState(errorMessage=t.message?:"Operacja pakietu nie powiodła się.")
+            }
+        }
+    }
+
+    private fun copyUriToCache(uri:android.net.Uri,prefix:String):java.io.File{
+        val app=getApplication<Application>();val out=java.io.File(app.cacheDir,"$prefix-${java.util.UUID.randomUUID()}.zip")
+        app.contentResolver.openInputStream(uri)?.use{input->out.outputStream().use{input.copyTo(it)}}
+            ?:error("Nie można odczytać wybranego pliku.")
+        return out
+    }
+
+    private fun displayName(uri:android.net.Uri):String?{
+        val app=getApplication<Application>()
+        return runCatching{app.contentResolver.query(uri,arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),null,null,null)?.use{c->
+            if(c.moveToFirst())c.getString(0) else null
+        }}.getOrNull()
+    }
+
+    private fun safePackageBaseName(raw:String?,fallback:String):String{
+        val stripped=raw.orEmpty().substringBeforeLast('.').trim().replace(Regex("[^A-Za-z0-9_-]"),"_").trim('_')
+        return stripped.ifBlank{fallback}
+    }
+
+    private fun uniquePackageName(base:String,suffix:String,existing:Set<String>):String{
+        var candidate="$base$suffix";var counter=2
+        while(candidate in existing){candidate="$base-$counter$suffix";counter++}
+        return candidate
     }
 
     fun searchTechniques(query: String) {
@@ -585,7 +741,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     fun activateCampaign(dirName: String) {
         store.setActiveCampaign(dirName)
         refresh()
-        _messages.value = _messages.value + ChatMessage("system", "Aktywna kampania: $dirName")
+        resetConversationForActiveCampaign(dirName)
     }
 
     fun activateWorldPack(dirName: String) {
@@ -597,7 +753,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     fun createCampaign(name: String) {
         val dir = store.createCampaign(name)
         refresh()
-        _messages.value = _messages.value + ChatMessage("system", "Utworzono kampanię: ${dir.name}")
+        resetConversationForActiveCampaign(dir.name)
     }
 
     fun createAndActivateCampaign(name: String) {
@@ -612,11 +768,11 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                     refresh()
                     created
                 }
-                _messages.value = _messages.value + ChatMessage(
-                    "system",
-                    "Utworzono i aktywowano kampanię: ${dir.name}"
+                resetConversationForActiveCampaign(dir.name)
+                _campaignCreationUi.value=CampaignCreationUiState(
+                    completedCampaignDir=dir.name,
+                    requiresCharacterCreation=!_hasActivePlayer.value
                 )
-                _campaignCreationUi.value=CampaignCreationUiState(completedCampaignDir=dir.name)
             }catch(t:Throwable){
                 val app=getApplication<Application>()
                 DiagnosticLogger.log(app,"CAMPAIGN_CREATE_FAILED",t)
@@ -629,6 +785,20 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun consumeCampaignCreationCompletion(){
         if(_campaignCreationUi.value.completedCampaignDir!=null)_campaignCreationUi.value=CampaignCreationUiState()
+    }
+
+    private fun resetConversationForActiveCampaign(label:String){
+        pendingCharacterCreationUid=null
+        pendingNarrationRecovery=runCatching{chatApplication.pendingRecovery()}
+            .onFailure{DiagnosticLogger.log(getApplication<Application>(),"NARRATIVE_RECOVERY_DISCOVERY_FAILED",it)}.getOrNull()
+        _messages.value=buildList{
+            add(ChatMessage("system","RPG OS ${BuildConfig.VERSION_NAME} • aktywna kampania: $label"))
+            if(!_hasActivePlayer.value)add(ChatMessage("gm","Zanim rozpoczniemy przygodę, wspólnie stworzymy Twoją postać. Opowiedz mi, kim chcesz grać."))
+        }
+        _chatTurnUi.value=pendingNarrationRecovery?.let{token->ChatTurnUiState(
+            ChatTurnUiStage.COMMITTED_NARRATION_PENDING,token.request.requestUid,
+            "Ostatnia tura jest zapisana. Narrację można bezpiecznie odzyskać.",canRetryNarration=true
+        )}?:ChatTurnUiState()
     }
 
     fun moveCampaignToTrash(dirName:String){

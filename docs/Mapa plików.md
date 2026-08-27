@@ -380,6 +380,7 @@ Indeks techniczny wspierający `docs/Architektura projektu.md` i `docs/Roadmap.m
 - `app/src/main/java/com/rpgos/app/Phase45To47CanonicalContext.kt` — context integrity, non-droppable semantic core, full payload budget i typed bounded completion
 - `app/src/main/java/com/rpgos/app/Phase48AiProvider.kt` — provider-independent AI capabilities, registry, transport/codec adapter, cancellation i conformance provider
 - `app/src/main/java/com/rpgos/app/Phase48ProductionAiRuntime.kt` — role assignments, deterministic Auto routing, universal LocalAiPort/CloudAiPort, Bielik profile, runtime/admission/settings/auth contracts
+- `app/src/main/java/com/rpgos/app/ProductionCharacterPanelV2ReadSource.kt` — visibility-gated production adapter z authoritative character stores do read-only panelu postaci V2 w Androidzie
 - `app/src/main/java/com/rpgos/app/OpenRouterAndroidInfrastructure.kt` — Android Keystore, PKCE callback, OpenRouter HTTP/discovery/inference i JNI local driver boundary
 - `app/src/main/java/com/rpgos/app/OpenRouterStructuredOutputSchema.kt` — workload-specific strict OpenRouter JSON Schema; transportowa prewalidacja bez zastępowania walidacji Core
 - `app/src/main/java/com/rpgos/app/CanonicalAiJsonCodec.kt` — strict typed JSON wire schemas Intent/Proposal/Repair/Narrative/Director

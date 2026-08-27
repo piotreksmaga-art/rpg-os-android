@@ -190,6 +190,16 @@ internal class LocalGameStore(private val context: Context) {
     fun playerStats(): List<PlayerStat> { openGameplaySaveDb().use { db -> val campaignId = selection.activeCampaignRef().campaignId; val playerUid = ActivePlayerStore(db, campaignId).active()?.playerUid ?: return emptyList(); return StatResourceStore(db, campaignId).playerStats(playerUid) } }
     fun playerResources(): List<PlayerResource> { openGameplaySaveDb().use { db -> val campaignId = selection.activeCampaignRef().campaignId; val playerUid = ActivePlayerStore(db, campaignId).active()?.playerUid ?: return emptyList(); return StatResourceStore(db, campaignId).playerResources(playerUid) } }
     fun fullCharacterPanel(audience: AudienceContext, purpose: PurposeContext): CharacterPanelSnapshot { val campaign=activeCampaignId();if(audience.campaignUid!=campaign||purpose.campaignUid!=campaign)throw VisibilityAuthorityFailure.CrossCampaign();openGameplaySaveDb().use { db -> val active=ActivePlayerStore(db,campaign).active();val playerUid=active?.playerUid?:return CharacterPanelSnapshot.unresolved();val reads=ProtectedCampaignReadRepository.borrowed(db,campaign){active};val authorized=reads.playerState(audience,purpose,playerUid);return CharacterPanelReader(db,playerUid).load(audience,purpose,authorized) } }
+    fun fullCharacterPanelV2(audience:AudienceContext,purpose:PurposeContext):CharacterPanelSnapshotV2?{
+        val campaign=activeCampaignId()
+        if(audience.campaignUid!=campaign||purpose.campaignUid!=campaign)throw VisibilityAuthorityFailure.CrossCampaign()
+        openGameplaySaveDb().use{db->
+            val active=ActivePlayerStore(db,campaign).active()?:return null
+            val reads=ProtectedCampaignReadRepository.borrowed(db,campaign){active}
+            if(reads.playerState(audience,purpose,active.playerUid) !is ProtectedReadResult.Allow)return null
+            return CharacterPanelSnapshotV2Builder.build(ProductionCharacterPanelV2ReadSource(db),campaign,active.playerUid)
+        }
+    }
     fun npcs(search:String,audience:AudienceContext,purpose:PurposeContext):List<NpcListItem>{ requireActiveVisibility(audience,purpose);openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).npcs(search,audience,purpose)}} }
     fun npcDetail(uid:String,audience:AudienceContext,purpose:PurposeContext):NpcDetail{ requireActiveVisibility(audience,purpose);openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).npcDetail(uid,audience,purpose)}} }
     fun relationEdges(audience:AudienceContext,purpose:PurposeContext):List<RelationEdge>{ requireActiveVisibility(audience,purpose);openWorldDb().use{world->openGameplaySaveDb().use{save->return NpcWorldDashboardReader(world,save).relationEdges(audience,purpose)}} }
@@ -260,8 +270,11 @@ internal class LocalGameStore(private val context: Context) {
     fun createSnapshot(kind:SnapshotKind=SnapshotKind.AUTOMATIC,pinned:Boolean=false):CampaignSnapshotDescriptor = openGameplaySaveDb().use{CampaignSnapshotManager(it,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots")).create(kind,pinned)}
     fun snapshots():List<CampaignSnapshotDescriptor> = openGameplaySaveDb().use{CampaignSnapshotManager(it,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots")).list()}
     fun restoreLatestSnapshot():String {
+        return restoreSnapshot(null)
+    }
+    fun restoreSnapshot(snapshotUid:String?):String {
         val active=File(saveDir,"campaign.db");val db=openGameplaySaveDb();val manager=CampaignSnapshotManager(db,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots"))
-        val staged=manager.reconstructToVerifiedStaging();manager.activateVerifiedStaging(active,staged)
+        val staged=manager.reconstructToVerifiedStaging(snapshotUid);manager.activateVerifiedStaging(active,staged)
         val campaignUid=selection.activeCampaignRef().campaignId
         openSaveDb().use{ensureCurrentSchema(it);ensureCharacterCreationDefinitions(it,campaignUid);materializeWorldActorsWithAuthority(it,campaignUid);GameplayRuntimeBootstrap.initialize(it,campaignUid)}
         return active.absolutePath

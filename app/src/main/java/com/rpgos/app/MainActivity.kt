@@ -200,7 +200,7 @@ private fun GlowPanel(
 }
 
 private enum class AppRoute {
-    HOME, NEW_GAME, NARUTO_SETUP, CONTINUE, SAVES, GALLERY, SETTINGS, ABOUT, CAMPAIGN
+    HOME, NEW_GAME, NARUTO_SETUP, CHARACTER_CREATOR, CONTINUE, SAVES, GALLERY, SETTINGS, ABOUT, CAMPAIGN
 }
 
 private enum class CampaignTab(val label: String, val glyph: String) {
@@ -230,6 +230,7 @@ private enum class CampaignTool(val title: String) {
 @Composable
 fun RpgOsApp(vm: RpgOsViewModel) {
     var route by remember { mutableStateOf(AppRoute.HOME) }
+    val hasActivePlayer by vm.hasActivePlayer.collectAsState()
     when (route) {
         AppRoute.HOME -> HomeScreen(
             vm = vm,
@@ -249,7 +250,16 @@ fun RpgOsApp(vm: RpgOsViewModel) {
         AppRoute.NARUTO_SETUP -> NarutoSetupScreen(
             vm = vm,
             onBack = { route = AppRoute.NEW_GAME },
-            onEnterCampaign = { route = AppRoute.CAMPAIGN }
+            onEnterCampaign = { requiresCharacterCreation ->
+                route = if(requiresCharacterCreation) AppRoute.CHARACTER_CREATOR else AppRoute.CAMPAIGN
+            }
+        )
+
+        AppRoute.CHARACTER_CREATOR -> CharacterCreatorScreen(
+            vm=vm,
+            onBack={route=AppRoute.HOME},
+            onOpenAiSettings={route=AppRoute.SETTINGS},
+            onEnterCampaign={route=AppRoute.CAMPAIGN}
         )
 
         AppRoute.CONTINUE -> ContinueScreen(
@@ -257,7 +267,7 @@ fun RpgOsApp(vm: RpgOsViewModel) {
             onBack = { route = AppRoute.HOME },
             onContinue = { dirName ->
                 vm.activateCampaign(dirName)
-                route = AppRoute.CAMPAIGN
+                route = if(vm.hasActivePlayer.value) AppRoute.CAMPAIGN else AppRoute.CHARACTER_CREATOR
             }
         )
 
@@ -823,15 +833,16 @@ private fun WorldSelectionScreen(
 private fun NarutoSetupScreen(
     vm: RpgOsViewModel,
     onBack: () -> Unit,
-    onEnterCampaign: () -> Unit
+    onEnterCampaign: (Boolean) -> Unit
 ) {
     var campaignName by remember { mutableStateOf("") }
     val creationUi by vm.campaignCreationUi.collectAsState()
 
     LaunchedEffect(creationUi.completedCampaignDir){
         if(creationUi.completedCampaignDir!=null){
+            val requiresCharacterCreation=creationUi.requiresCharacterCreation
             vm.consumeCampaignCreationCompletion()
-            onEnterCampaign()
+            onEnterCampaign(requiresCharacterCreation)
         }
     }
 
@@ -888,6 +899,104 @@ private fun NarutoSetupScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CharacterCreatorScreen(
+    vm:RpgOsViewModel,
+    onBack:()->Unit,
+    onOpenAiSettings:()->Unit,
+    onEnterCampaign:()->Unit
+){
+    val messages by vm.messages.collectAsState()
+    val turnUi by vm.chatTurnUi.collectAsState()
+    val hasActivePlayer by vm.hasActivePlayer.collectAsState()
+    val aiCenter by vm.aiProviderCenter.collectAsState()
+    var description by remember{mutableStateOf("")}
+    val aiReady=aiCenter.modelOptions.any{it.availability==AiAvailabilityState.READY}
+
+    LaunchedEffect(hasActivePlayer){if(hasActivePlayer)onEnterCampaign()}
+
+    StandardPage(title="Kreator postaci",onBack=onBack){
+        GradientScreen{
+            Column(Modifier.fillMaxSize().padding(horizontal=16.dp,vertical=12.dp)){
+                GlowPanel(
+                    modifier=Modifier.fillMaxWidth(),
+                    borderColor=Color(0x6656E1D2),
+                    shape=RoundedCornerShape(24.dp,14.dp,28.dp,18.dp)
+                ){
+                    Text("Stwórz swoją postać",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                    Text(
+                        "Opisz, kim chcesz grać. Mistrz Gry dobierze dostępne w tym świecie statystyki, talent, potencjał, umiejętności, techniki, pochodzenie i pozostałe cechy. Nic nie zostanie zapisane bez Twojego potwierdzenia.",
+                        color=MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if(!aiReady){
+                        Spacer(Modifier.height(8.dp))
+                        Text("Najpierw skonfiguruj lokalny model lub OpenRouter.",color=MaterialTheme.colorScheme.error)
+                        OutlinedButton(onClick=onOpenAiSettings,modifier=Modifier.fillMaxWidth()){Text("Otwórz ustawienia AI")}
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+                if(turnUi.stage!=ChatTurnUiStage.IDLE&&turnUi.stage!=ChatTurnUiStage.COMPLETED){
+                    Surface(shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.secondaryContainer){
+                        Column(Modifier.fillMaxWidth().padding(12.dp)){
+                            Text(turnUi.statusText,fontWeight=FontWeight.Bold)
+                            turnUi.reasonUid?.let{Text(it,style=MaterialTheme.typography.labelSmall)}
+                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End){
+                                if(turnUi.canCancel)TextButton(onClick=vm::cancelCurrentAiTurn){Text("Anuluj")}
+                                if(turnUi.canConfirmCharacterCreation)TextButton(onClick=vm::confirmCharacterCreation){Text("Potwierdź i utwórz postać")}
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                LazyColumn(
+                    modifier=Modifier.weight(1f),
+                    verticalArrangement=Arrangement.spacedBy(8.dp),
+                    contentPadding=PaddingValues(bottom=10.dp)
+                ){
+                    items(messages.filter{it.role!="system"||it.text.contains("posta",ignoreCase=true)}.takeLast(20)){message->
+                        val player=message.role=="player"
+                        Row(Modifier.fillMaxWidth(),horizontalArrangement=if(player)Arrangement.End else Arrangement.Start){
+                            Card(
+                                modifier=Modifier.fillMaxWidth(if(player)0.88f else 0.96f),
+                                colors=CardDefaults.cardColors(containerColor=if(player)MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant),
+                                shape=RoundedCornerShape(18.dp)
+                            ){
+                                Column(Modifier.padding(12.dp)){
+                                    Text(if(player)"TY" else if(message.role=="gm")"MISTRZ GRY" else "SYSTEM",style=MaterialTheme.typography.labelSmall)
+                                    Text(message.text)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value=description,
+                    onValueChange={description=it},
+                    modifier=Modifier.fillMaxWidth(),
+                    label={Text("Twój pomysł na postać")},
+                    placeholder={Text("Np. sprytny zwiadowca, który chroni słabszych…")},
+                    minLines=2,
+                    maxLines=5,
+                    enabled=!turnUi.canConfirmCharacterCreation
+                )
+                Spacer(Modifier.height(8.dp))
+                GradientActionButton(
+                    text=if(turnUi.canConfirmCharacterCreation)"Najpierw potwierdź projekt powyżej" else "Wyślij do Mistrza Gry",
+                    onClick={
+                        val text=description.trim()
+                        if(text.isNotBlank()&&!turnUi.canConfirmCharacterCreation){vm.send(text);description=""}
+                    },
+                    modifier=Modifier.fillMaxWidth(),
+                    brush=TealGradient
+                )
             }
         }
     }
@@ -1374,12 +1483,44 @@ private fun VisualGeneratorScreen(vm:RpgOsViewModel){
     val context = LocalContext.current
     val suggestions by vm.visualSuggestions.collectAsState()
     val library by vm.visualLibrary.collectAsState()
+    val imageStatus by vm.imageStatus.collectAsState()
 
     var title by remember{mutableStateOf("")}
     var description by remember{mutableStateOf("")}
     var category by remember{mutableStateOf("Scena")}
     var showCreator by remember{mutableStateOf(false)}
     var filter by remember{mutableStateOf("Wszystkie")}
+    var visualPendingEdit by remember{mutableStateOf<VisualRecord?>(null)}
+    var editInstruction by remember{mutableStateOf("")}
+    val filteredLibrary=remember(library,filter){when(filter){
+        "Sceny"->library.filter{it.kind in setOf("scene","location")}
+        "Postacie"->library.filter{it.kind=="character"}
+        "Przedmioty"->library.filter{it.kind in setOf("item","object")}
+        else->library
+    }}
+
+    visualPendingEdit?.let{source->
+        AlertDialog(
+            onDismissRequest={visualPendingEdit=null;editInstruction=""},
+            title={Text("Edytuj obraz")},
+            text={
+                Column(verticalArrangement=Arrangement.spacedBy(10.dp)){
+                    Text(source.title,fontWeight=FontWeight.Bold)
+                    OutlinedTextField(
+                        value=editInstruction,
+                        onValueChange={editInstruction=it},
+                        label={Text("Opisz zmianę")},
+                        minLines=3
+                    )
+                }
+            },
+            confirmButton={TextButton(
+                onClick={vm.editVisual(context,source,editInstruction.trim());visualPendingEdit=null;editInstruction=""},
+                enabled=editInstruction.isNotBlank()
+            ){Text("Wygeneruj edycję")}},
+            dismissButton={TextButton(onClick={visualPendingEdit=null;editInstruction=""}){Text("Anuluj")}}
+        )
+    }
 
     GradientScreen {
         LazyColumn(
@@ -1397,6 +1538,16 @@ private fun VisualGeneratorScreen(vm:RpgOsViewModel){
                     "Twórz i przechowuj ilustracje dla swojej kampanii.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            if(imageStatus.isNotBlank()){
+                item{
+                    Surface(
+                        modifier=Modifier.fillMaxWidth(),
+                        shape=RoundedCornerShape(16.dp),
+                        color=MaterialTheme.colorScheme.surfaceContainerHigh
+                    ){Text(imageStatus,Modifier.padding(12.dp))}
+                }
             }
 
             item {
@@ -1454,7 +1605,7 @@ private fun VisualGeneratorScreen(vm:RpgOsViewModel){
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            listOf("Scena","Sceneria","Postać","Przedmiot").forEach { item ->
+                            listOf("Scena","Sceneria","Postać").forEach { item ->
                                 val selected = category == item
                                 Surface(
                                     onClick = { category = item },
@@ -1575,7 +1726,7 @@ private fun VisualGeneratorScreen(vm:RpgOsViewModel){
                 }
             }
 
-            if(library.isEmpty()){
+            if(filteredLibrary.isEmpty()){
                 item {
                     GlowPanel(
                         modifier = Modifier.fillMaxWidth(),
@@ -1583,18 +1734,18 @@ private fun VisualGeneratorScreen(vm:RpgOsViewModel){
                         shape = RoundedCornerShape(22.dp, 16.dp, 28.dp, 18.dp)
                     ) {
                         Text(
-                            "Biblioteka jest pusta",
+                            if(library.isEmpty())"Biblioteka jest pusta" else "Brak obrazów w tej kategorii",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            "Pierwsze wygenerowane obrazy pojawią się tutaj jako karty galerii.",
+                            if(library.isEmpty())"Pierwsze wygenerowane obrazy pojawią się tutaj jako karty galerii." else "Wybierz inną kategorię albo wygeneruj nowy obraz.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             } else {
-                items(library.chunked(2)) { row ->
+                items(filteredLibrary.chunked(2)) { row ->
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1608,7 +1759,8 @@ private fun VisualGeneratorScreen(vm:RpgOsViewModel){
                             GlowPanel(
                                 modifier = Modifier.weight(1f).height(150.dp),
                                 borderColor = if(index == 0) Color(0x6658B8FF) else Color(0x6656E1D2),
-                                shape = cardShape
+                                shape = cardShape,
+                                onClick = { visualPendingEdit=item }
                             ) {
                                 Text(
                                     item.title.ifBlank { "Obraz" },
@@ -1642,7 +1794,8 @@ private fun VisualGeneratorScreen(vm:RpgOsViewModel){
                     GlowPanel(
                         modifier = Modifier.fillMaxWidth(),
                         borderColor = Color(0x443E7897),
-                        shape = RoundedCornerShape(18.dp, 24.dp, 16.dp, 22.dp)
+                        shape = RoundedCornerShape(18.dp, 24.dp, 16.dp, 22.dp),
+                        onClick = { vm.generateSuggestedVisual(context,suggestion) }
                     ) {
                         Text(
                             suggestion.title,
@@ -1652,6 +1805,8 @@ private fun VisualGeneratorScreen(vm:RpgOsViewModel){
                             suggestion.promptSeed,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Spacer(Modifier.height(8.dp))
+                        Text("Dotknij, aby wygenerować",style=MaterialTheme.typography.labelMedium,color=Color(0xFF56E1D2))
                     }
                 }
             }
@@ -1823,19 +1978,44 @@ private fun GameScreen(vm:RpgOsViewModel){
 
 @Composable
 private fun FullStatusScreen(vm:RpgOsViewModel){
-    val panel by vm.characterPanel.collectAsState()
+    val legacy by vm.characterPanel.collectAsState()
+    val panel by vm.characterPanelV2.collectAsState()
     LazyColumn(Modifier.fillMaxSize().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
         item{Text("Panel postaci",style=MaterialTheme.typography.headlineMedium)}
-        item{SectionTitle("Tożsamość")};items(panel.identity){DataRow(it.key,it.value)}
-        item{SectionTitle("Statystyki")};items(panel.stats){DataRow(it.key,it.value)}
-        item{SectionTitle("Zasoby")};items(panel.resources){DataRow(it.key,it.value)}
-        item{SectionTitle("Umiejętności")};items(panel.skills){Text("${it.name} • ${it.mastery} • ${it.category}")}
-        item{SectionTitle("Techniki")};items(panel.techniques){Text("${it.name} • mastery ${it.mastery} • chakra ${it.chakraCost}")}
-        item{SectionTitle("Ekwipunek")};items(panel.equipment){Text(it)}
-        item{SectionTitle("Relacje")};items(panel.relationships){Text(it)}
-        item{SectionTitle("Cele")};items(panel.goals){Text("• $it")}
+        if(panel==null){
+            item{Text("Widok zgodności — panel zostanie rozszerzony po utworzeniu postaci.",color=MaterialTheme.colorScheme.onSurfaceVariant)}
+            item{SectionTitle("Tożsamość")};items(legacy.identity){DataRow(it.key,it.value)}
+            item{SectionTitle("Statystyki")};items(legacy.stats){DataRow(it.key,it.value)}
+            item{SectionTitle("Zasoby")};items(legacy.resources){DataRow(it.key,it.value)}
+            item{SectionTitle("Umiejętności")};items(legacy.skills){Text("${it.name} • ${it.mastery} • ${it.category}")}
+            item{SectionTitle("Techniki")};items(legacy.techniques){Text("${it.name} • poziom ${it.mastery} • koszt ${it.chakraCost}")}
+            item{SectionTitle("Ekwipunek")};items(legacy.equipment){Text(it)}
+            item{SectionTitle("Relacje")};items(legacy.relationships){Text(it)}
+            item{SectionTitle("Cele")};items(legacy.goals){Text("• $it")}
+        }else{
+            val v2=panel!!
+            if(v2.identity.isNotEmpty()){item{SectionTitle("Tożsamość i pochodzenie")};items(v2.identity){DataRow(humanizeUid(it.keyUid),it.value)}}
+            if(v2.stats.isNotEmpty()){item{SectionTitle("Statystyki")};items(v2.stats){DataRow(humanizeUid(it.semanticsUid),it.exactValue.toString())}}
+            if(v2.resources.isNotEmpty()){item{SectionTitle("Zasoby")};items(v2.resources){DataRow(humanizeUid(it.semanticsUid),it.exactValue.toString())}}
+            if(v2.skills.isNotEmpty()){item{SectionTitle("Umiejętności")};items(v2.skills){Text("${it.displayName?:humanizeUid(it.targetUid)} • ${it.exactProgress}")}}
+            if(v2.techniques.isNotEmpty()){item{SectionTitle("Techniki")};items(v2.techniques){Text("${it.displayName?:humanizeUid(it.targetUid)} • ${it.exactProgress}")}}
+            if(v2.talent.isNotEmpty()){item{SectionTitle("Talenty")};items(v2.talent){DataRow(humanizeUid(it.domainUid),it.canonicalValue)}}
+            if(v2.potential.isNotEmpty()){item{SectionTitle("Potencjał")};items(v2.potential){DataRow(listOfNotNull(humanizeUid(it.domainUid),it.dimensionUid?.let(::humanizeUid)).joinToString(" • "),it.canonicalValue)}}
+            if(v2.innateAndEvolution.isNotEmpty()){item{SectionTitle("Cechy wrodzone, formy i rozwój")};items(v2.innateAndEvolution){DataRow(humanizeUid(it.innateUid),listOfNotNull(humanizeUid(it.stateUid),it.canonicalValue).joinToString(" • "))}}
+            if(v2.inventory.isNotEmpty()){item{SectionTitle("Ekwipunek podręczny")};items(v2.inventory){DataRow(humanizeUid(it.definitionUid?:it.itemInstanceUid),"×${it.quantity}")}}
+            if(v2.equipment.isNotEmpty()){item{SectionTitle("Wyposażenie")};items(v2.equipment){DataRow(humanizeUid(it.slotUid),it.itemInstanceUid?.let(::humanizeUid)?:"puste")}}
+            if(v2.ownershipAndAssets.isNotEmpty()){item{SectionTitle("Własność i aktywa")};items(v2.ownershipAndAssets){DataRow(humanizeUid(it.assetKindUid),humanizeUid(it.assetUid))}}
+            if(v2.economy.isNotEmpty()){item{SectionTitle("Finanse")};items(v2.economy){DataRow(humanizeUid(it.currencyUid),it.exactBalance.toString())}}
+            if(v2.progression.isNotEmpty()){item{SectionTitle("Postęp")};items(v2.progression){DataRow("${humanizeUid(it.targetKindUid)} • ${humanizeUid(it.targetUid)}",it.exactValue.toString())}}
+            if(v2.projects.isNotEmpty()){item{SectionTitle("Projekty")};items(v2.projects){DataRow(humanizeUid(it.projectUid),"${humanizeUid(it.lifecycleUid)} • ${it.exactProgress}")}}
+            if(v2.relationships.isNotEmpty()){item{SectionTitle("Relacje")};items(v2.relationships){DataRow(humanizeUid(it.otherEntityUid),"${humanizeUid(it.relationshipTypeUid)} • ${it.exactScore}")}}
+            if(v2.goals.isNotEmpty()){item{SectionTitle("Cele")};items(v2.goals){DataRow(it.title,"priorytet ${it.priority}")}}
+            item{Text("Panel jest wyliczany z aktualnego stanu silnika i nie posiada osobnej ścieżki zapisu.",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+        }
     }
 }
+
+private fun humanizeUid(uid:String):String=uid.substringAfterLast(':').replace('_',' ').lowercase().replaceFirstChar{it.titlecase()}
 
 @Composable private fun TimeScreen(vm:RpgOsViewModel){
     val t by vm.time.collectAsState()
@@ -1883,10 +2063,30 @@ private fun PackagesScreen(vm:RpgOsViewModel){
     val worlds by vm.worldPacks.collectAsState()
     val activeWorldPack by vm.activeWorldPack.collectAsState()
     val managementUi by vm.campaignManagementUi.collectAsState()
+    val creationUi by vm.campaignCreationUi.collectAsState()
+    val backups by vm.backups.collectAsState()
+    val snapshots by vm.snapshots.collectAsState()
+    val transferUi by vm.packageTransferUi.collectAsState()
+    val recoveryUi by vm.saveRecoveryUi.collectAsState()
 
     var tab by remember { mutableStateOf("Kampanie") }
     var newCampaignName by remember { mutableStateOf("") }
     var campaignPendingRemoval by remember { mutableStateOf<CampaignInfo?>(null) }
+    var backupPendingRestore by remember { mutableStateOf<String?>(null) }
+    var snapshotPendingRestore by remember { mutableStateOf<CampaignSnapshotDescriptor?>(null) }
+    var creationNotice by remember{mutableStateOf<String?>(null)}
+
+    LaunchedEffect(creationUi.completedCampaignDir){
+        creationUi.completedCampaignDir?.let{dir->
+            creationNotice="Utworzono i aktywowano kampanię ${dir.removeSuffix(".campaign")}."
+            newCampaignName=""
+            vm.consumeCampaignCreationCompletion()
+        }
+    }
+
+    val campaignImportLauncher=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->uri?.let(vm::importCampaign)}
+    val worldImportLauncher=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->uri?.let(vm::importWorldPack)}
+    val campaignExportLauncher=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")){uri->uri?.let(vm::exportActiveCampaign)}
 
     campaignPendingRemoval?.let{campaign->
         AlertDialog(
@@ -1900,6 +2100,26 @@ private fun PackagesScreen(vm:RpgOsViewModel){
                 }){Text("Przenieś do kosza",color=MaterialTheme.colorScheme.error)}
             },
             dismissButton={TextButton(onClick={campaignPendingRemoval=null}){Text("Anuluj")}}
+        )
+    }
+
+    backupPendingRestore?.let{path->
+        AlertDialog(
+            onDismissRequest={backupPendingRestore=null},
+            title={Text("Przywrócić backup?")},
+            text={Text("Aktualny stan kampanii zostanie najpierw zabezpieczony, a następnie zastąpiony wybranym backupem: ${File(path).name}")},
+            confirmButton={TextButton(onClick={vm.restoreBackup(path);backupPendingRestore=null}){Text("Przywróć")}},
+            dismissButton={TextButton(onClick={backupPendingRestore=null}){Text("Anuluj")}}
+        )
+    }
+
+    snapshotPendingRestore?.let{snapshot->
+        AlertDialog(
+            onDismissRequest={snapshotPendingRestore=null},
+            title={Text("Przywrócić snapshot?")},
+            text={Text("Snapshot ${snapshot.snapshotUid.takeLast(8)} zostanie zweryfikowany i odtworzony przez mechanizm recovery silnika.")},
+            confirmButton={TextButton(onClick={vm.restoreSnapshot(snapshot.snapshotUid);snapshotPendingRestore=null}){Text("Przywróć")}},
+            dismissButton={TextButton(onClick={snapshotPendingRestore=null}){Text("Anuluj")}}
         )
     }
 
@@ -1953,6 +2173,10 @@ private fun PackagesScreen(vm:RpgOsViewModel){
             }
 
             if(tab == "Kampanie") {
+                transferUi.notice?.let{message->item{AssistChip(onClick=vm::clearPackageTransferMessage,label={Text(message)},trailingIcon={Text("×")})}}
+                transferUi.errorMessage?.let{message->item{TextButton(onClick=vm::clearPackageTransferMessage){Text(message,color=MaterialTheme.colorScheme.error)}}}
+                recoveryUi.notice?.let{message->item{AssistChip(onClick=vm::clearSaveRecoveryMessage,label={Text(message)},trailingIcon={Text("×")})}}
+                recoveryUi.errorMessage?.let{message->item{TextButton(onClick=vm::clearSaveRecoveryMessage){Text(message,color=MaterialTheme.colorScheme.error)}}}
                 managementUi.notice?.let{message->
                     item{
                         AssistChip(
@@ -1969,6 +2193,8 @@ private fun PackagesScreen(vm:RpgOsViewModel){
                         }
                     }
                 }
+                creationNotice?.let{message->item{AssistChip(onClick={creationNotice=null},label={Text(message)},trailingIcon={Text("×")})}}
+                creationUi.errorMessage?.let{message->item{Text(message,color=MaterialTheme.colorScheme.error)}}
                 item {
                     Text(
                         "Aktywne kampanie",
@@ -2081,10 +2307,9 @@ private fun PackagesScreen(vm:RpgOsViewModel){
                         )
                         Spacer(Modifier.height(10.dp))
                         GradientActionButton(
-                            text = "Utwórz nową kampanię",
+                            text = if(creationUi.inProgress)"Tworzenie kampanii…" else "Utwórz nową kampanię",
                             onClick = {
-                                vm.createCampaign(newCampaignName)
-                                newCampaignName = ""
+                                if(!creationUi.inProgress)vm.createAndActivateCampaign(newCampaignName)
                             },
                             modifier = Modifier.fillMaxWidth(),
                             brush = TealGradient
@@ -2107,13 +2332,13 @@ private fun PackagesScreen(vm:RpgOsViewModel){
                     ) {
                         GradientActionButton(
                             text = "Import Save",
-                            onClick = { },
+                            onClick = { campaignImportLauncher.launch(arrayOf("application/zip","application/octet-stream")) },
                             modifier = Modifier.weight(1f),
                             brush = TealGradient
                         )
                         GradientActionButton(
                             text = "Import World",
-                            onClick = { },
+                            onClick = { worldImportLauncher.launch(arrayOf("application/zip","application/octet-stream")) },
                             modifier = Modifier.weight(1f),
                             brush = BlueGradient
                         )
@@ -2123,10 +2348,60 @@ private fun PackagesScreen(vm:RpgOsViewModel){
                 item {
                     GradientActionButton(
                         text = "Eksportuj aktywny Save",
-                        onClick = { },
+                        onClick = {
+                            campaignExportLauncher.launch("RPG-OS-${activeCampaign.removeSuffix(".campaign")}.zip")
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         brush = BlueGradient
                     )
+                }
+
+                item{
+                    Text("Recovery",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                    Text("Backupy i snapshoty dotyczą aktualnie aktywnej kampanii.",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+
+                item{
+                    GradientActionButton(
+                        text=if(recoveryUi.inProgress)"Operacja recovery…" else "Utwórz bezpieczny snapshot",
+                        onClick=vm::createManualSnapshot,
+                        modifier=Modifier.fillMaxWidth(),
+                        brush=TealGradient
+                    )
+                }
+
+                if(backups.isNotEmpty()){
+                    item{SectionTitle("Backupy (${backups.size})")}
+                    items(backups.take(12)){path->
+                        GlowPanel(Modifier.fillMaxWidth(),shape=RoundedCornerShape(18.dp,24.dp,16.dp,22.dp)){
+                            Text(File(path).name,fontWeight=FontWeight.Bold)
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick={backupPendingRestore=path},
+                                enabled=!recoveryUi.inProgress,
+                                modifier=Modifier.fillMaxWidth()
+                            ){Text("Przywróć backup")}
+                        }
+                    }
+                }
+
+                if(snapshots.isNotEmpty()){
+                    item{SectionTitle("Snapshoty (${snapshots.size})")}
+                    items(snapshots.take(12)){snapshot->
+                        val recoverable=snapshot.state==SnapshotPublicationState.VALID&&snapshot.kind in setOf(
+                            SnapshotKind.AUTOMATIC,SnapshotKind.MANUAL_BACKUP,SnapshotKind.PRE_RESTORE,SnapshotKind.USER_PINNED
+                        )
+                        GlowPanel(Modifier.fillMaxWidth(),shape=RoundedCornerShape(22.dp,14.dp,26.dp,18.dp)){
+                            Text("${snapshot.kind.name.replace('_',' ')} • ${snapshot.snapshotUid.takeLast(8)}",fontWeight=FontWeight.Bold)
+                            Text("Stan: ${snapshot.state} • commit ${snapshot.anchorCommitOrder}",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick={snapshotPendingRestore=snapshot},
+                                enabled=recoverable&&!recoveryUi.inProgress,
+                                modifier=Modifier.fillMaxWidth()
+                            ){Text(if(recoverable)"Przywróć snapshot" else "Snapshot niedostępny")}
+                        }
+                    }
                 }
             } else {
                 item {
@@ -2296,6 +2571,15 @@ private fun AiProviderCenterScreen(vm:RpgOsViewModel){
                 OutlinedButton(onClick={modelPicker.launch(arrayOf("application/octet-stream","*/*"))},modifier=Modifier.fillMaxWidth()){
                     Text(if(state.localArtifactInstalled)"Zmień plik Bielika" else "Importuj Bielika")
                 }
+                Text(
+                    "Import wymaga pakietu ZIP ExecuTorch zawierającego model .pte i tokenizer. Plik GGUF nie jest zgodnym pakietem dla tej wersji Androida.",
+                    style=MaterialTheme.typography.bodySmall,
+                    color=MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                TextButton(
+                    onClick={context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://huggingface.co/speakleash/Bielik-4.5B-v3.0-Instruct")))},
+                    modifier=Modifier.fillMaxWidth()
+                ){Text("Otwórz oficjalną stronę Bielika")}
                 TextButton(onClick={advanced=!advanced},modifier=Modifier.fillMaxWidth()){Text(if(advanced)"Ukryj ustawienia zaawansowane" else "Ustawienia zaawansowane")}
                 if(advanced){
                     HorizontalDivider(Modifier.padding(vertical=8.dp))

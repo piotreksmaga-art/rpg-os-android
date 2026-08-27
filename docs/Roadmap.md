@@ -235,7 +235,7 @@ Dalsze Phase 39–47:
 - cloud context, gdy później aktywny, jest minimalny i sanitised zamiast whole-save export.
 
 # FAZA D — GM ENGINE / ROLE-BASED AI FOUNDATION
-- [-] 48. AI Provider & role-based Local/Cloud execution — universal LocalAiPort/CloudAiPort, Bielik profile/settings/admission, spakowany ExecuTorch Android runtime, OpenRouter PKCE/Keystore/model discovery/strict workload JSON Schema inference i deterministic Auto/manual role routing są zintegrowane; kompatybilne weights, user authorization i real-device evidence pozostają zewnętrznymi bramkami
+- [-] 48. AI Provider & role-based Local/Cloud execution — universal LocalAiPort/CloudAiPort, Bielik profile/settings/admission, spakowany ExecuTorch Android runtime, OpenRouter PKCE/Keystore/model discovery/strict workload JSON Schema inference i deterministic Auto/manual role routing są zintegrowane; wspólne Centrum AI i uniwersalny confirmation-gated character creator są dostępne w Android UI; kompatybilne weights, user authorization i real-device evidence pozostają zewnętrznymi bramkami
 - [-] 49. Structured GM Output contract — strict proposal identity/provenance/actor/action/target/modality/dependency/player-agency validation zaimplementowane
 - [-] 50. Universal Mechanics & Combat Resolution integration `[REF-ADAPTER]` — jeden production Combat Engine, trwały canonical PC/NPC/world-actor/group/unit state bez rerollowania z template, typed owner materialization, rzeczywista staged multi-action projection oraz individual/AOE/group-vs-group aggregate combat są lokalnie GREEN; oczekuje exact-SHA CI i końcowego acceptance
 - [-] 51. Candidate-State Consistency Validator — pure projection oraz inventory/ownership/finance/progression/location/exclusion/temporal checks zaimplementowane

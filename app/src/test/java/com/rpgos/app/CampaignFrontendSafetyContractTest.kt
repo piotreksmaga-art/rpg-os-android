@@ -16,6 +16,7 @@ class CampaignFrontendSafetyContractTest {
         val viewModel=source("RpgOsViewModel.kt")
         assertTrue(ui.contains("LaunchedEffect(creationUi.completedCampaignDir)"))
         assertTrue(ui.contains("enabled = !creationUi.inProgress"))
+        assertTrue(ui.contains("vm.createAndActivateCampaign(newCampaignName)"))
         assertTrue(ui.contains("creationUi.errorMessage"))
         assertTrue(viewModel.contains("DiagnosticLogger.log(app,\"CAMPAIGN_CREATE_FAILED\",t)"))
         assertTrue(viewModel.contains("withContext(Dispatchers.IO)"))
