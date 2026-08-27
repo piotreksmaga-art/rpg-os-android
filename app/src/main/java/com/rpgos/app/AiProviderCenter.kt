@@ -124,7 +124,8 @@ class AndroidAiProviderCenterApplication(context:Context){
         val settings=configuration.localModelSettings?:LocalRecommendedSettings.forProfile(profile)
         val installed=artifacts.find(profile.modelUid,settings.variantUid)!=null
         return AiProviderCenterStateFactory.initial(configuration,installed,auth.status(),profile)
-            .reconcileLocalAvailability(installed,true,localAdmission(settings))
+            .copy(localRuntimeAvailable=true)
+            .reconcileLocalAvailability(artifactInstalled=installed,admission=localAdmission(settings))
     }
 
     fun onOpenRouterCallback(callback:(OpenRouterConnectionResult)->Unit){
