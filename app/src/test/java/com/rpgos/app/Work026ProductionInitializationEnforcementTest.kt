@@ -72,6 +72,21 @@ class Work026ProductionInitializationEnforcementTest {
         assertFalse("UnifiedGameRepository must not re-export StatePatch bypass", "applyPatch" in publicUnifiedMethods)
     }
 
+    @Test fun cloned_campaign_admin_gate() {
+        val store = LocalGameStore(context)
+        store.bootstrap()
+
+        val created = store.createCampaign("A")
+        val campaignUid = CampaignSelectionManager(context).activeCampaignRef().campaignId
+
+        assertTrue(created.isDirectory)
+        assertTrue(campaignUid != ActiveCampaignRef.DEFAULT_CAMPAIGN_ID)
+        store.openGameplaySaveDb().use { db ->
+            GameplayRuntimeBootstrap.requireReady(db, campaignUid)
+            assertTrue(GameplayMutationDatabaseGuards.isInstalled(db))
+        }
+    }
+
     private fun assertDirectTruthBlocked(db: android.database.sqlite.SQLiteDatabase, campaignUid: String, uid: String) {
         val failure = runCatching {
             CampaignTruthStore(db, campaignUid).record(

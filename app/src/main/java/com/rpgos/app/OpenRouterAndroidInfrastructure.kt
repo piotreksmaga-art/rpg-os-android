@@ -68,8 +68,8 @@ class AndroidKeystoreSecretStore(context:Context):SecretStore{
  * receiver avoids assuming undocumented custom-scheme OAuth behaviour.
  */
 class OpenRouterLoopbackCallbackServer:OpenRouterCallbackEndpointFactory{
-    @Volatile private var consumer:((CloudAuthCallback)->Unit)?=null
-    fun onCallback(consumer:(CloudAuthCallback)->Unit){this.consumer=consumer}
+    @Volatile private var consumer:((CloudAuthCallback)->CloudConnectionStatus)?=null
+    fun onCallback(consumer:(CloudAuthCallback)->CloudConnectionStatus){this.consumer=consumer}
     override fun create(nonce:String):OpenRouterCallbackEndpoint{
         require(nonce.matches(Regex("[A-Za-z0-9_-]{16,}")))
         val server=ServerSocket(0,1,InetAddress.getByName("127.0.0.1"))
@@ -90,13 +90,17 @@ class OpenRouterLoopbackCallbackServer:OpenRouterCallbackEndpointFactory{
                 val split=part.split('=',limit=2);if(split.firstOrNull()=="code")java.net.URLDecoder.decode(split.getOrElse(1){""},"UTF-8") else null
             }?.firstOrNull()
             val accepted=uri?.path==path&&!code.isNullOrBlank()
-            val body=if(accepted)"RPG OS połączono z OpenRouter. Możesz wrócić do aplikacji." else "Nie udało się potwierdzić połączenia. Wróć do RPG OS i spróbuj ponownie."
+            val result=if(accepted)runCatching{consumer?.invoke(CloudAuthCallback(callback,code!!))}.getOrNull() else null
+            val body=when{
+                result?.state==CloudAuthState.CONNECTED->"RPG OS połączono z OpenRouter. Możesz wrócić do aplikacji."
+                accepted->"Autoryzacja dotarła, ale OpenRouter nie zakończył połączenia. Wróć do RPG OS, aby zobaczyć dokładny powód i spróbować ponownie."
+                else->"Nie udało się odebrać autoryzacji. Wróć do RPG OS i spróbuj ponownie."
+            }
             val payload="<html><head><meta charset=\"utf-8\"></head><body><h2>$body</h2></body></html>".toByteArray(Charsets.UTF_8)
             socket.getOutputStream().apply{
                 write("HTTP/1.1 ${if(accepted)"200 OK" else "400 Bad Request"}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: ${payload.size}\r\nConnection: close\r\n\r\n".toByteArray(Charsets.US_ASCII))
                 write(payload);flush()
             }
-            if(accepted)consumer?.invoke(CloudAuthCallback(callback,code!!))
         }}}catch(_:Throwable){/* typed timeout remains visible through CloudAuthPort status */}
     }
 }

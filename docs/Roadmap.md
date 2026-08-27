@@ -235,7 +235,7 @@ Dalsze Phase 39–47:
 - cloud context, gdy później aktywny, jest minimalny i sanitised zamiast whole-save export.
 
 # FAZA D — GM ENGINE / ROLE-BASED AI FOUNDATION
-- [-] 48. AI Provider & role-based Local/Cloud execution — universal LocalAiPort/CloudAiPort, Bielik profile/settings/admission, spakowany ExecuTorch Android runtime, OpenRouter PKCE/Keystore/model discovery/strict workload JSON Schema inference i deterministic Auto/manual role routing są zintegrowane; wspólne Centrum AI i uniwersalny confirmation-gated character creator są dostępne w Android UI; kompatybilne weights, user authorization i real-device evidence pozostają zewnętrznymi bramkami
+- [-] 48. AI Provider & role-based Local/Cloud execution — universal LocalAiPort/CloudAiPort, Bielik profile/settings/admission, spakowany ExecuTorch Android runtime, pełny mobilny artefakt Bielik 1.5B v3 XNNPACK, OpenRouter PKCE/Keystore/model discovery/strict workload JSON Schema inference i deterministic Auto/manual role routing są zintegrowane; wspólne Centrum AI i uniwersalny confirmation-gated character creator są dostępne w Android UI; live user authorization i real-device inference/performance pozostają zewnętrznymi bramkami
 - [-] 49. Structured GM Output contract — strict proposal identity/provenance/actor/action/target/modality/dependency/player-agency validation zaimplementowane
 - [-] 50. Universal Mechanics & Combat Resolution integration `[REF-ADAPTER]` — jeden production Combat Engine, trwały canonical PC/NPC/world-actor/group/unit state bez rerollowania z template, typed owner materialization, rzeczywista staged multi-action projection oraz individual/AOE/group-vs-group aggregate combat są lokalnie GREEN; oczekuje exact-SHA CI i końcowego acceptance
 - [-] 51. Candidate-State Consistency Validator — pure projection oraz inventory/ownership/finance/progression/location/exclusion/temporal checks zaimplementowane
@@ -251,14 +251,17 @@ Phase 48 buduje provider/execution foundation, nie pełny Director.
 Zaimplementowany final-plan candidate:
 - `Chat/UI -> AiChatEngineFacade -> AiProvider -> IntentDocument -> GraphTurnPlanner -> Context -> StructuredGmProposal -> Mechanics/Guards/Repair -> canonical TurnTransaction -> persisted TurnCommitReceipt -> Narrative`;
 - `AiProviderRegistry`, `AiCapabilityContract`, `LocalAiPort`, `CloudAiPort` i role-aware `ModelRouter` pozwalają zamienić provider/model bez zmian Phase 43–54 i bez migracji kampanii;
-- Bielik 4.5B v3 Instruct jest pierwszym profilem local, a OpenRouter pierwszym adapterem cloud; są danymi/adapterami, nie osobnymi silnikami GM;
+- Bielik 1.5B v3 Instruct w wersji ExecuTorch/XNNPACK jest lekkim domyślnym profilem Android, a historyczny Bielik 4.5B v3 pozostaje obsługiwanym profilem jakościowym i punktem odniesienia; oba są danymi/adapterami, nie osobnymi silnikami GM;
+- OpenRouter jest pierwszym adapterem cloud; oficjalny callback OAuth PKCE raportuje sukces dopiero po udanej wymianie kodu na klucz i jego zaszyfrowanym zapisie, a panel pokazuje typed reason bez ujawniania credential;
+- administracyjne przygotowanie nowej/aktywowanej/odtwarzanej kampanii jest wspólne i lifecycle-serialized, dzięki czemu szablon z aktywnymi guardami Phase32 nie blokuje definicji mechanik błędem SQLite 1811;
+- tury tej samej kampanii są serializowane w jednym canonical commit order (różne kampanie nadal są niezależne), więc równoległy retry tej samej komendy daje jeden commit i replay zamiast błędu blokady SQLite;
 - AI nie otrzymuje repository/DB ani mutation authority; proposal i narrative nie są rzeczywistością;
 - narrative request wymaga niepodrabialnego w ścieżce aplikacji evidence wydanego po odczycie trwałego V3 receipt;
 - provider failure, invalid structured output i cancellation przed commit kończą się bez mutacji; cancellation/failure po commit nie cofa rzeczywistości i zwraca typed `CommittedWithoutNarrative`.
 - rozpoczęcie nowej kampanii ma provider-independent `CHARACTER_CREATION` workload: MG zbiera wybory gracza i tworzy kompletny draft postaci z identity/gender/stats/resources/talent/potential/skills/techniques/origins/innate features/start location, ale zapis następuje atomowo dopiero po osobnym jawnym potwierdzeniu gracza;
 - kreator pobiera typed definitions aktywnego World Packa, stosuje wąski legacy import tylko dla starszych paczek i neutralny, namespaced fallback bez Naruto-specific statów lub zasobów; World Pack dostarcza treść, a Core workflow i authority są uniwersalne.
 
-Otwarte bramki są sklasyfikowane precyzyjnie w finalnym rekordzie: live OpenRouter/model/device pozostają external-evidence gates, a wcześniejsze blockery spakowanego local runtime i produkcyjnej kompozycji są zamknięte w repair candidate. Legacy `ViewModel -> StatePatch` został usunięty; compatibility backend może dać wyłącznie jawnie nieautorytatywną narrację i jego patch jest odrzucany.
+Otwarte bramki są sklasyfikowane precyzyjnie w finalnym rekordzie: pełny mobilny pakiet Bielik 1.5B i host-side ExecuTorch load są GREEN, natomiast fizyczne urządzenie oraz live OpenRouter pozostają external-evidence gates. Wcześniejsze blockery spakowanego local runtime i produkcyjnej kompozycji są zamknięte w repair candidate. Legacy `ViewModel -> StatePatch` został usunięty; compatibility backend może dać wyłącznie jawnie nieautorytatywną narrację i jego patch jest odrzucany.
 
 Wymagane docelowo:
 - provider-independent `AiProvider`/semantic contract;
@@ -487,7 +490,7 @@ Robocza sekwencja bez numerów kanonicznych faz:
 WPC używa finalnego wspólnego AiProvider/workload routing. AI-assisted, imported, hand-authored i generated pack kończą w jednym validated runtime World Pack contract. Draft/build workspace != active canon/Campaign Repository.
 
 # NONCANONICAL AI R&D
-TEMP-GM/Termux/localhost/llama.cpp/Vulkan/Bielik i inne konkretne model/runtime/provider eksperymenty pozostają R&D/reference evidence, nie production architecture.
+TEMP-GM/Termux/localhost/llama.cpp/Vulkan/Bielik i inne konkretne model/runtime/provider eksperymenty pozostają R&D/reference evidence, nie production architecture. Historyczny profil Bielik 4.5B v3 GGUF Q4_K_M na Samsungu SM-S921B potwierdził CTX8192, Vulkan/Xclipse, `-ngl 99`, KV f16 oraz krytyczne dla prefill `-b 64 -ub 64`; jest baseline'em przyszłego natywnego wariantu 4.5B, ale nie dowodem kompatybilności z ExecuTorch PTE.
 
 R&D może być prowadzone równolegle przed Phase 48 wyłącznie bez canonical integration, production provider, AI-owned durable memory i mutation authority.
 

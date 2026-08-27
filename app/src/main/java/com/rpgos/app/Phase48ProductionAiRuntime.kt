@@ -134,6 +134,31 @@ data class LocalModelProfile(
 }}
 
 object BielikLocalModelProfiles{
+    /** Mobile-first profile shipped as a separate RPG OS package for current Android devices. */
+    val BIELIK_1_5B_V3_EXECUTORCH = LocalModelProfile(
+        modelUid="speakleash/bielik-1.5b-v3.0-instruct",
+        displayName="Bielik 1.5B v3.0 Instruct (mobilny)",
+        familyUid="BIELIK",
+        tokenizerUid="BIELIK_SENTENCEPIECE",
+        chatTemplateUid="BIELIK_CHAT_V3",
+        supportedWorkloads=setOf(
+            AiWorkload.INTENT_INTERPRETATION,AiWorkload.GM_PROPOSAL,AiWorkload.PROPOSAL_REPAIR,AiWorkload.CHARACTER_CREATION,
+            AiWorkload.NARRATIVE_RENDER,AiWorkload.NARRATIVE_REPAIR,AiWorkload.DIRECTOR_STRATEGY
+        ),
+        recommendedContextUnits=2_048,
+        maximumContextUnits=2_048,
+        recommendedKvBytesPerContextUnit=65_536,
+        variants=listOf(
+            LocalArtifactVariant(
+                "EXECUTORCH-XNNPACK-8DA4W",
+                LocalArtifactFormat.EXECUTORCH,
+                "8DA4W",
+                923_083_008L,
+                "4e5a6b8e6684e94d794a609a2f76cfb56f3b3ddef3dfc96904cd10f40244457e"
+            )
+        )
+    )
+
     /** Data profile, not a Bielik-specific engine. Artifact is supplied/imported by the user. */
     val BIELIK_4_5B_V3 = LocalModelProfile(
         modelUid="speakleash/bielik-4.5b-v3-instruct",
@@ -164,6 +189,14 @@ object BielikLocalModelProfiles{
             LocalArtifactVariant("EXECUTORCH-XNNPACK",LocalArtifactFormat.EXECUTORCH,"EXPORT_QUANTIZED",3_600_000_000L)
         )
     )
+
+    val DEFAULT_ANDROID:LocalModelProfile get()=BIELIK_1_5B_V3_EXECUTORCH
+
+    fun byModelUid(modelUid:String?):LocalModelProfile?=when(modelUid){
+        BIELIK_1_5B_V3_EXECUTORCH.modelUid->BIELIK_1_5B_V3_EXECUTORCH
+        BIELIK_4_5B_V3_EXECUTORCH.modelUid->BIELIK_4_5B_V3_EXECUTORCH
+        else->null
+    }
 }
 
 data class LocalRuntimeCapabilities(
@@ -405,10 +438,13 @@ class OpenRouterPkceAuthPort(
     private data class Pending(val callbackUrl:String,val verifier:String,val handle:String)
     private val pending=AtomicReference<Pending?>(null)
     private val account=AtomicReference<String?>(null)
-    override fun status()=when{
-        secretStore.get(CREDENTIAL_UID)!=null->CloudConnectionStatus(providerUid,CloudAuthState.CONNECTED,account.get())
+    override fun status():CloudConnectionStatus{
+        val credentialPresent=secretStore.get(CREDENTIAL_UID)?.let{credential->credential.fill('\u0000');true}?:false
+        return when{
+        credentialPresent->CloudConnectionStatus(providerUid,CloudAuthState.CONNECTED,account.get())
         pending.get()!=null->CloudConnectionStatus(providerUid,CloudAuthState.CONNECTING)
         else->CloudConnectionStatus(providerUid,CloudAuthState.DISCONNECTED)
+        }
     }
     override fun beginConnect():CloudPkceAuthorization{
         val verifier=base64Url(ByteArray(64).also(random::nextBytes))
@@ -424,10 +460,24 @@ class OpenRouterPkceAuthPort(
         if(callback.callbackUrl.substringBefore('?')!=state.callbackUrl.substringBefore('?'))return CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid="CALLBACK_IDENTITY_MISMATCH")
         return try{
             val (key,user)=exchange.exchange(callback.authorizationCode,state.verifier)
-            require(key.isNotEmpty())
-            secretStore.put(CREDENTIAL_UID,key);key.fill('\u0000');account.set(user)
-            CloudConnectionStatus(providerUid,CloudAuthState.CONNECTED,user)
+            try{
+                require(key.isNotEmpty())
+                secretStore.put(CREDENTIAL_UID,key);account.set(user)
+                CloudConnectionStatus(providerUid,CloudAuthState.CONNECTED,user)
+            }finally{key.fill('\u0000')}
+        }catch(failure:AiTransportException){
+            CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid=failure.reasonUid)
         }catch(_:Throwable){CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid="AUTH_CODE_EXCHANGE_FAILED")}
+    }
+    fun connectWithCredential(credential:CharArray):CloudConnectionStatus{
+        pending.set(null)
+        return try{
+            require(credential.size>=20&&credential.concatToString().startsWith("sk-or-"))
+            secretStore.put(CREDENTIAL_UID,credential);account.set(null)
+            CloudConnectionStatus(providerUid,CloudAuthState.CONNECTED)
+        }catch(_:Throwable){
+            CloudConnectionStatus(providerUid,CloudAuthState.ERROR,reasonUid="MANUAL_API_KEY_REJECTED")
+        }finally{credential.fill('\u0000')}
     }
     override fun accessCredential()=secretStore.get(CREDENTIAL_UID)
     override fun disconnect(){secretStore.remove(CREDENTIAL_UID);pending.set(null);account.set(null)}

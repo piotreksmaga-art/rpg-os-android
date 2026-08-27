@@ -72,7 +72,7 @@ class AppSettings(private val context: Context) {
 
     private fun loadAi():AiSystemConfiguration{
         val localModel=prefs.getString("ai_local_model_uid",null)?.let{modelUid->
-            val profile=BielikLocalModelProfiles.BIELIK_4_5B_V3_EXECUTORCH
+            val profile=BielikLocalModelProfiles.byModelUid(modelUid)?:BielikLocalModelProfiles.DEFAULT_ANDROID
             runCatching{LocalModelSettings(
                 modelUid,prefs.getString("ai_local_variant_uid",profile.variants.first().variantUid)!!,
                 prefs.getInt("ai_local_context_units",profile.recommendedContextUnits),
@@ -95,6 +95,7 @@ class AppSettings(private val context: Context) {
     private fun decodeAssignment(role:AiRole,raw:String?):AiRoleAssignment{
         if(raw.isNullOrBlank()||raw=="AUTO")return AiRoleAssignment(role)
         val parts=raw.split('|',limit=3)
-        return if(parts.size==3&&parts[0]=="PINNED"&&parts[1].isNotBlank()&&parts[2].isNotBlank())AiRoleAssignment(role,AiAssignmentKind.PINNED,AiModelSelection(parts[1],parts[2])) else AiRoleAssignment(role)
+        val providerUid=parts.getOrNull(1)
+        return if(parts.size==3&&parts[0]=="PINNED"&&!providerUid.isNullOrBlank()&&parts[2].isNotBlank())AiRoleAssignment(role,AiAssignmentKind.PINNED,AiModelSelection(providerUid,parts[2])) else AiRoleAssignment(role)
     }
 }

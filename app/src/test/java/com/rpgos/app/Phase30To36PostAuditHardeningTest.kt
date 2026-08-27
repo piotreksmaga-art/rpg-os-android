@@ -8,6 +8,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.SQLiteMode
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
@@ -164,7 +165,9 @@ class Phase30To36PostAuditHardeningTest {
         }
     }
 
-    @Test fun worldPackReplacementAndRollbackCannotRewriteCommittedDivergenceTruthOrEvents() {
+    @Test
+    @SQLiteMode(SQLiteMode.Mode.NATIVE)
+    fun worldPackReplacementAndRollbackCannotRewriteCommittedDivergenceTruthOrEvents() {
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { db ->
             GameplayRuntimeBootstrap.initialize(db, "C1")
             val spec = CanonDivergenceSpec(

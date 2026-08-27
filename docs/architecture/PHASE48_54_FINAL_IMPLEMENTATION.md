@@ -13,8 +13,8 @@ Authoritative input: `CODEX_PLAN_POPRAWKI_48-54.md`. `poprawki_48-54.md` was ref
 | Area | Status before repair | Repair-candidate status |
 |---|---|---|
 | Phase48 provider contracts/routing | implemented | `GREEN` — one semantic port and common conformance suite |
-| Local Android AI | JNI boundary without packaged runtime | `GREEN` at implementation/package gate — official ExecuTorch Android AAR, package import, tokenizer/model validation, admission and lifecycle are wired; compatible weights and physical-device performance remain external evidence |
-| OpenRouter | concrete adapter | `GREEN` controlled — official PKCE/loopback flow, Android Keystore, discovery, typed 429/cancel, workload-specific strict JSON Schema plus Core revalidation; live authorization/network remain external evidence |
+| Local Android AI | concrete ExecuTorch boundary | `GREEN` at implementation/artifact gate — official ExecuTorch Android AAR, package import, tokenizer/model validation, admission and lifecycle are wired; complete Bielik 1.5B v3 XNNPACK package is the mobile default while the 4.5B profile remains compatible/reference; physical-device PTE performance remains external evidence |
+| OpenRouter | concrete adapter | `GREEN` controlled — official PKCE/loopback flow completes code exchange before the callback can report success, credentials remain in Android Keystore, typed transport reasons survive to diagnostic UI, model discovery/inference use workload-specific strict JSON Schema plus Core revalidation; live authorization/network remain external evidence |
 | Phase49 | implemented contract | `GREEN` — proposal identity, actor/action/target/modality/dependencies/agency and malformed-output rejection |
 | Phase50 Combat | incomplete integration | `GREEN` local acceptance — one universal engine, canonical persistent PC/NPC/world-actor/group/unit state, spatial/timing/detection/reaction/clash/contest/objectives/evidence/replay and typed owner materialization |
 | Arbitrary/multi-action mechanics | production blocker | `GREEN` — earlier verified effects are projected into later snapshots; additive deltas commit in plan order through one TurnTransaction and failure rolls back the whole turn |
@@ -77,7 +77,7 @@ Definitions come from the active World Pack typed schema. A narrow compatibility
 
 The same semantic probe runs against controlled, real LocalAiPort and real CloudAiPort adapter paths. It checks cancellation, identity, actor/action/target, Phase43 validation, structured proposal, agency, invented ability, bounded repair, hidden-marker leakage and absence of provider mutation methods.
 
-OpenRouter uses OAuth PKCE with an ephemeral localhost callback, `/api/v1/auth/keys`, model discovery and `/api/v1/chat/completions`. When a model advertises structured output, requests use a named strict `json_schema` for the exact workload and require compatible provider parameters. Core decoding/validation remains authoritative.
+OpenRouter uses OAuth PKCE with an ephemeral localhost callback, `/api/v1/auth/keys`, model discovery and `/api/v1/chat/completions`. The browser callback is not considered successful until the application has exchanged the code, validated the result and stored the credential; a failed exchange renders a failure page and preserves a typed, secret-free reason for the Android UI. The manually entered API-key path is an explicit secondary recovery route and validates the key online before encrypted storage. When a model advertises structured output, requests use a named strict `json_schema` for the exact workload and require compatible provider parameters. Core decoding/validation remains authoritative.
 
 Official references:
 
@@ -86,16 +86,31 @@ Official references:
 - <https://openrouter.ai/docs/guides/overview/models>
 - <https://openrouter.ai/docs/quickstart>
 
+## Mobile Bielik artifact
+
+The release artifact `RPG-OS-Bielik-1.5B-v3-ExecuTorch-XNNPACK.zip` is a complete importable package, not a launcher or metadata-only placeholder. It contains the exported `model.pte`, `tokenizer.json`, manifest, notice and Apache-2.0 license.
+
+- source: official `speakleash/Bielik-1.5B-v3.0-Instruct-FP8-Dynamic`, revision `9392d5165c964fa5482abc9e2e60a8bf0d7bc5ce`;
+- export: ExecuTorch 1.3.x, XNNPACK, 8da4w linear + 8w embedding, maximum sequence length 2048;
+- `model.pte`: 923,083,008 bytes, SHA-256 `4e5a6b8e6684e94d794a609a2f76cfb56f3b3ddef3dfc96904cd10f40244457e`;
+- ZIP: 926,801,866 bytes, SHA-256 `d79d42d6a0bea8b21e9bcd4e00424be451c4167d5329d7bd9515987bdbb3181a`;
+- host-side ExecuTorch load: `GREEN`, with exported metadata methods including `forward`, tokenizer IDs, vocabulary, layer/head counts and max sequence length;
+- physical-device load, inference speed, memory and thermal evidence: still an external acceptance gate.
+
+Historical device evidence remains relevant but separate: Bielik 4.5B v3 GGUF Q4_K_M passed on Samsung SM-S921B with llama.cpp/Vulkan, CTX8192, KV f16, `-ngl 99`, `-b 64`, `-ub 64`. That proves the 4.5B class is viable on the target phone, but it is not evidence that the separate ExecuTorch PTE profile has passed on-device.
+
 ## Verification state before final push
 
 - focused repair/provider/schema/production E2E: `GREEN`, including individual combat, two-step staged movement, production AOE against a persisted aggregate group and restart readback;
+- guarded campaign clone/bootstrap regression: `GREEN`; schema/default-definition preparation is ADMIN-authorized and lifecycle-serialized before gameplay readiness;
+- same-campaign concurrent identical turn: `GREEN`; exactly one canonical commit and one replay, without SQLite busy leakage;
 - Phase54 process-restart recovery: `GREEN`; persisted delivery preserves claims and recovery proves zero repeat assembler/commit calls;
 - targeted snapshot retention, campaign isolation and production restart paths: `GREEN` locally;
 - unchanged legacy SQLite authority/concurrency suites: post-repair exact revalidation remains assigned to Linux CI; the Windows legacy Robolectric backend cannot register the required connection-local scalar guards, while Windows Defender blocks Robolectric's native test DLL;
 - local Android debug compilation: `GREEN` as part of focused Gradle runs;
 - Windows snapshot staging paths and campaign-isolated payload names were shortened, closing the SQLite long-path failure in Robolectric without weakening snapshot identity, digest or catalog authority;
 - Linux exact-SHA full JVM, signed release APK, signature/digest and immutable provenance: pending final push/CI;
-- live Bielik weights/device and live OpenRouter authorization: `PENDING_EXTERNAL_DEPENDENCY`.
+- complete Bielik 1.5B mobile weights/package and host-side ExecuTorch load: `GREEN`; physical Android inference and live OpenRouter authorization/network remain `PENDING_EXTERNAL_DEPENDENCY`.
 
 ## Merge rule
 

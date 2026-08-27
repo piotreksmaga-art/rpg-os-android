@@ -226,7 +226,7 @@ internal class LocalGameStore(private val context: Context) {
     fun restoreBackup(path: String): String {
         val safety = RestoreManager(context).restoreBackup(selection.activeCampaignDirName(), path)
         val campaignUid=selection.activeCampaignRef().campaignId
-        openSaveDb().use { restored -> ensureCurrentSchema(restored);ensureCharacterCreationDefinitions(restored,campaignUid);materializeWorldActorsWithAuthority(restored,campaignUid);GameplayRuntimeBootstrap.initialize(restored,campaignUid) }
+        openSaveDb().use { restored -> prepareCampaignRuntime(restored,campaignUid) }
         openGameplaySaveDb().use { GameplayRuntimeBootstrap.requireReady(it, selection.activeCampaignRef().campaignId) }
         return safety.absolutePath
     }
@@ -237,19 +237,19 @@ internal class LocalGameStore(private val context: Context) {
     fun setActiveCampaign(dirName: String) {
         selection.setActiveCampaign(dirName)
         val campaignUid=selection.activeCampaignRef().campaignId
-        openSaveDb().use { db -> ensureCurrentSchema(db);ensureCharacterCreationDefinitions(db,campaignUid);materializeWorldActorsWithAuthority(db,campaignUid);GameplayRuntimeBootstrap.initialize(db,campaignUid) }
+        openSaveDb().use { db -> prepareCampaignRuntime(db,campaignUid) }
     }
     fun setActiveWorldPack(dirName: String) {
         selection.setActiveWorldPack(dirName)
         val campaignUid=selection.activeCampaignRef().campaignId
-        openSaveDb().use{db->ensureCharacterCreationDefinitions(db,campaignUid);materializeWorldActorsWithAuthority(db,campaignUid);GameplayRuntimeBootstrap.initialize(db,campaignUid)}
+        openSaveDb().use{db->prepareCampaignRuntime(db,campaignUid)}
     }
     fun createCampaign(name: String): File {
         val previousCampaign=selection.activeCampaignDirName()
         val created = selection.createCampaign(name)
         try{
             val campaignUid=selection.activeCampaignRef().campaignId
-            openSaveDb().use { db -> ensureCurrentSchema(db);ensureCharacterCreationDefinitions(db,campaignUid);materializeWorldActorsWithAuthority(db,campaignUid);GameplayRuntimeBootstrap.initialize(db,campaignUid) }
+            openSaveDb().use { db -> prepareCampaignRuntime(db,campaignUid) }
             return created
         }catch(t:Throwable){
             // A failed post-clone migration/bootstrap must not leave a broken campaign selected.
@@ -276,13 +276,32 @@ internal class LocalGameStore(private val context: Context) {
         val active=File(saveDir,"campaign.db");val db=openGameplaySaveDb();val manager=CampaignSnapshotManager(db,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots"))
         val staged=manager.reconstructToVerifiedStaging(snapshotUid);manager.activateVerifiedStaging(active,staged)
         val campaignUid=selection.activeCampaignRef().campaignId
-        openSaveDb().use{ensureCurrentSchema(it);ensureCharacterCreationDefinitions(it,campaignUid);materializeWorldActorsWithAuthority(it,campaignUid);GameplayRuntimeBootstrap.initialize(it,campaignUid)}
+        openSaveDb().use{prepareCampaignRuntime(it,campaignUid)}
         return active.absolutePath
     }
     fun finalizeChapter(chapter: Int, title: String): Pair<String, String> { openGameplaySaveDb().use { save -> val hash = ChapterSaveManager(save).finalizeChapter(chapter, title); CampaignSnapshotManager(save,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots")).create(SnapshotKind.AUTOMATIC);val backup = BackupManager(context).createBackup("chapter_$chapter"); return hash to backup.absolutePath } }
     internal fun applyPatch(patch: StatePatch): PatchResult { openGameplaySaveDb().use { save -> openCoreDb().use { core -> return StatePatchEngine(save, SourceOfTruthRegistry(core)).apply(patch) } } }
     private fun openSave(): SQLiteDatabase = SQLiteDatabase.openDatabase(File(saveDir, "campaign.db").absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
     private fun ensureCurrentSchema(saveDb: SQLiteDatabase) { CurrentSchema.ensure(saveDb, selection.activeCampaignRef().campaignId) }
+
+    /**
+     * Prepares a cloned, restored, or newly activated campaign through one administrative boundary.
+     * A template can already contain Phase 32 guards, so even additive schema/default-definition
+     * writes must carry ADMIN authority before the normal gameplay-ready verification is restored.
+     */
+    private fun prepareCampaignRuntime(saveDb:SQLiteDatabase,campaignUid:String){
+        CampaignRuntimeLifecycleLock.withRecovery(campaignUid){
+            val prepare={
+                ensureCurrentSchema(saveDb)
+                ensureCharacterCreationDefinitions(saveDb,campaignUid)
+                materializeWorldActors(saveDb,campaignUid)
+            }
+            if(GameplayMutationDatabaseGuards.isInstalled(saveDb)){
+                withAdministrativeMutationAuthority(saveDb,campaignUid,prepare)
+            }else prepare()
+            GameplayRuntimeBootstrap.initialize(saveDb,campaignUid)
+        }
+    }
 
     private fun materializeWorldActors(saveDb:SQLiteDatabase,campaignUid:String){
         if(!File(worldDir,"world.db").isFile)return
