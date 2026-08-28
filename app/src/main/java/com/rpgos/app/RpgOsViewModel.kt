@@ -362,6 +362,25 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         if(admission is LocalAdmissionResult.Admitted)persistAi(_settings.value.ai.copy(localModelSettings=settings))
     }
 
+    fun selectLocalAiEngine(engine:LocalRuntimeEngine){
+        val profile=if(engine==LocalRuntimeEngine.LLAMA_CPP)BielikLocalModelProfiles.USER_GGUF else BielikLocalModelProfiles.DEFAULT_ANDROID
+        val settings=LocalRecommendedSettings.forProfile(profile)
+        val selection=AiModelSelection(settings.localProviderUid(),profile.modelUid)
+        val current=_settings.value.ai
+        fun migrate(role:AiRoleAssignment)=if(role.kind==AiAssignmentKind.PINNED&&role.pinned?.providerUid?.startsWith("LOCAL:")==true)
+            AiRoleAssignment(role.role,AiAssignmentKind.PINNED,selection) else role
+        val updated=current.copy(
+            gameMaster=migrate(current.gameMaster),director=migrate(current.director),localModelSettings=settings
+        )
+        persistAi(updated)
+        val cloud=_aiProviderCenter.value.modelOptions.filter{it.providerKind==AiProviderKind.CLOUD}
+        val rebuilt=providerCenterApplication.initialState(updated)
+        _aiProviderCenter.value=rebuilt.copy(
+            openRouterStatus=_aiProviderCenter.value.openRouterStatus,
+            modelOptions=rebuilt.modelOptions+cloud
+        )
+    }
+
     fun resetLocalAiSettings(){updateLocalAiSettings(LocalRecommendedSettings.forProfile(_aiProviderCenter.value.localProfile))}
 
     fun importBielikArtifact(uri:android.net.Uri){

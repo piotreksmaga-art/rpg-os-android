@@ -283,17 +283,18 @@ internal fun openRouterIoReason(failure:IOException):String{
 
 class AndroidLocalModelArtifactStore(private val context:Context):LocalModelArtifactStore{
     private val root=File(context.filesDir,"ai-models")
+    private val digestCache=java.util.concurrent.ConcurrentHashMap<String,String>()
     override fun find(modelUid:String,variantUid:String):LocalModelArtifact?{
         val safeModel=stableSegment(modelUid);val safeVariant=stableSegment(variantUid)
         val packageDir=File(File(root,safeModel),safeVariant)
         val pte=packageDir.listFiles()?.singleOrNull{it.isFile&&it.extension.equals("pte",true)}
         val tokenizer=packageDir.listFiles()?.singleOrNull{it.isFile&&it.name.startsWith("tokenizer",true)}
         if(pte!=null&&tokenizer!=null&&pte.length()>0&&tokenizer.length()>0){
-            return LocalModelArtifact(modelUid,variantUid,pte.absolutePath,pte.length(),sha256(pte),tokenizer.absolutePath)
+            return LocalModelArtifact(modelUid,variantUid,pte.absolutePath,pte.length(),sha256Cached(pte),tokenizer.absolutePath)
         }
         val file=File(File(root,safeModel),"$safeVariant.model")
         if(!file.isFile||file.length()<=0)return null
-        return LocalModelArtifact(modelUid,variantUid,file.absolutePath,file.length(),sha256(file))
+        return LocalModelArtifact(modelUid,variantUid,file.absolutePath,file.length(),sha256Cached(file))
     }
     fun import(modelUid:String,variantUid:String,input:java.io.InputStream):LocalModelArtifact{
         if(variantUid.startsWith("EXECUTORCH"))return importExecuTorchPackage(modelUid,variantUid,input)
@@ -302,7 +303,7 @@ class AndroidLocalModelArtifactStore(private val context:Context):LocalModelArti
         val staging=File(dir,".${target.name}.${System.nanoTime()}.partial")
         try{input.use{source->staging.outputStream().use(source::copyTo)};require(staging.length()>0);if(!staging.renameTo(target)){staging.copyTo(target,true);staging.delete()}}
         finally{if(staging.exists())staging.delete()}
-        return LocalModelArtifact(modelUid,variantUid,target.absolutePath,target.length(),sha256(target))
+        return LocalModelArtifact(modelUid,variantUid,target.absolutePath,target.length(),sha256Cached(target))
     }
     private fun importExecuTorchPackage(modelUid:String,variantUid:String,input:java.io.InputStream):LocalModelArtifact{
         val parent=File(root,stableSegment(modelUid)).apply{mkdirs()}
@@ -347,6 +348,30 @@ class AndroidLocalModelArtifactStore(private val context:Context):LocalModelArti
         val digest=MessageDigest.getInstance("SHA-256");file.inputStream().use{input->val buffer=ByteArray(1024*1024);while(true){val n=input.read(buffer);if(n<0)break;digest.update(buffer,0,n)}}
         return digest.digest().joinToString(""){"%02x".format(it)}
     }
+    /**
+     * Model packages approach a gigabyte. Re-hashing one synchronously on every Compose state
+     * rebuild caused a real Android ANR when changing the active local engine. Cache the digest
+     * against immutable file identity and persist it next to the private model package. A legacy
+     * installation pays the migration cost once; subsequent app starts only read the tiny marker.
+     */
+    private fun sha256Cached(file:File):String{
+        val identity="${file.canonicalPath}|${file.length()}|${file.lastModified()}"
+        digestCache[identity]?.let{return it}
+        val marker=File(file.parentFile,".${file.name}.sha256")
+        marker.takeIf{it.isFile}?.readLines()?.takeIf{it.size==2&&it[0]==identity}
+            ?.get(1)?.takeIf{it.matches(Regex("[0-9a-fA-F]{64}"))}?.lowercase()?.let{
+                digestCache[identity]=it
+                return it
+            }
+        val digest=sha256(file)
+        runCatching{
+            val staging=File(marker.parentFile,".${marker.name}.${System.nanoTime()}.partial")
+            staging.writeText("$identity\n$digest")
+            if(!staging.renameTo(marker)){staging.copyTo(marker,true);staging.delete()}
+        }
+        digestCache[identity]=digest
+        return digest
+    }
     companion object{private const val MAX_EXECUTORCH_ENTRY_BYTES=8_000_000_000L}
 }
 
@@ -373,7 +398,12 @@ object AndroidLocalDeviceProbe{
 class JniLocalInferenceDriver:LocalInferenceDriver{
     init{require(NativeLocalInferenceBridge.available){"RPGOS-P48:NATIVE_LOCAL_RUNTIME_NOT_PACKAGED"}}
     override fun open(profile:LocalModelProfile,settings:LocalModelSettings,artifact:LocalModelArtifact,backend:LocalRuntimeBackend):Any =
-        NativeLocalInferenceBridge.open(artifact.absolutePath,profile.chatTemplateUid,settings.contextUnits,settings.kvBytesPerContextUnit,backend.name,settings.threads?:0,settings.prefillBatchUnits?:0)
+        NativeLocalInferenceBridge.open(
+            artifact.absolutePath,profile.chatTemplateUid,settings.contextUnits,settings.kvBytesPerContextUnit,backend.name,
+            settings.threads?:4,settings.prefillBatchUnits?:64,settings.microBatchUnits?:settings.prefillBatchUnits?:64,
+            settings.gpuLayers?:0,settings.kvKeyType.name,settings.kvValueType.name,settings.temperature,settings.topK,
+            settings.topP,settings.repeatPenalty,settings.flashAttention,settings.memoryMap
+        )
     override fun infer(handle:Any,requestUid:String,prompt:String,maximumOutputUnits:Int,cancellation:AiCancellationSignal,onChunk:(LocalGenerationChunk)->Unit):LocalGenerationOutput{
         require(handle is Long)
         val started=System.nanoTime();val output=NativeLocalInferenceBridge.generate(handle,requestUid,prompt,maximumOutputUnits)
@@ -387,7 +417,11 @@ class JniLocalInferenceDriver:LocalInferenceDriver{
 
 object NativeLocalInferenceBridge{
     val available:Boolean=runCatching{System.loadLibrary("rpgos_ai_runtime");true}.getOrDefault(false)
-    external fun open(artifactPath:String,chatTemplateUid:String,contextUnits:Int,kvBytesPerUnit:Long,backend:String,threads:Int,prefillBatch:Int):Long
+    external fun open(
+        artifactPath:String,chatTemplateUid:String,contextUnits:Int,kvBytesPerUnit:Long,backend:String,threads:Int,
+        prefillBatch:Int,microBatch:Int,gpuLayers:Int,kvKeyType:String,kvValueType:String,temperature:Float,
+        topK:Int,topP:Float,repeatPenalty:Float,flashAttention:Boolean,memoryMap:Boolean
+    ):Long
     external fun generate(handle:Long,requestUid:String,prompt:String,maximumOutputUnits:Int):String
     external fun cancel(requestUid:String)
     external fun close(handle:Long)

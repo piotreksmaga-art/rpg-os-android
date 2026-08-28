@@ -110,6 +110,8 @@ class RoleAwareModelRouter(
 }
 
 enum class LocalRuntimeBackend { AUTO, CPU, GPU, NPU }
+enum class LocalRuntimeEngine { EXECUTORCH, LLAMA_CPP }
+enum class LocalKvCacheType { F32, F16, Q8_0, Q4_0 }
 enum class LocalThermalState { NOMINAL, WARM, HOT, CRITICAL, UNKNOWN }
 enum class LocalArtifactFormat { GGUF, LITERT, EXECUTORCH, VENDOR_NATIVE }
 
@@ -187,6 +189,24 @@ object BielikLocalModelProfiles{
         )
     )
 
+    /**
+     * User-managed GGUF profile. The GGUF metadata owns the tokenizer and chat template; RPG OS
+     * only provides the stable AI-provider boundary and lets llama.cpp load the selected file.
+     * Runtime limits are intentionally controlled by LocalModelSettings instead of this profile.
+     */
+    val USER_GGUF = LocalModelProfile(
+        modelUid="local/user-gguf",
+        displayName="GGUF / llama.cpp (własny model)",
+        familyUid="GGUF",
+        tokenizerUid="GGUF_EMBEDDED",
+        chatTemplateUid="GGUF_MODEL_METADATA",
+        supportedWorkloads=AiWorkload.entries.toSet(),
+        recommendedContextUnits=8_192,
+        maximumContextUnits=Int.MAX_VALUE,
+        recommendedKvBytesPerContextUnit=262_144,
+        variants=listOf(LocalArtifactVariant("GGUF-USER",LocalArtifactFormat.GGUF,"MODEL_DEFINED",1L))
+    )
+
     /** Production Android profile for the official packaged ExecuTorch runtime. */
     val BIELIK_4_5B_V3_EXECUTORCH = BIELIK_4_5B_V3.copy(
         displayName="Bielik 4.5B v3 Instruct (lokalny ExecuTorch)",
@@ -203,6 +223,7 @@ object BielikLocalModelProfiles{
     fun byModelUid(modelUid:String?):LocalModelProfile?=when(modelUid){
         BIELIK_1_5B_V3_EXECUTORCH.modelUid->BIELIK_1_5B_V3_EXECUTORCH
         BIELIK_4_5B_V3_EXECUTORCH.modelUid->BIELIK_4_5B_V3_EXECUTORCH
+        USER_GGUF.modelUid->USER_GGUF
         else->null
     }
 }
@@ -238,17 +259,38 @@ data class LocalModelSettings(
     val backend:LocalRuntimeBackend=LocalRuntimeBackend.AUTO,
     val threads:Int?=null,
     val prefillBatchUnits:Int?=null,
-    val recommended:Boolean=true
+    val recommended:Boolean=true,
+    val runtimeEngine:LocalRuntimeEngine=LocalRuntimeEngine.EXECUTORCH,
+    val microBatchUnits:Int?=null,
+    val gpuLayers:Int?=null,
+    val kvKeyType:LocalKvCacheType=LocalKvCacheType.F16,
+    val kvValueType:LocalKvCacheType=LocalKvCacheType.F16,
+    val temperature:Float=0.1f,
+    val topK:Int=40,
+    val topP:Float=0.95f,
+    val repeatPenalty:Float=1.1f,
+    val flashAttention:Boolean=false,
+    val memoryMap:Boolean=true
 ){init{
     require(modelUid.isNotBlank()&&variantUid.isNotBlank()&&contextUnits>0&&kvBytesPerContextUnit>0)
-    require(threads==null||threads in 1..256);require(prefillBatchUnits==null||prefillBatchUnits in 1..65_536)
+    require(threads==null||threads>0);require(prefillBatchUnits==null||prefillBatchUnits>0)
+    require(microBatchUnits==null||microBatchUnits>0)
+    require(temperature>=0f&&temperature.isFinite()&&topK>=0&&topP in 0f..1f&&repeatPenalty>0f&&repeatPenalty.isFinite())
 }}
 
 object LocalRecommendedSettings{
-    fun forProfile(profile:LocalModelProfile)=LocalModelSettings(
-        profile.modelUid,profile.variants.first().variantUid,profile.recommendedContextUnits,
-        profile.recommendedKvBytesPerContextUnit,LocalRuntimeBackend.AUTO,recommended=true
-    )
+    fun forProfile(profile:LocalModelProfile):LocalModelSettings{
+        // Existing GGUF data profiles keep their historical neutral defaults.
+        // USER_GGUF is the explicit production llama.cpp profile exposed by Android UI.
+        val gguf=profile.modelUid==BielikLocalModelProfiles.USER_GGUF.modelUid
+        return LocalModelSettings(
+            profile.modelUid,profile.variants.first().variantUid,profile.recommendedContextUnits,
+            profile.recommendedKvBytesPerContextUnit,if(gguf)LocalRuntimeBackend.GPU else LocalRuntimeBackend.AUTO,
+            threads=if(gguf)4 else null,prefillBatchUnits=if(gguf)64 else null,recommended=true,
+            runtimeEngine=if(gguf)LocalRuntimeEngine.LLAMA_CPP else LocalRuntimeEngine.EXECUTORCH,
+            microBatchUnits=if(gguf)64 else null,gpuLayers=if(gguf)99 else null
+        )
+    }
 }
 
 sealed interface LocalAdmissionResult{
@@ -268,12 +310,18 @@ class LocalModelAdmissionController{
         val variant=profile.variants.singleOrNull{it.variantUid==settings.variantUid}
         if(variant==null)reasons+="ARTIFACT_VARIANT_UNSUPPORTED"
         else if(variant.format !in runtime.supportedFormats)reasons+="ARTIFACT_FORMAT_UNSUPPORTED"
-        if(settings.contextUnits>profile.maximumContextUnits)reasons+="CONTEXT_LIMIT_EXCEEDED"
+        if(settings.runtimeEngine!=LocalRuntimeEngine.LLAMA_CPP&&settings.contextUnits>profile.maximumContextUnits)reasons+="CONTEXT_LIMIT_EXCEEDED"
         if(!runtime.supportsContextTuning&&settings.contextUnits!=profile.recommendedContextUnits)reasons+="CONTEXT_TUNING_UNSUPPORTED"
         if(!runtime.supportsKvTuning&&settings.kvBytesPerContextUnit!=profile.recommendedKvBytesPerContextUnit)reasons+="KV_TUNING_UNSUPPORTED"
         if(!runtime.supportsThreads&&settings.threads!=null)reasons+="THREAD_TUNING_UNSUPPORTED"
         if(!runtime.supportsBatchPrefill&&settings.prefillBatchUnits!=null)reasons+="PREFILL_TUNING_UNSUPPORTED"
         val backend=selectBackend(settings.backend,runtime,device)?:run{reasons+="BACKEND_UNAVAILABLE";LocalRuntimeBackend.CPU}
+        if(settings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP){
+            if(reasons.isNotEmpty())return LocalAdmissionResult.Rejected(reasons.sorted(),null)
+            val artifactBytes=variant?.expectedBytes?:0L
+            val kvBytes=saturatedMultiply(settings.contextUnits.toLong(),settings.kvBytesPerContextUnit)
+            return LocalAdmissionResult.Admitted(backend,saturatedAdd(artifactBytes,kvBytes),"USER_MANAGED_GGUF_PROFILE")
+        }
         if(device.thermalState==LocalThermalState.CRITICAL)reasons+="THERMAL_CRITICAL"
         val artifactBytes=variant?.expectedBytes?:0L
         val kvBytes=saturatedMultiply(settings.contextUnits.toLong(),settings.kvBytesPerContextUnit)
@@ -399,7 +447,8 @@ private class LocalRuntimeTransport(
         if(admission is LocalAdmissionResult.Rejected)return AiProviderResult.Failure(AiProviderFailureKind.UNAVAILABLE,"LOCAL_ADMISSION:${admission.reasonUids.joinToString(",")}")
         return try{
             runtime.load(profile,settings,artifact,admission as LocalAdmissionResult.Admitted)
-            val output=runtime.generate(LocalGenerationRequest(request.requestUid,request.workload,request.payload,request.maximumOutputUnits,profile,settings,artifact),cancellation)
+            val outputLimit=if(request.workload==AiWorkload.CHARACTER_CREATION)minOf(request.maximumOutputUnits,320) else request.maximumOutputUnits
+            val output=runtime.generate(LocalGenerationRequest(request.requestUid,request.workload,request.payload,outputLimit,profile,settings,artifact),cancellation)
             AiProviderResult.Success(AiTransportResponse(request.requestUid,output.structuredPayload,output.traceUid),"LOCAL-RUNTIME",profile.modelUid,output.traceUid)
         }catch(failure:OutOfMemoryError){
             runtime.unload(profile.modelUid);AiProviderResult.Failure(AiProviderFailureKind.UNAVAILABLE,"LOCAL_OOM",true)

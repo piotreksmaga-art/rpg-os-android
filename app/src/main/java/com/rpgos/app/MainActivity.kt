@@ -2584,52 +2584,101 @@ private fun AiProviderCenterScreen(vm:RpgOsViewModel){
         item{
             GlowPanel(Modifier.fillMaxWidth(),shape=RoundedCornerShape(22.dp,14.dp,26.dp,18.dp)){
                 Text("Model lokalny",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                Text("Silnik")
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
+                    FilterChip(
+                        selected=state.localSettings.runtimeEngine==LocalRuntimeEngine.EXECUTORCH,
+                        onClick={vm.selectLocalAiEngine(LocalRuntimeEngine.EXECUTORCH)},label={Text("ExecuTorch")}
+                    )
+                    FilterChip(
+                        selected=state.localSettings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP,
+                        onClick={vm.selectLocalAiEngine(LocalRuntimeEngine.LLAMA_CPP)},label={Text("llama.cpp / GGUF")}
+                    )
+                }
                 Text(state.localProfile.displayName,color=MaterialTheme.colorScheme.primary)
                 Text(if(state.localArtifactInstalled)"Plik modelu: zainstalowany" else "Plik modelu: wymagany",color=if(state.localArtifactInstalled)MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.error)
                 Text(if(state.localRuntimeAvailable)"Runtime: gotowy" else "Runtime: oczekuje na zgodny pakiet urządzenia",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(onClick={modelPicker.launch(arrayOf("application/octet-stream","*/*"))},modifier=Modifier.fillMaxWidth()){
-                    Text(if(state.localArtifactInstalled)"Zmień plik Bielika" else "Importuj Bielika")
+                    Text(when{
+                        state.localSettings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP&&state.localArtifactInstalled->"Zmień model GGUF"
+                        state.localSettings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP->"Importuj model GGUF"
+                        state.localArtifactInstalled->"Zmień plik Bielika"
+                        else->"Importuj Bielika"
+                    })
                 }
                 Text(
-                    "Import wymaga pakietu ZIP ExecuTorch zawierającego model .pte i tokenizer. Plik GGUF nie jest zgodnym pakietem dla tej wersji Androida.",
+                    if(state.localSettings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP)
+                        "Wybierz dowolny model GGUF zgodny z llama.cpp. Tokenizer i szablon rozmowy są odczytywane z pliku GGUF."
+                    else "Import wymaga pakietu ZIP ExecuTorch zawierającego model .pte i tokenizer.",
                     style=MaterialTheme.typography.bodySmall,
                     color=MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                TextButton(
-                    onClick={context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://github.com/piotreksmaga-art/rpg-os-android/releases/download/v1.3.0-alpha10-core54/RPG-OS-Bielik-1.5B-v3-ExecuTorch-XNNPACK.zip")))},
-                    modifier=Modifier.fillMaxWidth()
-                ){Text("Pobierz mobilny pakiet Bielika")}
-                TextButton(
-                    onClick={context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://huggingface.co/speakleash/Bielik-1.5B-v3.0-Instruct")))},
-                    modifier=Modifier.fillMaxWidth()
-                ){Text("Otwórz oficjalną stronę modelu")}
+                if(state.localSettings.runtimeEngine==LocalRuntimeEngine.EXECUTORCH){
+                    TextButton(
+                        onClick={context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://github.com/piotreksmaga-art/rpg-os-android/releases/download/v1.3.0-alpha10-core54/RPG-OS-Bielik-1.5B-v3-ExecuTorch-XNNPACK.zip")))},
+                        modifier=Modifier.fillMaxWidth()
+                    ){Text("Pobierz mobilny pakiet Bielika")}
+                    TextButton(
+                        onClick={context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://huggingface.co/speakleash/Bielik-1.5B-v3.0-Instruct")))},
+                        modifier=Modifier.fillMaxWidth()
+                    ){Text("Otwórz oficjalną stronę modelu")}
+                }
                 TextButton(onClick={advanced=!advanced},modifier=Modifier.fillMaxWidth()){Text(if(advanced)"Ukryj ustawienia zaawansowane" else "Ustawienia zaawansowane")}
                 if(advanced){
                     HorizontalDivider(Modifier.padding(vertical=8.dp))
                     Text("Profil: ${if(state.localSettings.recommended)"Auto / Zalecany" else "Ręczny"}",fontWeight=FontWeight.Bold)
-                    Text("Kontekst (CTX)")
-                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
-                        listOf(2048,4096,8192,16384,32768).filter{it<=state.localProfile.maximumContextUnits}.forEach{ctx->FilterChip(
-                            selected=state.localSettings.contextUnits==ctx,onClick={vm.updateLocalAiSettings(state.localSettings.copy(contextUnits=ctx,recommended=false))},
-                            label={Text(if(ctx>=1024)"${ctx/1024}k" else ctx.toString())}
-                        )}
-                    }
+                    ManualIntSetting("Kontekst (CTX)",state.localSettings.contextUnits){vm.updateLocalAiSettings(state.localSettings.copy(contextUnits=it,recommended=false))}
                     Text("KV: ${(state.localSettings.contextUnits.toLong()*state.localSettings.kvBytesPerContextUnit)/(1024*1024)} MB",style=MaterialTheme.typography.bodySmall)
                     Text("Backend")
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)){
-                        listOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU,LocalRuntimeBackend.GPU,LocalRuntimeBackend.NPU).forEach{backend->FilterChip(
+                        (if(state.localSettings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP)
+                            listOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU,LocalRuntimeBackend.GPU)
+                        else listOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU)).forEach{backend->FilterChip(
                             selected=state.localSettings.backend==backend,onClick={vm.updateLocalAiSettings(state.localSettings.copy(backend=backend,recommended=false))},label={Text(backend.name)}
                         )}
                     }
+                    if(state.localSettings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP){
+                        Text("Parametry llama.cpp / Vulkan",fontWeight=FontWeight.Bold)
+                        ManualIntSetting("Warstwy GPU (-1 = wszystkie)",state.localSettings.gpuLayers?:0,allowNegative=true){
+                            vm.updateLocalAiSettings(state.localSettings.copy(gpuLayers=it,recommended=false))
+                        }
+                        ManualIntSetting("Wątki CPU",state.localSettings.threads?:4){vm.updateLocalAiSettings(state.localSettings.copy(threads=it,recommended=false))}
+                        ManualIntSetting("Batch (prefill)",state.localSettings.prefillBatchUnits?:64){vm.updateLocalAiSettings(state.localSettings.copy(prefillBatchUnits=it,recommended=false))}
+                        ManualIntSetting("Ubatch",state.localSettings.microBatchUnits?:64){vm.updateLocalAiSettings(state.localSettings.copy(microBatchUnits=it,recommended=false))}
+                        Text("Typ KV cache (K / V)")
+                        LocalKvCacheType.entries.forEach{type->
+                            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+                                Text(type.name,Modifier.width(64.dp))
+                                FilterChip(selected=state.localSettings.kvKeyType==type,onClick={vm.updateLocalAiSettings(state.localSettings.copy(kvKeyType=type,recommended=false))},label={Text("K")})
+                                Spacer(Modifier.width(6.dp))
+                                FilterChip(selected=state.localSettings.kvValueType==type,onClick={vm.updateLocalAiSettings(state.localSettings.copy(kvValueType=type,recommended=false))},label={Text("V")})
+                            }
+                        }
+                        ManualFloatSetting("Temperatura",state.localSettings.temperature){vm.updateLocalAiSettings(state.localSettings.copy(temperature=it,recommended=false))}
+                        ManualIntSetting("Top K",state.localSettings.topK,allowZero=true){vm.updateLocalAiSettings(state.localSettings.copy(topK=it,recommended=false))}
+                        ManualFloatSetting("Top P",state.localSettings.topP){vm.updateLocalAiSettings(state.localSettings.copy(topP=it.coerceIn(0f,1f),recommended=false))}
+                        ManualFloatSetting("Repeat penalty",state.localSettings.repeatPenalty){vm.updateLocalAiSettings(state.localSettings.copy(repeatPenalty=it.coerceAtLeast(0.01f),recommended=false))}
+                        AiPrivacySwitch("Flash Attention",state.localSettings.flashAttention){vm.updateLocalAiSettings(state.localSettings.copy(flashAttention=it,recommended=false))}
+                        AiPrivacySwitch("Memory map (mmap)",state.localSettings.memoryMap){vm.updateLocalAiSettings(state.localSettings.copy(memoryMap=it,recommended=false))}
+                        Text(
+                            "Tryb ręczny nie nakłada limitu RAM, kontekstu ani liczby warstw GPU. Nieprawidłowy profil może zatrzymać proces modelu; interfejs i zapis gry pozostaną aktywne.",
+                            style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error
+                        )
+                    }
                     Text("Wariant artefaktu")
                     state.localProfile.variants.forEach{variant->RadioButtonRow(
-                        selected=state.localSettings.variantUid==variant.variantUid,label="${variant.variantUid} • ${variant.expectedBytes/(1024*1024)} MB",
+                        selected=state.localSettings.variantUid==variant.variantUid,
+                        label=if(state.localSettings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP)"Dowolny zgodny plik GGUF" else "${variant.variantUid} • ${variant.expectedBytes/(1024*1024)} MB",
                         onClick={vm.updateLocalAiSettings(state.localSettings.copy(variantUid=variant.variantUid,recommended=false))}
                     )}
                     when(val admission=state.localAdmission){
-                        is LocalAdmissionResult.Admitted->Text("Szacowany szczyt RAM: ${admission.estimatedPeakBytes/(1024*1024)} MB",color=MaterialTheme.colorScheme.secondary)
-                        is LocalAdmissionResult.Rejected->Text("Profil odrzucony dla bezpieczeństwa: ${admission.reasonUids.joinToString()}",color=MaterialTheme.colorScheme.error)
+                        is LocalAdmissionResult.Admitted->Text(
+                            if(state.localSettings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP)"Tryb użytkownika: limity RAM, CTX i warstw GPU są wyłączone."
+                            else "Szacowany szczyt RAM: ${admission.estimatedPeakBytes/(1024*1024)} MB",
+                            color=MaterialTheme.colorScheme.secondary
+                        )
+                        is LocalAdmissionResult.Rejected->Text("Profil niedostępny: ${admission.reasonUids.joinToString()}",color=MaterialTheme.colorScheme.error)
                         null->Unit
                     }
                     OutlinedButton(onClick=vm::resetLocalAiSettings,modifier=Modifier.fillMaxWidth()){Text("Przywróć zalecane")}
@@ -2695,6 +2744,28 @@ private fun AiProviderCenterScreen(vm:RpgOsViewModel){
             }
         }
     }
+}
+
+@Composable
+private fun ManualIntSetting(label:String,value:Int,allowNegative:Boolean=false,allowZero:Boolean=false,onValue:(Int)->Unit){
+    var text by remember(value){mutableStateOf(value.toString())}
+    OutlinedTextField(
+        value=text,onValueChange={candidate->
+            if(candidate.isEmpty()||(allowNegative&&candidate=="-")){text=candidate;return@OutlinedTextField}
+            candidate.toIntOrNull()?.takeIf{number->number>0||(allowZero&&number==0)||(allowNegative&&number>=-1)}?.let{number->text=candidate;onValue(number)}
+        },label={Text(label)},singleLine=true,modifier=Modifier.fillMaxWidth()
+    )
+}
+
+@Composable
+private fun ManualFloatSetting(label:String,value:Float,onValue:(Float)->Unit){
+    var text by remember(value){mutableStateOf(value.toString())}
+    OutlinedTextField(
+        value=text,onValueChange={candidate->
+            if(candidate.isEmpty()||candidate=="."){text=candidate;return@OutlinedTextField}
+            candidate.replace(',','.').toFloatOrNull()?.takeIf{it>=0f&&it.isFinite()}?.let{number->text=candidate;onValue(number)}
+        },label={Text(label)},singleLine=true,modifier=Modifier.fillMaxWidth()
+    )
 }
 
 @Composable

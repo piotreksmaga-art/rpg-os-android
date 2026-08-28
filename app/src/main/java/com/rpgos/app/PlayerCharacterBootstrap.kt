@@ -129,10 +129,11 @@ class AiCharacterCreationApplication(
             }
             is CharacterCreationGmCandidate.ReadyForConfirmation->{
                 if(candidate.draft.campaignUid!=catalog.campaignUid)return CharacterCreationApplicationOutcome.Failed("CHARACTER_CREATION_CROSS_CAMPAIGN_DRAFT")
-                pending=candidate
-                conversation+=CharacterCreationConversationEntry(CharacterCreationConversationRole.GAME_MASTER,candidate.playerFacingSummary)
+                val completed=candidate.copy(draft=candidate.draft.completeMandatoryChoices(catalog))
+                pending=completed
+                conversation+=CharacterCreationConversationEntry(CharacterCreationConversationRole.GAME_MASTER,completed.playerFacingSummary)
                 CharacterCreationApplicationOutcome.AwaitingExplicitConfirmation(
-                    candidate.draft.creationUid,candidate.playerFacingSummary,PlayerCharacterBootstrapService.fingerprint(candidate.draft)
+                    completed.draft.creationUid,completed.playerFacingSummary,PlayerCharacterBootstrapService.fingerprint(completed.draft)
                 )
             }
         }
@@ -149,15 +150,38 @@ class AiCharacterCreationApplication(
     }
 }
 
+private fun PlayerCharacterCreationDraft.completeMandatoryChoices(catalog:CharacterCreationCatalog):PlayerCharacterCreationDraft{
+    fun defaultValue(option:CharacterCreationDefinitionOption)=when(option.kind){
+        CharacterCreationDefinitionKind.RESOURCE->option.maximumValue?:option.minimumValue?:1.0
+        CharacterCreationDefinitionKind.POTENTIAL->option.maximumValue?:50.0
+        else->option.minimumValue?:0.0
+    }
+    fun complete(kind:CharacterCreationDefinitionKind,current:List<CharacterCreationValueChoice>):List<CharacterCreationValueChoice>{
+        val present=current.map{it.definitionUid to it.dimensionUid}.toSet()
+        return current+catalog.options.filter{it.kind==kind&&(it.definitionUid to it.dimensionUid) !in present}.map{option->
+            CharacterCreationValueChoice(option.definitionUid,defaultValue(option),option.dimensionUid)
+        }
+    }
+    val potentialDomains=potentials.map{it.definitionUid}.toSet()
+    val missingPotentials=catalog.options.filter{it.kind==CharacterCreationDefinitionKind.POTENTIAL&&it.definitionUid !in potentialDomains}
+        .groupBy{it.definitionUid}.toSortedMap().values.map{options->
+            val option=options.firstOrNull{it.dimensionUid=="MAXIMUM"}?:options.sortedBy{it.dimensionUid}.first()
+            CharacterCreationValueChoice(option.definitionUid,defaultValue(option),option.dimensionUid)
+        }
+    return copy(
+        stats=complete(CharacterCreationDefinitionKind.STAT,stats),
+        resources=complete(CharacterCreationDefinitionKind.RESOURCE,resources),
+        talents=complete(CharacterCreationDefinitionKind.TALENT,talents),
+        potentials=potentials+missingPotentials
+    )
+}
+
 internal fun CharacterCreationCatalog.projectForAi(
     conversation:List<CharacterCreationConversationEntry>,
-    maximumEstimatedInputUnits:Int=900
+    maximumEstimatedInputUnits:Int=1_250
 ):CharacterCreationCatalog{
     require(maximumEstimatedInputUnits>0)
-    val completeKinds=setOf(
-        CharacterCreationDefinitionKind.STAT,CharacterCreationDefinitionKind.RESOURCE,
-        CharacterCreationDefinitionKind.TALENT,CharacterCreationDefinitionKind.POTENTIAL
-    )
+    val completeKinds=setOf(CharacterCreationDefinitionKind.STAT,CharacterCreationDefinitionKind.RESOURCE,CharacterCreationDefinitionKind.TALENT)
     val words=conversation.asSequence().flatMap{it.text.lowercase().split(Regex("[^\\p{L}\\p{N}_-]+")).asSequence()}
         .filter{it.length>=3}.toSet()
     fun relevance(option:CharacterCreationDefinitionOption):Int{
@@ -165,7 +189,13 @@ internal fun CharacterCreationCatalog.projectForAi(
         return words.sumOf{word->when{searchable==word->8;searchable.contains(word)->3;else->0}}
     }
     val selected=options.filter{it.kind in completeKinds}.sortedWith(compareBy({it.kind.name},{it.definitionUid})).toMutableList()
-    val optionalKinds=CharacterCreationDefinitionKind.entries.filterNot{it in completeKinds}
+    // Potential is represented once per progression domain. The canonical validator requires
+    // domain coverage, not all five dimension variants, so repeating every dimension consumed
+    // scarce mobile context without adding a legal choice the draft had to contain.
+    options.filter{it.kind==CharacterCreationDefinitionKind.POTENTIAL}.groupBy{it.definitionUid}.toSortedMap().values.forEach{variants->
+        selected+=variants.firstOrNull{it.dimensionUid=="MAXIMUM"}?:variants.sortedBy{it.dimensionUid}.first()
+    }
+    val optionalKinds=CharacterCreationDefinitionKind.entries.filterNot{it in completeKinds||it==CharacterCreationDefinitionKind.POTENTIAL}
     val queues=optionalKinds.associateWith{kind->options.filter{it.kind==kind}
         .sortedWith(compareByDescending<CharacterCreationDefinitionOption>(::relevance).thenBy{it.definitionUid}).toMutableList()}
     // Every available choice family gets one representative before additional relevant choices.
@@ -195,11 +225,14 @@ internal fun List<CharacterCreationConversationEntry>.projectForAi(maximumUnits:
 }
 
 internal fun CharacterCreationCatalog.estimatedInputUnits(conversation:List<CharacterCreationConversationEntry>):Int{
-    val conversationUnits=conversation.sumOf{(it.text.length+3)/4+8}
+    // Bielik's tokenizer splits JSON punctuation and canonical UIDs more aggressively than the
+    // usual prose-only chars/4 heuristic. This deliberately conservative estimate mirrors the
+    // compact array wire format used by CanonicalAiJsonCodec and keeps room for the draft output.
+    val conversationUnits=conversation.sumOf{(it.text.length+1)/2+6}
     val definitionUnits=options.sumOf{option->
-        (option.definitionUid.length+option.displayName.length+(option.dimensionUid?.length?:0)+63)/4
+        (option.definitionUid.length+option.displayName.length+(option.dimensionUid?.length?:0)+28+1)/2
     }
-    return (180+conversationUnits+definitionUnits).coerceAtLeast(1)
+    return (260+conversationUnits+definitionUnits).coerceAtLeast(1)
 }
 
 class CharacterCreationCatalogReader(

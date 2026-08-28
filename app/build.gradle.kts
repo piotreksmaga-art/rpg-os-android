@@ -6,13 +6,14 @@ plugins {
 android {
     namespace = "com.rpgos.app"
     compileSdk = 36
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "com.rpgos.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 154
-        versionName = "1.3.0-alpha14-core54"
+        versionCode = 155
+        versionName = "1.3.0-alpha15-core54-gguf"
         buildConfigField("String", "RPGOS_BACKEND_URL", "\"https://YOUR-BACKEND.example\"")
         buildConfigField(
             "String",
@@ -24,6 +25,29 @@ android {
             "RPGOS_CONTENT_UPDATE_URL",
             "\"https://raw.githubusercontent.com/piotreksmaga-art/rpg-os-android/master/content/channel-alpha.json\""
         )
+        ndk {
+            abiFilters += "arm64-v8a"
+            // Release remains phone-focused ARM64. This opt-in ABI exists only so the Android
+            // emulator can exercise ExecuTorch/XNNPACK natively instead of through ARM
+            // translation, which XNNPACK correctly rejects as unsupported hardware.
+            if (providers.gradleProperty("rpgosEmulatorX86").orNull == "true") {
+                abiFilters += "x86_64"
+            }
+        }
+        externalNativeBuild {
+            cmake {
+                arguments += listOf(
+                    "-DCMAKE_BUILD_TYPE=Release",
+                    "-DGGML_VULKAN=ON",
+                    "-DGGML_NATIVE=OFF",
+                    "-DGGML_OPENMP=OFF",
+                    "-DLLAMA_BUILD_TESTS=OFF",
+                    "-DLLAMA_BUILD_TOOLS=OFF",
+                    "-DLLAMA_BUILD_EXAMPLES=OFF"
+                )
+                cppFlags += listOf("-O3")
+            }
+        }
     }
 
     signingConfigs {
@@ -49,6 +73,13 @@ android {
         compose = true
         buildConfig = true
         aidl = true
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.31.6"
+        }
     }
 
     testOptions {
