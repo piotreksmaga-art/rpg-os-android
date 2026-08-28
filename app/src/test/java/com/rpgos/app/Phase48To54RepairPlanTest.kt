@@ -501,7 +501,9 @@ class Phase48NativePackageAndProductionWiringTest{
         val provider=File(root,"AiProviderCenter.kt").readText()
         val gradle=File(module,"build.gradle.kts").readText()
         assertTrue(viewModel.contains("DynamicCanonicalChatApplication"));assertFalse(viewModel.contains("NonAuthoritativeLegacyNarrationApplication("))
-        assertTrue(provider.contains("ExecuTorchLocalInferenceDriver"));assertTrue(provider.contains("localRuntimeAvailable=true"))
+        assertTrue(provider.contains("IsolatedExecuTorchLocalInferenceDriver"));assertTrue(provider.contains("localRuntimeAvailable=true"))
+        val manifest=File("src/main/AndroidManifest.xml").readText()
+        assertTrue(manifest.contains(".ExecuTorchInferenceService"));assertTrue(manifest.contains("android:process=\":local_ai\""))
         assertTrue(gradle.contains("org.pytorch:executorch-android:1.3.0"))
     }
 

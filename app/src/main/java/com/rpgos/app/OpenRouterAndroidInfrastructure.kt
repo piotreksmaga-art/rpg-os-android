@@ -7,11 +7,14 @@ import android.os.PowerManager
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import okhttp3.Call
+import okhttp3.Dns
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.dnsoverhttps.DnsOverHttps
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -137,16 +140,7 @@ class OpenRouterLoopbackCallbackServer:OpenRouterCallbackEndpointFactory{
 }
 
 class OpenRouterHttpClient(
-    private val client:OkHttpClient=OkHttpClient.Builder()
-        // OpenRouter is fronted by Cloudflare. A few Android vendor network stacks have been seen
-        // to fail HTTP/2 negotiation while the same origin works in the browser. OAuth exchanges
-        // are tiny, non-streaming requests, so HTTP/1.1 is the most compatible deterministic path.
-        .protocols(listOf(Protocol.HTTP_1_1))
-        .retryOnConnectionFailure(true)
-        .connectTimeout(20,TimeUnit.SECONDS)
-        .readTimeout(45,TimeUnit.SECONDS)
-        .callTimeout(60,TimeUnit.SECONDS)
-        .build()
+    private val client:OkHttpClient=openRouterOkHttpClient()
 ):CloudInferenceClient,OpenRouterCodeExchange{
     private val active=ConcurrentHashMap<String,Call>()
     override fun exchange(code:String,verifier:String):Pair<CharArray,String?>{
@@ -233,6 +227,45 @@ class OpenRouterHttpClient(
         Preserve campaign/actor/action/target/modality and stop at the requested player decision point.
     """.trimIndent()
     companion object{private val JSON="application/json; charset=utf-8".toMediaType()}
+}
+
+/**
+ * Android browsers may use their own secure resolver while the platform resolver exposed to apps
+ * reports UnknownHostException. Keep the user's/system DNS authoritative and consult encrypted DNS
+ * only after that resolver fails, only for the OpenRouter origin.
+ */
+internal class OpenRouterFallbackDns(
+    private val system:Dns,
+    private val encryptedFallback:Dns
+):Dns{
+    override fun lookup(hostname:String):List<InetAddress>{
+        return try{system.lookup(hostname)}catch(systemFailure:UnknownHostException){
+            if(!hostname.equals(OPENROUTER_HOST,true))throw systemFailure
+            try{encryptedFallback.lookup(hostname)}catch(fallbackFailure:UnknownHostException){
+                fallbackFailure.addSuppressed(systemFailure)
+                throw fallbackFailure
+            }
+        }
+    }
+    companion object{private const val OPENROUTER_HOST="openrouter.ai"}
+}
+
+private fun openRouterOkHttpClient():OkHttpClient{
+    val transport=OkHttpClient.Builder()
+        // OpenRouter is fronted by Cloudflare. A few Android vendor network stacks have been seen
+        // to fail HTTP/2 negotiation while the same origin works in the browser. OAuth exchanges
+        // are tiny, non-streaming requests, so HTTP/1.1 is the most compatible deterministic path.
+        .protocols(listOf(Protocol.HTTP_1_1))
+        .retryOnConnectionFailure(true)
+        .connectTimeout(20,TimeUnit.SECONDS)
+        .readTimeout(45,TimeUnit.SECONDS)
+        .callTimeout(60,TimeUnit.SECONDS)
+        .build()
+    val encryptedDns=DnsOverHttps.Builder().client(transport)
+        .url("https://cloudflare-dns.com/dns-query".toHttpUrl())
+        .bootstrapDnsHosts(InetAddress.getByAddress(byteArrayOf(1,1,1,1)),InetAddress.getByAddress(byteArrayOf(1,0,0,1)))
+        .build()
+    return transport.newBuilder().dns(OpenRouterFallbackDns(Dns.SYSTEM,encryptedDns)).build()
 }
 
 internal fun openRouterIoReason(failure:IOException):String{
@@ -358,49 +391,6 @@ object NativeLocalInferenceBridge{
     external fun generate(handle:Long,requestUid:String,prompt:String,maximumOutputUnits:Int):String
     external fun cancel(requestUid:String)
     external fun close(handle:Long)
-}
-
-/** Official ExecuTorch LLM Java API backed by the native libraries packaged in its Android AAR. */
-class ExecuTorchLocalInferenceDriver:LocalInferenceDriver{
-    private data class Handle(val module:org.pytorch.executorch.extension.llm.LlmModule,val contextUnits:Int)
-    private val active=ConcurrentHashMap<String,org.pytorch.executorch.extension.llm.LlmModule>()
-    override fun open(profile:LocalModelProfile,settings:LocalModelSettings,artifact:LocalModelArtifact,backend:LocalRuntimeBackend):Any{
-        require(profile.variants.single{it.variantUid==settings.variantUid}.format==LocalArtifactFormat.EXECUTORCH)
-        require(backend in setOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU)){"RPGOS-P48:EXECUTORCH_BACKEND_UNPACKAGED"}
-        val tokenizer=requireNotNull(artifact.tokenizerAbsolutePath){"RPGOS-P48:EXECUTORCH_TOKENIZER_REQUIRED"}
-        val config=org.pytorch.executorch.extension.llm.LlmModuleConfig.create()
-            .modulePath(artifact.absolutePath).tokenizerPath(tokenizer).temperature(0.1f)
-            .modelType(org.pytorch.executorch.extension.llm.LlmModuleConfig.MODEL_TYPE_TEXT)
-            .loadMode(org.pytorch.executorch.extension.llm.LlmModuleConfig.LOAD_MODE_MMAP).build()
-        return Handle(org.pytorch.executorch.extension.llm.LlmModule(config).also{it.load()},settings.contextUnits)
-    }
-    override fun infer(handle:Any,requestUid:String,prompt:String,maximumOutputUnits:Int,cancellation:AiCancellationSignal,onChunk:(LocalGenerationChunk)->Unit):LocalGenerationOutput{
-        val typed=handle as? Handle?:throw AiTransportException("EXECUTORCH_INVALID_HANDLE")
-        val module=typed.module
-        if(cancellation.isCancelled())throw AiTransportException("LOCAL_CANCELLED")
-        require(active.putIfAbsent(requestUid,module)==null){"RPGOS-P48:LOCAL_DUPLICATE_REQUEST"}
-        val output=StringBuilder();var tokens=0;var failure:String?=null;var stats=""
-        val callback=object:org.pytorch.executorch.extension.llm.LlmCallback{
-            override fun onResult(token:String){
-                if(cancellation.isCancelled()){module.stop();return}
-                output.append(token);tokens++;onChunk(LocalGenerationChunk(token,false))
-            }
-            override fun onStats(value:String){stats=value}
-            override fun onError(code:Int,message:String){failure="EXECUTORCH_$code:$message"}
-        }
-        return try{
-            val config=org.pytorch.executorch.extension.llm.LlmGenerationConfig.create().echo(false)
-                .maxNewTokens(maximumOutputUnits).seqLen(typed.contextUnits).temperature(0.1f).build()
-            module.generate(prompt,config,callback)
-            if(cancellation.isCancelled())throw AiTransportException("LOCAL_CANCELLED")
-            failure?.let{throw AiTransportException(it)}
-            val text=output.toString();onChunk(LocalGenerationChunk("",true))
-            LocalGenerationOutput(text,"EXECUTORCH:${digest("$requestUid|$stats|$tokens")}",0,tokens)
-        }finally{active.remove(requestUid)}
-    }
-    override fun cancel(requestUid:String){active[requestUid]?.stop()}
-    override fun close(handle:Any){(handle as? Handle)?.module?.let{module->runCatching{module.stop()};runCatching{module.resetContext()};module.close()}}
-    private fun digest(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString(""){"%02x".format(it)}
 }
 
 private fun JSONArray?.strings():Set<String>{

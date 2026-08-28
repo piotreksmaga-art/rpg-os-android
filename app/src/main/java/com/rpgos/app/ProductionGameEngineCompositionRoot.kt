@@ -362,12 +362,19 @@ private class DynamicProductionModelRoute(
         val registry=AiProviderRegistry.fromCompositionRoot(all)
         val ui=providers.initialState(config)
         val availability=AiAvailabilityPort{provider->
-            val state=when(provider.capabilities.providerKind){
-                AiProviderKind.LOCAL->if(ui.localArtifactInstalled&&ui.localAdmission is LocalAdmissionResult.Admitted)AiAvailabilityState.READY else AiAvailabilityState.NOT_CONFIGURED
-                AiProviderKind.CLOUD->if(ui.openRouterStatus.state==CloudAuthState.CONNECTED)AiAvailabilityState.READY else AiAvailabilityState.NOT_CONFIGURED
-                AiProviderKind.CONTROLLED_TEST->AiAvailabilityState.READY
+            val (state,reason)=when(provider.capabilities.providerKind){
+                AiProviderKind.LOCAL->when{
+                    !ui.localArtifactInstalled->AiAvailabilityState.NOT_CONFIGURED to "MODEL_ARTIFACT_REQUIRED"
+                    ui.localAdmission is LocalAdmissionResult.Admitted->AiAvailabilityState.READY to "READY"
+                    ui.localAdmission is LocalAdmissionResult.Rejected->AiAvailabilityState.UNAVAILABLE to
+                        "LOCAL_ADMISSION:${ui.localAdmission.reasonUids.joinToString(",")}"
+                    else->AiAvailabilityState.DEGRADED to "LOCAL_RUNTIME_CHECK_PENDING"
+                }
+                AiProviderKind.CLOUD->if(ui.openRouterStatus.state==CloudAuthState.CONNECTED)
+                    AiAvailabilityState.READY to "READY" else AiAvailabilityState.NOT_CONFIGURED to "OPENROUTER_NOT_CONNECTED"
+                AiProviderKind.CONTROLLED_TEST->AiAvailabilityState.READY to "READY"
             }
-            AiProviderAvailability(AiModelSelection(provider.capabilities.providerUid,provider.capabilities.modelUid),state,if(state==AiAvailabilityState.READY)"READY" else "PROVIDER_NOT_CONFIGURED")
+            AiProviderAvailability(AiModelSelection(provider.capabilities.providerUid,provider.capabilities.modelUid),state,reason)
         }
         return RoleAwareModelRouter(registry,listOf(config.gameMaster,config.director),config.privacy,availability).route(role,workload,requiredContextUnits)
     }
