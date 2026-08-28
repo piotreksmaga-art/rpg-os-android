@@ -18,6 +18,7 @@ data class CampaignCreationUiState(
 
 data class CampaignManagementUiState(
     val inProgressCampaignDir:String?=null,
+    val activatedCampaignDir:String?=null,
     val notice:String?=null,
     val errorMessage:String?=null
 )
@@ -747,9 +748,32 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun activateCampaign(dirName: String) {
-        store.setActiveCampaign(dirName)
-        refresh()
-        resetConversationForActiveCampaign(dirName)
+        if(_campaignManagementUi.value.inProgressCampaignDir!=null)return
+        val previousCampaign=store.activeCampaignDirName()
+        _campaignManagementUi.value=CampaignManagementUiState(inProgressCampaignDir=dirName)
+        viewModelScope.launch{
+            try{
+                withContext(Dispatchers.IO){store.setActiveCampaign(dirName)}
+                refresh()
+                resetConversationForActiveCampaign(dirName)
+                _campaignManagementUi.value=CampaignManagementUiState(
+                    activatedCampaignDir=dirName,
+                    notice="Kampania jest gotowa do kontynuowania."
+                )
+            }catch(t:Throwable){
+                val app=getApplication<Application>()
+                DiagnosticLogger.log(app,"CAMPAIGN_ACTIVATION_FAILED",t)
+                if(store.activeCampaignDirName()!=previousCampaign){
+                    runCatching{
+                        withContext(Dispatchers.IO){store.setActiveCampaign(previousCampaign)}
+                        refresh()
+                    }.onFailure{DiagnosticLogger.log(app,"CAMPAIGN_ACTIVATION_UI_ROLLBACK_FAILED",it)}
+                }
+                _campaignManagementUi.value=CampaignManagementUiState(
+                    errorMessage="Nie udało się otworzyć kampanii. Zapis pozostał bezpieczny. ${t.message?.takeIf{it.isNotBlank()}?:"Sprawdź diagnostykę aplikacji."}"
+                )
+            }
+        }
     }
 
     fun activateWorldPack(dirName: String) {
