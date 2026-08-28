@@ -34,4 +34,17 @@ class CampaignFrontendSafetyContractTest {
         assertTrue(manager.contains("dirName != activeCampaignDirName()"))
         assertTrue(manager.contains("File(saves, \".trash\")"))
     }
+
+    @Test fun continueCampaignIsAsyncGuardedAndRollsBackFailedSelection(){
+        val ui=source("MainActivity.kt")
+        val viewModel=source("RpgOsViewModel.kt")
+        val store=source("LocalGameStore.kt")
+        assertTrue(ui.contains("LaunchedEffect(managementUi.activatedCampaignDir)"))
+        assertTrue(ui.contains("Przygotowywanie zapisu…"))
+        assertTrue(viewModel.contains("withContext(Dispatchers.IO){store.setActiveCampaign(dirName)}"))
+        assertTrue(viewModel.contains("DiagnosticLogger.log(app,\"CAMPAIGN_ACTIVATION_FAILED\",t)"))
+        assertTrue(viewModel.contains("activatedCampaignDir=dirName"))
+        assertTrue(store.contains("CAMPAIGN_ACTIVATION_ROLLBACK_FAILED"))
+        assertTrue(store.contains("selection.setActiveCampaign(previousCampaign)"))
+    }
 }

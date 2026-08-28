@@ -266,8 +266,7 @@ fun RpgOsApp(vm: RpgOsViewModel) {
         AppRoute.CONTINUE -> ContinueScreen(
             vm = vm,
             onBack = { route = AppRoute.HOME },
-            onContinue = { dirName ->
-                vm.activateCampaign(dirName)
+            onActivated = {
                 route = if(vm.hasActivePlayer.value) AppRoute.CAMPAIGN else AppRoute.CHARACTER_CREATOR
             }
         )
@@ -1007,10 +1006,18 @@ private fun CharacterCreatorScreen(
 private fun ContinueScreen(
     vm: RpgOsViewModel,
     onBack: () -> Unit,
-    onContinue: (String) -> Unit
+    onActivated: () -> Unit
 ) {
     val campaigns by vm.campaigns.collectAsState()
     val activeCampaign by vm.activeCampaign.collectAsState()
+    val managementUi by vm.campaignManagementUi.collectAsState()
+
+    LaunchedEffect(managementUi.activatedCampaignDir) {
+        if(managementUi.activatedCampaignDir!=null){
+            vm.clearCampaignManagementMessage()
+            onActivated()
+        }
+    }
 
     StandardPage(title = "Kontynuuj", onBack = onBack) {
         LazyColumn(
@@ -1025,6 +1032,14 @@ private fun ContinueScreen(
                 )
             }
 
+            managementUi.errorMessage?.let { message ->
+                item {
+                    TextButton(onClick=vm::clearCampaignManagementMessage) {
+                        Text(message,color=MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+
             if (campaigns.isEmpty()) {
                 item {
                     EmptyState(
@@ -1037,7 +1052,8 @@ private fun ContinueScreen(
             items(campaigns) { campaign ->
                 val dirName = File(campaign.path).name
                 ElevatedCard(
-                    onClick = { onContinue(dirName) },
+                    onClick = { vm.activateCampaign(dirName) },
+                    enabled = managementUi.inProgressCampaignDir==null,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(22.dp)
                 ) {
@@ -1066,10 +1082,11 @@ private fun ContinueScreen(
                         )
                         Spacer(Modifier.height(12.dp))
                         FilledTonalButton(
-                            onClick = { onContinue(dirName) },
-                            modifier = Modifier.fillMaxWidth()
+                            onClick = { vm.activateCampaign(dirName) },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = managementUi.inProgressCampaignDir==null
                         ) {
-                            Text("Kontynuuj")
+                            Text(if(managementUi.inProgressCampaignDir==dirName)"Przygotowywanie zapisu…" else "Kontynuuj")
                         }
                     }
                 }

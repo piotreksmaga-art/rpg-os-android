@@ -235,9 +235,18 @@ internal class LocalGameStore(private val context: Context) {
     fun missionBrowser(): List<MissionBrowserItem> { openWorldDb().use { world -> openGameplaySaveDb().use { save -> return TechniqueMissionReader(world, save).missions() } } }
 
     fun setActiveCampaign(dirName: String) {
+        val previousCampaign=selection.activeCampaignDirName()
         selection.setActiveCampaign(dirName)
-        val campaignUid=selection.activeCampaignRef().campaignId
-        openSaveDb().use { db -> prepareCampaignRuntime(db,campaignUid) }
+        try{
+            val campaignUid=selection.activeCampaignRef().campaignId
+            openSaveDb().use { db -> prepareCampaignRuntime(db,campaignUid) }
+        }catch(t:Throwable){
+            // A failed preparation of an older save must not leave it selected. Otherwise the next
+            // startup would bootstrap the same incomplete campaign and could enter a crash loop.
+            runCatching{selection.setActiveCampaign(previousCampaign)}
+                .onFailure{DiagnosticLogger.log(context,"CAMPAIGN_ACTIVATION_ROLLBACK_FAILED",it)}
+            throw t
+        }
     }
     fun setActiveWorldPack(dirName: String) {
         selection.setActiveWorldPack(dirName)
