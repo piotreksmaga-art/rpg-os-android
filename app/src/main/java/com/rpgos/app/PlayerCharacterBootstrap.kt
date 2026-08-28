@@ -105,12 +105,18 @@ class AiCharacterCreationApplication(
         if(cancellation.isCancelled())return CharacterCreationApplicationOutcome.Cancelled()
         conversation+=CharacterCreationConversationEntry(CharacterCreationConversationRole.PLAYER,input)
         val catalog=repository.characterCreationCatalog()
-        val requiredUnits=(catalog.options.size*24+conversation.sumOf{it.text.length/4+1}).coerceAtLeast(1)
+        // A World Pack can expose hundreds of skills and techniques. Sending the whole catalog to
+        // a 2k mobile model made an otherwise ready Bielik fail routing with NO_ELIGIBLE_MODEL.
+        // Complete character-profile families stay present; choice families are deterministically
+        // projected toward the player's words with a bounded representative fallback.
+        val projectedConversation=conversation.projectForAi()
+        val projectedCatalog=catalog.projectForAi(projectedConversation)
+        val requiredUnits=projectedCatalog.estimatedInputUnits(projectedConversation)
         val selected=when(val result=route.route(AiRole.GAME_MASTER,AiWorkload.CHARACTER_CREATION,requiredUnits)){
             is AiRouteResult.Unavailable->return CharacterCreationApplicationOutcome.Failed(result.reasonUids.joinToString("|"))
             is AiRouteResult.Selected->result.provider
         }
-        val request=AiCharacterCreationRequest("CHARACTER-CREATION:${UUID.randomUUID()}",catalog.campaignUid,catalog,conversation.toList())
+        val request=AiCharacterCreationRequest("CHARACTER-CREATION:${UUID.randomUUID()}",catalog.campaignUid,projectedCatalog,projectedConversation)
         val candidate=when(val result=selected.guideCharacterCreation(request,cancellation)){
             is AiProviderResult.Failure->return if(result.kind==AiProviderFailureKind.CANCELLED)CharacterCreationApplicationOutcome.Cancelled(result.reasonUid) else CharacterCreationApplicationOutcome.Failed(result.reasonUid)
             is AiProviderResult.Success->result.value
@@ -141,6 +147,59 @@ class AiCharacterCreationApplication(
         pending=null
         return CharacterCreationApplicationOutcome.Created(receipt)
     }
+}
+
+internal fun CharacterCreationCatalog.projectForAi(
+    conversation:List<CharacterCreationConversationEntry>,
+    maximumEstimatedInputUnits:Int=900
+):CharacterCreationCatalog{
+    require(maximumEstimatedInputUnits>0)
+    val completeKinds=setOf(
+        CharacterCreationDefinitionKind.STAT,CharacterCreationDefinitionKind.RESOURCE,
+        CharacterCreationDefinitionKind.TALENT,CharacterCreationDefinitionKind.POTENTIAL
+    )
+    val words=conversation.asSequence().flatMap{it.text.lowercase().split(Regex("[^\\p{L}\\p{N}_-]+")).asSequence()}
+        .filter{it.length>=3}.toSet()
+    fun relevance(option:CharacterCreationDefinitionOption):Int{
+        val searchable="${option.definitionUid} ${option.displayName}".lowercase()
+        return words.sumOf{word->when{searchable==word->8;searchable.contains(word)->3;else->0}}
+    }
+    val selected=options.filter{it.kind in completeKinds}.sortedWith(compareBy({it.kind.name},{it.definitionUid})).toMutableList()
+    val optionalKinds=CharacterCreationDefinitionKind.entries.filterNot{it in completeKinds}
+    val queues=optionalKinds.associateWith{kind->options.filter{it.kind==kind}
+        .sortedWith(compareByDescending<CharacterCreationDefinitionOption>(::relevance).thenBy{it.definitionUid}).toMutableList()}
+    // Every available choice family gets one representative before additional relevant choices.
+    optionalKinds.forEach{kind->queues.getValue(kind).removeFirstOrNull()?.let(selected::add)}
+    val remaining=queues.values.flatten().sortedWith(compareByDescending<CharacterCreationDefinitionOption>(::relevance).thenBy{it.kind.name}.thenBy{it.definitionUid})
+    for(option in remaining){
+        val candidate=CharacterCreationCatalog(campaignUid,selected+option)
+        if(candidate.estimatedInputUnits(conversation)>maximumEstimatedInputUnits)break
+        selected+=option
+    }
+    return CharacterCreationCatalog(campaignUid,selected.distinctBy{it.kind to (it.definitionUid to it.dimensionUid)})
+}
+
+internal fun List<CharacterCreationConversationEntry>.projectForAi(maximumUnits:Int=300):List<CharacterCreationConversationEntry>{
+    require(maximumUnits>0)
+    if(isEmpty())return emptyList()
+    fun compact(entry:CharacterCreationConversationEntry)=entry.copy(text=entry.text.take(480))
+    val first=compact(first())
+    val selectedIndices=linkedSetOf(0)
+    var used=(first.text.length+3)/4+8
+    indices.reversed().filter{it!=0}.forEach{index->
+        val entry=compact(this[index])
+        val units=(entry.text.length+3)/4+8
+        if(used+units<=maximumUnits){selectedIndices+=index;used+=units}
+    }
+    return selectedIndices.sorted().map{compact(this[it])}
+}
+
+internal fun CharacterCreationCatalog.estimatedInputUnits(conversation:List<CharacterCreationConversationEntry>):Int{
+    val conversationUnits=conversation.sumOf{(it.text.length+3)/4+8}
+    val definitionUnits=options.sumOf{option->
+        (option.definitionUid.length+option.displayName.length+(option.dimensionUid?.length?:0)+63)/4
+    }
+    return (180+conversationUnits+definitionUnits).coerceAtLeast(1)
 }
 
 class CharacterCreationCatalogReader(
