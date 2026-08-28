@@ -16,11 +16,38 @@ import org.robolectric.annotation.Config
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.net.InetAddress
+import okhttp3.Dns
 import javax.net.ssl.SSLHandshakeException
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class OpenRouterHttpClientTest {
+    @Test
+    fun openRouterDns_usesEncryptedFallbackOnlyAfterSystemFailureForTheOfficialHost() {
+        val resolved=InetAddress.getByAddress(byteArrayOf(104,18,2,115))
+        var fallbackCalls=0
+        val dns=OpenRouterFallbackDns(
+            Dns{throw UnknownHostException(it)},
+            Dns{fallbackCalls++;listOf(resolved)}
+        )
+
+        assertEquals(listOf(resolved),dns.lookup("openrouter.ai"))
+        assertEquals(1,fallbackCalls)
+    }
+
+    @Test
+    fun openRouterDns_neverBypassesSystemDnsForAnUnrelatedHost() {
+        var fallbackCalls=0
+        val dns=OpenRouterFallbackDns(
+            Dns{throw UnknownHostException(it)},
+            Dns{fallbackCalls++;emptyList()}
+        )
+
+        assertThrows(UnknownHostException::class.java){dns.lookup("example.com")}
+        assertEquals(0,fallbackCalls)
+    }
+
     @Test
     fun exchange_usesTheOfficialPkceContractAndAcceptsAValidKeyResponse() {
         var capturedBody = ""

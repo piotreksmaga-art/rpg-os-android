@@ -110,7 +110,7 @@ Historical device evidence remains relevant but separate: Bielik 4.5B v3 GGUF Q4
 - local Android debug compilation: `GREEN` as part of focused Gradle runs;
 - Windows snapshot staging paths and campaign-isolated payload names were shortened, closing the SQLite long-path failure in Robolectric without weakening snapshot identity, digest or catalog authority;
 - Linux exact-SHA full JVM, signed release APK, signature/digest and immutable provenance: pending final push/CI;
-- complete Bielik 1.5B mobile weights/package and host-side ExecuTorch load: `GREEN`; physical Android inference and live OpenRouter authorization/network remain `PENDING_EXTERNAL_DEPENDENCY`.
+- complete Bielik 1.5B mobile weights/package and host-side ExecuTorch load: `GREEN`; pierwsza próba na fizycznym Samsungu ujawniła native-process crash podczas inferencji. Od alpha14 ExecuTorch działa w prywatnym procesie `:local_ai`, więc awaria runtime nie zamyka UI ani nie dotyka canonical state; zgodność samego PTE/runtime nadal pozostaje `PENDING_EXTERNAL_DEPENDENCY` do ponownego testu urządzenia. Live OpenRouter używa system-first, szyfrowanego DNS fallbacku ograniczonego do `openrouter.ai` po potwierdzonym `UnknownHostException` resolvera Androida.
 
 ## Merge rule
 

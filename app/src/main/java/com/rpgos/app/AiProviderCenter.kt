@@ -93,7 +93,7 @@ fun openRouterFailureMessagePl(reasonUid:String?)=when(reasonUid){
     "OPENROUTER_AUTH_HTTP_400","OPENROUTER_AUTH_HTTP_403"->"OpenRouter odrzucił kod logowania. Rozpocznij połączenie ponownie albo użyj własnego klucza API."
     "OPENROUTER_AUTH_HTTP_405"->"OpenRouter odrzucił metodę wymiany kodu. Zaktualizuj aplikację do najnowszej wersji."
     "OPENROUTER_AUTH_HTTP_408","OPENROUTER_AUTH_HTTP_429"->"OpenRouter jest chwilowo zajęty. Odczekaj moment i spróbuj ponownie."
-    "OPENROUTER_AUTH_DNS"->"Android nie rozwiązał adresu openrouter.ai. Sprawdź prywatny DNS, filtr reklam lub VPN."
+    "OPENROUTER_AUTH_DNS"->"Ani systemowy, ani szyfrowany resolver zapasowy nie rozwiązał adresu openrouter.ai. Sprawdź Internet lub blokadę domeny."
     "OPENROUTER_AUTH_TLS"->"Android nie uzgodnił bezpiecznego połączenia TLS z OpenRouter. Sprawdź datę telefonu i aplikacje filtrujące HTTPS."
     "OPENROUTER_AUTH_TIMEOUT"->"OpenRouter nie odpowiedział w wyznaczonym czasie. Zmień sieć Wi-Fi na komórkową lub spróbuj ponownie."
     "OPENROUTER_AUTH_CONNECT"->"Android nie otworzył połączenia z openrouter.ai. Sieć albo zapora blokuje endpoint API."
@@ -120,10 +120,10 @@ class AndroidAiProviderCenterApplication(context:Context){
         "ANDROID_EXECUTORCH_1_3",setOf(LocalArtifactFormat.EXECUTORCH),
         setOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU),
         supportsContextTuning=true,supportsKvTuning=false,supportsThreads=false,supportsBatchPrefill=false,
-        supportsCancellation=true,supportsStreaming=true
+        supportsCancellation=true,supportsStreaming=false
     )
     private val discoveredCloudModels=ConcurrentHashMap<String,CloudModelProfile>()
-    private val localRuntime by lazy{DriverBackedLocalInferenceRuntime(runtimeCapabilities,ExecuTorchLocalInferenceDriver())}
+    private val localRuntime by lazy{DriverBackedLocalInferenceRuntime(runtimeCapabilities,IsolatedExecuTorchLocalInferenceDriver(app))}
 
     fun initialState(configuration:AiSystemConfiguration):AiProviderCenterUiState{
         val profile=profileFor(configuration.localModelSettings?.modelUid)
