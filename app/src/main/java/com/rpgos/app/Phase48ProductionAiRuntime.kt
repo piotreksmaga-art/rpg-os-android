@@ -64,16 +64,21 @@ class RoleAwareModelRouter(
     fun route(role:AiRole,workload:AiWorkload,requiredContextUnits:Int=0):AiRouteResult{
         require(requiredContextUnits>=0)
         val assignment=assignments.getValue(role)
-        val eligible=registry.all().filter{provider->
-            workload in provider.capabilities.supportedWorkloads &&
-                provider.capabilities.maximumContextUnits>=requiredContextUnits &&
-                cloudPermitted(role,provider)
-        }
+        val evaluatedCapabilities=registry.all().map{provider->provider to when{
+            workload !in provider.capabilities.supportedWorkloads->"WORKLOAD_UNSUPPORTED:${workload.name}"
+            provider.capabilities.maximumContextUnits<requiredContextUnits->
+                "CONTEXT_LIMIT_EXCEEDED:required=$requiredContextUnits:maximum=${provider.capabilities.maximumContextUnits}"
+            !cloudPermitted(role,provider)->"PRIVACY_POLICY_REJECTED"
+            else->null
+        }}
+        val eligible=evaluatedCapabilities.filter{it.second==null}.map{it.first}
         if(assignment.kind==AiAssignmentKind.PINNED){
             val pin=assignment.pinned!!
             val provider=registry.find(pin.providerUid,pin.modelUid)
                 ?:return AiRouteResult.Unavailable(listOf("PINNED_MODEL_NOT_REGISTERED:${pin.stableUid}"))
-            if(provider !in eligible)return AiRouteResult.Unavailable(listOf("PINNED_MODEL_CAPABILITY_OR_PRIVACY_MISMATCH:${pin.stableUid}"))
+            evaluatedCapabilities.first{it.first===provider}.second?.let{reason->
+                return AiRouteResult.Unavailable(listOf("PINNED_MODEL_REJECTED:${pin.stableUid}:$reason"))
+            }
             val state=availability.availability(provider)
             if(state.state!=AiAvailabilityState.READY||!state.resourceAdmitted)return AiRouteResult.Unavailable(listOf("PINNED_MODEL_UNAVAILABLE:${state.reasonUid}"))
             return AiRouteResult.Selected(provider,false,"EXPLICIT_ROLE_PIN")
@@ -85,7 +90,10 @@ class RoleAwareModelRouter(
             }.thenByDescending{it.first.capabilities.maximumContextUnits}
                 .thenBy{it.first.capabilities.providerUid}.thenBy{it.first.capabilities.modelUid})
         val selected=ready.firstOrNull()?.first
-            ?:return AiRouteResult.Unavailable((evaluated.map{"${it.first.capabilities.providerUid}:${it.second.reasonUid}"}+"NO_ELIGIBLE_MODEL").distinct().sorted())
+            ?:return AiRouteResult.Unavailable((
+                evaluatedCapabilities.mapNotNull{(provider,reason)->reason?.let{"${provider.capabilities.providerUid}:$it"}}+
+                    evaluated.map{"${it.first.capabilities.providerUid}:${it.second.reasonUid}"}+"NO_ELIGIBLE_MODEL"
+                ).distinct().sorted())
         return AiRouteResult.Selected(selected,true,"AUTO_DETERMINISTIC_CAPABILITY_ROUTE")
     }
 
@@ -372,6 +380,7 @@ class LocalAiPort(
     ),
     transport=LocalRuntimeTransport(profile,settings,runtime,artifacts,device,admissionController),
     codec=codec,
+    maximumOutputUnits=(settings.contextUnits/2).coerceIn(256,1_024),
     cancellationHook=runtime::cancel
 )
 

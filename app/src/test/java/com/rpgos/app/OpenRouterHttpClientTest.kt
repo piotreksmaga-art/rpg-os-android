@@ -14,6 +14,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.IOException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
+import javax.net.ssl.SSLHandshakeException
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -22,11 +25,13 @@ class OpenRouterHttpClientTest {
     fun exchange_usesTheOfficialPkceContractAndAcceptsAValidKeyResponse() {
         var capturedBody = ""
         var capturedAccept = ""
+        var capturedUserAgent = ""
         val transport = OkHttpClient.Builder().addInterceptor { chain ->
             capturedBody = chain.request().body?.let { body ->
                 okio.Buffer().use { buffer -> body.writeTo(buffer);buffer.readUtf8() }
             }.orEmpty()
             capturedAccept = chain.request().header("Accept").orEmpty()
+            capturedUserAgent = chain.request().header("User-Agent").orEmpty()
             Response.Builder()
                 .request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
                 .body("""{"key":"sk-or-v1-provider-issued-test-key","user_id":"user-1"}""".toResponseBody(JSON))
@@ -40,6 +45,7 @@ class OpenRouterHttpClientTest {
         assertEquals("PKCE-VERIFIER", json.getString("code_verifier"))
         assertEquals("S256", json.getString("code_challenge_method"))
         assertEquals("application/json", capturedAccept)
+        assertTrue(capturedUserAgent.startsWith("RPG-OS-Android/"))
         assertEquals("sk-or-v1-provider-issued-test-key", key.concatToString())
         assertEquals("user-1", user)
         key.fill('\u0000')
@@ -71,6 +77,12 @@ class OpenRouterHttpClientTest {
         }
 
         assertEquals("OPENROUTER_AUTH_RESPONSE_INVALID", failure.reasonUid)
+    }
+
+    @Test fun exchange_reportsTheActualAndroidNetworkLayer(){
+        assertEquals("OPENROUTER_AUTH_DNS",openRouterIoReason(UnknownHostException("openrouter.ai")))
+        assertEquals("OPENROUTER_AUTH_TLS",openRouterIoReason(SSLHandshakeException("handshake")))
+        assertEquals("OPENROUTER_AUTH_TIMEOUT",openRouterIoReason(SocketTimeoutException("timeout")))
     }
 
     private companion object {

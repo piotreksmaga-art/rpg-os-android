@@ -9,6 +9,7 @@ import android.security.keystore.KeyProperties
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
@@ -18,16 +19,23 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.URI
 import java.io.IOException
+import java.net.ConnectException
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipInputStream
+import java.net.NoRouteToHostException
+import java.net.SocketException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import javax.net.ssl.SSLHandshakeException
+import javax.net.ssl.SSLPeerUnverifiedException
 
 /** API secrets are encrypted with an Android Keystore key and never share campaign/save storage. */
 class AndroidKeystoreSecretStore(context:Context):SecretStore{
@@ -129,13 +137,23 @@ class OpenRouterLoopbackCallbackServer:OpenRouterCallbackEndpointFactory{
 }
 
 class OpenRouterHttpClient(
-    private val client:OkHttpClient=OkHttpClient.Builder().connectTimeout(20,TimeUnit.SECONDS).readTimeout(180,TimeUnit.SECONDS).build()
+    private val client:OkHttpClient=OkHttpClient.Builder()
+        // OpenRouter is fronted by Cloudflare. A few Android vendor network stacks have been seen
+        // to fail HTTP/2 negotiation while the same origin works in the browser. OAuth exchanges
+        // are tiny, non-streaming requests, so HTTP/1.1 is the most compatible deterministic path.
+        .protocols(listOf(Protocol.HTTP_1_1))
+        .retryOnConnectionFailure(true)
+        .connectTimeout(20,TimeUnit.SECONDS)
+        .readTimeout(45,TimeUnit.SECONDS)
+        .callTimeout(60,TimeUnit.SECONDS)
+        .build()
 ):CloudInferenceClient,OpenRouterCodeExchange{
     private val active=ConcurrentHashMap<String,Call>()
     override fun exchange(code:String,verifier:String):Pair<CharArray,String?>{
         val body=JSONObject().put("code",code).put("code_verifier",verifier).put("code_challenge_method","S256")
         val request=Request.Builder().url("https://openrouter.ai/api/v1/auth/keys")
             .header("Accept","application/json")
+            .header("User-Agent","RPG-OS-Android/${BuildConfig.VERSION_NAME}")
             .header("HTTP-Referer","https://github.com/piotreksmaga-art/rpg-os-android")
             .header("X-OpenRouter-Title","RPG OS")
             .post(body.toString().toRequestBody(JSON)).build()
@@ -152,7 +170,7 @@ class OpenRouterHttpClient(
         }catch(failure:AiTransportException){
             throw failure
         }catch(failure:IOException){
-            throw AiTransportException("OPENROUTER_AUTH_NETWORK_IO",true,failure)
+            throw AiTransportException(openRouterIoReason(failure),true,failure)
         }catch(failure:Throwable){
             throw AiTransportException("OPENROUTER_AUTH_CLIENT_FAILURE",false,failure)
         }
@@ -215,6 +233,19 @@ class OpenRouterHttpClient(
         Preserve campaign/actor/action/target/modality and stop at the requested player decision point.
     """.trimIndent()
     companion object{private val JSON="application/json; charset=utf-8".toMediaType()}
+}
+
+internal fun openRouterIoReason(failure:IOException):String{
+    val chain=generateSequence<Throwable>(failure){it.cause}.take(12).toList()
+    return when{
+        chain.any{it is UnknownHostException}->"OPENROUTER_AUTH_DNS"
+        chain.any{it is SSLHandshakeException||it is SSLPeerUnverifiedException}->"OPENROUTER_AUTH_TLS"
+        chain.any{it is SocketTimeoutException}->"OPENROUTER_AUTH_TIMEOUT"
+        chain.any{it is NoRouteToHostException||it is ConnectException}->"OPENROUTER_AUTH_CONNECT"
+        chain.any{it::class.java.simpleName.contains("StreamReset",true)||it::class.java.simpleName.contains("ConnectionShutdown",true)}->"OPENROUTER_AUTH_HTTP2_PROTOCOL"
+        chain.any{it is SocketException}->"OPENROUTER_AUTH_CONNECTION_RESET"
+        else->"OPENROUTER_AUTH_NETWORK_IO"
+    }
 }
 
 class AndroidLocalModelArtifactStore(private val context:Context):LocalModelArtifactStore{
