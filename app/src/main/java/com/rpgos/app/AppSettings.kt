@@ -66,6 +66,12 @@ class AppSettings(private val context: Context) {
                     .putInt("ai_local_context_units",local.contextUnits).putLong("ai_local_kv_bytes_per_unit",local.kvBytesPerContextUnit)
                     .putString("ai_local_backend",local.backend.name).putInt("ai_local_threads",local.threads?:-1)
                     .putInt("ai_local_prefill_batch",local.prefillBatchUnits?:-1).putBoolean("ai_local_recommended",local.recommended)
+                    .putString("ai_local_runtime_engine",local.runtimeEngine.name).putInt("ai_local_micro_batch",local.microBatchUnits?:-1)
+                    .putInt("ai_local_gpu_layers",local.gpuLayers?:0).putString("ai_local_kv_key_type",local.kvKeyType.name)
+                    .putString("ai_local_kv_value_type",local.kvValueType.name).putFloat("ai_local_temperature",local.temperature)
+                    .putInt("ai_local_top_k",local.topK).putFloat("ai_local_top_p",local.topP)
+                    .putFloat("ai_local_repeat_penalty",local.repeatPenalty).putBoolean("ai_local_flash_attention",local.flashAttention)
+                    .putBoolean("ai_local_memory_map",local.memoryMap)
             }}
             .apply()
     }
@@ -74,12 +80,19 @@ class AppSettings(private val context: Context) {
         val localModel=prefs.getString("ai_local_model_uid",null)?.let{modelUid->
             val profile=BielikLocalModelProfiles.byModelUid(modelUid)?:BielikLocalModelProfiles.DEFAULT_ANDROID
             runCatching{LocalModelSettings(
-                modelUid,prefs.getString("ai_local_variant_uid",profile.variants.first().variantUid)!!,
-                prefs.getInt("ai_local_context_units",profile.recommendedContextUnits),
-                prefs.getLong("ai_local_kv_bytes_per_unit",profile.recommendedKvBytesPerContextUnit),
-                runCatching{LocalRuntimeBackend.valueOf(prefs.getString("ai_local_backend",LocalRuntimeBackend.AUTO.name)!!)}.getOrDefault(LocalRuntimeBackend.AUTO),
-                prefs.getInt("ai_local_threads",-1).takeIf{it>0},prefs.getInt("ai_local_prefill_batch",-1).takeIf{it>0},
-                prefs.getBoolean("ai_local_recommended",true)
+                modelUid=modelUid,variantUid=prefs.getString("ai_local_variant_uid",profile.variants.first().variantUid)!!,
+                contextUnits=prefs.getInt("ai_local_context_units",profile.recommendedContextUnits),
+                kvBytesPerContextUnit=prefs.getLong("ai_local_kv_bytes_per_unit",profile.recommendedKvBytesPerContextUnit),
+                backend=runCatching{LocalRuntimeBackend.valueOf(prefs.getString("ai_local_backend",LocalRuntimeBackend.AUTO.name)!!)}.getOrDefault(LocalRuntimeBackend.AUTO),
+                threads=prefs.getInt("ai_local_threads",-1).takeIf{it>0},prefillBatchUnits=prefs.getInt("ai_local_prefill_batch",-1).takeIf{it>0},
+                recommended=prefs.getBoolean("ai_local_recommended",true),
+                runtimeEngine=runCatching{LocalRuntimeEngine.valueOf(prefs.getString("ai_local_runtime_engine",LocalRuntimeEngine.EXECUTORCH.name)!!)}.getOrDefault(LocalRuntimeEngine.EXECUTORCH),
+                microBatchUnits=prefs.getInt("ai_local_micro_batch",-1).takeIf{it>0},gpuLayers=prefs.getInt("ai_local_gpu_layers",0),
+                kvKeyType=runCatching{LocalKvCacheType.valueOf(prefs.getString("ai_local_kv_key_type",LocalKvCacheType.F16.name)!!)}.getOrDefault(LocalKvCacheType.F16),
+                kvValueType=runCatching{LocalKvCacheType.valueOf(prefs.getString("ai_local_kv_value_type",LocalKvCacheType.F16.name)!!)}.getOrDefault(LocalKvCacheType.F16),
+                temperature=prefs.getFloat("ai_local_temperature",0.1f),topK=prefs.getInt("ai_local_top_k",40),topP=prefs.getFloat("ai_local_top_p",0.95f),
+                repeatPenalty=prefs.getFloat("ai_local_repeat_penalty",1.1f),flashAttention=prefs.getBoolean("ai_local_flash_attention",false),
+                memoryMap=prefs.getBoolean("ai_local_memory_map",true)
             )}.getOrNull()
         }
         return AiSystemConfiguration(

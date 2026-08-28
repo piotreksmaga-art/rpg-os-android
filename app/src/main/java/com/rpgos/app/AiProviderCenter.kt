@@ -32,6 +32,11 @@ data class AiProviderCenterUiState(
     val lastDirectorCommittedOrder:Long?=null
 )
 
+fun LocalModelSettings.localProviderUid():String=when(runtimeEngine){
+    LocalRuntimeEngine.EXECUTORCH->"LOCAL:ANDROID_EXECUTORCH_1_3"
+    LocalRuntimeEngine.LLAMA_CPP->"LOCAL:LLAMA_CPP_VULKAN"
+}
+
 fun AiProviderCenterUiState.reconcileLocalAvailability(
     artifactInstalled:Boolean=localArtifactInstalled,
     runtimeAvailable:Boolean=localRuntimeAvailable,
@@ -56,7 +61,8 @@ fun AiProviderCenterUiState.reconcileLocalAvailability(
         localRuntimeAvailable=runtimeAvailable,
         localAdmission=admission,
         modelOptions=modelOptions.map{option->
-            if(option.providerKind==AiProviderKind.LOCAL)option.copy(availability=availability,reasonUid=reason) else option
+            if(option.selection==AiModelSelection(localSettings.localProviderUid(),localProfile.modelUid))
+                option.copy(availability=availability,reasonUid=reason) else option
         }
     )
 }
@@ -67,7 +73,7 @@ object AiProviderCenterStateFactory{
         val localState=if(artifactInstalled)AiAvailabilityState.DEGRADED else AiAvailabilityState.NOT_CONFIGURED
         return AiProviderCenterUiState(
             settings.gameMaster,settings.director,listOf(
-                AiModelOptionUi(AiModelSelection("LOCAL:ANDROID_EXECUTORCH_1_3",profile.modelUid),profile.displayName,AiProviderKind.LOCAL,localState,
+                AiModelOptionUi(AiModelSelection(local.localProviderUid(),profile.modelUid),profile.displayName,AiProviderKind.LOCAL,localState,
                     if(artifactInstalled)"MODEL_INSTALLED_RUNTIME_CHECK_PENDING" else "MODEL_ARTIFACT_REQUIRED")
             ),openRouter,profile,local,artifactInstalled,false,null,settings.privacy,"Director oczekuje na pierwszy okresowy trigger"
         )
@@ -116,21 +122,28 @@ class AndroidAiProviderCenterApplication(context:Context){
     private val http=OpenRouterHttpClient()
     private val callbacks=OpenRouterLoopbackCallbackServer()
     private val auth=OpenRouterPkceAuthPort(AndroidKeystoreSecretStore(app),callbacks,http)
-    private val runtimeCapabilities=LocalRuntimeCapabilities(
+    private val execuTorchCapabilities=LocalRuntimeCapabilities(
         "ANDROID_EXECUTORCH_1_3",setOf(LocalArtifactFormat.EXECUTORCH),
         setOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU),
         supportsContextTuning=true,supportsKvTuning=false,supportsThreads=false,supportsBatchPrefill=false,
         supportsCancellation=true,supportsStreaming=false
     )
+    private val llamaCppCapabilities=LocalRuntimeCapabilities(
+        "LLAMA_CPP_VULKAN",setOf(LocalArtifactFormat.GGUF),
+        setOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU,LocalRuntimeBackend.GPU),
+        supportsContextTuning=true,supportsKvTuning=true,supportsThreads=true,supportsBatchPrefill=true,
+        supportsCancellation=true,supportsStreaming=false
+    )
     private val discoveredCloudModels=ConcurrentHashMap<String,CloudModelProfile>()
-    private val localRuntime by lazy{DriverBackedLocalInferenceRuntime(runtimeCapabilities,IsolatedExecuTorchLocalInferenceDriver(app))}
+    private val execuTorchRuntime by lazy{DriverBackedLocalInferenceRuntime(execuTorchCapabilities,IsolatedExecuTorchLocalInferenceDriver(app))}
+    private val llamaCppRuntime by lazy{DriverBackedLocalInferenceRuntime(llamaCppCapabilities,IsolatedLlamaCppLocalInferenceDriver(app))}
 
     fun initialState(configuration:AiSystemConfiguration):AiProviderCenterUiState{
         val profile=profileFor(configuration.localModelSettings?.modelUid)
         val settings=configuration.localModelSettings?:LocalRecommendedSettings.forProfile(profile)
         val installed=artifacts.find(profile.modelUid,settings.variantUid)!=null
         return AiProviderCenterStateFactory.initial(configuration,installed,auth.status(),profile)
-            .copy(localRuntimeAvailable=true)
+            .copy(localRuntimeAvailable=settings.runtimeEngine!=LocalRuntimeEngine.LLAMA_CPP||NativeLocalInferenceBridge.available)
             .reconcileLocalAvailability(artifactInstalled=installed,admission=localAdmission(settings))
     }
 
@@ -142,9 +155,14 @@ class AndroidAiProviderCenterApplication(context:Context){
         }
     }
 
-    fun localAdmission(settings:LocalModelSettings):LocalAdmissionResult = LocalModelAdmissionController().evaluate(
-        profileFor(settings.modelUid),settings,runtimeCapabilities,AndroidLocalDeviceProbe.snapshot(app).copy(availableBackends=setOf(LocalRuntimeBackend.CPU))
-    )
+    fun localAdmission(settings:LocalModelSettings):LocalAdmissionResult{
+        val capabilities=if(settings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP)llamaCppCapabilities else execuTorchCapabilities
+        val backends=if(settings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP)
+            setOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU,LocalRuntimeBackend.GPU) else setOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU)
+        return LocalModelAdmissionController().evaluate(
+            profileFor(settings.modelUid),settings,capabilities,AndroidLocalDeviceProbe.snapshot(app).copy(availableBackends=backends)
+        )
+    }
 
     suspend fun importBielikArtifact(uri:Uri,settings:LocalModelSettings):LocalModelArtifact=withContext(Dispatchers.IO){
         val profile=profileFor(settings.modelUid)
@@ -152,11 +170,15 @@ class AndroidAiProviderCenterApplication(context:Context){
         require(settings.modelUid==profile.modelUid&&variant!=null)
         val input=app.contentResolver.openInputStream(uri)?:error("Nie można otworzyć pliku modelu")
         val artifact=artifacts.import(settings.modelUid,settings.variantUid,input)
-        val sizeMatches=variant.sha256==null||artifact.byteSize==variant.expectedBytes
-        val digestMatches=variant.sha256?.equals(artifact.sha256,ignoreCase=true)?:true
-        if(!sizeMatches||!digestMatches){
+        val gguf=settings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP
+        val formatMatches=!gguf||java.io.File(artifact.absolutePath).inputStream().use{input->
+            val magic=ByteArray(4);input.read(magic)==4&&magic.contentEquals(byteArrayOf('G'.code.toByte(),'G'.code.toByte(),'U'.code.toByte(),'F'.code.toByte()))
+        }
+        val sizeMatches=gguf||variant.sha256==null||artifact.byteSize==variant.expectedBytes
+        val digestMatches=gguf||(variant.sha256?.equals(artifact.sha256,ignoreCase=true)?:true)
+        if(!formatMatches||!sizeMatches||!digestMatches){
             artifacts.remove(settings.modelUid,settings.variantUid)
-            error("Pakiet modelu nie odpowiada oficjalnemu profilowi RPG OS (rozmiar lub suma SHA-256).")
+            error(if(gguf)"Wybrany plik nie jest modelem GGUF." else "Pakiet modelu nie odpowiada oficjalnemu profilowi RPG OS (rozmiar lub suma SHA-256).")
         }
         artifact
     }
@@ -200,12 +222,16 @@ class AndroidAiProviderCenterApplication(context:Context){
     /** Builds provider adapters only; Chat/UI never sees an SDK or runtime handle. */
     fun provider(selection:AiModelSelection,configuration:AiSystemConfiguration):AiProvider?{
         return when(selection.providerUid){
-            "LOCAL:ANDROID_EXECUTORCH_1_3","LOCAL:ANDROID_NATIVE"->{
+            "LOCAL:ANDROID_EXECUTORCH_1_3","LOCAL:ANDROID_NATIVE","LOCAL:LLAMA_CPP_VULKAN"->{
                 val profile=profileFor(selection.modelUid)
                 if(selection.modelUid!=profile.modelUid)return null
                 val settings=configuration.localModelSettings?:LocalRecommendedSettings.forProfile(profile)
                 if(settings.modelUid!=profile.modelUid||profile.variants.none{it.variantUid==settings.variantUid})return null
-                LocalAiPort(profile,settings,localRuntime,artifacts,{AndroidLocalDeviceProbe.snapshot(app).copy(availableBackends=setOf(LocalRuntimeBackend.CPU))},CanonicalAiJsonCodec())
+                if(selection.providerUid!=settings.localProviderUid())return null
+                val runtime=if(settings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP)llamaCppRuntime else execuTorchRuntime
+                val backends=if(settings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP)
+                    setOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU,LocalRuntimeBackend.GPU) else setOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU)
+                LocalAiPort(profile,settings,runtime,artifacts,{AndroidLocalDeviceProbe.snapshot(app).copy(availableBackends=backends)},LocalCompactAiJsonCodec())
             }
             "OPENROUTER"->discoveredCloudModels[selection.modelUid]?.let{CloudAiPort(it,auth,http,CanonicalAiJsonCodec())}
             else->null
@@ -220,7 +246,8 @@ class AndroidAiProviderCenterApplication(context:Context){
             }finally{credential?.fill('\u0000')}
         }
         val profile=profileFor(configuration.localModelSettings?.modelUid)
-        val local=provider(AiModelSelection("LOCAL:ANDROID_EXECUTORCH_1_3",profile.modelUid),configuration)
+        val settings=configuration.localModelSettings?:LocalRecommendedSettings.forProfile(profile)
+        val local=provider(AiModelSelection(settings.localProviderUid(),profile.modelUid),configuration)
         val cloud=discoveredCloudModels.values.sortedBy{it.modelUid}.mapNotNull{provider(AiModelSelection("OPENROUTER",it.modelUid),configuration)}
         return listOfNotNull(local)+cloud
     }

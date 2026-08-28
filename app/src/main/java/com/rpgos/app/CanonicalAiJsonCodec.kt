@@ -268,6 +268,83 @@ class CanonicalAiJsonCodec:AiStructuredCodec{
     private fun phase43InputHash(value:String)=java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString(""){"%02x".format(it)}
 }
 
+/** Token-efficient character-creation wire format for small on-device models. */
+class LocalCompactAiJsonCodec(
+    private val canonical:CanonicalAiJsonCodec=CanonicalAiJsonCodec()
+):AiStructuredCodec by canonical{
+    override fun encodeCharacterCreation(request:AiCharacterCreationRequest):String{
+        val groups=JSONObject()
+        val codes=mapOf(
+            CharacterCreationDefinitionKind.STAT to "S",CharacterCreationDefinitionKind.RESOURCE to "R",
+            CharacterCreationDefinitionKind.TALENT to "T",CharacterCreationDefinitionKind.POTENTIAL to "P",
+            CharacterCreationDefinitionKind.SKILL to "K",CharacterCreationDefinitionKind.TECHNIQUE to "X",
+            CharacterCreationDefinitionKind.ORIGIN to "O",CharacterCreationDefinitionKind.INNATE_FEATURE to "I",
+            CharacterCreationDefinitionKind.STARTING_LOCATION to "L"
+        )
+        request.catalog.options.groupBy{it.kind}.forEach{(kind,options)->groups.put(codes.getValue(kind),JSONArray(options.map{option->
+            JSONArray().put(option.definitionUid).put(option.displayName).put(option.minimumValue?:JSONObject.NULL)
+                .put(option.maximumValue?:JSONObject.NULL).put(option.dimensionUid?:JSONObject.NULL)
+        }))}
+        return JSONObject().put("v","RPGOS_CC_LOCAL_1").put("c",request.campaignUid)
+            .put("x",JSONArray(request.conversation.map{entry->JSONArray().put(if(entry.role==CharacterCreationConversationRole.PLAYER)"P" else "G").put(entry.text)}))
+            .put("d",groups)
+            .put("legend","d:S stat,R resource,T talent,P potential,K skill,X technique,O origin,I innate,L location; rows=[uid,name,min,max,dimension]")
+            .put("reply","""Return exactly one JSON object and stop after }. If details are missing use s="Q", q=one concrete Polish question based on x, m=actual missing categories; never copy placeholder words. If sufficient use s="R" plus c(copy c),n,g,i,st,rs,ta,po,sk,te,or,inn,loc,sum. Value lists contain [uid,value], po contains [uid,value,dimension]. Use d UIDs only; every st/rs/ta/po/sk/te list must be nonempty. R awaits user confirmation.""")
+            .toString()
+    }
+
+    override fun decodeCharacterCreation(payload:String):CharacterCreationGmCandidate{
+        val trimmed=payload.trim();require(trimmed.startsWith('{')&&trimmed.endsWith('}'))
+        var root=runCatching{JSONObject(trimmed)}.getOrElse{
+            return malformedLocalQuestion(trimmed)?:throw it
+        }
+        root.optString("reply").trim().takeIf{it.startsWith('{')&&it.endsWith('}')}?.let{nested->
+            root=runCatching{JSONObject(nested)}.getOrElse{
+                return malformedLocalQuestion(nested)?:throw it
+            }
+        }
+        val state=root.optString("s").ifBlank{root.optString("status")}.uppercase()
+        if(state.isBlank())return canonical.decodeCharacterCreation(payload)
+        return when(state){
+            "Q"->CharacterCreationGmCandidate.NeedsPlayerChoice(
+                playerFacingLocalQuestion(root.optString("q").ifBlank{root.reqString("question")}),
+                (if(root.has("m"))root.array("m") else root.array("missing_categories")).strings()
+            )
+            "R"->{
+                fun choices(key:String,potential:Boolean=false)=root.array(key).arrays().map{row->CharacterCreationValueChoice(
+                    row.getString(0),row.getDouble(1),if(potential&&row.length()>2&&!row.isNull(2))row.getString(2) else null
+                )}
+                val creationUid=root.optString("id").takeIf{it.isNotBlank()}?:"CHARACTER-CREATION:${java.util.UUID.randomUUID()}"
+                val playerUid=root.optString("p").takeIf{it.isNotBlank()}?:"PLAYER:${java.util.UUID.randomUUID()}"
+                CharacterCreationGmCandidate.ReadyForConfirmation(PlayerCharacterCreationDraft(
+                    creationUid=creationUid,campaignUid=root.reqString("c"),playerUid=playerUid,
+                    displayName=root.reqString("n"),genderUid=root.reqString("g"),identityChoices=root.obj("i").stringMap(),
+                    stats=choices("st"),resources=choices("rs"),talents=choices("ta"),potentials=choices("po",true),
+                    skills=choices("sk"),techniques=choices("te"),originUids=root.array("or").strings(),
+                    innateFeatureUids=root.array("inn").strings(),startingLocationUid=root.reqString("loc")
+                ),root.reqString("sum"))
+            }
+            else->throw IllegalArgumentException("CHARACTER_CREATION_STATE_UNSUPPORTED")
+        }
+    }
+}
+
+/**
+ * Small on-device models sometimes escape an array incorrectly inside a Q reply envelope.
+ * Recovering a question is safe because it cannot create a draft or mutate canonical state;
+ * malformed R replies deliberately remain fail-closed and must pass the full typed decoder.
+ */
+private fun malformedLocalQuestion(payload:String):CharacterCreationGmCandidate.NeedsPlayerChoice?{
+    val readable=payload.replace("\\\"","\"")
+    if(!Regex("(?i)\"(?:s|status)\"\\s*:\\s*\"Q\"").containsMatchIn(readable))return null
+    val generated=Regex("(?i)\"(?:q|question)\"\\s*:\\s*\"([^\"]+)\"").find(readable)?.groupValues?.get(1).orEmpty()
+    val question=playerFacingLocalQuestion(generated)
+    return CharacterCreationGmCandidate.NeedsPlayerChoice(question,emptyList())
+}
+
+private fun playerFacingLocalQuestion(generated:String)=generated.takeIf{it.count(Char::isWhitespace)>=2}
+    ?:"Jaką płeć, pochodzenie, talent i najważniejsze umiejętności ma mieć Twoja postać?"
+
 private fun JSONObject.reqString(key:String):String{require(has(key)&&!isNull(key));return getString(key).also{require(it.isNotBlank())}}
 private fun JSONObject.reqInt(key:String):Int{require(has(key)&&!isNull(key));return getInt(key)}
 private fun JSONObject.reqLong(key:String):Long{require(has(key)&&!isNull(key));return getLong(key)}
@@ -277,5 +354,6 @@ private fun JSONObject.optObject(key:String):JSONObject?=if(has(key)&&!isNull(ke
 private fun JSONObject.obj(key:String):JSONObject=optObject(key)?:JSONObject()
 private fun JSONObject.array(key:String):JSONArray=if(has(key)&&!isNull(key))getJSONArray(key) else JSONArray()
 private fun JSONArray.objects():List<JSONObject> = buildList{for(index in 0 until length())add(getJSONObject(index))}
+private fun JSONArray.arrays():List<JSONArray> = buildList{for(index in 0 until length())add(getJSONArray(index))}
 private fun JSONArray.strings():List<String> = buildList{for(index in 0 until length())getString(index).takeIf{it.isNotBlank()}?.let(::add)}
 private fun JSONObject.stringMap():Map<String,String> = buildMap{keys().forEach{key->put(key,getString(key))}}

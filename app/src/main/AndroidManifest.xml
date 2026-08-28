@@ -21,6 +21,12 @@
             android:exported="false"
             android:process=":local_ai"
             android:stopWithTask="true" />
+
+        <service
+            android:name=".LlamaCppInferenceService"
+            android:exported="false"
+            android:process=":local_ai"
+            android:stopWithTask="true" />
     
         <provider
             android:name="androidx.core.content.FileProvider"

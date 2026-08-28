@@ -18,7 +18,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Enforce CHAT-6 release ownership
@@ -34,6 +34,7 @@ jobs:
         with:
           ref: ${{ inputs.accepted_sha }}
           fetch-depth: 0
+          submodules: recursive
 
       - name: Verify exact accepted SHA
         shell: bash
@@ -56,8 +57,11 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses >/dev/null || true
 
-      - name: Install Android SDK 36
-        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - name: Install Android SDK, NDK and Vulkan shader tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y glslc spirv-headers ninja-build
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
 
       - name: Set up Gradle 9.5
         uses: gradle/actions/setup-gradle@v4

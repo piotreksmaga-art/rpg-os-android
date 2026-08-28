@@ -501,13 +501,30 @@ class Phase48NativePackageAndProductionWiringTest{
         val provider=File(root,"AiProviderCenter.kt").readText()
         val gradle=File(module,"build.gradle.kts").readText()
         assertTrue(viewModel.contains("DynamicCanonicalChatApplication"));assertFalse(viewModel.contains("NonAuthoritativeLegacyNarrationApplication("))
-        assertTrue(provider.contains("IsolatedExecuTorchLocalInferenceDriver"));assertTrue(provider.contains("localRuntimeAvailable=true"))
+        assertTrue(provider.contains("IsolatedExecuTorchLocalInferenceDriver"))
+        assertTrue(provider.contains("IsolatedLlamaCppLocalInferenceDriver"));assertTrue(provider.contains("NativeLocalInferenceBridge.available"))
+        assertTrue(provider.contains("LocalCompactAiJsonCodec"))
+        val execuTorchService=File(root,"ExecuTorchInferenceService.kt").readText()
+        assertTrue(execuTorchService.contains(".dataPath(null)"))
+        assertTrue(execuTorchService.contains("bielikChatPrompt(prompt)"))
+        assertTrue(execuTorchService.contains("<|im_start|>assistant"))
+        assertTrue(execuTorchService.contains("bielikStructuredOutput(output.toString())"))
+        assertTrue(execuTorchService.contains("RPGOS_CC_LOCAL_1"))
+        assertTrue(execuTorchService.contains("minOf(maximumOutputUnits,320)"))
+        assertTrue(execuTorchService.contains("tokens>=maximumOutputUnits||completeJsonObjectOrNull"))
+        assertTrue(execuTorchService.contains("Nigdy nie przepisuj danych wejściowych"))
+        val runtime=File(root,"Phase48ProductionAiRuntime.kt").readText()
+        assertTrue(runtime.contains("request.workload==AiWorkload.CHARACTER_CREATION"))
+        assertTrue(runtime.contains("minOf(request.maximumOutputUnits,320)"))
+        val llamaNative=File(module,"src/main/cpp/rpgos_llama_jni.cpp").readText()
+        assertTrue(llamaNative.contains("gpu_layers < 0 ? std::numeric_limits<int32_t>::max() : gpu_layers"))
         val manifest=File("src/main/AndroidManifest.xml").readText()
-        assertTrue(manifest.contains(".ExecuTorchInferenceService"));assertTrue(manifest.contains("android:process=\":local_ai\""))
+        assertTrue(manifest.contains(".ExecuTorchInferenceService"));assertTrue(manifest.contains(".LlamaCppInferenceService"))
+        assertTrue(manifest.contains("android:process=\":local_ai\""))
         assertTrue(gradle.contains("org.pytorch:executorch-android:1.3.0"))
     }
 
-    @Test fun controlledRootE2E()=runBlocking{
+    @Test fun controlledRootE2ECommitsOneHundredTurns()=runBlocking{
         cleanup()
         val repository=UnifiedGameRepository(context);repository.bootstrap()
         val active=repository.activePlayerRef()?:activateFixturePlayer(repository);val campaign=active.campaignId
@@ -543,8 +560,16 @@ class Phase48NativePackageAndProductionWiringTest{
         val reopened=UnifiedGameRepository(context)
         val second=application(reopened).play("Ponownie idę do ${location.name}.",AiCancellationSignal.NONE)
         assertTrue(second is ChatApplicationOutcome.Narrated)
-        assertTrue((second as ChatApplicationOutcome.Narrated).result.receipt.commitOrder!!>firstOrder)
+        var previousOrder=(second as ChatApplicationOutcome.Narrated).result.receipt.commitOrder!!
+        assertTrue(previousOrder>firstOrder)
         assertEquals(2_000L,(reopened.infrastructureMechanicalPersistence(active.playerUid).position as CombatPosition.Exact).xMillimetres)
+        repeat(98){index->
+            val turn=application(reopened).play("Tura ${index+3}: idę do ${location.name}.",AiCancellationSignal.NONE)
+            assertTrue(turn is ChatApplicationOutcome.Narrated)
+            val order=(turn as ChatApplicationOutcome.Narrated).result.receipt.commitOrder!!
+            assertTrue(order>previousOrder);previousOrder=order
+        }
+        assertEquals(100_000L,(reopened.infrastructureMechanicalPersistence(active.playerUid).position as CombatPosition.Exact).xMillimetres)
     }
 
     @Test fun controlledProductionRootCommitsMultiActionThenCombatAndSurvivesRestart()=runBlocking{

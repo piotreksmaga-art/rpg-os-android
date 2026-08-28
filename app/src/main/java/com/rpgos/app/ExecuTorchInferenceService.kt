@@ -26,21 +26,30 @@ class ExecuTorchInferenceService:Service(){
             return try{
                 val config=org.pytorch.executorch.extension.llm.LlmModuleConfig.create()
                     .modulePath(modelPath).tokenizerPath(tokenizerPath).temperature(0.1f)
+                    // ExecuTorch Android 1.3.0 initializes dataPath to an empty string. LlmModule
+                    // treats every non-null value as an external metadata shard and attempts to
+                    // open it; the empty path then aborts inside fbjni before Kotlin can recover.
+                    // This text-only PTE embeds its metadata, so the optional path must be null.
+                    .dataPath(null)
                     .modelType(org.pytorch.executorch.extension.llm.LlmModuleConfig.MODEL_TYPE_TEXT)
                     .loadMode(org.pytorch.executorch.extension.llm.LlmModuleConfig.LOAD_MODE_MMAP).build()
                 module=org.pytorch.executorch.extension.llm.LlmModule(config).also{activeModule=it;it.load()}
                 val output=StringBuilder();var tokens=0;var failure:String?=null;var stats=""
                 val callback=object:org.pytorch.executorch.extension.llm.LlmCallback{
-                    override fun onResult(token:String){output.append(token);tokens++}
+                    override fun onResult(token:String){
+                        output.append(token);tokens++
+                        if(tokens>=maximumOutputUnits||completeJsonObjectOrNull(output.toString())!=null)activeModule?.stop()
+                    }
                     override fun onStats(value:String){stats=value}
                     override fun onError(code:Int,message:String){failure="EXECUTORCH_$code:$message"}
                 }
                 val generation=org.pytorch.executorch.extension.llm.LlmGenerationConfig.create().echo(false)
                     .maxNewTokens(maximumOutputUnits).seqLen(contextUnits).temperature(0.1f).build()
-                module.generate(prompt,generation,callback)
+                module.generate(bielikChatPrompt(prompt),generation,callback)
                 failure?.let{error(it)}
+                val structured=bielikStructuredOutput(output.toString())
                 Bundle().apply{
-                    putBoolean(KEY_SUCCESS,true);putString(KEY_OUTPUT,output.toString());putInt(KEY_TOKENS,tokens)
+                    putBoolean(KEY_SUCCESS,true);putString(KEY_OUTPUT,structured);putInt(KEY_TOKENS,tokens)
                     putString(KEY_TRACE,digest("$stats|$tokens"))
                 }
             }catch(failure:Throwable){
@@ -57,6 +66,40 @@ class ExecuTorchInferenceService:Service(){
     companion object{
         const val KEY_SUCCESS="success";const val KEY_OUTPUT="output";const val KEY_TOKENS="tokens";const val KEY_TRACE="trace";const val KEY_REASON="reason"
         private fun digest(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString(""){"%02x".format(it)}
+        internal fun bielikChatPrompt(payload:String)="""<|im_start|>system
+Jesteś lokalnym adapterem RPG OS. Nigdy nie przepisuj danych wejściowych. Wykonaj instrukcję z pola reply i zwróć wyłącznie wynikowy obiekt JSON, bez Markdownu i komentarza.<|im_end|>
+<|im_start|>user
+Nie powtarzaj poniższego obiektu. Odpowiedz teraz tylko krótkim JSON-em statusu Q albo R.
+DANE:
+$payload<|im_end|>
+<|im_start|>assistant
+""".trimIndent()
+        internal fun bielikStructuredOutput(value:String):String{
+            val cleaned=value.trim().removePrefix("<|im_start|>assistant")
+                .substringBefore("<|im_end|>").substringBefore("</s>").trim()
+            return completeJsonObjectOrNull(cleaned)?:cleaned.substring(cleaned.indexOf('{').coerceAtLeast(0))
+        }
+        internal fun completeJsonObjectOrNull(value:String):String?{
+            val cleaned=value.trim()
+            val start=cleaned.indexOf('{')
+            if(start<0)return null
+            var depth=0;var quoted=false;var escaped=false
+            for(index in start until cleaned.length){
+                val character=cleaned[index]
+                if(quoted){
+                    when{
+                        escaped->escaped=false
+                        character=='\\'->escaped=true
+                        character=='\"'->quoted=false
+                    }
+                }else when(character){
+                    '\"'->quoted=true
+                    '{'->depth++
+                    '}'->{depth--;if(depth==0)return cleaned.substring(start,index+1)}
+                }
+            }
+            return null
+        }
     }
 }
 
@@ -76,9 +119,10 @@ class IsolatedExecuTorchLocalInferenceDriver(private val context:Context):LocalI
         val service=try{connection.connect()}catch(failure:Throwable){connection.close();throw failure}
         if(active.putIfAbsent(requestUid,service)!=null){connection.close();throw AiTransportException("LOCAL_DUPLICATE_REQUEST")}
         return try{
+            val outputLimit=if(prompt.contains("\"v\":\"RPGOS_CC_LOCAL_1\""))minOf(maximumOutputUnits,320) else maximumOutputUnits
             val result=service.generate(
                 typed.artifact.absolutePath,requireNotNull(typed.artifact.tokenizerAbsolutePath),typed.settings.contextUnits,
-                prompt,maximumOutputUnits
+                prompt,outputLimit
             )
             if(cancellation.isCancelled())throw AiTransportException("LOCAL_CANCELLED")
             if(!result.getBoolean(ExecuTorchInferenceService.KEY_SUCCESS))throw AiTransportException(

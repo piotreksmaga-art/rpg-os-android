@@ -99,6 +99,16 @@ The release artifact `RPG-OS-Bielik-1.5B-v3-ExecuTorch-XNNPACK.zip` is a complet
 
 Historical device evidence remains relevant but separate: Bielik 4.5B v3 GGUF Q4_K_M passed on Samsung SM-S921B with llama.cpp/Vulkan, CTX8192, KV f16, `-ngl 99`, `-b 64`, `-ub 64`. That proves the 4.5B class is viable on the target phone, but it is not evidence that the separate ExecuTorch PTE profile has passed on-device.
 
+## Production llama.cpp / GGUF provider
+
+Android can select an arbitrary local GGUF file and run it through a statically linked llama.cpp provider with CPU or Vulkan. This is not a side chat or narration-only bridge: `LOCAL:LLAMA_CPP_VULKAN` is registered in the same role-aware provider registry and reaches intent interpretation, GM proposal/repair, character creation, narrative render/repair and periodic Director workloads through `LocalAiPort` and the canonical Phase43–54 pipeline.
+
+The UI persists the selected engine and manual context, backend, GPU layers (`-1` means all), CPU threads, batch, ubatch, K/V cache types, temperature, top-k, top-p, repeat penalty, Flash Attention and mmap choices. The recommended Vulkan/Xclipse profile is CTX8192, 99 GPU layers, F16 K/V and batch/ubatch 64. GGUF settings are user-managed: the admission controller does not impose RAM, thermal, context or GPU-layer limits. Basic value validity and backend/format compatibility remain necessary to form a callable runtime request.
+
+llama.cpp runs in the private `:local_ai` process through AIDL. A native abort, driver failure or model OOM can stop that process without terminating the UI process or partially mutating a turn. The process boundary is operational containment, not a restriction on GGUF parameters. AI output still passes the same typed JSON decoder, semantic validators, mechanics resolution and commit authority as every other provider; a model never receives canonical mutation authority.
+
+The APK contains the ARM64 llama.cpp runtime and Vulkan shaders but not user-selected model weights. GGUF remains an imported content artifact, so changing a model does not require rebuilding the APK. Current native dependencies are pinned as Git submodules to exact llama.cpp, Vulkan-Headers and SPIRV-Headers revisions and CI checks them out recursively.
+
 ## Verification state before final push
 
 - focused repair/provider/schema/production E2E: `GREEN`, including individual combat, two-step staged movement, production AOE against a persisted aggregate group and restart readback;
@@ -108,6 +118,8 @@ Historical device evidence remains relevant but separate: Bielik 4.5B v3 GGUF Q4
 - targeted snapshot retention, campaign isolation and production restart paths: `GREEN` locally;
 - unchanged legacy SQLite authority/concurrency suites: post-repair exact revalidation remains assigned to Linux CI; the Windows legacy Robolectric backend cannot register the required connection-local scalar guards, while Windows Defender blocks Robolectric's native test DLL;
 - local Android debug compilation: `GREEN` as part of focused Gradle runs;
+- Android API 36 x86_64 emulator with the complete Bielik 1.5B PTE/tokenizer: `GREEN` for install, campaign resume, isolated model load, 1549-token real Naruto character-creation prompt and typed `Q` continuation in the UI; the small-model adapter bounds output inside CTX2048, stops at the first complete JSON and may recover only a malformed non-mutating question while every malformed `R` draft remains fail-closed;
+- controlled production composition root: `GREEN` for 100 consecutive narrated/committed turns, strictly increasing receipt order and final canonical position readback, plus independent multi-action/combat/restart coverage;
 - Windows snapshot staging paths and campaign-isolated payload names were shortened, closing the SQLite long-path failure in Robolectric without weakening snapshot identity, digest or catalog authority;
 - Linux exact-SHA full JVM, signed release APK, signature/digest and immutable provenance: pending final push/CI;
 - complete Bielik 1.5B mobile weights/package and host-side ExecuTorch load: `GREEN`; pierwsza próba na fizycznym Samsungu ujawniła native-process crash podczas inferencji. Od alpha14 ExecuTorch działa w prywatnym procesie `:local_ai`, więc awaria runtime nie zamyka UI ani nie dotyka canonical state; zgodność samego PTE/runtime nadal pozostaje `PENDING_EXTERNAL_DEPENDENCY` do ponownego testu urządzenia. Live OpenRouter używa system-first, szyfrowanego DNS fallbacku ograniczonego do `openrouter.ai` po potwierdzonym `UnknownHostException` resolvera Androida.
