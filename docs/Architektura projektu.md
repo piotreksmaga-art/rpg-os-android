@@ -413,6 +413,41 @@ Phase 47 może wyłącznie zawężać albo kontynuować request w oryginalnym `C
 
 Local context i cloud context nie muszą być identyczne. Oba powstają z tego samego semantic entitlement; cloud otrzymuje minimalny, zadaniowy, sanitizowany i dozwolony bundle — nigdy automatycznie całe Save/Chronicle/DB.
 
+### 12.1 Pamięć semantyczna Bekko a8m — rebuildable ranking sidecar
+
+Bekko jest niezależnym od modeli generatywnych systemem `SEARCH / MATCH / RANK / CLUSTER`. Jego wynik jest kandydatem rankingu, nigdy FACT-em, rozstrzygnięciem mechaniki, przyczynowością ani mutation proposal. Bielik, OpenRouter, dowolny generatywny GGUF i Bekko mają rozdzielne modele, ustawienia oraz uchwyty runtime.
+
+```text
+canonical commit/replay
+  -> Phase38 audience+purpose projection
+  -> deterministic <=512-token chunks
+  -> Bekko mean pooling + L2 (384)
+  -> Matryoshka first 256 + ponowne L2
+  -> per-campaign FP16 CACHE/REBUILDABLE sidecar
+
+CapabilityEnvelope
+  -> authorized UID/kind/time scope
+  -> exact/structured/graph/temporal filters
+  -> exact cosine/dot scan tylko tego scope
+  -> stable canonical-UID tie break
+  -> Phase45 integrity + typed budget
+  -> GM/Director/World Pack consumer
+```
+
+`EmbeddingProviderPort` posiada typed capabilities, availability/open, batch embedding, cancel i close. Produkcyjny adapter używa osobnego trybu embeddingów w izolowanym procesie `:local_ai`, osobnego uchwytu llama.cpp, mean pooling i L2. Domyślny profil to CPU/Q8_0; Vulkan tego samego artefaktu jest wyłącznie ręcznym wyborem wykonania i nie zmienia Core semantics.
+
+Przypięty artefakt `bekko-embedding-v1-a8m-Q8_0.gguf` nie wchodzi do APK. Instalator pobiera go z osobnego wydania modeli, wznawia transfer, sprawdza stały rozmiar i SHA-256, instaluje atomowo oraz pozwala usunąć model wraz z wyłącznie odbudowywalnym indeksem. Manifest wiąże upstream revision, licencję i kontrakt embeddingów.
+
+`SemanticDocumentProjector` może emitować tylko tekst legalny dla wskazanego campaign/audience/purpose/as-of. Globalny dump hidden knowledge nie jest wejściem embeddingów. Dokument indeksowy zachowuje namespace, canonical UID, kind, FACT/BELIEF/NARRATIVE, as-of order, source version/fingerprint, chunk i projector version. Indeks nie uczestniczy w canonical hash, save, snapshot, receipt ani replay truth.
+
+`SemanticIndexPort.searchAuthorized` wykonuje deterministyczny dokładny scan po wcześniej autoryzowanej liście UID. Nie ma globalnego ANN przeszukującego hidden rekordy. Wyniki fragmentów są scalane do canonical UID, a remisy rozstrzyga stabilny UID. Exact UID i niedropowalny REQUIRED/SAFETY context mają pierwszeństwo przed score Bekko.
+
+Natychmiastowa kolejka indeksująca jest uruchamiana dopiero po `Committed` lub zgodnym `AlreadyCommitted`, poza canonical transakcją. Rollback nie tworzy wpisu. Nie ma okresowego WorkManagera: przy otwarciu kampanii checkpoint indeksu jest porównywany z receipt/replay, a luka jest uzupełniana. Niezindeksowany hot tail pozostaje dostępny przez typed structured reads. Wersja indeksu wiąże model SHA, wymiar, normalizację, vector format i projector; niezgodność wymusza czystą odbudowę, nigdy mieszanie wektorów.
+
+Bekko jest trusted Phase41 `StructuredQueryProvider`, ale każda aktywna operacja nadal pochodzi z Phase44 `CapabilityEnvelope` i przechodzi Phase45 integrity/budget. Aktywni konsumenci to MG memory, Director Semantic Scout oraz World Pack search. Typed future candidate ports istnieją dla Phase58, Phase61–64, Phase66 i Phase68, lecz bez właściciela nie są aktywne i nie mogą oznaczyć tych faz jako ukończonych ani tworzyć aliasów, konsolidacji, FACT, `CAUSES`, decyzji NPC lub zmian świata.
+
+Każdy błąd modelu, procesu, indeksu lub wersji zwraca typed reason i przełącza na istniejący retrieval/hot tail bez mutacji i bez blokowania tury. Emulator potwierdza UI i correctness flow; wydajność, Vulkan, temperatura oraz współistnienie z Bielikiem są akceptowane wyłącznie na fizycznym Galaxy S24.
+
 ## 13. Role-based Local/Cloud AI — IMPLEMENTED CANDIDATE
 Istnieje jeden provider-independent system AI. Nie ma osobnych trybów produktu Local/Cloud/Hybrid. Użytkownik przypisuje model niezależnie do roli Game Master oraz Director/Scenarist: `Auto` albo kompatybilny model local/cloud.
 

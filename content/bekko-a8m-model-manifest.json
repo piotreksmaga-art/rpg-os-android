@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "RPGOS-BEKKO-EMBEDDING-V1",
+  "modelUid": "BEKKO-EMBEDDING-V1-A8M",
+  "variantUid": "GGUF-Q8_0",
+  "fileName": "bekko-embedding-v1-a8m-Q8_0.gguf",
+  "sizeBytes": 118639520,
+  "sha256": "0b0214214287e90ffb98ffb47e1071e5b193fb420d1d99b2ec8aab0ebb507fc0",
+  "license": "MIT",
+  "source": {
+    "repository": "https://huggingface.co/hotchpotch/bekko-embedding-v1-a8m-GGUF",
+    "revision": "4acacdea60b9393ae247a6ebf5b5707938c9755b",
+    "modelRepository": "https://huggingface.co/hotchpotch/bekko-embedding-v1-a8m",
+    "modelRevision": "b24cde5de82214ada4c01f173b137c78160b13c6",
+    "llamaCppConversionRevision": "0ef6e55edb306fcbcf73e6f1f41923cccb9cf7f8"
+  },
+  "distribution": {
+    "githubReleaseTag": "models-bekko-a8m-v1",
+    "downloadUrl": "https://github.com/piotreksmaga-art/rpg-os-android/releases/download/models-bekko-a8m-v1/bekko-embedding-v1-a8m-Q8_0.gguf",
+    "fallbackUrl": "https://huggingface.co/hotchpotch/bekko-embedding-v1-a8m-GGUF/resolve/4acacdea60b9393ae247a6ebf5b5707938c9755b/bekko-embedding-v1-a8m-Q8_0.gguf",
+    "bundledInApk": false
+  },
+  "embedding": {
+    "maximumTokens": 8192,
+    "pooling": "MEAN",
+    "sourceDimensions": 384,
+    "storedDimensions": 256,
+    "matryoshkaDimensions": [256, 128, 64],
+    "normalization": "L2_AFTER_MATRYOSHKA_TRUNCATION",
+    "vectorFormat": "FP16_LE",
+    "queryPrefix": null,
+    "passagePrefix": null,
+    "defaultBackend": "CPU",
+    "optionalBackends": ["VULKAN"]
+  },
+  "index": {
+    "projectorVersion": 2,
+    "authorization": "PHASE38_AUDIENCE_SCOPED_BEFORE_EMBEDDING",
+    "cacheClass": "CACHE_REBUILDABLE"
+  }
+}

@@ -56,12 +56,15 @@ data class CapabilityRequirementTemplate(
     val targetRoleUid:String?=null,
     val targetKindFilterKey:String?=null,
     val targetUidFilterKey:String?=null,
-    val cursorSupport:CursorSupport=CursorSupport.NONE
+    val cursorSupport:CursorSupport=CursorSupport.NONE,
+    /** Core derives this fixed query from accepted intent semantics; providers never receive raw UI authority. */
+    val queryFilterKey:String?=null
 ){init{
     require(requirementUid.isNotBlank()&&providerUid.isNotBlank()&&operationUid.isNotBlank())
     require(maximumLimit in 1..200&&targetRoleUid?.isBlank()!=true)
     require(listOfNotNull(targetKindFilterKey,targetUidFilterKey).size in setOf(0,2))
     require(listOfNotNull(targetKindFilterKey,targetUidFilterKey).all{it in allowedFilterKeys})
+    require(queryFilterKey?.let{it.isNotBlank()&&it in allowedFilterKeys}!=false)
 }}
 
 data class CapabilityDescriptor(
@@ -218,7 +221,15 @@ class GraphTurnPlanner(
                 val projected=document.references.firstOrNull{it.referenceUid==referenceUid}?.resolvedProjectedRef?:return@mapNotNull null
                 referenceUid to mapOf(template.targetKindFilterKey!! to projected.kindUid,template.targetUidFilterKey!! to projected.uid)
             }
-        return scoped.sortedBy{it.first}.map{(scopeUid,fixed)->
+        return scoped.sortedBy{it.first}.map{(scopeUid,targetFixed)->
+            val fixed=buildMap{
+                putAll(targetFixed)
+                template.queryFilterKey?.let{key->
+                    val semanticQuery=listOf(node.semanticAction.rawPhrase,document.rawInput)
+                        .firstOrNull{it.isNotBlank()}!!.trim().take(512)
+                    put(key,semanticQuery)
+                }
+            }
             val uid="REQ-V2:${node.nodeUid}:${template.requirementUid}:$scopeUid"
             val envelope=CapabilityEnvelope(
                 envelopeUid="ENV:$uid",campaignUid=document.campaignUid,providerUid=template.providerUid,operationUid=template.operationUid,

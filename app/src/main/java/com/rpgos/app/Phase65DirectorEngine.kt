@@ -104,6 +104,10 @@ class DirectorTriggerPolicy(private val cadence:DirectorCadencePolicy=DirectorCa
 
 fun interface DirectorJobDispatcher{fun dispatch(jobUid:String,work:()->Unit)}
 fun interface DirectorContextVersionPort{fun current(campaignUid:String):String}
+fun interface DirectorContextScoutPort{
+    fun enrich(trigger:DirectorTrigger,context:DirectorContextEnvelope):DirectorContextEnvelope
+    companion object{val NONE=DirectorContextScoutPort{_,context->context}}
+}
 
 sealed interface DirectorDispatchResult{
     data class Scheduled(val jobUid:String):DirectorDispatchResult
@@ -117,6 +121,7 @@ class DirectorEngine(
     private val candidates:DirectorCandidateStore,
     private val dispatcher:DirectorJobDispatcher,
     private val contextVersions:DirectorContextVersionPort,
+    private val contextScout:DirectorContextScoutPort=DirectorContextScoutPort.NONE,
     private val triggerPolicy:DirectorTriggerPolicy=DirectorTriggerPolicy(),
     private val validator:DirectorBundleValidator=DirectorBundleValidator()
 ){
@@ -126,7 +131,8 @@ class DirectorEngine(
         val jobUid="DIRECTOR-JOB:${fingerprint("${trigger.campaignUid}|${trigger.triggerUid}|${context.contextVersion}|${context.asOfCommittedOrder}")}"
         val initial=DirectorJobRecord(jobUid,trigger.campaignUid,trigger.triggerUid,context.contextVersion,context.asOfCommittedOrder,DirectorJobState.RESERVED)
         if(!jobs.reserve(initial))return DirectorDispatchResult.Skipped("DIRECTOR_JOB_ALREADY_RESERVED")
-        dispatcher.dispatch(jobUid){run(initial,trigger,context)}
+        val enriched=runCatching{contextScout.enrich(trigger,context)}.getOrDefault(context)
+        dispatcher.dispatch(jobUid){run(initial,trigger,enriched)}
         return DirectorDispatchResult.Scheduled(jobUid)
     }
     private fun run(initial:DirectorJobRecord,trigger:DirectorTrigger,context:DirectorContextEnvelope){

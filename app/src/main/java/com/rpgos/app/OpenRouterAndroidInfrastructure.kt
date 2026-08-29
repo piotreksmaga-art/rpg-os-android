@@ -423,6 +423,11 @@ object NativeLocalInferenceBridge{
         topK:Int,topP:Float,repeatPenalty:Float,flashAttention:Boolean,memoryMap:Boolean
     ):Long
     external fun generate(handle:Long,requestUid:String,prompt:String,maximumOutputUnits:Int):String
+    external fun openEmbedding(
+        artifactPath:String,contextUnits:Int,backend:String,threads:Int,batch:Int,gpuLayers:Int,memoryMap:Boolean
+    ):Long
+    external fun embed(handle:Long,requestUid:String,texts:Array<String>,maximumInputUnits:Int):FloatArray
+    external fun scoreFp16(vectors:java.nio.ByteBuffer,offsets:LongArray,query:FloatArray):FloatArray
     external fun cancel(requestUid:String)
     external fun close(handle:Long)
 }

@@ -46,6 +46,36 @@ class LlamaCppInferenceService:Service(){
             }
         }
 
+        override fun openEmbedding(
+            modelPath:String,contextUnits:Int,backend:String,threads:Int,batch:Int,gpuLayers:Int,memoryMap:Boolean
+        ):Long{
+            val handle=NativeLocalInferenceBridge.openEmbedding(
+                modelPath,contextUnits,backend,threads,batch,gpuLayers,memoryMap
+            )
+            require(handle!=0L){"LLAMA_EMBEDDING_OPEN_RETURNED_NULL"}
+            handles+=handle
+            return handle
+        }
+
+        override fun embed(handle:Long,requestUid:String,texts:MutableList<String>,maximumInputUnits:Int):Bundle=try{
+            require(handle in handles){"LLAMA_HANDLE_NOT_OWNED"}
+            require(texts.isNotEmpty()&&texts.size<=64){"LLAMA_EMBEDDING_BATCH_INVALID"}
+            require(maximumInputUnits in 1..8192){"LLAMA_EMBEDDING_INPUT_LIMIT_INVALID"}
+            val vectors=NativeLocalInferenceBridge.embed(handle,requestUid,texts.toTypedArray(),maximumInputUnits)
+            require(vectors.isNotEmpty()&&vectors.size%texts.size==0){"LLAMA_EMBEDDING_OUTPUT_INVALID"}
+            Bundle().apply{
+                putBoolean(KEY_SUCCESS,true);putFloatArray(KEY_EMBEDDINGS,vectors)
+                putInt(KEY_COUNT,texts.size);putInt(KEY_DIMENSIONS,vectors.size/texts.size)
+                putString(KEY_TRACE,"LLAMA_CPP_EMBEDDING:$requestUid")
+            }
+        }catch(failure:Throwable){
+            Bundle().apply{
+                putBoolean(KEY_SUCCESS,false)
+                putString(KEY_REASON,failure.message?.takeIf{it.startsWith("LLAMA_")||it=="LOCAL_CANCELLED"}
+                    ?:"LLAMA_EMBEDDING_SERVICE_FAILURE:${failure::class.java.simpleName}:${failure.message.orEmpty().take(160)}")
+            }
+        }
+
         override fun cancel(requestUid:String){NativeLocalInferenceBridge.cancel(requestUid)}
         override fun close(handle:Long){if(handles.remove(handle))NativeLocalInferenceBridge.close(handle)}
     }
@@ -56,6 +86,7 @@ class LlamaCppInferenceService:Service(){
     companion object{
         const val KEY_SUCCESS="success";const val KEY_OUTPUT="output";const val KEY_TOKENS="tokens"
         const val KEY_TRACE="trace";const val KEY_REASON="reason"
+        const val KEY_EMBEDDINGS="embeddings";const val KEY_COUNT="count";const val KEY_DIMENSIONS="dimensions"
     }
 }
 
