@@ -14,7 +14,8 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         OPERATIONAL_GUARD,
         UI_SETTINGS,
         USER_AUTHORIZED_FILE_TRANSFER,
-        EXTERNAL_AI_CONFIGURATION
+        EXTERNAL_AI_CONFIGURATION,
+        CACHE_REBUILDABLE
     }
 
     /** Closed inventory of production source files that contain a durable state write sink. */
@@ -96,6 +97,9 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         put("AppSettings.kt", WriterClass.UI_SETTINGS)
         put("RpgOsViewModel.kt", WriterClass.USER_AUTHORIZED_FILE_TRANSFER)
         put("OpenRouterAndroidInfrastructure.kt", WriterClass.EXTERNAL_AI_CONFIGURATION)
+        put("BekkoModelManager.kt", WriterClass.EXTERNAL_AI_CONFIGURATION)
+        put("BekkoSemanticApplication.kt", WriterClass.CACHE_REBUILDABLE)
+        put("SemanticSidecarIndex.kt", WriterClass.CACHE_REBUILDABLE)
     }
 
     private val durableWriteMarkers = listOf(

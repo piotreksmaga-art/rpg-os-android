@@ -41,6 +41,7 @@ Wyjątek stanowią jawnie World-Pack-specific fazy integracyjne (obecnie Phase 8
 - Acceptance record: `docs/architecture/PHASE38_ACCEPTANCE.md`; pełne historyczne SHA/CI/artifacts/findingi pozostają w `docs/Historia projektu.md` i phase acceptance records.
 - Exact-SHA evidence: `Validate RPG OS ALPHA` run `32889856844`, `Phase39-47 Audit3 Validation` run `32889856923` i `Phase38 AUD002 Forensic Gate` run `32889856858` — SUCCESS. Signed artifact `9579252027`, digest `sha256:0ad2e25010501b235695be0c1823a21e4f1f336d1e85f7e7e1a7ba39d48a841e`.
 - Phase 48–54 mają zintegrowany targeted-acceptance repair opisany w `docs/architecture/PHASE48_54_FINAL_IMPLEMENTATION.md`. Trwały canonical mechanical state PC/NPC/group/unit, produkcyjny aggregate/AOE path, rzeczywista staged projection oraz restart-safe Phase54 recovery zamykają findingi wcześniejszego audytu. Lokalny pakiet acceptance jest zielony; globalny status pozostaje `[-]` do exact-SHA CI i końcowego audytu tego runu. Live-device/live-model evidence pozostaje odrębną bramką operacyjną, nie luką Core.
+- Bekko a8m semantic-memory slice rozszerza Phase41/44/45 i dostarcza kandydat Phase59 bez zmiany canonical authority: osobny model GGUF, audience-scoped rebuildable sidecar, natychmiastowy post-commit catch-up, hybrydowy fallback i aktywne porty MG/Director/World Pack. Machine acceptance jest przypięte do exact-SHA CI oraz osobnych wydań modelu i APK; wydajność, temperatura i współistnienie z Bielikiem na fizycznym Galaxy S24 pozostają odrębną bramką, dlatego slice nie jest oznaczony globalnie jako `COMPLETE`.
 - World Pack Creator pozostaje DEFERRED do czasu globalnego ACCEPTED Phase 1–84.
 
 # FAZA 0 — BASELINE / AUDYT
@@ -323,7 +324,7 @@ Future Player Interaction acceptance, rozwijane wraz z Phase 43–54, 63–64 i 
 - [-] 56. Episodic Memory — AI provider/model is not durable owner `[REF-ADAPTER]`
 - [-] 57. Semantic Campaign Memory — AI provider/model is not durable owner `[REF-ADAPTER]`
 - [ ] 58. Memory Consolidation without recursive summary degradation
-- [ ] 59. Vector/Semantic Retrieval engine/index integration `[REF-ADAPTER]`
+- [-] 59. Vector/Semantic Retrieval engine/index integration `[REF-ADAPTER]` — Bekko a8m Q8_0, oddzielny CPU/manual-Vulkan embedding runtime, audience-scoped exact FP16 sidecar, Phase41 provider, Phase44 capability i Phase45 budget/fallback są zaimplementowanym kandydatem; machine evidence pochodzi wyłącznie z exact-SHA CI/release, a fizyczny S24 performance/thermal/coexistence gate pozostaje otwarty
 - [ ] 60. Time Skip Processor + Scheduler/WorldProcess orchestration `[REF-ADAPTER]`
 - [-] 61. NPC Brain + persistent individuality/personality/values/goals/fears/emotional state/relationships `[REF-ADAPTER]`
 - [-] 62. NPC Decision Engine + knowledge/memory/social-role constrained autonomy `[REF-ADAPTER]`
@@ -332,6 +333,18 @@ Future Player Interaction acceptance, rozwijane wraz z Phase 43–54, 63–64 i 
 
 ## Acceptance direction Phase 55–64
 Memory pozostaje RPG OS-owned i odtwarzalna po zmianie modelu/runtime.
+
+### Bekko a8m — aktywny semantic retrieval candidate
+
+Bekko jest wyłącznie lokalnym `SEARCH / MATCH / RANK / CLUSTER` helperem. Nie jest źródłem prawdy, właścicielem mechaniki, generatorem relacji `CAUSES`, aliasów, FACT ani zmian świata. Produkcyjny przepływ jest hybrydowy:
+
+`Phase38 authorized projection -> exact/structured/temporal filters -> Bekko ranking -> Phase45 typed context budget`.
+
+Aktywne są: pamięć MG, redukcja kontekstu, semantic scout istniejącego Directora i osobny namespace World Pack. Exact UID oraz REQUIRED/SAFETY context pozostają nadrzędne. Brak modelu, awaria procesu, niegotowy/stary indeks lub błąd wersji uruchamiają typed fallback do dotychczasowego retrieval oraz hot-tail structured reads, bez mutacji i bez blokowania tury.
+
+Porty kandydatów dla Phase58, Phase61–64, Phase66 i Phase68 są przetestowanymi seamami bez ownershipu i bez aktywacji brakującej fazy. Nie zmieniają statusu tych faz i nie mogą samodzielnie konsolidować pamięci, podejmować decyzji NPC, symulować świata, tworzyć obietnic, rozstrzygać sprzeczności ani nadawać causal authority.
+
+Indeks jest per-campaign `CACHE/REBUILDABLE`, pozostaje poza save hash/snapshot/canonical truth i przechowuje 256-wymiarowe Matryoshka FP16. Wersja wiąże model SHA, wymiar, normalizację, format oraz projector. Po legalnym `Committed`/`AlreadyCommitted` działa idempotentny post-commit catch-up; rollback niczego nie indeksuje. Nie istnieje cykliczny WorkManager. Otwieranie kampanii porównuje checkpoint z replay i domyka lukę po awarii.
 
 Phase 61 NPC individuality:
 - personality/traits persisted lub deterministically reproducible;

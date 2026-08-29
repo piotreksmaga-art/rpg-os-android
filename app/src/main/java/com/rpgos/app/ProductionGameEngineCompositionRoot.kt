@@ -388,11 +388,21 @@ class ProductionGameEngineCompositionRoot(
     private val configuration:() -> AiSystemConfiguration,
     private val additionalProviders:() -> List<AiProvider> = { emptyList() },
     private val aggregateCombatState:AggregateCombatStatePort=AggregateCombatStatePort.NONE,
-    private val combatAbilityContracts:CombatAbilityContractPort=CombatAbilityContractPort.UNIVERSAL_FALLBACK
+    private val combatAbilityContracts:CombatAbilityContractPort=CombatAbilityContractPort.UNIVERSAL_FALLBACK,
+    private val semanticApplication:BekkoSemanticApplication?=null
 ){
     private val app=context.applicationContext
     fun characterCreationApplication():AiCharacterCreationApplication=AiCharacterCreationApplication(
         DynamicProductionModelRoute(providerCenter,configuration,additionalProviders),repository
+    )
+    fun directorEngine(
+        jobs:DirectorJobStore,
+        candidates:DirectorCandidateStore,
+        dispatcher:DirectorJobDispatcher,
+        contextVersions:DirectorContextVersionPort
+    ):DirectorEngine=DirectorEngine(
+        DynamicProductionModelRoute(providerCenter,configuration,additionalProviders),jobs,candidates,dispatcher,contextVersions,
+        contextScout=semanticApplication?.directorScout()?:DirectorContextScoutPort.NONE
     )
     fun chatApplication():CanonicalChatApplication{
         val authority=repository.infrastructureWorldPackAuthority()
@@ -404,9 +414,21 @@ class ProductionGameEngineCompositionRoot(
         val mechanicsRegistry=MechanicsResolverRegistry.fromCompositionRoot(mapOf(
             "UNIVERSAL_COMBAT" to mechanics,"UNIVERSAL_ACTION" to mechanics,"UNIVERSAL_MOVEMENT" to mechanics
         ))
-        val requirements=listOf(CapabilityRequirementTemplate(
+        val requirements=buildList{
+            add(CapabilityRequirementTemplate(
             "PLAYER_STATE",CORE_PLAYER_CONTEXT_PROVIDER,CORE_PLAYER_CONTEXT_OPERATION,RequirementImportance.SAFETY,maximumLimit=1
-        ))
+            ))
+            if(semanticApplication!=null){
+                add(CapabilityRequirementTemplate(
+                    "SEMANTIC_MEMORY",BEKKO_STRUCTURED_PROVIDER_UID,BEKKO_OPERATION_MEMORY,RequirementImportance.QUALITY,
+                    allowedFilterKeys=setOf("query_text","record_kinds","minimum_score"),maximumLimit=20,queryFilterKey="query_text"
+                ))
+                add(CapabilityRequirementTemplate(
+                    "SEMANTIC_WORLD_PACK",BEKKO_STRUCTURED_PROVIDER_UID,BEKKO_OPERATION_WORLD_PACK,RequirementImportance.OPTIONAL,
+                    allowedFilterKeys=setOf("query_text","record_kinds","minimum_score"),maximumLimit=12,queryFilterKey="query_text"
+                ))
+            }
+        }
         val capabilities=listOf(
             CapabilityDescriptor("RPGOS-CAPABILITY:UNIVERSAL-COMBAT",2,semanticFamilyUids=setOf(
                 "ATTACK","COMBAT","STRIKE","FIGHT","DEFEND","AREA_ATTACK","BLAST","EXPLOSION","AOE","CONE_ATTACK","LINE_ATTACK","ZONE_ATTACK","SWEEP_ATTACK"
@@ -418,7 +440,8 @@ class ProductionGameEngineCompositionRoot(
                 executionKind=CapabilityExecutionKind.MECHANICS_PROPOSAL,sideEffectClass=CapabilitySideEffectClass.PROPOSED_WORLD_EFFECT,mechanicsOwnerUid="UNIVERSAL_ACTION",composable=true,requirements=requirements)
         )
         val binding=StructuredProviderBinding(CORE_PLAYER_CONTEXT_PROVIDER,setOf(CORE_PLAYER_CONTEXT_OPERATION),ProductionPlayerContextProvider(repository,authority.campaignUid))
-        val contextPipeline=CanonicalIterativeRetrievalPipeline(StructuredSqlRetriever(listOf(binding)),SemanticContextBudgetManager(),TypedContextCompletionStrategy{_,_,_->emptyList()})
+        val bindings=buildList{add(binding);semanticApplication?.let{add(it.structuredBinding())}}
+        val contextPipeline=CanonicalIterativeRetrievalPipeline(StructuredSqlRetriever(bindings),SemanticContextBudgetManager(),TypedContextCompletionStrategy{_,_,_->emptyList()})
         val evaluator=GmProposalEvaluator(StructuredGmProposalValidator(),MechanicsResolutionEngine(mechanicsRegistry))
         val assembler=ProductionCanonicalMutationAssembler(playerEngine,PlayerResolutionContextFactory{command->
             val refs=linkedSetOf<CampaignScopedDomainRef>()
@@ -443,7 +466,13 @@ class ProductionGameEngineCompositionRoot(
                 {PurposeContext(repository.activeCampaignRef().campaignId,VisibilityPurposeKinds.GAMEPLAY_NARRATION)}),
             LegacyRuleIntentFallback(),GraphTurnPlanner(capabilities),contextPipeline,
             ContextRuntimeProfile("ANDROID-PRODUCTION",8_192,256,768,1_024,256),BoundedProposalRepair(evaluator),assembler,
-            AuthoritativeTurnCommitPort{identity,proposal->try{repository.commitTurn(identity,proposal)}catch(t:Throwable){throw CanonicalCommitException(t.message?:"TURN_COMMIT_FAILED",t)}},
+            AuthoritativeTurnCommitPort{identity,proposal->try{
+                repository.commitTurn(identity,proposal).also{result->
+                    if(result is TurnExecutionResult.Committed||result is TurnExecutionResult.AlreadyCommitted){
+                        semanticApplication?.onCanonicalCommit()
+                    }
+                }
+            }catch(t:Throwable){throw CanonicalCommitException(t.message?:"TURN_COMMIT_FAILED",t)}},
             PersistedCommitReceiptAuthority(CommittedReceiptLookup(repository::infrastructureReceipt)),
             CommittedNarrationContextBuilder(ProductionCommittedNarrationReadPort(repository)),
             deliveryStore=FileNarrativeDeliveryStore(File(app.filesDir,"narrative-delivery")),

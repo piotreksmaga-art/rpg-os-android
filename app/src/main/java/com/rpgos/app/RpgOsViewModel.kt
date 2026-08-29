@@ -38,6 +38,7 @@ data class SaveRecoveryUiState(
 class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     private val store = LocalGameStore(app)
     private val repository = UnifiedGameRepository(app)
+    private val semanticApplication=BekkoSemanticApplication(app,repository)
     private val appSettings = AppSettings(app)
     private val providerCenterApplication=AndroidAiProviderCenterApplication(app)
     private fun playerAudience() = VisibilityAudienceFactory.player(store.activeCampaignId())
@@ -50,13 +51,19 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _aiProviderCenter=MutableStateFlow(providerCenterApplication.initialState(_settings.value.ai))
     val aiProviderCenter:StateFlow<AiProviderCenterUiState> = _aiProviderCenter
+    private val _bekkoSemantic=MutableStateFlow(semanticApplication.state())
+    val bekkoSemantic:StateFlow<BekkoSemanticUiState> = _bekkoSemantic
+
+    init{semanticApplication.setProgressListener{_bekkoSemantic.value=semanticApplication.state()}}
 
     private val _chatTurnUi=MutableStateFlow(ChatTurnUiState())
     val chatTurnUi:StateFlow<ChatTurnUiState> = _chatTurnUi
     @Volatile private var activeAiCancellation:MutableAiCancellationSignal?=null
     private var pendingNarrationRecovery:ChatNarrationRecoveryToken?=null
     private val productionEngine by lazy{
-        ProductionGameEngineCompositionRoot(app,repository,providerCenterApplication,configuration={_settings.value.ai})
+        ProductionGameEngineCompositionRoot(
+            app,repository,providerCenterApplication,configuration={_settings.value.ai},semanticApplication=semanticApplication
+        )
     }
     private val chatApplication:ChatApplicationPort by lazy{
         DynamicCanonicalChatApplication{productionEngine.chatApplication()}
@@ -276,6 +283,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     init {
         providerCenterApplication.onOpenRouterCallback{connection->viewModelScope.launch{applyOpenRouterConnection(connection)}}
         store.bootstrap()
+        semanticApplication.onCampaignOpened()
         pendingNarrationRecovery=runCatching{chatApplication.pendingRecovery()}.onFailure{DiagnosticLogger.log(app,"NARRATIVE_RECOVERY_DISCOVERY_FAILED",it)}.getOrNull()
         pendingNarrationRecovery?.let{token->_chatTurnUi.value=ChatTurnUiState(
             ChatTurnUiStage.COMMITTED_NARRATION_PENDING,token.request.requestUid,
@@ -394,6 +402,51 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                 _messages.value=_messages.value+ChatMessage("system","Import modelu nie powiódł się: ${it.message}")
             }
         }
+    }
+
+    fun updateBekkoEnabled(enabled:Boolean){
+        semanticApplication.updateSettings(semanticApplication.settings().copy(enabled=enabled))
+        _bekkoSemantic.value=semanticApplication.state().copy(notice=if(enabled)"Pamięć semantyczna została włączona." else "Pamięć semantyczna została wyłączona.")
+    }
+
+    fun updateBekkoBackend(backend:EmbeddingBackend){
+        semanticApplication.updateSettings(semanticApplication.settings().copy(backend=backend))
+        _bekkoSemantic.value=semanticApplication.state().copy(notice="Backend Bekko: ${backend.name}")
+    }
+
+    fun downloadBekko(){
+        if(_bekkoSemantic.value.downloading)return
+        _bekkoSemantic.value=_bekkoSemantic.value.copy(downloading=true,downloadFraction=0f,notice="Pobieranie Bekko…",errorMessage=null)
+        viewModelScope.launch{
+            runCatching{semanticApplication.download{progress->_bekkoSemantic.value=_bekkoSemantic.value.copy(
+                downloading=true,downloadFraction=progress.fraction,notice="Pobieranie Bekko: ${(progress.fraction*100).toInt()}%"
+            )}}.onSuccess{
+                _bekkoSemantic.value=semanticApplication.state().copy(notice="Bekko został pobrany, zweryfikowany i uruchomiony.")
+            }.onFailure{
+                DiagnosticLogger.log(getApplication(),"BEKKO_DOWNLOAD_FAILED",it)
+                _bekkoSemantic.value=semanticApplication.state().copy(errorMessage=it.message?:"BEKKO_DOWNLOAD_FAILED")
+            }
+        }
+    }
+
+    fun rebuildBekkoIndex(){
+        _bekkoSemantic.value=_bekkoSemantic.value.copy(notice="Odbudowa indeksu Bekko…",errorMessage=null)
+        viewModelScope.launch(Dispatchers.IO){
+            runCatching{semanticApplication.rebuild()}.onSuccess{status->_bekkoSemantic.value=semanticApplication.state().copy(
+                indexStatus=status,notice="Indeks Bekko został odbudowany."
+            )}.onFailure{
+                DiagnosticLogger.log(getApplication(),"BEKKO_REBUILD_FAILED",it)
+                _bekkoSemantic.value=semanticApplication.state().copy(errorMessage=it.message?:"BEKKO_REBUILD_FAILED")
+            }
+        }
+    }
+
+    fun removeBekko(){
+        val removed=semanticApplication.removeModelAndIndexes()
+        _bekkoSemantic.value=semanticApplication.state().copy(
+            notice=if(removed)"Usunięto model Bekko i jego odbudowywalne indeksy." else null,
+            errorMessage=if(removed)null else "Nie udało się usunąć wszystkich plików Bekko."
+        )
     }
 
     fun beginOpenRouterConnect():String{
@@ -687,7 +740,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                 val target=uniquePackageName(base,".campaign",existing)
                 val result=manager.validatedImportCampaign(source,target)
                 require(result.ok){result.message}
-                store.setActiveCampaign(target);refresh();resetConversationForActiveCampaign(target)
+                store.setActiveCampaign(target);semanticApplication.onCampaignOpened();refresh();resetConversationForActiveCampaign(target)
                 "Zaimportowano i aktywowano kampanię ${target.removeSuffix(".campaign")}."
             }finally{source.delete()}
         }
@@ -773,6 +826,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch{
             try{
                 withContext(Dispatchers.IO){store.setActiveCampaign(dirName)}
+                semanticApplication.onCampaignOpened()
                 refresh()
                 resetConversationForActiveCampaign(dirName)
                 _campaignManagementUi.value=CampaignManagementUiState(
@@ -785,6 +839,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                 if(store.activeCampaignDirName()!=previousCampaign){
                     runCatching{
                         withContext(Dispatchers.IO){store.setActiveCampaign(previousCampaign)}
+                        semanticApplication.onCampaignOpened()
                         refresh()
                     }.onFailure{DiagnosticLogger.log(app,"CAMPAIGN_ACTIVATION_UI_ROLLBACK_FAILED",it)}
                 }
@@ -803,6 +858,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun createCampaign(name: String) {
         val dir = store.createCampaign(name)
+        semanticApplication.onCampaignOpened()
         refresh()
         resetConversationForActiveCampaign(dir.name)
     }
@@ -816,6 +872,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                 val dir=withContext(Dispatchers.IO){
                     val created=store.createCampaign(clean)
                     store.setActiveCampaign(created.name)
+                    semanticApplication.onCampaignOpened()
                     refresh()
                     created
                 }
@@ -1098,5 +1155,11 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearDiagnosticReport() {
         DiagnosticLogger.clear(getApplication<Application>())
+    }
+
+    override fun onCleared() {
+        semanticApplication.setProgressListener(null)
+        semanticApplication.close()
+        super.onCleared()
     }
 }

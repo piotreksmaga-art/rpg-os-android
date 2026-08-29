@@ -2564,6 +2564,7 @@ private fun DeveloperPanelScreen(vm:RpgOsViewModel){
 @Composable
 private fun AiProviderCenterScreen(vm:RpgOsViewModel){
     val state by vm.aiProviderCenter.collectAsState()
+    val bekko by vm.bekkoSemantic.collectAsState()
     val context=LocalContext.current
     val modelPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null)vm.importBielikArtifact(uri)}
     var advanced by remember{mutableStateOf(false)}
@@ -2683,6 +2684,65 @@ private fun AiProviderCenterScreen(vm:RpgOsViewModel){
                     }
                     OutlinedButton(onClick=vm::resetLocalAiSettings,modifier=Modifier.fillMaxWidth()){Text("Przywróć zalecane")}
                 }
+            }
+        }
+        item{
+            GlowPanel(Modifier.fillMaxWidth(),borderColor=Color(0x6657D7B1),shape=RoundedCornerShape(20.dp,28.dp,16.dp,24.dp)){
+                Text("Pamięć semantyczna — Bekko",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+                Text(
+                    "Bekko wyszukuje podobne znaczeniowo wspomnienia i dane świata. Nie rozstrzyga mechaniki ani nie zmienia zapisu gry.",
+                    style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                AiPrivacySwitch("Włącz automatycznie po instalacji",bekko.settings.enabled,vm::updateBekkoEnabled)
+                Text(
+                    if(bekko.modelInstalled)"Model Q8_0: zainstalowany i zweryfikowany" else "Model Q8_0: niepobrany • 113 MB",
+                    color=if(bekko.modelInstalled)MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text("Runtime: ${bekko.availability.reasonUid}",style=MaterialTheme.typography.bodySmall)
+                if(bekko.downloading){
+                    LinearProgressIndicator(progress={bekko.downloadFraction},modifier=Modifier.fillMaxWidth())
+                    Text("${(bekko.downloadFraction*100).toInt()}%",style=MaterialTheme.typography.labelSmall)
+                }
+                Button(onClick=vm::downloadBekko,enabled=!bekko.downloading,modifier=Modifier.fillMaxWidth()){
+                    Text(if(bekko.modelInstalled)"Sprawdź / pobierz ponownie Bekko" else "Pobierz Bekko")
+                }
+                Text("Backend embeddingów",fontWeight=FontWeight.Bold)
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    EmbeddingBackend.entries.forEach{backend->FilterChip(
+                        selected=bekko.settings.backend==backend,
+                        onClick={vm.updateBekkoBackend(backend)},
+                        label={Text(if(backend==EmbeddingBackend.CPU)"CPU (zalecany)" else "Vulkan")}
+                    )}
+                }
+                bekko.indexStatus?.let{index->
+                    HorizontalDivider(Modifier.padding(vertical=6.dp))
+                    Text("Indeks kampanii: ${index.recordCount} rekordów / ${index.chunkCount} fragmentów")
+                    Text("Ostatni commit: ${index.lastIndexedCommitOrder}",style=MaterialTheme.typography.bodySmall)
+                    index.reasonUid?.let{Text("Stan: $it",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)}
+                }
+                if(bekko.indexProgress.active){
+                    val progress=bekko.indexProgress
+                    if(progress.totalCommits>0)LinearProgressIndicator(
+                        progress={progress.processedCommits.toFloat()/progress.totalCommits},modifier=Modifier.fillMaxWidth()
+                    ) else LinearProgressIndicator(modifier=Modifier.fillMaxWidth())
+                    Text(
+                        "Indeksowanie: ${progress.stageUid} • ${progress.processedCommits}/${progress.totalCommits} commitów",
+                        style=MaterialTheme.typography.bodySmall
+                    )
+                }
+                bekko.indexProgress.reasonUid?.let{reason->
+                    Text("Indeksowanie: $reason",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
+                }
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    OutlinedButton(onClick=vm::rebuildBekkoIndex,enabled=bekko.modelInstalled,modifier=Modifier.weight(1f)){Text("Odbuduj indeks")}
+                    OutlinedButton(onClick=vm::removeBekko,enabled=bekko.modelInstalled,modifier=Modifier.weight(1f)){Text("Usuń Bekko")}
+                }
+                bekko.notice?.let{Text(it,color=MaterialTheme.colorScheme.secondary,style=MaterialTheme.typography.bodySmall)}
+                bekko.errorMessage?.let{Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)}
+                TextButton(
+                    onClick={context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,android.net.Uri.parse("https://huggingface.co/hotchpotch/bekko-embedding-v1-a8m-GGUF")))},
+                    modifier=Modifier.fillMaxWidth()
+                ){Text("Otwórz oficjalną stronę Bekko")}
             }
         }
         item{
