@@ -58,6 +58,7 @@ object RuntimeTruthLayerRegistry {
         RuntimeStateFamily("TEMPORAL_SCHEDULE_STATE",setOf(RuntimeTruthLayer.AUTHORITATIVE),BundledCampaignPersistentFamilies.TEMPORAL_SCHEDULE_STATE),
 
         f("RESOLVED_EFFECTIVE_VALUES",RuntimeTruthLayer.DERIVED),
+        f("CAMPAIGN_WORLD_MODEL_PROJECTION",RuntimeTruthLayer.DERIVED_PROJECTION,CampaignWorldProjectionSchema.TABLE),
         f("TURN_RECEIPTS",RuntimeTruthLayer.APPEND_ONLY_COMMIT_EVIDENCE,"turn_transaction_receipts"),
         RuntimeStateFamily("EVENT_STORE",setOf(RuntimeTruthLayer.APPEND_ONLY_COMMIT_EVIDENCE,RuntimeTruthLayer.APPEND_ONLY_HISTORICAL_EVIDENCE),setOf("canonical_gameplay_events")),
         RuntimeStateFamily("CAUSAL_GRAPH",setOf(RuntimeTruthLayer.APPEND_ONLY_COMMIT_EVIDENCE,RuntimeTruthLayer.APPEND_ONLY_HISTORICAL_EVIDENCE),setOf("canonical_causal_relations")),

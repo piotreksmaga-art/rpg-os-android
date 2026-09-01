@@ -26,6 +26,7 @@ data class DirectorCandidate(
 ){init{
     require(candidateUid.isNotBlank()&&title.isNotBlank()&&summary.isNotBlank()&&horizonUid.isNotBlank()&&proposedOwnerPhaseUid.isNotBlank())
     require(supportingProjectedRecordUids.none{it.isBlank()}&&pacingTags.none{it.isBlank()}&&directMutationPayload?.isBlank()!=true)
+    require(title.length<=200&&summary.length<=1_200&&supportingProjectedRecordUids.size<=32&&pacingTags.size<=16){"RPGOS-P65:DIRECTOR_CANDIDATE_BUDGET_EXCEEDED"}
 }}
 
 data class DirectorBundle(
@@ -45,6 +46,38 @@ data class DirectorJobRecord(
     val jobUid:String,val campaignUid:String,val triggerUid:String,val contextVersion:String,val atCommittedOrder:Long,
     val state:DirectorJobState,val providerUid:String?=null,val modelUid:String?=null,val terminalReasonUid:String?=null
 )
+
+/**
+ * Read-only strategic advice admitted into a later GM proposal request.  It is neither canonical
+ * state nor narration evidence and cannot be materialized without the normal Phase49-53 path.
+ */
+data class DirectorGuidanceEnvelope(
+    val campaignUid:String,
+    val bundleUid:String,
+    val contextVersion:String,
+    val asOfCommittedOrder:Long,
+    val candidates:List<DirectorCandidate>
+){init{
+    require(campaignUid.isNotBlank()&&bundleUid.isNotBlank()&&contextVersion.isNotBlank()&&asOfCommittedOrder>=0)
+    require(candidates.size<=8&&candidates.map{it.candidateUid}.distinct().size==candidates.size)
+    require(candidates.none{it.directMutationPayload!=null}){"RPGOS-P65:DIRECTOR_GUIDANCE_MUTATION_FORBIDDEN"}
+}}
+
+fun interface DirectorGuidancePort{
+    fun guidance(campaignUid:String,asOfOrder:Long,authorizedRecordUids:Set<String>):DirectorGuidanceEnvelope?
+    companion object{val NONE=DirectorGuidancePort{_,_,_->null}}
+}
+
+/** Typed Phase38 projection boundary used by schedulers; it never exposes a repository handle. */
+fun interface DirectorContextProjectionPort{fun project(trigger:DirectorTrigger):DirectorContextEnvelope}
+
+/** Trigger-only scheduling boundary. Implementations may enqueue work but cannot mutate Core. */
+interface DirectorSchedulerPort{
+    fun onCampaignOpened(campaignUid:String)
+    fun onCanonicalCommit(receipt:TurnCommitReceipt)
+    fun onCharacterCreated(campaignUid:String,playerUid:String)
+    fun runNow(campaignUid:String,reasonUid:String="MANUAL_TRIGGER"):DirectorDispatchResult
+}
 
 interface DirectorJobStore{
     fun reserve(record:DirectorJobRecord):Boolean
@@ -132,7 +165,18 @@ class DirectorEngine(
         val initial=DirectorJobRecord(jobUid,trigger.campaignUid,trigger.triggerUid,context.contextVersion,context.asOfCommittedOrder,DirectorJobState.RESERVED)
         if(!jobs.reserve(initial))return DirectorDispatchResult.Skipped("DIRECTOR_JOB_ALREADY_RESERVED")
         val enriched=runCatching{contextScout.enrich(trigger,context)}.getOrDefault(context)
-        dispatcher.dispatch(jobUid){run(initial,trigger,enriched)}
+        dispatcher.dispatch(jobUid){
+            try{run(initial,trigger,enriched)}
+            catch(failure:RuntimeException){
+                val current=jobs.find(jobUid)?:initial
+                if(current.state in setOf(DirectorJobState.RESERVED,DirectorJobState.RUNNING)){
+                    jobs.transition(current.copy(
+                        state=DirectorJobState.FAILED,
+                        terminalReasonUid="DIRECTOR_EXECUTION_EXCEPTION:${failure.javaClass.simpleName}"
+                    ))
+                }
+            }
+        }
         return DirectorDispatchResult.Scheduled(jobUid)
     }
     private fun run(initial:DirectorJobRecord,trigger:DirectorTrigger,context:DirectorContextEnvelope){

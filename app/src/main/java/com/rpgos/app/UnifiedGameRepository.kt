@@ -34,6 +34,20 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun registerResourceDefinitions(worldPackUid: String, definitions: List<ResourceDefinition>) = store.registerResourceDefinitions(worldPackUid, definitions)
     internal fun infrastructurePlayerStats(): List<PlayerStat> = store.playerStats()
     internal fun infrastructurePlayerResources(): List<PlayerResource> = store.playerResources()
+    internal fun infrastructurePlayerTechniqueUids():Set<String> = openGameplaySaveDb().use{db->
+        val player=activePlayerRef()?:return@use emptySet()
+        TechniqueStore(db,player.campaignId).playerTechniques(player.playerUid).map{it.techniqueUid}.toSet()
+    }
+    internal fun infrastructurePlayerSkillUids():Set<String> = openGameplaySaveDb().use{db->
+        val player=activePlayerRef()?:return@use emptySet()
+        SkillStore(db,player.campaignId).playerSkills(player.playerUid).map{it.skillUid}.toSet()
+    }
+    internal fun infrastructureHeldItemInstanceUids(characterUid:String):Set<String> = openGameplaySaveDb().use{db->
+        InventoryStore(db,activeCampaignRef().campaignId).typedUnique(characterUid)
+            .mapTo(linkedSetOf()){it.first.itemInstanceUid}
+    }
+    internal fun infrastructureCharacterPanelV2(audience:AudienceContext,purpose:PurposeContext):CharacterPanelSnapshotV2? =
+        store.fullCharacterPanelV2(audience,purpose)
     override fun activeCampaignDirName(): String = activeCampaignRef().directoryName
     override fun activeWorldPackDirName(): String = store.activeWorldPackDirName()
     override fun setActiveCampaign(dirName: String) = store.setActiveCampaign(dirName)
@@ -84,6 +98,45 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         openGameplaySaveDb().use{MechanicalActorStateStore(it,activeCampaignRef().campaignId).population(ref)}
     internal fun infrastructureAggregateTargets(phrase:String):List<Pair<String,DomainRef>> =
         openGameplaySaveDb().use{MechanicalActorStateStore(it,activeCampaignRef().campaignId).aggregateTargets(phrase)}
+    internal fun infrastructureEntityLocationUid(entityUid:String):String?=openGameplaySaveDb().use{db->
+        db.rawQuery("SELECT location_uid FROM entity_positions WHERE entity_uid=? LIMIT 1",arrayOf(entityUid)).use{cursor->
+            if(cursor.moveToFirst()&&!cursor.isNull(0))cursor.getString(0)?.takeIf(String::isNotBlank) else null
+        }
+    }
+    internal fun infrastructureEntitySceneAnchorUid(entityUid:String):String?=openGameplaySaveDb().use{db->
+        val direct=db.rawQuery("SELECT location_uid FROM entity_positions WHERE entity_uid=? LIMIT 1",arrayOf(entityUid)).use{cursor->
+            if(cursor.moveToFirst()&&!cursor.isNull(0))cursor.getString(0)?.takeIf(String::isNotBlank) else null
+        }
+        canonicalCampaignSceneAnchor(direct){uid->
+            if(!CampaignWorldProjectionSchema.isReady(db))return@canonicalCampaignSceneAnchor null
+            db.rawQuery("""SELECT element_kind_uid,parent_anchor_uid FROM ${CampaignWorldProjectionSchema.TABLE}
+                WHERE campaign_id=? AND audience_scope_uid=? AND element_uid=? LIMIT 1""",
+                arrayOf(activeCampaignRef().campaignId,CampaignWorldAudience.PLAYER_VISIBLE,uid)
+            ).use{cursor->if(!cursor.moveToFirst())null else CampaignSceneParent(
+                cursor.getString(0),if(cursor.isNull(1))null else cursor.getString(1)
+            )}
+        }
+    }
+    internal fun infrastructureEntityScenePathUids(entityUid:String):List<String> = openGameplaySaveDb().use{db->
+        val direct=db.rawQuery("SELECT location_uid FROM entity_positions WHERE entity_uid=? LIMIT 1",arrayOf(entityUid)).use{cursor->
+            if(cursor.moveToFirst()&&!cursor.isNull(0))cursor.getString(0)?.takeIf(String::isNotBlank) else null
+        }
+        canonicalCampaignScenePath(direct){uid->
+            if(!CampaignWorldProjectionSchema.isReady(db))return@canonicalCampaignScenePath null
+            db.rawQuery("""SELECT element_kind_uid,parent_anchor_uid FROM ${CampaignWorldProjectionSchema.TABLE}
+                WHERE campaign_id=? AND audience_scope_uid=? AND element_uid=? LIMIT 1""",
+                arrayOf(activeCampaignRef().campaignId,CampaignWorldAudience.PLAYER_VISIBLE,uid)
+            ).use{cursor->if(!cursor.moveToFirst())null else CampaignSceneParent(
+                cursor.getString(0),if(cursor.isNull(1))null else cursor.getString(1)
+            )}
+        }
+    }
+    internal fun infrastructureWorldElements(reference:IntentReference,consumers:List<IntentNode>):List<CampaignWorldElement> =
+        openGameplaySaveDb().use{db->
+            val phrase=(reference.rawPhrase?:reference.descriptorHints["surface"]).orEmpty().trim()
+            if(phrase.isBlank())emptyList() else CampaignWorldProjectionStore(db,activeCampaignRef().campaignId)
+                .searchPlayerVisible(phrase,WorldReferenceShapeClassifier.classify(reference,consumers))
+        }
 
     private fun requireActiveVisibility(audience:AudienceContext,purpose:PurposeContext) {
         val campaign=activeCampaignRef().campaignId
@@ -191,4 +244,36 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun snapshots(): List<CampaignSnapshotDescriptor> = store.snapshots()
     override fun restoreLatestSnapshot(): String = store.restoreLatestSnapshot()
     override fun finalizeChapter(chapter: Int, title: String): Pair<String, String> = store.finalizeChapter(chapter, title)
+}
+
+internal data class CampaignSceneParent(val elementKindUid:String,val parentAnchorUid:String?)
+
+/** Resolves nested scene elements (actor -> activity -> place) without inventing topology. */
+internal fun canonicalCampaignSceneAnchor(
+    directAnchorUid:String?,
+    parentOf:(String)->CampaignSceneParent?
+):String?{
+    var current=directAnchorUid?.takeIf(String::isNotBlank)?:return null
+    val seen=linkedSetOf<String>()
+    repeat(32){
+        if(!seen.add(current))return null
+        val row=parentOf(current)?:return current
+        if(row.elementKindUid.uppercase() in setOf("PLACE","LOCATION"))return current
+        current=row.parentAnchorUid?.takeIf(String::isNotBlank)?:return current
+    }
+    return null
+}
+
+internal fun canonicalCampaignScenePath(
+    directAnchorUid:String?,
+    parentOf:(String)->CampaignSceneParent?
+):List<String>{
+    var current=directAnchorUid?.takeIf(String::isNotBlank)?:return emptyList()
+    val path=mutableListOf<String>()
+    repeat(32){
+        if(current in path)return emptyList()
+        path+=current
+        current=parentOf(current)?.parentAnchorUid?.takeIf(String::isNotBlank)?:return path
+    }
+    return emptyList()
 }

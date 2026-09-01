@@ -29,7 +29,7 @@ class Work026ProductionInitializationEnforcementTest {
         context.getSharedPreferences("rpgos_selection", Context.MODE_PRIVATE).edit().clear().commit()
     }
 
-    @Test fun production_campaign_open_is_fail_closed_before_first_turn_and_after_process_reopen() {
+    @Test fun campaignOpenIsGuardedAcrossReopen() {
         val firstStore = LocalGameStore(context)
         firstStore.bootstrap()
         val campaignUid = CampaignSelectionManager(context).activeCampaignRef().campaignId

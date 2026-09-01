@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,8 +20,10 @@ class Phase19CanonicalRollbackAuthorityTest {
     private val actor = CommandActorRef("PLAYER", "P1")
     private val a1 = WorldPackRuleBinding("WORLD-A", "1")
     private val a2 = WorldPackRuleBinding("WORLD-A", "2")
+    private var fixtureRoot: File? = null
 
     @Before fun resetProbe() { Probe.calls = 0 }
+    @After fun cleanupFixture() { fixtureRoot?.deleteRecursively(); fixtureRoot = null }
 
     @Test fun P19_COHERENCE_06_failedWorldPackTransactionCannotExposeFailedNewContentAsAuthority() {
         val fixture = fixture()
@@ -101,7 +104,10 @@ class Phase19CanonicalRollbackAuthorityTest {
         File(app.filesDir, "rpgos").deleteRecursively()
         val prefs = app.getSharedPreferences("rpgos_selection", Context.MODE_PRIVATE)
         prefs.edit().clear().commit()
-        val root = File(app.filesDir, "rpgos")
+        // Robolectric includes the full test method in app.filesDir. On Windows the longest
+        // rollback test then exceeds SQLite's native path limit before authority is exercised.
+        val root = File(System.getProperty("java.io.tmpdir"), "rpgos-p19-${System.nanoTime().toString(36)}")
+            .also { fixtureRoot = it }
         val saves = File(root, "saves")
         val worldpacks = File(root, "worldpacks")
         val campaign = campaign(File(saves, "C1.campaign"), "C1")

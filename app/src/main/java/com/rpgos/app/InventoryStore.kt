@@ -10,6 +10,20 @@ class InventoryStore(private val db:SQLiteDatabase,private val campaignId:String
  fun registerDefinitions(worldPackUid:String,definitions:List<ItemDefinition>){require(worldPackUid.isNotBlank());tx{definitions.forEach{d->InventoryPolicy.requireDefinition(d);require(d.worldPackUid==worldPackUid);require(!exists("item_definitions_v2","item_definition_uid",d.itemDefinitionUid)){"Duplicate item definition UID: ${d.itemDefinitionUid}"};require(!db.rawQuery("SELECT 1 FROM item_definitions_v2 WHERE world_pack_uid=? AND item_key=? LIMIT 1",arrayOf(worldPackUid,d.key)).use{it.moveToFirst()}){"Duplicate item key for World Pack: ${d.key}"};db.execSQL("INSERT INTO item_definitions_v2(item_definition_uid,world_pack_uid,item_key,display_name,category,storage_policy,definition_status,definition_version,provenance) VALUES(?,?,?,?,?,?,?,?,?)",arrayOf<Any?>(d.itemDefinitionUid,d.worldPackUid,d.key,d.displayName,d.category,d.storagePolicy.name,d.definitionStatus.name,d.definitionVersion,d.provenance))}}}
  fun definitions(worldPackUid:String?=null):List<ItemDefinition>{val w=if(worldPackUid==null)"" else " WHERE world_pack_uid=?";val a=worldPackUid?.let{arrayOf(it)};val out=mutableListOf<ItemDefinition>();db.rawQuery("SELECT item_definition_uid,world_pack_uid,item_key,display_name,category,storage_policy,definition_status,definition_version,provenance FROM item_definitions_v2$w ORDER BY world_pack_uid,item_key,item_definition_uid",a).use{c->while(c.moveToNext())out+=ItemDefinition(c.getString(0),c.getString(1),c.getString(2),c.getString(3),if(c.isNull(4))null else c.getString(4),ItemStoragePolicy.valueOf(c.getString(5)),ItemDefinitionStatus.valueOf(c.getString(6)),c.getLong(7),c.getString(8))};return out}
  fun createInstance(i:ItemInstance){require(i.campaignId==campaignId);require(i.itemInstanceUid.isNotBlank()&&i.provenance.isNotBlank()&&i.instanceVersion>=1);require(definition(i.itemDefinitionUid).storagePolicy==ItemStoragePolicy.UNIQUE_INSTANCE);require(!instanceExists(i.itemInstanceUid));db.execSQL("INSERT INTO item_instances(campaign_id,item_instance_uid,item_definition_uid,instance_version,provenance) VALUES(?,?,?,?,?)",arrayOf<Any?>(campaignId,i.itemInstanceUid,i.itemDefinitionUid,i.instanceVersion,i.provenance))}
+ fun ensureUniqueInstance(definition:ItemDefinition,itemInstanceUid:String,provenance:String){
+  require(definition.storagePolicy==ItemStoragePolicy.UNIQUE_INSTANCE&&definition.definitionStatus==ItemDefinitionStatus.ACTIVE)
+  require(itemInstanceUid.isNotBlank()&&provenance.isNotBlank())
+  val existingDefinition=definitions().singleOrNull{it.itemDefinitionUid==definition.itemDefinitionUid}
+  require(existingDefinition!=null){"Missing pre-registered item definition ${definition.itemDefinitionUid}"}
+  require(
+   existingDefinition.worldPackUid==definition.worldPackUid&&existingDefinition.key==definition.key&&
+    existingDefinition.displayName==definition.displayName&&existingDefinition.category==definition.category&&
+    existingDefinition.storagePolicy==definition.storagePolicy&&existingDefinition.definitionStatus==definition.definitionStatus
+  ){"Dynamic item definition identity conflict: ${definition.itemDefinitionUid}"}
+  val existingInstance=instanceOrNull(itemInstanceUid)
+  if(existingInstance==null)createInstance(ItemInstance(campaignId,itemInstanceUid,definition.itemDefinitionUid,1,provenance))
+  else require(existingInstance.itemDefinitionUid==definition.itemDefinitionUid){"Dynamic item instance identity conflict: $itemInstanceUid"}
+ }
  fun addStack(characterUid:String,itemDefinitionUid:String,quantity:Long,provenance:String,entryVersion:Long=1){requireCharacter(characterUid,provenance,entryVersion);InventoryPolicy.requireQuantity(quantity);require(definition(itemDefinitionUid).storagePolicy==ItemStoragePolicy.STACKABLE);tx{addStackInside(characterUid,itemDefinitionUid,quantity,provenance,entryVersion)}}
  fun removeStack(characterUid:String,itemDefinitionUid:String,quantity:Long,provenance:String){require(characterUid.isNotBlank()&&provenance.isNotBlank());InventoryPolicy.requireQuantity(quantity);tx{removeStackInside(characterUid,itemDefinitionUid,quantity,provenance)}}
  fun transferStack(fromCharacterUid:String,toCharacterUid:String,itemDefinitionUid:String,quantity:Long,provenance:String){require(fromCharacterUid.isNotBlank()&&toCharacterUid.isNotBlank()&&fromCharacterUid!=toCharacterUid&&provenance.isNotBlank());InventoryPolicy.requireQuantity(quantity);require(definition(itemDefinitionUid).storagePolicy==ItemStoragePolicy.STACKABLE);tx{val targetCurrent=stackQuantity(toCharacterUid,itemDefinitionUid);if(targetCurrent!=null)InventoryPolicy.checkedAdd(targetCurrent,quantity);removeStackInside(fromCharacterUid,itemDefinitionUid,quantity,provenance);addStackInside(toCharacterUid,itemDefinitionUid,quantity,provenance,1)}}
@@ -27,6 +41,7 @@ class InventoryStore(private val db:SQLiteDatabase,private val campaignId:String
  private fun legacyQuantity(e:LegacyInventoryEvidence):Long{require(e.rowCount==1L);val q=e.rawFields.entries.firstOrNull{it.key.equals("quantity",true)}?.value;return if(q==null)1L else q.toLongOrNull()?.also{InventoryPolicy.requireQuantity(it)}?:error("Mapped legacy quantity is not a positive integer")}
  private fun definition(uid:String)=definitions().singleOrNull{it.itemDefinitionUid==uid}?:error("Missing item definition $uid")
  private fun instance(uid:String)=db.rawQuery("SELECT campaign_id,item_instance_uid,item_definition_uid,instance_version,provenance FROM item_instances WHERE campaign_id=? AND item_instance_uid=?",arrayOf(campaignId,uid)).use{c->if(!c.moveToFirst())error("Missing item instance $uid");ItemInstance(c.getString(0),c.getString(1),c.getString(2),c.getLong(3),c.getString(4))}
+ private fun instanceOrNull(uid:String)=db.rawQuery("SELECT campaign_id,item_instance_uid,item_definition_uid,instance_version,provenance FROM item_instances WHERE campaign_id=? AND item_instance_uid=?",arrayOf(campaignId,uid)).use{c->if(!c.moveToFirst())null else ItemInstance(c.getString(0),c.getString(1),c.getString(2),c.getLong(3),c.getString(4))}
  private fun instanceExists(uid:String)=db.rawQuery("SELECT 1 FROM item_instances WHERE campaign_id=? AND item_instance_uid=? LIMIT 1",arrayOf(campaignId,uid)).use{it.moveToFirst()}
  private fun uniqueHolder(uid:String):String?=db.rawQuery("SELECT character_uid FROM player_inventory_unique WHERE campaign_id=? AND item_instance_uid=? LIMIT 1",arrayOf(campaignId,uid)).use{if(it.moveToFirst())it.getString(0) else null}
  private fun stackQuantity(c:String,d:String):Long?=db.rawQuery("SELECT quantity FROM player_inventory_stacks WHERE campaign_id=? AND character_uid=? AND item_definition_uid=?",arrayOf(campaignId,c,d)).use{if(it.moveToFirst())it.getLong(0) else null}
@@ -38,4 +53,14 @@ class InventoryStore(private val db:SQLiteDatabase,private val campaignId:String
  private fun legacyUid(s:String):String="RPGOS-LEGACY-INVENTORY-"+MessageDigest.getInstance("SHA-256").digest(s.toByteArray(StandardCharsets.UTF_8)).joinToString(""){"%02x".format(it)}
  private fun<T>tx(block:()->T):T{if(db.inTransaction())return block();db.beginTransaction();return try{val r=block();db.setTransactionSuccessful();r}finally{db.endTransaction()}}
  private data class Group(val raw:Map<String,String?>,var count:Long)
+}
+
+internal object UniversalInventoryDefinitionBootstrap{
+ fun ensure(db:SQLiteDatabase,campaignUid:String){
+  val store=InventoryStore(db,campaignUid)
+  val expected=universalWorldObjectItemDefinition("RPGOS-ADMIN:UNIVERSAL-INVENTORY-DEFINITION:1")
+  val existing=store.definitions().singleOrNull{it.itemDefinitionUid==expected.itemDefinitionUid}
+  if(existing==null)store.registerDefinitions(expected.worldPackUid,listOf(expected))
+  else require(existing==expected){"Universal world-object item definition identity conflict"}
+ }
 }

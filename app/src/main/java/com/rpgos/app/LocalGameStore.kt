@@ -27,20 +27,49 @@ internal class LocalGameStore(private val context: Context) {
         if (!File(coreDir, "rpg_core.db").exists()) copyAsset("rpg_core.db", File(coreDir, "rpg_core.db"))
         val campaignUid = selection.activeCampaignRef().campaignId
         openSaveDb().use { save ->
-            val explicitBootstrap = {
-                ensureCurrentSchema(save)
-                AutoRepairEngine().repair(save)
-                materializeWorldActors(save,campaignUid)
+            // This is a data-contract repair rather than a missing-schema signal, so an affected
+            // save can still satisfy requireReady(). Heal the exact legacy row before the fast
+            // readiness path; unaffected saves pay only a bounded existence check.
+            if(CurrentSchema.hasLegacyCharacterCreationTruthProvenance(save,campaignUid)){
+                val repair={CurrentSchema.repairLegacyCharacterCreationTruthProvenance(save,campaignUid)}
+                if(GameplayMutationDatabaseGuards.isInstalled(save))withAdministrativeMutationAuthority(save,campaignUid,repair)
+                else repair()
             }
-            runCatching {
-                if (GameplayMutationDatabaseGuards.isInstalled(save)) {
-                    withAdministrativeMutationAuthority(save, campaignUid, explicitBootstrap)
-                } else explicitBootstrap()
-            }.onFailure { DiagnosticLogger.log(context, "AUTO_REPAIR_BOOT_FAILED", it) }
-            ensureCharacterCreationDefinitions(save,campaignUid)
-            GameplayRuntimeBootstrap.initialize(save, campaignUid)
+            // A normal launch must not replay every additive schema statement, reinstall every
+            // guard and rematerialize the world when the database already proves the complete
+            // production-readiness contract. requireReady() is strictly read-only and validates
+            // the Phase36 versions, persistent inventory and canonical guard definitions. Any
+            // missing/new contract fails closed into the full administrative migration below.
+            val alreadyReady=runCatching{
+                GameplayRuntimeBootstrap.requireReady(save,campaignUid)
+            }.isSuccess
+            if(!alreadyReady){
+                val explicitBootstrap = {
+                    ensureCurrentSchema(save)
+                    AutoRepairEngine().repair(save)
+                    materializeWorldActors(save,campaignUid)
+                }
+                runCatching {
+                    if (GameplayMutationDatabaseGuards.isInstalled(save)) {
+                        withAdministrativeMutationAuthority(save, campaignUid, explicitBootstrap)
+                    } else explicitBootstrap()
+                }.onFailure { DiagnosticLogger.log(context, "AUTO_REPAIR_BOOT_FAILED", it) }
+                ensureCharacterCreationDefinitions(save,campaignUid)
+                GameplayRuntimeBootstrap.initialize(save, campaignUid)
+            }
+            ensureUniversalInventoryDefinition(save,campaignUid)
             val snapshots=CampaignSnapshotManager(save,campaignUid,File(saveDir,"snapshots"))
-            if(snapshots.latestValidCompatible()==null) snapshots.create(SnapshotKind.AUTOMATIC)
+            // Ordinary startup needs a published recovery source, not a full restore rehearsal.
+            // latestValidCompatible() hashes and opens every candidate DB and verifies replay; on
+            // Android that kept the launch screen visible for minutes. The real restore/migration
+            // boundaries still call requireRecoverable() and retain the complete SHA/schema/replay
+            // checks before any snapshot can become authority.
+            val hasPublishedSnapshot=snapshots.list().any{snapshot->
+                snapshot.state==SnapshotPublicationState.VALID&&
+                    snapshot.schemaVersion==CampaignSnapshotSchema.VERSION&&
+                    snapshot.payloadSha256!=null&&File(snapshot.payloadPath).isFile
+            }
+            if(!hasPublishedSnapshot)snapshots.create(SnapshotKind.AUTOMATIC)
         }
     }
 
@@ -224,6 +253,7 @@ internal class LocalGameStore(private val context: Context) {
     fun activeWorldEvents(audience:AudienceContext,purpose:PurposeContext): List<WorldEventItem> { requireActiveVisibility(audience,purpose);openWorldDb().use { world -> openGameplaySaveDb().use { save -> return WorldReader(world, save).activeEvents(audience,purpose) } } }
 
     fun restoreBackup(path: String): String {
+        SemanticCampaignTransitionRegistry.beforeCampaignStorageTransition()
         val safety = RestoreManager(context).restoreBackup(selection.activeCampaignDirName(), path)
         val campaignUid=selection.activeCampaignRef().campaignId
         openSaveDb().use { restored -> prepareCampaignRuntime(restored,campaignUid) }
@@ -236,6 +266,7 @@ internal class LocalGameStore(private val context: Context) {
 
     fun setActiveCampaign(dirName: String) {
         val previousCampaign=selection.activeCampaignDirName()
+        if(dirName!=previousCampaign)SemanticCampaignTransitionRegistry.beforeCampaignStorageTransition()
         selection.setActiveCampaign(dirName)
         try{
             val campaignUid=selection.activeCampaignRef().campaignId
@@ -249,12 +280,14 @@ internal class LocalGameStore(private val context: Context) {
         }
     }
     fun setActiveWorldPack(dirName: String) {
+        if(dirName!=selection.activeWorldPackDirName())SemanticCampaignTransitionRegistry.beforeCampaignStorageTransition()
         selection.setActiveWorldPack(dirName)
         val campaignUid=selection.activeCampaignRef().campaignId
         openSaveDb().use{db->prepareCampaignRuntime(db,campaignUid)}
     }
     fun createCampaign(name: String): File {
         val previousCampaign=selection.activeCampaignDirName()
+        SemanticCampaignTransitionRegistry.beforeCampaignStorageTransition()
         val created = selection.createCampaign(name)
         try{
             val campaignUid=selection.activeCampaignRef().campaignId
@@ -282,6 +315,7 @@ internal class LocalGameStore(private val context: Context) {
         return restoreSnapshot(null)
     }
     fun restoreSnapshot(snapshotUid:String?):String {
+        SemanticCampaignTransitionRegistry.beforeCampaignStorageTransition()
         val active=File(saveDir,"campaign.db");val db=openGameplaySaveDb();val manager=CampaignSnapshotManager(db,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots"))
         val staged=manager.reconstructToVerifiedStaging(snapshotUid);manager.activateVerifiedStaging(active,staged)
         val campaignUid=selection.activeCampaignRef().campaignId
@@ -302,6 +336,7 @@ internal class LocalGameStore(private val context: Context) {
         CampaignRuntimeLifecycleLock.withRecovery(campaignUid){
             val prepare={
                 ensureCurrentSchema(saveDb)
+                UniversalInventoryDefinitionBootstrap.ensure(saveDb,campaignUid)
                 ensureCharacterCreationDefinitions(saveDb,campaignUid)
                 materializeWorldActors(saveDb,campaignUid)
             }
@@ -355,9 +390,25 @@ internal class LocalGameStore(private val context: Context) {
     fun time(): TimeSnapshot {
         if (!File(saveDir, "campaign.db").exists()) return TimeSnapshot()
         return openGameplaySaveDb().use { db ->
-            try { db.rawQuery("SELECT year_label,era_name,season,hour,minute FROM campaign_calendar WHERE id=1", null).use { if (it.moveToFirst()) return@use TimeSnapshot(label = it.getString(0) ?: "—", era = it.getString(1) ?: "—", season = it.getString(2) ?: "—", hour = "%02d:%02d".format(it.getInt(3), it.getInt(4))) } } catch (_: Exception) {}
-            TimeSnapshot()
+            // Do not use an unlabelled return@use inside the nested Cursor.use: it returns only
+            // from the cursor lambda, discards the loaded snapshot and made this method always
+            // display the hard-coded fallback even though canonical time had changed.
+            try {
+                db.rawQuery("SELECT year_label,era_name,season,hour,minute FROM campaign_calendar WHERE id=1",null).use{cursor->
+                    if(!cursor.moveToFirst())null else TimeSnapshot(
+                        label=cursor.getString(0)?:"—",era=cursor.getString(1)?:"—",season=cursor.getString(2)?:"—",
+                        hour="%02d:%02d".format(cursor.getInt(3),cursor.getInt(4))
+                    )
+                }
+            }catch(failure:Exception){
+                DiagnosticLogger.log(context,"CAMPAIGN_TIME_READ_FAILED",failure)
+                null
+            }?:TimeSnapshot()
         }
+    }
+    private fun ensureUniversalInventoryDefinition(saveDb:SQLiteDatabase,campaignUid:String){
+        val install={UniversalInventoryDefinitionBootstrap.ensure(saveDb,campaignUid)}
+        if(GameplayMutationDatabaseGuards.isInstalled(saveDb))withAdministrativeMutationAuthority(saveDb,campaignUid,install) else install()
     }
 
     fun chronicle(): List<ChronicleEntry> {

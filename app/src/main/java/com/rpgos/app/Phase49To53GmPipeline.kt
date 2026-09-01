@@ -6,6 +6,15 @@ enum class GmNodeOutcomeState { PROPOSED_SUCCESS, PROPOSED_FAILURE, BLOCKED_BY_P
 enum class ClaimEpistemicBasis { PROJECTED_FACT, PLAYER_ASSERTION, HOLDER_BELIEF, AI_INFERENCE, NARRATIVE_ONLY }
 enum class ClaimTemporalPosition { CURRENT, HISTORICAL_AS_OF, FUTURE_PLAN, PREDICTED_OUTCOME, COUNTERFACTUAL }
 
+/**
+ * Provider-created prose that may be committed only as typed NARRATIVE evidence.  It is never
+ * promoted to FACT and therefore cannot settle mechanics or hidden world state.
+ */
+object GmNarrativePredicates{
+    const val NPC_UTTERANCE="RPGOS-NARRATIVE:NPC_UTTERANCE"
+    val ALLOWED=setOf(NPC_UTTERANCE)
+}
+
 data class GmNodeProposal(
     val nodeUid:String,
     val outcomeUid:String,
@@ -41,6 +50,7 @@ data class ProposedWorldClaim(
     val campaignDivergenceEvidenceUids:List<String> = emptyList()
 ){init{
     require(claimUid.isNotBlank()&&nodeUid.isNotBlank()&&predicateUid.isNotBlank()&&valueCanonical.isNotBlank())
+    require(valueCanonical.length<=512)
     require(subjectProjectedUid?.isBlank()!=true&&supportingRecordUids.none{it.isBlank()}&&supportingRecordUids.distinct()==supportingRecordUids)
     require(supportingPlayerClaimUids.none{it.isBlank()}&&supportingPlayerClaimUids.distinct()==supportingPlayerClaimUids)
     require(campaignDivergenceEvidenceUids.none{it.isBlank()}&&campaignDivergenceEvidenceUids.distinct()==campaignDivergenceEvidenceUids)
@@ -94,6 +104,12 @@ sealed interface GmProposalValidationResult{
 }
 
 class StructuredGmProposalValidator{
+    private fun isConversationNode(node:IntentNode?):Boolean{
+        if(node==null)return false
+        val action=(node.semanticAction.canonicalActionUid?:node.semanticAction.semanticFamilyUid).orEmpty().uppercase()
+        return node.form in setOf(IntentForm.QUERY,IntentForm.COMMUNICATION)||action in setOf("TALK","QUERY")
+    }
+
     fun validate(candidate:GmProposalCandidate,plan:CanonicalTurnPlan):GmProposalValidationResult{
         val reasons=linkedSetOf<String>()
         if(candidate.campaignUid!=plan.campaignUid)reasons+="CROSS_CAMPAIGN_PROPOSAL"
@@ -110,7 +126,7 @@ class StructuredGmProposalValidator{
                 val semantic=intentNode.semanticAction.canonicalActionUid?:intentNode.semanticAction.semanticFamilyUid
                 if(nodeProposal.actionSemanticUid!=semantic)reasons+="ACTION_PRESERVATION_VIOLATION:${nodeProposal.nodeUid}"
                 if(nodeProposal.modality!=intentNode.modality)reasons+="MODALITY_PRESERVATION_VIOLATION:${nodeProposal.nodeUid}"
-                val intendedTargets=intentNode.participants.mapNotNull{participant->participant.referenceUid?.let{uid->plan.intent.references.singleOrNull{it.referenceUid==uid}?.resolvedProjectedRef}}
+                val intendedTargets=projectedTargetRefs(plan.intent,intentNode)
                 if(nodeProposal.targetProjectedRefs!=intendedTargets)reasons+="TARGET_PRESERVATION_VIOLATION:${nodeProposal.nodeUid}"
                 val failedDependencies=intentNode.dependencies.mapNotNull{dependency->candidate.nodeProposals.singleOrNull{it.nodeUid==dependency.predecessorNodeUid}}
                     .filter{it.outcomeState !in setOf(GmNodeOutcomeState.PROPOSED_SUCCESS)}
@@ -119,12 +135,48 @@ class StructuredGmProposalValidator{
         }
         if(candidate.requestedPlayerVolitionalActionUids.isNotEmpty())reasons+="AI_REQUESTED_PLAYER_VOLITION"
         if(candidate.proposedClaims.any{it.nodeUid !in plannedNodes})reasons+="UNPLANNED_CLAIM_NODE"
+        candidate.proposedClaims.filter{it.claimKind==ProposedClaimKind.NARRATIVE_COLOR}.forEach{claim->
+            val node=plan.intent.nodes.singleOrNull{it.nodeUid==claim.nodeUid}
+            val targets=candidate.nodeProposals.singleOrNull{it.nodeUid==claim.nodeUid}?.targetProjectedRefs.orEmpty()
+            if(claim.predicateUid !in GmNarrativePredicates.ALLOWED)reasons+="NARRATIVE_PREDICATE_NOT_ALLOWED:${claim.claimUid}"
+            if(claim.predicateUid==GmNarrativePredicates.NPC_UTTERANCE){
+                if(!isConversationNode(node))reasons+="NPC_UTTERANCE_OUTSIDE_CONVERSATION:${claim.claimUid}"
+                val subject=claim.subjectProjectedUid
+                if(subject==null||targets.none{it.uid==subject&&it.kindUid in setOf("ACTOR","NPC")})
+                    reasons+="NPC_UTTERANCE_SUBJECT_NOT_TARGET_ACTOR:${claim.claimUid}"
+            }
+            if(claim.supportingPlayerClaimUids.isNotEmpty())reasons+="NARRATIVE_COLOR_BOUND_TO_PLAYER_ASSERTION:${claim.claimUid}"
+        }
+        val successfulConversationTargets=candidate.nodeProposals.filter{it.outcomeState==GmNodeOutcomeState.PROPOSED_SUCCESS}.flatMap{proposal->
+            val node=plan.intent.nodes.singleOrNull{it.nodeUid==proposal.nodeUid}
+            if(isConversationNode(node))proposal.targetProjectedRefs.filter{it.kindUid in setOf("ACTOR","NPC")}.map{it.uid to proposal.nodeUid}
+            else emptyList()
+        }
+        successfulConversationTargets.groupBy({it.first},{it.second}).forEach{(actorUid,nodeUids)->
+            val utterances=candidate.proposedClaims.filter{it.claimKind==ProposedClaimKind.NARRATIVE_COLOR&&it.predicateUid==GmNarrativePredicates.NPC_UTTERANCE&&it.subjectProjectedUid==actorUid}
+            if(utterances.isEmpty())reasons+="NPC_UTTERANCE_REQUIRED:$actorUid"
+            if(utterances.size>1)reasons+="MULTIPLE_NPC_UTTERANCES_PER_ACTOR:$actorUid"
+            val finalNode=nodeUids.last()
+            utterances.singleOrNull()?.takeIf{it.nodeUid!=finalNode}?.let{reasons+="NPC_UTTERANCE_NOT_BOUND_TO_FINAL_CONVERSATION_NODE:${it.claimUid}"}
+        }
         candidate.mechanicsEffects.forEach{effect->
             val step=plan.steps.singleOrNull{it.nodeUid==effect.nodeUid}
             if(step==null)reasons+="UNPLANNED_EFFECT_NODE"
             else if(step.sideEffectClass!=CapabilitySideEffectClass.PROPOSED_WORLD_EFFECT)reasons+="EFFECT_FOR_READ_ONLY_CAPABILITY"
             else if(step.mechanicsOwnerUid==null||step.mechanicsOwnerUid!=effect.mechanicsOwnerUid)reasons+="MECHANICS_OWNER_MISMATCH"
         }
+        val clarificationNodes=candidate.nodeProposals.filter{
+            it.outcomeState in setOf(GmNodeOutcomeState.NEEDS_CLARIFICATION,GmNodeOutcomeState.REQUIRES_ADJUDICATION)
+        }.map{it.nodeUid}.toSet()
+        // Phase43/44 already owns ambiguity, reference resolution and capability admission. Once a
+        // node is executable, a provider cannot send it back for unspecified "Core adjudication";
+        // it must propose success/failure under the supplied context. Otherwise mixed sequences
+        // can pass validation but contain no canonical effect, surfacing only an assembly error.
+        executable.filter{it.nodeUid in clarificationNodes}.forEach{
+            reasons+="PROVIDER_REOPENED_RESOLVED_ADJUDICATION:${it.nodeUid}"
+        }
+        if(candidate.mechanicsEffects.any{it.nodeUid in clarificationNodes}||candidate.proposedClaims.any{it.nodeUid in clarificationNodes})
+            reasons+="CLARIFICATION_CARRIES_MUTATION"
         if(candidate.nodeProposals.any{it.playerFacingSummary.length>4_096})reasons+="SUMMARY_LIMIT"
         if(candidate.narrativeBlueprint.beatUids.size>64)reasons+="NARRATIVE_BEAT_LIMIT"
         return if(reasons.isEmpty())GmProposalValidationResult.Accepted(candidate) else GmProposalValidationResult.Rejected(reasons.sorted())
@@ -230,6 +282,7 @@ class CounterfactualGuard{
         val visibleRecords=context.includedSegments.flatMap{it.records}.map{it.record.recordUid}.toSet()
         val playerClaims=context.candidate.plan.intent.playerContextClaims.map{it.claimUid}.toSet()
         val projectedSubjects=buildSet{
+            add(context.candidate.plan.intent.actor.actorUid)
             context.candidate.plan.intent.references.mapNotNullTo(this){it.resolvedProjectedRef?.uid}
             context.includedSegments.flatMap{it.records}.flatMap{record->record.record.values.values}.forEach{value->if(value is String)add(value)}
         }
@@ -266,21 +319,50 @@ class GmProposalEvaluator(
     private val candidateStateConsistency:CandidateStateConsistencyPort=CandidateStateConsistencyPort.NONE
 ){
     fun evaluate(candidate:GmProposalCandidate,request:AiGmProposalRequest,mechanicsAnchor:List<VerifiedMechanicsEffect> = emptyList()):GmProposalEvaluation{
-        when(val structural=structuredValidator.validate(candidate,request.plan)){
+        val normalizedCandidate=normalizeExecutableMechanicsAdjudication(candidate,request.plan)
+        when(val structural=structuredValidator.validate(normalizedCandidate,request.plan)){
             is GmProposalValidationResult.Rejected->return GmProposalEvaluation.Rejected(structural.reasonUids)
             is GmProposalValidationResult.Accepted->Unit
         }
-        val resolved=if(mechanicsAnchor.isEmpty())when(val mechanics=mechanicsEngine.resolve(candidate,MechanicsResolutionContext(candidate.campaignUid,request.plan,request.context))){
+        val resolved=if(mechanicsAnchor.isEmpty())when(val mechanics=mechanicsEngine.resolve(normalizedCandidate,MechanicsResolutionContext(normalizedCandidate.campaignUid,request.plan,request.context))){
             is MechanicsPipelineResult.Rejected->return GmProposalEvaluation.Rejected(mechanics.reasonUids)
             is MechanicsPipelineResult.Resolved->mechanics.proposal
         }else{
-            val requested=candidate.mechanicsEffects.map{it.effectUid}.toSet()
+            val requested=normalizedCandidate.mechanicsEffects.map{it.effectUid}.toSet()
             if(requested!=mechanicsAnchor.map{it.effectUid}.toSet())return GmProposalEvaluation.Rejected(listOf("REPAIR_MECHANICS_ENTITLEMENT_CHANGED"),mechanicsAnchor)
-            ResolvedGmProposal(candidate,mechanicsAnchor)
+            ResolvedGmProposal(normalizedCandidate,mechanicsAnchor)
         }
         val reasons=(consistencyValidator.rejectionReasons(resolved,request.plan)+candidateStateConsistency.rejectionReasons(resolved,request)+counterfactualGuard.rejectionReasons(resolved,request.context)).distinct().sorted()
         return if(reasons.isEmpty())GmProposalEvaluation.Accepted(resolved) else GmProposalEvaluation.Rejected(reasons,resolved.verifiedEffects)
     }
+}
+
+/**
+ * Providers often use REQUIRES_ADJUDICATION to mean "Core must roll this already admitted
+ * mechanic". For an executable mechanics step carrying an exact registered effect request, that
+ * meaning is equivalent to proposing the attempt, not to reopening Phase43/44 ambiguity. A bare
+ * adjudication request remains untouched and is still rejected by StructuredGmProposalValidator.
+ */
+internal fun normalizeExecutableMechanicsAdjudication(
+    candidate:GmProposalCandidate,
+    plan:CanonicalTurnPlan
+):GmProposalCandidate{
+    val effectsByNode=candidate.mechanicsEffects.groupBy{it.nodeUid}
+    val eligible=plan.steps.filter{step->
+        step.matchState in setOf(CapabilityMatchState.EXACT,CapabilityMatchState.COMPOSED,CapabilityMatchState.GENERIC)&&
+            step.executionKind==CapabilityExecutionKind.MECHANICS_PROPOSAL&&
+            step.sideEffectClass==CapabilitySideEffectClass.PROPOSED_WORLD_EFFECT&&step.mechanicsOwnerUid!=null
+    }.associateBy{it.nodeUid}
+    var changed=false
+    val nodes=candidate.nodeProposals.map{node->
+        val step=eligible[node.nodeUid]
+        val effects=effectsByNode[node.nodeUid].orEmpty()
+        if(node.outcomeState==GmNodeOutcomeState.REQUIRES_ADJUDICATION&&step!=null&&effects.isNotEmpty()&&
+            effects.all{it.mechanicsOwnerUid==step.mechanicsOwnerUid}){
+            changed=true;node.copy(outcomeState=GmNodeOutcomeState.PROPOSED_SUCCESS)
+        }else node
+    }
+    return if(changed)candidate.copy(nodeProposals=nodes) else candidate
 }
 
 data class ProposalRepairPolicy(val maxAttempts:Int=2){init{require(maxAttempts in 0..3)}}

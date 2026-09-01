@@ -68,11 +68,33 @@ data class InnateChange(
     val proposedStateUid: String
 ) : PlayerDomainChangePayload
 
+data class InventoryItemMaterialization(
+    val itemDefinitionUid:String,
+    val worldPackUid:String,
+    val itemKey:String,
+    val displayName:String,
+    val categoryUid:String?
+){
+    init{
+        require(listOf(itemDefinitionUid,worldPackUid,itemKey,displayName).none{it.isBlank()})
+        require(listOf(itemDefinitionUid,worldPackUid,itemKey).all{it.length<=160}&&displayName.length<=256)
+        require(categoryUid?.let{it.isNotBlank()&&it.length<=160}!=false)
+    }
+}
+
+internal fun universalInventoryItemMaterialization()=InventoryItemMaterialization(
+    UNIVERSAL_WORLD_OBJECT_ITEM_DEFINITION_UID,UNIVERSAL_WORLD_OBJECT_ITEM_PACK_UID,
+    UNIVERSAL_WORLD_OBJECT_ITEM_KEY,"Przedmiot świata","WORLD_OBJECT"
+)
+
 data class InventoryChange(
     val subject: DomainRef,
     val itemInstanceUid: String,
-    val quantityDelta: ExactLongDelta
-) : PlayerDomainChangePayload
+    val quantityDelta: ExactLongDelta,
+    val itemMaterialization:InventoryItemMaterialization?=null
+) : PlayerDomainChangePayload{
+    init{require(itemMaterialization==null||quantityDelta.units==1L)}
+}
 
 enum class EquipmentOperation { EQUIP, UNEQUIP }
 
@@ -142,9 +164,14 @@ data class WoundChange(
 data class SpatialChange(
     val subject: DomainRef,
     val deltaXMillimetres: Long,
-    val deltaYMillimetres: Long = 0
+    val deltaYMillimetres: Long = 0,
+    /** A canonical or transaction-local destination; coordinates become local to that place. */
+    val destinationLocation:DomainRef?=null
 ) : PlayerDomainChangePayload {
-    init { require(deltaXMillimetres != 0L || deltaYMillimetres != 0L) }
+    init {
+        require(deltaXMillimetres != 0L || deltaYMillimetres != 0L || destinationLocation!=null)
+        require(destinationLocation?.kindUid in setOf(null,"PLACE","LOCATION"))
+    }
 }
 
 data class EquipmentIntegrityChange(

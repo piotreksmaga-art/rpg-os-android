@@ -75,13 +75,17 @@ internal class ProductionCharacterPanelV2ReadSource(
     }
 
     override fun inventory(campaignUid:String,characterUid:String)=buildList{
-        queryIfTable("player_inventory_stacks","SELECT item_definition_uid,quantity FROM player_inventory_stacks WHERE campaign_id=? AND character_uid=? ORDER BY item_definition_uid",arrayOf(campaignUid,characterUid)){c->
-            while(c.moveToNext())add(CharacterPanelInventoryV2("STACK:${c.getString(0)}",c.getString(0),c.getLong(1)))
+        queryIfTable("player_inventory_stacks","""SELECT s.item_definition_uid,s.quantity,d.display_name FROM player_inventory_stacks s
+            JOIN item_definitions_v2 d ON d.item_definition_uid=s.item_definition_uid
+            WHERE s.campaign_id=? AND s.character_uid=? ORDER BY s.item_definition_uid""",arrayOf(campaignUid,characterUid)){c->
+            while(c.moveToNext())add(CharacterPanelInventoryV2("STACK:${c.getString(0)}",c.getString(0),c.getLong(1),c.str(2)))
         }
-        queryIfTable("player_inventory_unique","""SELECT u.item_instance_uid,i.item_definition_uid FROM player_inventory_unique u
+        queryIfTable("player_inventory_unique","""SELECT u.item_instance_uid,i.item_definition_uid,COALESCE(w.display_name,d.display_name) FROM player_inventory_unique u
             JOIN item_instances i ON i.campaign_id=u.campaign_id AND i.item_instance_uid=u.item_instance_uid
+            JOIN item_definitions_v2 d ON d.item_definition_uid=i.item_definition_uid
+            LEFT JOIN campaign_world_elements_projection w ON w.campaign_id=u.campaign_id AND w.element_uid=u.item_instance_uid
             WHERE u.campaign_id=? AND u.character_uid=? ORDER BY u.item_instance_uid""",arrayOf(campaignUid,characterUid)){c->
-            while(c.moveToNext())add(CharacterPanelInventoryV2(c.getString(0),c.getString(1),1))
+            while(c.moveToNext())add(CharacterPanelInventoryV2(c.getString(0),c.getString(1),1,c.str(2)))
         }
     }
 

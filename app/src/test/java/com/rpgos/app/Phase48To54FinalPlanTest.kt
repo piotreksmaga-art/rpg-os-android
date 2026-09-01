@@ -166,6 +166,101 @@ class Phase48To54FinalPlanTest{
         assertTrue("AI_REQUESTED_PLAYER_VOLITION" in rejected.reasonUids)
     }
 
+    @Test fun proposalWireContractTellsProvidersToOmitInventedOrUnverifiableEffects(){
+        val plan=readPlan();val request=AiGmProposalRequest("REQ",plan,safeContext(plan))
+        val codec=CanonicalAiJsonCodec()
+        val proposalPrompt=codec.encodeProposal(request)
+        val repairPrompt=codec.encodeRepair(AiRepairRequest(
+            "REPAIR",request,proposalFor(plan,"LAB_CODEX"),
+            listOf("EFFECT:N:UNSUPPORTED_OR_UNVERIFIABLE_EFFECT"),1
+        ))
+
+        assertTrue(proposalPrompt.contains("mechanics_effects is optional"))
+        assertTrue(proposalPrompt.contains("effect_kind_uid must occur in plan.allowed_effect_kind_uids"))
+        assertTrue(proposalPrompt.contains("allowed_effect_kind_uids"))
+        assertTrue(proposalPrompt.contains("emit exactly one mechanics effect"))
+        assertTrue(proposalPrompt.contains("use the intent actor as the effect target"))
+        assertTrue(proposalPrompt.contains("never request clarification solely because semantic memory or World Pack returned no data"))
+        assertTrue(repairPrompt.contains("remove it unless original_request explicitly provides"))
+
+        val rest=intentDoc("Odpoczywam.").copy(
+            nodes=listOf(IntentNode("N",IntentForm.DIRECT_ACTION,SemanticAction(semanticFamilyUid="REST",rawPhrase="Odpoczywam"))),
+            provenance=IntentInterpretationProvenance(IntentInterpretationSource.TRUSTED_REFERENCE_RESOLUTION,"CORE","1","H")
+        )
+        val capability=CapabilityDescriptor("SELF",1,semanticFamilyUids=setOf("REST"),executionKind=CapabilityExecutionKind.MECHANICS_PROPOSAL,
+            sideEffectClass=CapabilitySideEffectClass.PROPOSED_WORLD_EFFECT,mechanicsOwnerUid="UNIVERSAL_ACTION")
+        val restPlan=(GraphTurnPlanner(listOf(capability)).plan(rest,VisibilityAudienceFactory.player(campaign),PurposeContext(campaign,VisibilityPurposeKinds.PLAYER_UI)) as CanonicalPlanningResult.Planned).plan
+        val restWire=org.json.JSONObject(codec.encodeProposal(AiGmProposalRequest("REST",restPlan,safeContext(restPlan))))
+        assertEquals("INTERACTION",restWire.getJSONArray("plan").getJSONObject(0).getJSONArray("allowed_effect_kind_uids").getString(0))
+
+        val query=rest.copy(nodes=listOf(rest.nodes.single().copy(semanticAction=SemanticAction(semanticFamilyUid="QUERY",rawPhrase="sprawdzam drogę"))))
+        val queryPlan=(GraphTurnPlanner(listOf(capability.copy(semanticFamilyUids=setOf("QUERY")))).plan(query,VisibilityAudienceFactory.player(campaign),PurposeContext(campaign,VisibilityPurposeKinds.PLAYER_UI)) as CanonicalPlanningResult.Planned).plan
+        val queryWire=org.json.JSONObject(codec.encodeProposal(AiGmProposalRequest("QUERY",queryPlan,safeContext(queryPlan))))
+        assertEquals("INTERACTION",queryWire.getJSONArray("plan").getJSONObject(0).getJSONArray("allowed_effect_kind_uids").getString(0))
+    }
+
+    @Test fun proposalWireContractMakesResolvedAndUnresolvedCanonicalTargetsUnambiguous(){
+        val unresolved=IntentReference(
+            "R-AREA",IntentReferenceKind.DESCRIPTIVE,"otoczenie","TARGET",
+            descriptorHints=mapOf("category" to "SURROUNDINGS"),state=IntentReferenceState.UNRESOLVED
+        )
+        val resolved=IntentReference(
+            "R-PLACE",IntentReferenceKind.EXISTING_ENTITY,"dziedziniec","TARGET",
+            state=IntentReferenceState.RESOLVED_PROJECTED,resolvedProjectedRef=DomainRef("LOCATION","PLACE:COURTYARD"),
+            resolutionEvidenceUid="PHASE38:TEST"
+        )
+        val document=IntentDocument(
+            campaignUid=campaign,actor=actor,rawInput="Obserwuję otoczenie i dziedziniec.",meaningState=MeaningState.UNDERSTOOD,
+            nodes=listOf(
+                IntentNode("N1",IntentForm.SEQUENCE_MEMBER,SemanticAction(semanticFamilyUid="LOOK",rawPhrase="obserwuję otoczenie"),
+                    participants=listOf(IntentParticipant("TARGET",referenceUid="R-AREA"))),
+                IntentNode("N2",IntentForm.SEQUENCE_MEMBER,SemanticAction(semanticFamilyUid="LOOK",rawPhrase="obserwuję dziedziniec"),
+                    participants=listOf(IntentParticipant("TARGET",referenceUid="R-PLACE")))
+            ),references=listOf(unresolved,resolved),
+            provenance=IntentInterpretationProvenance(IntentInterpretationSource.TRUSTED_REFERENCE_RESOLUTION,"CORE","1","H")
+        )
+        val capability=CapabilityDescriptor(
+            "LOOK",1,semanticFamilyUids=setOf("LOOK"),executionKind=CapabilityExecutionKind.READ_CONTEXT,
+            sideEffectClass=CapabilitySideEffectClass.NONE
+        )
+        val plan=(GraphTurnPlanner(listOf(capability)).plan(
+            document,VisibilityAudienceFactory.player(campaign),PurposeContext(campaign,VisibilityPurposeKinds.PLAYER_UI)
+        ) as CanonicalPlanningResult.Planned).plan
+        val codec=CanonicalAiJsonCodec()
+        val wire=org.json.JSONObject(codec.encodeProposal(AiGmProposalRequest("TARGETS",plan,safeContext(plan))))
+        val nodes=wire.getJSONObject("intent").getJSONArray("nodes")
+
+        assertEquals(0,nodes.getJSONObject(0).getJSONArray("target_projected_refs").length())
+        assertEquals("R-AREA",nodes.getJSONObject(0).getJSONArray("unresolved_target_reference_uids").getString(0))
+        assertEquals("LOCATION",nodes.getJSONObject(1).getJSONArray("target_projected_refs").getJSONObject(0).getString("kind_uid"))
+        assertEquals("PLACE:COURTYARD",nodes.getJSONObject(1).getJSONArray("target_projected_refs").getJSONObject(0).getString("uid"))
+        assertTrue(wire.getJSONArray("requirements").toString().contains("copy target_projected_refs exactly"))
+
+        val valid=proposalFor(plan,"LAB_CODEX").copy(nodeProposals=listOf(
+            GmNodeProposal("N1","OK-1","Rozglądasz się.",actor,"LOOK",emptyList(),IntentModality.ATTEMPT_NOW,GmNodeOutcomeState.PROPOSED_SUCCESS),
+            GmNodeProposal("N2","OK-2","Przyglądasz się dziedzińcowi.",actor,"LOOK",listOf(DomainRef("LOCATION","PLACE:COURTYARD")),IntentModality.ATTEMPT_NOW,GmNodeOutcomeState.PROPOSED_SUCCESS)
+        ))
+        assertTrue(StructuredGmProposalValidator().validate(valid,plan) is GmProposalValidationResult.Accepted)
+        val placeholder=valid.copy(nodeProposals=valid.nodeProposals.map{
+            if(it.nodeUid=="N1")it.copy(targetProjectedRefs=listOf(DomainRef("INTENT_REFERENCE","R-AREA"))) else it
+        })
+        val rejected=StructuredGmProposalValidator().validate(placeholder,plan) as GmProposalValidationResult.Rejected
+        assertTrue(rejected.reasonUids.contains("TARGET_PRESERVATION_VIOLATION:N1"))
+    }
+
+    @Test fun directorGuidanceAdmissionRecognizesOnlyUidFieldsFromAuthorizedProjectedRecords(){
+        val authorized=authorizedDirectorEvidenceUids(campaign,listOf(RetrievalRecord(
+            "PLAYER-STATE:P1",mapOf(
+                "player_uid" to "P1","runtime" to mapOf("location_uid" to "PLACE:1"),
+                "origins" to listOf(mapOf("origin_uid" to "VIL-KONOHA")),
+                "description" to "Nieautoryzowana wzmianka SECRET:UID"
+            ),"P38"
+        )))
+
+        assertTrue(setOf(campaign,"PLAYER-STATE:P1","P1","PLACE:1","VIL-KONOHA").all{it in authorized})
+        assertFalse("SECRET:UID" in authorized)
+    }
+
     @Test fun phase50_worldGenerationDoesNotScaleFromPlayerAndCombatIsReplaySafe(){
         assertFalse(WorldActorGenerationRequest::class.java.declaredFields.any{it.name.contains("playerPower",true)||it.name.contains("playerLevel",true)})
         val template=WorldActorMechanicalTemplate("T",MechanicalActorKind.NPC,mapOf("POWER" to 50,"DEFENCE" to 45,"SKILL" to 30,"AGILITY" to 20),setOf("STRIKE"),emptyList(),0,1000)
@@ -247,6 +342,40 @@ class Phase48To54FinalPlanTest{
         val malicious=bundles.latest(campaign)!!.copy(contextVersion="OLD",candidates=bundles.latest(campaign)!!.candidates.map{it.copy(directMutationPayload="WRITE DB")})
         val checked=DirectorBundleValidator().validate(malicious,AiDirectorRequest("R","J",trigger,context),"CTX-1")
         assertFalse(checked.accepted);assertTrue("DIRECTOR_STALE_CONTEXT" in checked.reasonUids);assertTrue("DIRECTOR_DIRECT_MUTATION_ATTEMPT" in checked.reasonUids)
+    }
+
+    @Test fun phase65_unexpectedProviderDecodeFailureCannotEscapeDirectorWorker(){
+        val jobs=InMemoryDirectorJobStore();val queued=mutableListOf<()->Unit>()
+        val context=DirectorContextEnvelope(campaign,"CTX",1,emptySet(),listOf("Strategia"),emptySet(),"P38")
+        val provider=DeterministicAiProvider(
+            capabilities("LAB_CODEX","CODEX",AiProviderKind.CLOUD),{intentDoc(it.rawInput)},{throw IllegalArgumentException()},
+            narrativeFunction={RenderedNarrative("unused",it.context.stopPointUid,it.context.committedOrder)},
+            directorFunction={throw NoSuchElementException("unknown enum")}
+        )
+        val engine=DirectorEngine(
+            FixedAiModelRoute(provider),jobs,InMemoryDirectorCandidateStore(),
+            DirectorJobDispatcher{_,work->queued+=work},DirectorContextVersionPort{"CTX"}
+        )
+        val scheduled=engine.schedule(DirectorTrigger("T",campaign,DirectorTriggerKind.SEMANTIC_EVENT,1),context) as DirectorDispatchResult.Scheduled
+
+        queued.single().invoke()
+
+        assertEquals(DirectorJobState.FAILED,jobs.find(scheduled.jobUid)?.state)
+        assertEquals("DIRECTOR_EXECUTION_EXCEPTION:NoSuchElementException",jobs.find(scheduled.jobUid)?.terminalReasonUid)
+    }
+
+    @Test fun phase65_directorCodecPreservesJsonNullAndRejectsUnknownKinds(){
+        fun payload(kind:String)="""{
+            "schema_version":1,"bundle_uid":"B","job_uid":"J","campaign_uid":"C","trigger_uid":"T",
+            "context_version":"V","as_of_committed_order":1,"provider_uid":"P","model_uid":"M",
+            "candidates":[{"candidate_uid":"D","kind":"$kind","title":"Tytuł","summary":"Opis",
+            "supporting_projected_record_uids":[],"horizon_uid":"NEXT","pacing_tags":[],
+            "proposed_owner_phase_uid":"PHASE65_DIRECTOR","direct_mutation_payload":null}],
+            "created_against_fingerprint":"F"} """.trimIndent()
+
+        val decoded=CanonicalAiJsonCodec().decodeDirector(payload("QUEST_SEED"))
+        assertNull(decoded.candidates.single().directMutationPayload)
+        assertThrows(IllegalArgumentException::class.java){CanonicalAiJsonCodec().decodeDirector(payload("UNKNOWN_KIND"))}
     }
 
     private fun pin(role:AiRole,p:AiProvider)=AiRoleAssignment(role,AiAssignmentKind.PINNED,AiModelSelection(p.capabilities.providerUid,p.capabilities.modelUid))

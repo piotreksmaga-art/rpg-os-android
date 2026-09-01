@@ -38,7 +38,7 @@ class ContextBuilder internal constructor(
             position.forEach{(k,v)->put(k,v)}
             if(playerUid!=null && playerStateAuthorized){
                 put("finance_ledger",FinancialContextReader(saveDb,campaignRef.campaignId).forPlayerUid(playerUid))
-                put("injuries",queryMany(saveDb,"SELECT injury_uid,body_part_uid,severity,pain,bleeding,status,created_chapter FROM injuries_v2 WHERE entity_uid=? AND status!='healed' ORDER BY severity DESC LIMIT 12",arrayOf(playerUid)))
+                put("injuries",queryMany(saveDb,"SELECT injury_uid,body_part_uid,severity,pain_level,bleeding_rate,status,chapter_received FROM injuries_v2 WHERE entity_uid=? AND status!='healed' ORDER BY severity DESC LIMIT 12",arrayOf(playerUid)))
                 put("typed_stats",typedStats);put("typed_resources",typedResources);put("ownership",ownership);put("projects",projects)
             }
         }
@@ -108,7 +108,28 @@ class ContextBuilder internal constructor(
         val constraints=diagnosticRows("CANON_CONSTRAINTS") { queryMany(worldDb,"SELECT constraint_uid,subject_type,subject_uid,constraint_key,constraint_value,canon_scope,notes FROM canon_constraints_v2 LIMIT 40") }
         val skills=if(playerUid!=null && playerStateAuthorized){val r=SkillStore(saveDb,campaignRef.campaignId).reconciled(playerUid);r.skills.map{i->val s=i.playerSkill;linkedMapOf<String,Any?>("entity_uid" to s.characterUid,"skill_uid" to s.skillUid,"mastery" to s.baseMastery,"progress_value" to s.progressValue,"canonical" to true)}}else emptyList()
         val techniques=if(playerUid!=null && playerStateAuthorized){val r=TechniqueStore(saveDb,campaignRef.campaignId).reconciled(playerUid);r.techniques.map{i->val t=i.playerTechnique;linkedMapOf<String,Any?>("entity_uid" to t.characterUid,"technique_uid" to t.techniqueUid,"mastery" to t.baseMastery,"progress_value" to t.progressValue,"canonical" to true)}+r.unresolvedLegacy.map{l->linkedMapOf<String,Any?>("entity_uid" to l.characterUid,"technique_uid" to l.legacyTechniqueUid,"mastery_raw" to l.masteryRaw,"xp_raw" to l.xpRaw,"learned_chapter_raw" to l.learnedChapterRaw,"last_used_chapter_raw" to l.lastUsedChapterRaw,"usage_count_raw" to l.usageCountRaw,"success_count_raw" to l.successCountRaw,"failure_count_raw" to l.failureCountRaw,"is_equipped_raw" to l.isEquippedRaw,"notes_raw" to l.notesRaw,"display_name" to l.displayName,"category" to l.category,"legacy_chakra_cost_override_raw" to l.chakraCostOverrideRaw,"legacy_base_chakra_cost_raw" to l.baseChakraCostRaw,"authority_source" to "LEGACY_UNRESOLVED","canonical" to false)}}else emptyList()
-        val inventory=if(playerUid!=null && playerStateAuthorized){val r=InventoryStore(saveDb,campaignRef.campaignId).reconciled(playerUid);r.stacks.map{i->linkedMapOf<String,Any?>("entity_uid" to i.stack.characterUid,"item_definition_uid" to i.stack.itemDefinitionUid,"quantity" to i.stack.quantity,"canonical" to true)}+r.uniqueItems.map{i->linkedMapOf<String,Any?>("entity_uid" to i.entry.characterUid,"item_definition_uid" to i.instance.itemDefinitionUid,"item_instance_uid" to i.entry.itemInstanceUid,"canonical" to true)}+r.unresolvedLegacy.map{e->linkedMapOf<String,Any?>("entity_uid" to e.characterUid,"legacy_evidence_uid" to e.evidenceUid,"item_name" to e.itemName,"row_count" to e.rowCount,"raw_fields" to e.rawFields,"authority_source" to "LEGACY_UNRESOLVED","canonical" to false)}}else emptyList()
+        val inventory=if(playerUid!=null && playerStateAuthorized){
+            val store=InventoryStore(saveDb,campaignRef.campaignId)
+            val r=store.reconciled(playerUid)
+            val definitions=store.definitions().associateBy{it.itemDefinitionUid}
+            fun worldPresentation(itemUid:String):Pair<String?,String?> = saveDb.rawQuery(
+                """SELECT display_name,category_uid FROM campaign_world_elements_projection
+                    WHERE campaign_id=? AND element_uid=? AND audience_scope_uid=? LIMIT 1""",
+                arrayOf(campaignRef.campaignId,itemUid,CampaignWorldAudience.PLAYER_VISIBLE)
+            ).use{c->if(!c.moveToFirst())null to null else c.getString(0) to c.getString(1)}
+            r.stacks.map{i->
+                val definition=definitions[i.stack.itemDefinitionUid]
+                linkedMapOf<String,Any?>("entity_uid" to i.stack.characterUid,"item_definition_uid" to i.stack.itemDefinitionUid,
+                    "display_name" to definition?.displayName,"category_uid" to definition?.category,
+                    "quantity" to i.stack.quantity,"canonical" to true)
+            }+r.uniqueItems.map{i->
+                val definition=definitions[i.instance.itemDefinitionUid]
+                val world=worldPresentation(i.entry.itemInstanceUid)
+                linkedMapOf<String,Any?>("entity_uid" to i.entry.characterUid,"item_definition_uid" to i.instance.itemDefinitionUid,
+                    "item_instance_uid" to i.entry.itemInstanceUid,"display_name" to (world.first?:definition?.displayName),
+                    "category_uid" to (world.second?:definition?.category),"canonical" to true)
+            }+r.unresolvedLegacy.map{e->linkedMapOf<String,Any?>("entity_uid" to e.characterUid,"legacy_evidence_uid" to e.evidenceUid,"item_name" to e.itemName,"row_count" to e.rowCount,"raw_fields" to e.rawFields,"authority_source" to "LEGACY_UNRESOLVED","canonical" to false)}
+        }else emptyList()
         val organizations=if(playerUid!=null && playerStateAuthorized)queryMany(saveDb,"SELECT organization_uid,character_uid,unit_uid,position_uid,role_title,status FROM organization_memberships_v3 WHERE character_uid=? AND status='active'",arrayOf(playerUid))else emptyList()
 
         val campaignTruthRead: ProtectedReadResult<List<Map<String, Any?>>> = protectedReads.truthContextRows(audience, purpose)

@@ -12,8 +12,8 @@ data class StatusSnapshot(
 )
 
 data class TimeSnapshot(
-    val label: String = "~40 lat przed założeniem Konohy",
-    val era: String = "Warring States Period",
+    val label: String = "Początek kampanii",
+    val era: String = "Era nieokreślona",
     val season: String = "spring",
     val hour: String = "08:00"
 )

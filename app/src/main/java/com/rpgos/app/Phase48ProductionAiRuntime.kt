@@ -285,10 +285,10 @@ object LocalRecommendedSettings{
         val gguf=profile.modelUid==BielikLocalModelProfiles.USER_GGUF.modelUid
         return LocalModelSettings(
             profile.modelUid,profile.variants.first().variantUid,profile.recommendedContextUnits,
-            profile.recommendedKvBytesPerContextUnit,if(gguf)LocalRuntimeBackend.GPU else LocalRuntimeBackend.AUTO,
+            profile.recommendedKvBytesPerContextUnit,if(gguf)LocalRuntimeBackend.CPU else LocalRuntimeBackend.AUTO,
             threads=if(gguf)4 else null,prefillBatchUnits=if(gguf)64 else null,recommended=true,
             runtimeEngine=if(gguf)LocalRuntimeEngine.LLAMA_CPP else LocalRuntimeEngine.EXECUTORCH,
-            microBatchUnits=if(gguf)64 else null,gpuLayers=if(gguf)99 else null
+            microBatchUnits=if(gguf)64 else null,gpuLayers=if(gguf)0 else null
         )
     }
 }
@@ -366,6 +366,34 @@ data class LocalRuntimeMetrics(
     val thermalState:LocalThermalState,val activeRequestCount:Int
 )
 
+/**
+ * Optional diagnostics seam for exact structured bytes crossing an AI transport boundary.
+ * Production uses [NONE]; lab builds may retain bounded traces outside canonical campaign state.
+ */
+data class AiWireTraceEvent(
+    val direction:String,
+    val requestUid:String,
+    val workload:AiWorkload,
+    val providerUid:String,
+    val modelUid:String,
+    val payload:String?=null,
+    val traceUid:String?=null,
+    val inputUnits:Int?=null,
+    val outputUnits:Int?=null,
+    val failureKind:AiProviderFailureKind?=null,
+    val reasonUid:String?=null,
+    val atEpochMillis:Long=System.currentTimeMillis()
+){init{
+    require(direction in setOf("REQUEST","RESPONSE","FAILURE"))
+    require(requestUid.isNotBlank()&&providerUid.isNotBlank()&&modelUid.isNotBlank())
+    require(inputUnits==null||inputUnits>=0);require(outputUnits==null||outputUnits>=0)
+}}
+
+fun interface AiWireTracePort{
+    fun record(event:AiWireTraceEvent)
+    companion object{val NONE=AiWireTracePort{}}
+}
+
 interface LocalInferenceRuntime{
     val capabilities:LocalRuntimeCapabilities
     fun load(profile:LocalModelProfile,settings:LocalModelSettings,artifact:LocalModelArtifact,admission:LocalAdmissionResult.Admitted)
@@ -419,6 +447,7 @@ class LocalAiPort(
     artifacts:LocalModelArtifactStore,
     device:()->LocalDeviceCapabilities,
     codec:AiStructuredCodec,
+    wireTrace:AiWireTracePort=AiWireTracePort.NONE,
     admissionController:LocalModelAdmissionController=LocalModelAdmissionController()
 ):AiProvider by TransportAiProviderAdapter(
     capabilities=AiCapabilityContract(
@@ -426,7 +455,7 @@ class LocalAiPort(
         profile.supportedWorkloads,supportsStreaming=runtime.capabilities.supportsStreaming,
         maximumContextUnits=minOf(profile.maximumContextUnits,settings.contextUnits),providerKind=AiProviderKind.LOCAL
     ),
-    transport=LocalRuntimeTransport(profile,settings,runtime,artifacts,device,admissionController),
+    transport=LocalRuntimeTransport(profile,settings,runtime,artifacts,device,admissionController,wireTrace),
     codec=codec,
     maximumOutputUnits=(settings.contextUnits/2).coerceIn(256,1_024),
     cancellationHook=runtime::cancel
@@ -438,23 +467,48 @@ private class LocalRuntimeTransport(
     private val runtime:LocalInferenceRuntime,
     private val artifacts:LocalModelArtifactStore,
     private val device:()->LocalDeviceCapabilities,
-    private val admissionController:LocalModelAdmissionController
+    private val admissionController:LocalModelAdmissionController,
+    private val wireTrace:AiWireTracePort
 ):AiStructuredTransport{
     override fun execute(request:AiTransportRequest,cancellation:AiCancellationSignal):AiProviderResult<AiTransportResponse>{
+        val providerUid="LOCAL:${runtime.capabilities.runtimeUid}"
+        wireTrace.record(AiWireTraceEvent("REQUEST",request.requestUid,request.workload,providerUid,profile.modelUid,payload=request.payload))
         val artifact=artifacts.find(profile.modelUid,settings.variantUid)
-            ?:return AiProviderResult.Failure(AiProviderFailureKind.UNAVAILABLE,"LOCAL_MODEL_ARTIFACT_MISSING")
+            ?:return failure(request,providerUid,AiProviderFailureKind.UNAVAILABLE,"LOCAL_MODEL_ARTIFACT_MISSING")
         val admission=admissionController.evaluate(profile,settings,runtime.capabilities,device())
-        if(admission is LocalAdmissionResult.Rejected)return AiProviderResult.Failure(AiProviderFailureKind.UNAVAILABLE,"LOCAL_ADMISSION:${admission.reasonUids.joinToString(",")}")
+        if(admission is LocalAdmissionResult.Rejected)return failure(request,providerUid,AiProviderFailureKind.UNAVAILABLE,"LOCAL_ADMISSION:${admission.reasonUids.joinToString(",")}")
         return try{
             runtime.load(profile,settings,artifact,admission as LocalAdmissionResult.Admitted)
-            val outputLimit=if(request.workload==AiWorkload.CHARACTER_CREATION)minOf(request.maximumOutputUnits,320) else request.maximumOutputUnits
+            val workloadLimit=when(request.workload){
+                AiWorkload.INTENT_INTERPRETATION->192
+                AiWorkload.GM_PROPOSAL->256
+                AiWorkload.PROPOSAL_REPAIR->320
+                AiWorkload.NARRATIVE_RENDER,AiWorkload.NARRATIVE_REPAIR->256
+                AiWorkload.CHARACTER_CREATION->512
+                else->512
+            }
+            val outputLimit=minOf(request.maximumOutputUnits,workloadLimit)
             val output=runtime.generate(LocalGenerationRequest(request.requestUid,request.workload,request.payload,outputLimit,profile,settings,artifact),cancellation)
+            wireTrace.record(AiWireTraceEvent(
+                "RESPONSE",request.requestUid,request.workload,providerUid,profile.modelUid,payload=output.structuredPayload,
+                traceUid=output.traceUid,inputUnits=output.inputUnits,outputUnits=output.outputUnits
+            ))
             AiProviderResult.Success(AiTransportResponse(request.requestUid,output.structuredPayload,output.traceUid),"LOCAL-RUNTIME",profile.modelUid,output.traceUid)
         }catch(failure:OutOfMemoryError){
-            runtime.unload(profile.modelUid);AiProviderResult.Failure(AiProviderFailureKind.UNAVAILABLE,"LOCAL_OOM",true)
+            runtime.unload(profile.modelUid);failure(request,providerUid,AiProviderFailureKind.UNAVAILABLE,"LOCAL_OOM",true)
         }catch(failure:AiTransportException){
-            AiProviderResult.Failure(AiProviderFailureKind.UNAVAILABLE,failure.reasonUid,failure.retryable)
+            failure(request,providerUid,AiProviderFailureKind.UNAVAILABLE,failure.reasonUid,failure.retryable)
         }
+    }
+
+    private fun failure(
+        request:AiTransportRequest,providerUid:String,kind:AiProviderFailureKind,reasonUid:String,retryable:Boolean=false
+    ):AiProviderResult.Failure{
+        wireTrace.record(AiWireTraceEvent(
+            "FAILURE",request.requestUid,request.workload,providerUid,profile.modelUid,
+            failureKind=kind,reasonUid=reasonUid
+        ))
+        return AiProviderResult.Failure(kind,reasonUid,retryable)
     }
 }
 
@@ -594,29 +648,46 @@ class CloudAiPort(
     model:CloudModelProfile,
     auth:CloudAuthPort,
     client:CloudInferenceClient,
-    codec:AiStructuredCodec
+    codec:AiStructuredCodec,
+    wireTrace:AiWireTracePort=AiWireTracePort.NONE
 ):AiProvider by TransportAiProviderAdapter(
     capabilities=AiCapabilityContract(
         "CLOUD:${model.providerUid}:${model.modelUid}",model.providerUid,model.modelUid,model.supportedWorkloads,
         supportsStreaming=model.supportsStreaming,maximumContextUnits=model.maximumContextUnits,
         providerKind=AiProviderKind.CLOUD,supportsJsonSchema=model.supportsStructuredOutput
     ),
-    transport=CloudRuntimeTransport(model,auth,client),codec=codec,cancellationHook=client::cancel
+    transport=CloudRuntimeTransport(model,auth,client,wireTrace),codec=codec,cancellationHook=client::cancel
 )
 
 private class CloudRuntimeTransport(
-    private val model:CloudModelProfile,private val auth:CloudAuthPort,private val client:CloudInferenceClient
+    private val model:CloudModelProfile,private val auth:CloudAuthPort,private val client:CloudInferenceClient,
+    private val wireTrace:AiWireTracePort
 ):AiStructuredTransport{
     override fun execute(request:AiTransportRequest,cancellation:AiCancellationSignal):AiProviderResult<AiTransportResponse>{
-        val credential=auth.accessCredential()?:return AiProviderResult.Failure(AiProviderFailureKind.UNAVAILABLE,"CLOUD_NOT_CONNECTED")
+        wireTrace.record(AiWireTraceEvent("REQUEST",request.requestUid,request.workload,model.providerUid,model.modelUid,payload=request.payload))
+        val credential=auth.accessCredential()?:return failure(request,AiProviderFailureKind.UNAVAILABLE,"CLOUD_NOT_CONNECTED")
         return try{
             val response=client.execute(model,credential,request,cancellation)
+            wireTrace.record(AiWireTraceEvent(
+                "RESPONSE",request.requestUid,request.workload,model.providerUid,model.modelUid,payload=response.structuredPayload,
+                traceUid=response.traceUid,inputUnits=response.usage.inputUnits,outputUnits=response.usage.outputUnits
+            ))
             AiProviderResult.Success(AiTransportResponse(request.requestUid,response.structuredPayload,response.traceUid),model.providerUid,model.modelUid,response.traceUid)
         }catch(failure:CloudRateLimitException){
-            AiProviderResult.Failure(AiProviderFailureKind.UNAVAILABLE,"CLOUD_RATE_LIMIT",true)
+            failure(request,AiProviderFailureKind.UNAVAILABLE,"CLOUD_RATE_LIMIT",true)
         }catch(failure:AiTransportException){
-            AiProviderResult.Failure(AiProviderFailureKind.UNAVAILABLE,failure.reasonUid,failure.retryable)
+            failure(request,AiProviderFailureKind.UNAVAILABLE,failure.reasonUid,failure.retryable)
         }finally{credential.fill('\u0000')}
+    }
+
+    private fun failure(
+        request:AiTransportRequest,kind:AiProviderFailureKind,reasonUid:String,retryable:Boolean=false
+    ):AiProviderResult.Failure{
+        wireTrace.record(AiWireTraceEvent(
+            "FAILURE",request.requestUid,request.workload,model.providerUid,model.modelUid,
+            failureKind=kind,reasonUid=reasonUid
+        ))
+        return AiProviderResult.Failure(kind,reasonUid,retryable)
     }
 }
 

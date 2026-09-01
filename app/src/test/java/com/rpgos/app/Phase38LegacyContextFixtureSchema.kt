@@ -5,7 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 internal object Phase38LegacyContextFixtureSchema {
     fun ensure(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE IF NOT EXISTS entity_positions(entity_uid TEXT,location_uid TEXT,x_coord REAL,y_coord REAL,last_updated_day INTEGER,updated_chapter INTEGER)")
-        db.execSQL("CREATE TABLE IF NOT EXISTS injuries_v2(injury_uid TEXT,entity_uid TEXT,body_part_uid TEXT,severity INTEGER,pain INTEGER,bleeding INTEGER,status TEXT,created_chapter INTEGER)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS injuries_v2(injury_uid TEXT,entity_uid TEXT,body_part_uid TEXT,severity INTEGER,pain_level INTEGER,bleeding_rate INTEGER,status TEXT,chapter_received INTEGER)")
         db.execSQL("CREATE TABLE IF NOT EXISTS story_threads(thread_uid TEXT,title TEXT,thread_type TEXT,status TEXT,priority INTEGER,last_advanced_chapter INTEGER,description TEXT)")
         db.execSQL("CREATE TABLE IF NOT EXISTS missions_v3(mission_uid TEXT,title TEXT,mission_rank TEXT,status TEXT,objective_summary TEXT,reward_ryo INTEGER,deadline_day INTEGER,location_uid TEXT,consequence_on_failure TEXT)")
         db.execSQL("CREATE TABLE IF NOT EXISTS future_world_pressure(pressure_uid TEXT,target_type TEXT,target_uid TEXT,starts_day INTEGER,peaks_day INTEGER,pressure_type TEXT,magnitude REAL,summary TEXT,hidden INTEGER DEFAULT 0)")

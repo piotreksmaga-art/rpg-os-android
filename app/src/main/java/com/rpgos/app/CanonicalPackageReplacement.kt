@@ -9,7 +9,23 @@ internal interface CanonicalPackageFileOps {
 }
 
 private object RealCanonicalPackageFileOps : CanonicalPackageFileOps {
-    override fun rename(source: File, target: File): Boolean = source.renameTo(target)
+    override fun rename(source: File, target: File): Boolean {
+        // Android's rename is atomic inside one package root. A just-closed SQLite verifier can,
+        // however, keep a transient file handle alive for a few milliseconds (especially on
+        // Windows-hosted validation/emulators). Retry only that same atomic rename; never copy a
+        // canonical package into place and never weaken the failure-atomic rollback contract.
+        repeat(5) { attempt ->
+            if (source.renameTo(target)) return true
+            if (attempt < 4) {
+                try { Thread.sleep(20L * (attempt + 1)) }
+                catch (interrupted: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return false
+                }
+            }
+        }
+        return false
+    }
     override fun deleteRecursively(target: File): Boolean = target.deleteRecursively()
 }
 

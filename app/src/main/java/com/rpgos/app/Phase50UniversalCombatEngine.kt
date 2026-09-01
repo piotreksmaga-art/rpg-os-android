@@ -475,6 +475,9 @@ class UniversalCombatEngine(
             draws+=targetDraws
             val component=TargetComponentResolver().select(defender,targetIntent,snapshot)
             val protection=CombatProtectionResolver().apply(contest.margin.coerceAtLeast(0),request.ability.damageTypeUid,defender,component.component)
+            val interactionOnly=request.ability.effectKinds.distinct()==listOf(UniversalMechanicalEffectKind.INTERACTION)
+            val mechanicalMagnitude=if(interactionOnly)abs(contest.margin).coerceAtLeast(1) else protection.finalMagnitude
+            val objectiveMagnitude=if(interactionOnly&&contest.margin<=0)0 else protection.finalMagnitude
             val groupAggregate=attacker.aggregatePopulation?.let{attackers->defender.aggregatePopulation?.takeIf{request.ability.areaRadiusMillimetres==null}?.let{defenders->
                 val profile=request.ability.aggregateGroupProfile?:return CombatResolution.Rejected("AGGREGATE_GROUP_PROFILE_REQUIRED")
                 AggregateGroupEngagementResolver().resolve(attackers,defenders,profile,attackBase,defenceBase,protection.finalMagnitude)
@@ -489,8 +492,8 @@ class UniversalCombatEngine(
             if(defender.aggregatePopulation!=null&&request.ability.areaRadiusMillimetres!=null&&request.ability.aggregateAreaProfile==null){
                 return CombatResolution.Rejected("AGGREGATE_AREA_PROFILE_REQUIRED")
             }
-            totalMagnitude=Math.addExact(totalMagnitude,protection.finalMagnitude)
-            effects+=materializeEffects(request,targetIntent,protection.finalMagnitude,component.component,directAggregate,groupAggregate)
+            totalMagnitude=Math.addExact(totalMagnitude,objectiveMagnitude)
+            effects+=materializeEffects(request,targetIntent,mechanicalMagnitude,component.component,directAggregate,groupAggregate,contest.margin>0)
             effects+=materializeStatusEffects(request,targetIntent,defender,protection.finalMagnitude,seed,draws)
         }
         val objective=CombatObjectiveEvaluator().evaluate(request.objective,totalMagnitude,effects)
@@ -507,7 +510,8 @@ class UniversalCombatEngine(
         magnitude:Long,
         component:TargetComponent?,
         directAggregate:AggregateDirectImpactResolution.Resolved?,
-        groupAggregate:AggregateGroupEngagementResolution?
+        groupAggregate:AggregateGroupEngagementResolution?,
+        contestSucceeded:Boolean
     ):List<UniversalMechanicalEffect>{
         if(magnitude<=0)return emptyList()
         val population=request.snapshot.actors.single{it.actor==intent.target}.aggregatePopulation
@@ -555,6 +559,10 @@ class UniversalCombatEngine(
                         component?.let{put("component_uid",it.componentUid)}
                         if(kind==UniversalMechanicalEffectKind.WOUND)put("severity_uid",when{magnitude>100->"SEVERE";magnitude>30->"MODERATE";else->"LIGHT"})
                         if(kind==UniversalMechanicalEffectKind.RESOURCE_DELTA)request.ability.resourceUid?.let{put("resource_uid",it)}
+                        if(kind==UniversalMechanicalEffectKind.INTERACTION){
+                            val outcome=if(contestSucceeded)"CONTACT_SUCCESS" else "CONTACT_EVADED"
+                            put("track_uid","CONTEST:$outcome");put("interaction_outcome_uid",outcome)
+                        }
                     },request.intent.intentUid
                 ))
             }

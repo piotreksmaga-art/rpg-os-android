@@ -99,6 +99,13 @@ class PlayerChangeSetContractTest {
     @Test fun p17_10_techniqueChange() = assertRoundTrip(change(kind = PlayerChangeKinds.TECHNIQUE, payload = TechniqueChange(subject, "TECH:A", ExactLongDelta.of(5))))
     @Test fun p17_11_innateChange() = assertRoundTrip(change(kind = PlayerChangeKinds.INNATE, payload = InnateChange(subject, "INN:A", "STATE:2")))
     @Test fun p17_12_inventoryChange() = assertRoundTrip(change(kind = PlayerChangeKinds.INVENTORY, payload = InventoryChange(subject, "ITEM-I1", ExactLongDelta.of(2))))
+    @Test fun p17_12b_dynamicInventoryAcquisitionRoundTrip() = assertRoundTrip(change(
+        kind=PlayerChangeKinds.INVENTORY,
+        payload=InventoryChange(
+            subject,"DYN-OBJECT-KUNAI",ExactLongDelta.of(1),
+            universalInventoryItemMaterialization()
+        )
+    ))
     @Test fun p17_13_equipmentChange() = assertRoundTrip(change(kind = PlayerChangeKinds.EQUIPMENT, payload = EquipmentChange(subject, "SLOT:MAIN", EquipmentOperation.EQUIP, "ITEM-I1")))
 
     @Test fun p17_14_financialChange() {

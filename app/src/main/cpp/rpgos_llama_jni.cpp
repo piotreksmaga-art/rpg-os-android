@@ -2,6 +2,7 @@
 #include <android/log.h>
 #include <llama.h>
 #include <ggml.h>
+#include <ggml-backend.h>
 
 #include <algorithm>
 #include <atomic>
@@ -57,6 +58,22 @@ void throw_runtime(JNIEnv * env, const std::string & reason) {
     if (type != nullptr) env->ThrowNew(type, reason.c_str());
 }
 
+bool restrict_to_cpu(JNIEnv * env, const std::string & backend_name,
+                     llama_model_params & params, ggml_backend_dev_t (&devices)[2]) {
+    if (backend_name != "CPU") return true;
+    devices[0] = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+    devices[1] = nullptr;
+    if (devices[0] == nullptr) {
+        throw_runtime(env, "LLAMA_CPU_BACKEND_UNAVAILABLE");
+        return false;
+    }
+    // A null device list means "all available devices" in llama.cpp. n_gpu_layers=0
+    // only keeps weights on the CPU; it does not prevent the context scheduler from
+    // selecting Vulkan for supported operations. An explicit CPU-only list is required.
+    params.devices = devices;
+    return true;
+}
+
 std::string utf8(JNIEnv * env, jstring value) {
     if (value == nullptr) return {};
     const char * chars = env->GetStringUTFChars(value, nullptr);
@@ -73,24 +90,58 @@ ggml_type kv_type(const std::string & name) {
     return GGML_TYPE_F16;
 }
 
-std::string apply_chat_template(llama_model * model, const std::string & payload) {
-    const std::string system =
+struct ChatSections {
+    std::string system;
+    std::string user;
+    std::string assistant_prefix;
+};
+
+ChatSections chat_sections(const std::string & payload) {
+    const std::string system_open = "<|im_start|>system\n";
+    const std::string user_open = "<|im_start|>user\n";
+    const std::string assistant_open = "<|im_start|>assistant\n";
+    const std::string end = "<|im_end|>";
+    if (payload.rfind(system_open, 0) == 0) {
+        const size_t system_end = payload.find(end, system_open.size());
+        const size_t user_start = system_end == std::string::npos
+            ? std::string::npos : payload.find(user_open, system_end + end.size());
+        const size_t user_end = user_start == std::string::npos
+            ? std::string::npos : payload.find(end, user_start + user_open.size());
+        const size_t assistant_start = user_end == std::string::npos
+            ? std::string::npos : payload.find(assistant_open, user_end + end.size());
+        if (system_end != std::string::npos && user_start != std::string::npos &&
+            user_end != std::string::npos && assistant_start != std::string::npos) {
+            return {
+                payload.substr(system_open.size(), system_end - system_open.size()),
+                payload.substr(user_start + user_open.size(), user_end - user_start - user_open.size()),
+                payload.substr(assistant_start + assistant_open.size())
+            };
+        }
+    }
+    return {
         "You are the AI provider inside RPG OS. Follow the supplied contract exactly. "
         "Return only the requested JSON object, without markdown or commentary. "
-        "You propose; RPG OS Core validates and commits all canonical state.";
+        "You propose; RPG OS Core validates and commits all canonical state.",
+        payload,
+        ""
+    };
+}
+
+std::string apply_chat_template(llama_model * model, const std::string & payload) {
+    const ChatSections sections = chat_sections(payload);
     llama_chat_message messages[2] = {
-        {"system", system.c_str()},
-        {"user", payload.c_str()},
+        {"system", sections.system.c_str()},
+        {"user", sections.user.c_str()},
     };
     const char * model_template = llama_model_chat_template(model, nullptr);
     int32_t required = llama_chat_apply_template(model_template, messages, 2, true, nullptr, 0);
     if (required <= 0) {
-        return system + "\n\n" + payload + "\n\nAssistant JSON:\n";
+        return sections.system + "\n\n" + sections.user + "\n\nAssistant:\n" + sections.assistant_prefix;
     }
     std::vector<char> buffer(static_cast<size_t>(required) + 1);
     int32_t written = llama_chat_apply_template(model_template, messages, 2, true, buffer.data(), static_cast<int32_t>(buffer.size()));
-    if (written <= 0) return system + "\n\n" + payload + "\n\nAssistant JSON:\n";
-    return std::string(buffer.data(), static_cast<size_t>(written));
+    if (written <= 0) return sections.system + "\n\n" + sections.user + "\n\nAssistant:\n" + sections.assistant_prefix;
+    return std::string(buffer.data(), static_cast<size_t>(written)) + sections.assistant_prefix;
 }
 
 std::vector<llama_token> tokenize(const llama_vocab * vocab, const std::string & text) {
@@ -145,6 +196,8 @@ Java_com_rpgos_app_NativeLocalInferenceBridge_openEmbedding(
     }
     const std::string backend_name = utf8(env, backend);
     llama_model_params model_params = llama_model_default_params();
+    ggml_backend_dev_t model_devices[2] = {nullptr, nullptr};
+    if (!restrict_to_cpu(env, backend_name, model_params, model_devices)) return 0;
     model_params.n_gpu_layers = backend_name == "CPU"
         ? 0
         : (gpu_layers < 0 ? std::numeric_limits<int32_t>::max() : gpu_layers);
@@ -207,6 +260,8 @@ Java_com_rpgos_app_NativeLocalInferenceBridge_open(
     const std::string path = utf8(env, artifact_path);
     const std::string backend_name = utf8(env, backend);
     llama_model_params model_params = llama_model_default_params();
+    ggml_backend_dev_t model_devices[2] = {nullptr, nullptr};
+    if (!restrict_to_cpu(env, backend_name, model_params, model_devices)) return 0;
     model_params.n_gpu_layers = backend_name == "CPU"
         ? 0
         : (gpu_layers < 0 ? std::numeric_limits<int32_t>::max() : gpu_layers);

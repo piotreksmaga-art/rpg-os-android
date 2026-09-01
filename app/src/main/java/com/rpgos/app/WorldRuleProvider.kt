@@ -399,6 +399,13 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
             }
             is InventoryChange -> {
                 domainRef("SUBJECT", payload.subject); field("ITEM_INSTANCE_UID", payload.itemInstanceUid); longField("QUANTITY_DELTA", payload.quantityDelta.units)
+                payload.itemMaterialization?.let{materialization->section("ITEM_MATERIALIZATION"){
+                    field("ITEM_DEFINITION_UID",materialization.itemDefinitionUid)
+                    field("WORLD_PACK_UID",materialization.worldPackUid)
+                    field("ITEM_KEY",materialization.itemKey)
+                    field("DISPLAY_NAME",materialization.displayName)
+                    nullableField("CATEGORY_UID",materialization.categoryUid)
+                }}
             }
             is EquipmentChange -> {
                 domainRef("SUBJECT", payload.subject); field("SLOT_UID", payload.slotUid); field("OPERATION", payload.operation.name)
@@ -454,7 +461,7 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
                 domainRef("SUBJECT", payload.subject); longField("SEVERITY_DELTA", payload.severityDelta.units); nullableField("SEVERITY_UID", payload.severityUid)
             }
             is SpatialChange -> {
-                domainRef("SUBJECT", payload.subject); longField("DELTA_X_MILLIMETRES", payload.deltaXMillimetres); longField("DELTA_Y_MILLIMETRES", payload.deltaYMillimetres)
+                domainRef("SUBJECT", payload.subject); longField("DELTA_X_MILLIMETRES", payload.deltaXMillimetres); longField("DELTA_Y_MILLIMETRES", payload.deltaYMillimetres);payload.destinationLocation?.let{domainRef("DESTINATION",it)}
             }
             is EquipmentIntegrityChange -> {
                 domainRef("SUBJECT", payload.subject); field("COMPONENT_UID", payload.componentUid); longField("DAMAGE_DELTA", payload.damageDelta.units)

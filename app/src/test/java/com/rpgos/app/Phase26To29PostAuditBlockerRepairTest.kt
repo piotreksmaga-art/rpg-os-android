@@ -248,7 +248,13 @@ class Phase26To29PostAuditBlockerRepairTest {
             }.start()}
             assertTrue(ready.await(5,TimeUnit.SECONDS));go.countDown();assertTrue(done.await(15,TimeUnit.SECONDS))
             val committed=results.count{it is TurnExecutionResult.Committed<*>};val replay=results.count{it is TurnExecutionResult.AlreadyCommitted}
-            assertEquals(1,committed);assertEquals(1,replay)
+            val outcomeSummary=results.joinToString(" | "){ result->
+                when(result){
+                    is Throwable->"${result::class.java.simpleName}:${result.message}"
+                    else->result::class.java.simpleName
+                }
+            }
+            assertEquals(outcomeSummary,1,committed);assertEquals(outcomeSummary,1,replay)
             d1.rawQuery("SELECT COUNT(*) FROM turn_transaction_receipts WHERE campaign_uid='C1'",null).use{it.moveToFirst();assertEquals(1L,it.getLong(0))}
             assertEquals(95L,FinancialStore(d1,"C1").balance("A"))
         } finally {d1.close();d2.close()}

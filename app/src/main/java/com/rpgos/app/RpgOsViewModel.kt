@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class CampaignCreationUiState(
     val inProgress:Boolean=false,
@@ -35,7 +36,20 @@ data class SaveRecoveryUiState(
     val errorMessage:String?=null
 )
 
+data class AppStartupUiState(
+    val inProgress:Boolean=true,
+    val errorMessage:String?=null
+)
+
+data class CharacterDraftUiState(
+    val draft:PlayerCharacterCreationDraft?=null,
+    val lockedSections:Set<CharacterCreationDraftSection> = emptySet(),
+    val definitionLabels:Map<String,String> = emptyMap(),
+    val revision:Int=0
+)
+
 class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
+    private val application=app
     private val store = LocalGameStore(app)
     private val repository = UnifiedGameRepository(app)
     private val semanticApplication=BekkoSemanticApplication(app,repository)
@@ -48,11 +62,33 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _settings = MutableStateFlow(appSettings.load())
     val settings: StateFlow<RpgOsSettings> = _settings
+    private fun effectiveAiConfiguration()=AiProviderExtensionRegistry.configuration(_settings.value.ai)
+    private fun withExtensionModels(state:AiProviderCenterUiState):AiProviderCenterUiState{
+        val effective=effectiveAiConfiguration()
+        val options=(state.modelOptions+AiProviderExtensionRegistry.modelOptions())
+            .distinctBy{it.selection.stableUid}
+        return state.copy(
+            gameMasterAssignment=effective.gameMaster,directorAssignment=effective.director,
+            modelOptions=options,privacy=effective.privacy
+        )
+    }
 
-    private val _aiProviderCenter=MutableStateFlow(providerCenterApplication.initialState(_settings.value.ai))
+    private val initialLocalProfile=BielikLocalModelProfiles.byModelUid(_settings.value.ai.localModelSettings?.modelUid)
+        ?:BielikLocalModelProfiles.DEFAULT_ANDROID
+    // Keep ViewModel construction cheap. Artifact hashing, native-library loading, Keystore reads
+    // and database bootstrap must never hold Android's first frame on the splash screen.
+    private val _aiProviderCenter=MutableStateFlow(withExtensionModels(AiProviderCenterStateFactory.initial(
+        effectiveAiConfiguration(),false,CloudConnectionStatus("OPENROUTER",CloudAuthState.DISCONNECTED),initialLocalProfile
+    )))
     val aiProviderCenter:StateFlow<AiProviderCenterUiState> = _aiProviderCenter
-    private val _bekkoSemantic=MutableStateFlow(semanticApplication.state())
+    private val _bekkoSemantic=MutableStateFlow(BekkoSemanticUiState(
+        settings=semanticApplication.settings(),notice="Sprawdzanie pamięci semantycznej…"
+    ))
     val bekkoSemantic:StateFlow<BekkoSemanticUiState> = _bekkoSemantic
+
+    private val _startupUi=MutableStateFlow(AppStartupUiState())
+    val startupUi:StateFlow<AppStartupUiState> = _startupUi
+    private val startupRunning=AtomicBoolean(false)
 
     init{semanticApplication.setProgressListener{_bekkoSemantic.value=semanticApplication.state()}}
 
@@ -62,7 +98,9 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     private var pendingNarrationRecovery:ChatNarrationRecoveryToken?=null
     private val productionEngine by lazy{
         ProductionGameEngineCompositionRoot(
-            app,repository,providerCenterApplication,configuration={_settings.value.ai},semanticApplication=semanticApplication
+            app,repository,providerCenterApplication,configuration=::effectiveAiConfiguration,
+            additionalProviders=AiProviderExtensionRegistry::providers,semanticApplication=semanticApplication,
+            directorGuidance=AiProviderExtensionRegistry.directorGuidancePort()
         )
     }
     private val chatApplication:ChatApplicationPort by lazy{
@@ -70,6 +108,8 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     }
     private val characterCreationApplication by lazy{productionEngine.characterCreationApplication()}
     private var pendingCharacterCreationUid:String?=null
+    private val _characterDraftUi=MutableStateFlow(CharacterDraftUiState())
+    val characterDraftUi:StateFlow<CharacterDraftUiState> = _characterDraftUi
 
     private val _developerStatus = MutableStateFlow("Nie uruchomiono testów.")
     val developerStatus: StateFlow<String> = _developerStatus
@@ -282,20 +322,63 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         providerCenterApplication.onOpenRouterCallback{connection->viewModelScope.launch{applyOpenRouterConnection(connection)}}
-        store.bootstrap()
-        semanticApplication.onCampaignOpened()
-        pendingNarrationRecovery=runCatching{chatApplication.pendingRecovery()}.onFailure{DiagnosticLogger.log(app,"NARRATIVE_RECOVERY_DISCOVERY_FAILED",it)}.getOrNull()
-        pendingNarrationRecovery?.let{token->_chatTurnUi.value=ChatTurnUiState(
-            ChatTurnUiStage.COMMITTED_NARRATION_PENDING,token.request.requestUid,
-            "Ostatnia tura jest zapisana. Narrację można bezpiecznie odzyskać.",canRetryNarration=true
-        )}
-        if(store.activePlayerRef()==null)_messages.value+=ChatMessage("gm","Zanim rozpoczniemy przygodę, wspólnie stworzymy Twoją postać. Opowiedz mi, kim chcesz grać.")
-        refresh()
-        buildStartupContext()
+        beginStartup()
+    }
+
+    fun retryStartup()=beginStartup()
+
+    private fun beginStartup(){
+        if(!startupRunning.compareAndSet(false,true))return
+        _startupUi.value=AppStartupUiState(inProgress=true)
+        viewModelScope.launch(Dispatchers.IO){
+            try{
+                store.bootstrap()
+                if(store.activePlayerRef()==null&&_messages.value.none{it.role=="gm"}){
+                    _messages.value+=ChatMessage("gm","Zanim rozpoczniemy przygodę, wspólnie stworzymy Twoją postać. Opowiedz mi, kim chcesz grać.")
+                }
+                refreshLaunchState()
+                _startupUi.value=AppStartupUiState(inProgress=false)
+                hydrateAfterLaunch()
+            }catch(failure:Throwable){
+                DiagnosticLogger.log(application,"APP_STARTUP_FAILED",failure)
+                _startupUi.value=AppStartupUiState(
+                    inProgress=false,
+                    errorMessage=failure.message?.takeIf{it.isNotBlank()}?:failure::class.java.simpleName
+                )
+            }finally{startupRunning.set(false)}
+        }
+    }
+
+    /**
+     * Model hashing, semantic catch-up, recovery discovery and the diagnostic dashboards can
+     * take minutes on an emulator. None of them is required to render the home screen, so they
+     * must never remain part of the startup gate. Consumers keep their conservative initial
+     * state until this hydration finishes; production routing still checks real availability
+     * before accepting an AI request.
+     */
+    private fun hydrateAfterLaunch(){
+        viewModelScope.launch(Dispatchers.IO){
+            runCatching{
+                _aiProviderCenter.value=withExtensionModels(providerCenterApplication.initialState(effectiveAiConfiguration()))
+            }.onFailure{DiagnosticLogger.log(application,"AI_PROVIDER_HYDRATION_FAILED",it)}
+            runCatching{
+                _bekkoSemantic.value=semanticApplication.state()
+                semanticApplication.onCampaignOpened()
+                AiProviderExtensionRegistry.onCampaignOpened(repository.activeCampaignRef().campaignId)
+            }.onFailure{DiagnosticLogger.log(application,"SEMANTIC_HYDRATION_FAILED",it)}
+            pendingNarrationRecovery=runCatching{chatApplication.pendingRecovery()}
+                .onFailure{DiagnosticLogger.log(application,"NARRATIVE_RECOVERY_DISCOVERY_FAILED",it)}.getOrNull()
+            pendingNarrationRecovery?.let{token->_chatTurnUi.value=ChatTurnUiState(
+                ChatTurnUiStage.COMMITTED_NARRATION_PENDING,token.request.requestUid,
+                "Ostatnia tura jest zapisana. Narrację można bezpiecznie odzyskać.",canRetryNarration=true
+            )}
+            runCatching{refresh()}.onFailure{DiagnosticLogger.log(application,"BACKGROUND_REFRESH_FAILED",it)}
+            buildStartupContext()
+        }
     }
 
     private fun buildStartupContext() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             val app = getApplication<Application>()
             runCatching {
                 val chapter = (_chronicle.value.maxOfOrNull { it.chapter } ?: 0) + 1
@@ -314,17 +397,17 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refresh() {
-        _hasActivePlayer.value = store.activePlayerRef()!=null
+        refreshLaunchState()
         _status.value = store.status()
-        _characterPanel.value = store.fullCharacterPanel(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        _characterPanel.value = runCatching{
+            store.fullCharacterPanel(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        }.onFailure{DiagnosticLogger.log(getApplication<Application>(),"CHARACTER_PANEL_LEGACY_REFRESH_FAILED",it)}
+            .getOrDefault(CharacterPanelSnapshot.unresolved())
         _characterPanelV2.value = runCatching{
             store.fullCharacterPanelV2(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
         }.onFailure{DiagnosticLogger.log(getApplication<Application>(),"CHARACTER_PANEL_V2_REFRESH_FAILED",it)}.getOrNull()
         _time.value = store.time()
         _chronicle.value = store.chronicle()
-        _worldPacks.value = store.packageManager().listWorldPacks()
-        _campaigns.value = store.packageManager().listCampaigns()
-        _backups.value = store.backups()
         _snapshots.value = runCatching{store.snapshots()}.getOrDefault(emptyList())
         _npcs.value = store.npcs("",playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
         _relationEdges.value = store.relationEdges(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
@@ -342,8 +425,15 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         _worldEvents.value = store.activeWorldEvents(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
         _techniques.value = store.techniqueBrowser()
         _missions.value = store.missionBrowser()
-        _activeCampaign.value = store.activeCampaignDirName()
-        _activeWorldPack.value = store.activeWorldPackDirName()
+    }
+
+    private fun refreshLaunchState(){
+        _hasActivePlayer.value=store.activePlayerRef()!=null
+        _worldPacks.value=store.packageManager().listWorldPacks()
+        _campaigns.value=store.packageManager().listCampaigns()
+        _backups.value=store.backups()
+        _activeCampaign.value=store.activeCampaignDirName()
+        _activeWorldPack.value=store.activeWorldPackDirName()
     }
 
     fun saveSettings(newSettings: RpgOsSettings) {
@@ -353,6 +443,10 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun assignAiRole(role:AiRole,selection:AiModelSelection?){
+        if(AiProviderExtensionRegistry.assign(role,selection)){
+            _aiProviderCenter.value=withExtensionModels(_aiProviderCenter.value)
+            return
+        }
         val assignment=if(selection==null)AiRoleAssignment(role) else AiRoleAssignment(role,AiAssignmentKind.PINNED,selection)
         val ai=when(role){
             AiRole.GAME_MASTER->_settings.value.ai.copy(gameMaster=assignment)
@@ -381,12 +475,12 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
             gameMaster=migrate(current.gameMaster),director=migrate(current.director),localModelSettings=settings
         )
         persistAi(updated)
-        val cloud=_aiProviderCenter.value.modelOptions.filter{it.providerKind==AiProviderKind.CLOUD}
+        val cloud=_aiProviderCenter.value.modelOptions.filter{it.selection.providerUid=="OPENROUTER"}
         val rebuilt=providerCenterApplication.initialState(updated)
-        _aiProviderCenter.value=rebuilt.copy(
+        _aiProviderCenter.value=withExtensionModels(rebuilt.copy(
             openRouterStatus=_aiProviderCenter.value.openRouterStatus,
             modelOptions=rebuilt.modelOptions+cloud
-        )
+        ))
     }
 
     fun resetLocalAiSettings(){updateLocalAiSettings(LocalRecommendedSettings.forProfile(_aiProviderCenter.value.localProfile))}
@@ -457,7 +551,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun disconnectOpenRouter(){
         _aiProviderCenter.value=_aiProviderCenter.value.copy(
-            openRouterStatus=providerCenterApplication.disconnectOpenRouter(),modelOptions=_aiProviderCenter.value.modelOptions.filterNot{it.providerKind==AiProviderKind.CLOUD}
+            openRouterStatus=providerCenterApplication.disconnectOpenRouter(),modelOptions=_aiProviderCenter.value.modelOptions.filterNot{it.selection.providerUid=="OPENROUTER"}
         )
         val ai=_settings.value.ai
         persistAi(ai.copy(
@@ -476,7 +570,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun applyOpenRouterConnection(connection:OpenRouterConnectionResult){
         val result=connection.status
-        val local=_aiProviderCenter.value.modelOptions.filterNot{it.providerKind==AiProviderKind.CLOUD}
+        val local=_aiProviderCenter.value.modelOptions.filterNot{it.selection.providerUid=="OPENROUTER"}
         _aiProviderCenter.value=_aiProviderCenter.value.copy(
             openRouterStatus=result,modelOptions=local+connection.models.sortedBy{it.displayName}.map{
                 AiModelOptionUi(AiModelSelection(it.providerUid,it.modelUid),it.displayName,AiProviderKind.CLOUD,AiAvailabilityState.READY,"OPENROUTER_CONNECTED")
@@ -490,7 +584,11 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun persistAi(ai:AiSystemConfiguration){
         val updated=_settings.value.copy(ai=ai);appSettings.save(updated);_settings.value=updated
-        _aiProviderCenter.value=_aiProviderCenter.value.copy(gameMasterAssignment=ai.gameMaster,directorAssignment=ai.director,privacy=ai.privacy,localSettings=ai.localModelSettings?:_aiProviderCenter.value.localSettings)
+        val effective=effectiveAiConfiguration()
+        _aiProviderCenter.value=withExtensionModels(_aiProviderCenter.value.copy(
+            gameMasterAssignment=effective.gameMaster,directorAssignment=effective.director,privacy=effective.privacy,
+            localSettings=ai.localModelSettings?:_aiProviderCenter.value.localSettings
+        ))
     }
 
     fun generateSceneImage(contextApp: android.content.Context, title: String, scenePrompt: String) {
@@ -822,13 +920,21 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     fun activateCampaign(dirName: String) {
         if(_campaignManagementUi.value.inProgressCampaignDir!=null)return
         val previousCampaign=store.activeCampaignDirName()
+        val alreadyActive=dirName==previousCampaign
         _campaignManagementUi.value=CampaignManagementUiState(inProgressCampaignDir=dirName)
         viewModelScope.launch{
             try{
-                withContext(Dispatchers.IO){store.setActiveCampaign(dirName)}
-                semanticApplication.onCampaignOpened()
-                refresh()
-                resetConversationForActiveCampaign(dirName)
+                withContext(Dispatchers.IO){
+                    // Application startup has already prepared the selected campaign. Repeating
+                    // setActiveCampaign() for the active card reran every schema, definition and
+                    // runtime bootstrap before merely opening the play screen.
+                    if(!alreadyActive){
+                        store.setActiveCampaign(dirName)
+                        semanticApplication.onCampaignOpened()
+                        refresh()
+                    }
+                    resetConversationForActiveCampaign(dirName)
+                }
                 _campaignManagementUi.value=CampaignManagementUiState(
                     activatedCampaignDir=dirName,
                     notice="Kampania jest gotowa do kontynuowania."
@@ -871,9 +977,13 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val dir=withContext(Dispatchers.IO){
                     val created=store.createCampaign(clean)
-                    store.setActiveCampaign(created.name)
+                    // createCampaign() atomically activates the clone and prepares its runtime.
+                    // Re-selecting it here repeated the full schema/definition bootstrap and made
+                    // campaign creation take minutes on slower devices and emulators.
                     semanticApplication.onCampaignOpened()
-                    refresh()
+                    // The setup route only needs navigation data. Heavy campaign dashboards are
+                    // hydrated after character creation or another explicit gameplay operation.
+                    refreshLaunchState()
                     created
                 }
                 resetConversationForActiveCampaign(dir.name)
@@ -1038,13 +1148,28 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                 DiagnosticLogger.log(app, "SEND_START", message = "request=$requestUid")
                 if(repository.activePlayerRef()==null){
                     _chatTurnUi.value=_chatTurnUi.value.copy(stage=ChatTurnUiStage.GENERATING_PROPOSAL,statusText="Mistrz Gry pomaga stworzyć postać…")
-                    when(val creation=withContext(Dispatchers.IO){characterCreationApplication.play(text,cancellation)}){
+                    when(val creation=withContext(Dispatchers.IO){characterCreationApplication.play(
+                        text,cancellation,_characterDraftUi.value.lockedSections
+                    )}){
                         is CharacterCreationApplicationOutcome.Question->{
                             _messages.value+=ChatMessage("gm",creation.text)
                             _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.CLARIFICATION,requestUid,"Tworzenie postaci — czekam na Twój wybór")
                         }
                         is CharacterCreationApplicationOutcome.AwaitingExplicitConfirmation->{
                             pendingCharacterCreationUid=creation.creationUid
+                            val labels=withContext(Dispatchers.IO){runCatching{
+                                buildMap{
+                                    repository.characterCreationCatalog().options.forEach{option->
+                                        putIfAbsent(option.definitionUid,option.displayName)
+                                        put("${option.definitionUid}|${option.dimensionUid.orEmpty()}",option.displayName)
+                                    }
+                                }
+                            }.getOrDefault(emptyMap())}
+                            _characterDraftUi.value=_characterDraftUi.value.copy(
+                                draft=characterCreationApplication.pendingDraft(),
+                                definitionLabels=labels,
+                                revision=_characterDraftUi.value.revision+1
+                            )
                             _messages.value+=ChatMessage("gm",creation.summary)
                             _messages.value+=ChatMessage("system","Sprawdź podsumowanie. Postać nie została jeszcze zapisana — użyj przycisku „Potwierdź postać”.")
                             _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.CLARIFICATION,requestUid,"Projekt postaci czeka na Twoje potwierdzenie",canConfirmCharacterCreation=true)
@@ -1108,6 +1233,21 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun cancelCurrentAiTurn(){activeAiCancellation?.cancel()}
 
+    fun toggleCharacterDraftLock(section:CharacterCreationDraftSection){
+        val current=_characterDraftUi.value
+        if(current.draft==null)return
+        val next=if(section in current.lockedSections)current.lockedSections-section else current.lockedSections+section
+        _characterDraftUi.value=current.copy(lockedSections=next)
+    }
+
+    fun randomizeCharacterDraft(hint:String=""){
+        val instruction=buildString{
+            hint.trim().takeIf{it.isNotEmpty()}?.let{append(it).append(' ')}
+            append(if(_characterDraftUi.value.draft==null)"Wylosuj dla mnie całą legalną postać." else "Przerzuć wszystkie odblokowane elementy postaci.")
+        }
+        send(instruction)
+    }
+
     fun confirmCharacterCreation(){
         val creationUid=pendingCharacterCreationUid?:return
         if(activeAiCancellation!=null)return
@@ -1117,6 +1257,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
             when(val outcome=withContext(Dispatchers.IO){characterCreationApplication.confirm(creationUid,actionUid)}){
                 is CharacterCreationApplicationOutcome.Created->{
                     pendingCharacterCreationUid=null
+                    _characterDraftUi.value=CharacterDraftUiState()
                     _messages.value+=ChatMessage("system","Postać ${outcome.receipt.playerUid} została utworzona i jest gotowa do gry.")
                     _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.COMPLETED,actionUid,"Postać utworzona")
                     refresh()

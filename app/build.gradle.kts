@@ -12,8 +12,8 @@ android {
         applicationId = "com.rpgos.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 156
-        versionName = "1.3.0-alpha16-core54-bekko"
+        versionCode = 157
+        versionName = "1.3.0-alpha17-core54-bekko"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "RPGOS_BACKEND_URL", "\"https://YOUR-BACKEND.example\"")
         buildConfigField(
@@ -64,6 +64,12 @@ android {
     }
 
     buildTypes {
+        create("labDebug") {
+            initWith(getByName("debug"))
+            matchingFallbacks += listOf("debug")
+            versionNameSuffix = "-lab"
+            isDebuggable = true
+        }
         getByName("release") {
             isMinifyEnabled = false
             signingConfig = signingConfigs.getByName("release")
@@ -74,6 +80,14 @@ android {
         compose = true
         buildConfig = true
         aidl = true
+    }
+
+    // Keep Android bytecode stable even when a newer Android Studio JBR runs Gradle.
+    // Robolectric and the supported device range consume Java 17 class files; allowing
+    // the host JDK to select the target made local and CI builds environment-dependent.
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     externalNativeBuild {
@@ -101,6 +115,20 @@ android {
     }
 }
 
+androidComponents {
+    beforeVariants(selector().withBuildType("labDebug")) { variantBuilder ->
+        // Custom build types do not receive a host-test component by default in AGP 9.
+        // Stage-3 bridge tests must compile against lab-only sources without leaking them into release.
+        (variantBuilder as com.android.build.api.variant.HasUnitTestBuilder).enableUnitTest = true
+    }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.13.0")
@@ -118,7 +146,11 @@ dependencies {
     implementation("org.pytorch:executorch-android:1.3.0")
 
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.robolectric:robolectric:4.14.1")
+    // Lab bridge contract tests exercise JSON codecs without an Android runtime.
+    // Use the real JVM implementation so these tests do not depend on Robolectric's
+    // emulated SDK classpath.
+    testImplementation("org.json:json:20250517")
+    testImplementation("org.robolectric:robolectric:4.16.1")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
 

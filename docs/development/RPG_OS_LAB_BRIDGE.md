@@ -165,7 +165,7 @@ Odpowiedź:
 | Rodzaj | Komendy |
 |---|---|
 | Production path | `SUBMIT_PLAYER_ACTION`, `RUN_ACTION_SEQUENCE`, `RUN_COMBAT_SCENARIO`, `SUBMIT_CHARACTER_CREATION`, `CONFIRM_CHARACTER_CREATION`, `RECOVER_PENDING_NARRATION` |
-| Stan bazowy | `HEALTH`, `GET_CAPABILITIES`, `LIST_CAMPAIGNS`, `GET_ACTIVE_STATE`, `GET_CHARACTER_STATE`, `GET_CONTEXT_BUNDLE`, `GET_TURN_STATE` |
+| Stan bazowy | `HEALTH`, `GET_CAPABILITIES`, `LIST_CAMPAIGNS`, `GET_ACTIVE_STATE`, `GET_CHARACTER_STATE`, `GET_MECHANICAL_STATE`, `GET_CONTEXT_BUNDLE`, `GET_TURN_STATE` |
 | Commit/pipeline | `GET_PIPELINE_SNAPSHOT`, `GET_LAST_COMMIT`, `GET_CANONICAL_FINGERPRINT`, `GET_COMMIT_STATE`, `GET_RECOVERY_STATE` |
 | AI/runtime | `GET_AI_STATE`, `GET_RUNTIME_STATE`, `GET_AI_TRACE`, `GET_LAST_AI_EXCHANGE`, `GET_LAST_TURN`, `GET_LAST_SCENARIO`, `GET_LAST_FAILURE` |
 | Bekko/Director | `SEARCH_BEKKO`, `GET_DIRECTOR_STATE`, `GET_DIRECTOR_JOBS`, `GET_DIRECTOR_CANDIDATES`, `GET_DIRECTOR_GUIDANCE` |
@@ -240,11 +240,18 @@ Zmiana wybranych części draftu może użyć `locked_sections`; wartości musz�
 .\tools\rpgos-lab.ps1 SUBMIT_PLAYER_ACTION '{"text":"Idę na poranne zajęcia w Akademii."}' -Serial $serial -TimeoutSeconds 900
 
 .\tools\rpgos-lab.ps1 RUN_ACTION_SEQUENCE `
-  '{"scenario_uid":"academy-smoke","actions":["Rozglądam się.","Idę na zajęcia.","Rozmawiam z nauczycielem."],"stop_on_non_narrated":true}' `
+  '{"scenario_uid":"academy-smoke","actions":["Rozglądam się.","Idę na zajęcia.","Rozmawiam z nauczycielem."],"stop_on_non_narrated":true,"result_detail":"FULL"}' `
   -Serial $serial -TimeoutSeconds 1800
 ```
 
-Każdy krok sekwencji przechodzi przez `ChatApplicationPort`. `stop_on_non_narrated=true` zatrzymuje test na pierwszej regresji i zachowuje wynik.
+Każdy krok sekwencji przechodzi przez `ChatApplicationPort`. `stop_on_non_narrated=true` zatrzymuje test na pierwszej regresji i zachowuje wynik. Przy długim przebiegu `result_detail="COMPACT"` zachowuje wynik, czasy, numery commitów i fingerprinty każdego kroku bez zwracania stu pełnych narracji i receiptów w jednej odpowiedzi.
+
+Długie testy wytrzymałościowe mogą uruchomić host z `-ExecutionProfile STRESS`. Profil nie omija żadnej warstwy aplikacji: nadal używa prawdziwych kolejek, schematów, walidatorów, Core, commitu i narracji, lecz ustawia niski poziom rozumowania Codexa. Wynik takiego testu potwierdza stabilność przepływu, ale nie zastępuje krótszego testu jakości na domyślnym profilu `QUALITY`.
+
+```powershell
+.\tools\rpgos-codex-host.ps1 -Mode Stop -Serial $serial
+.\tools\rpgos-codex-host.ps1 -Mode Start -Serial $serial -ExecutionProfile STRESS
+```
 
 ### 8.4 Bekko
 
@@ -338,6 +345,20 @@ Minimalna weryfikacja zmian Bridge'a:
 7. `processReleaseMainManifest` i inspekcja potwierdzająca brak `RpgOsLab`, `LabCodex`, `LabDiagnostics`, `LAB_CODEX` i socketu Bridge'a w release.
 
 Nie wolno oznaczać Etapu 3 jako ukończonego tylko dlatego, że host odpowiada. Bramka obejmuje także poprawność Core, brak utraty commitu, brak niejawnego fallbacku, poprawne schematy, restart oraz test dłuższej gry.
+
+### 10.1 Lokalny rekord acceptance — Motorola / Android 14
+
+Na fizycznej Motoroli Edge 30 Neo wykonano pełną ścieżkę Stage 3 przez prawdziwy `ChatApplicationPort`:
+
+- utworzenie kampanii i postaci, 10 tur jakościowych oraz mechanika bez fałszywego obrażenia;
+- automatyczny `LAB_CODEX` jako MG i Director, w tym użycie zaakceptowanej guidance przez późniejszy `GM_PROPOSAL`;
+- 100 canonical tur od order 14 do 114; harness zatrzymał się na dwóch findingach, po ich naprawie powtórzono dokładne akcje i wznowiono przebieg aż do celu;
+- 12/12 zaakceptowanych pakietów Directora, ostatni przy order 110;
+- save, force-stop, restart i continue z identycznym order 114 oraz identycznymi semantic/result fingerprintami;
+- audience-scoped Bekko search po 100 turach oraz przełączenie dwóch kampanii podczas aktywnego indeksowania;
+- brak pending recovery i brak ponownego commitu po restarcie.
+
+Test ujawnił i zamknął real-device finding: worker Bekko mógł wcześniej zakończyć proces aplikacji nieobsłużonym `SQLITE_SCHEMA` podczas zmiany kampanii. Koordynator jest per-campaign, kontroluje zmianę aktywnego UID i zamienia każdy błąd indeksu w typed fallback. Ten rekord potwierdza lokalne acceptance, ale publikacja nadal wymaga pełnego testu końcowego, inspekcji release APK oraz exact-SHA CI.
 
 ## 11. Relacja do pozostałych dokumentów
 

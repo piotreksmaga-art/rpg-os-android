@@ -37,12 +37,29 @@ class CampaignTruthStore(
             "Nieprawidłowy CampaignTruthRecord: ${CampaignTruthPolicy.validate(record).joinToString()}"
         }
 
-        tx {
+        return tx {
+            val existing = truthByUid(record.truthUid)
+            if (existing != null) {
+                require(existing.sameCanonicalIdentityAs(record)) {
+                    "RPGOS-TRUTH:UID_COLLISION:${record.truthUid}:" +
+                        "${existing.campaignId}:${existing.kind}:${existing.subjectUid}:${existing.predicate}"
+                }
+                // Deterministic materializers may encounter the same already-canonical world
+                // fact in a later command.  That is an idempotent no-op, not a second fact and
+                // not permission to overwrite its original provenance.  A UID whose canonical
+                // payload differs still fails closed above.
+                return@tx existing
+            }
+            var supersededWorldSubjectUid:String?=null
             if (!supersedesTruthUid.isNullOrBlank()) {
                 val oldCampaign = campaignForTruth(supersedesTruthUid)
                 require(oldCampaign == null || oldCampaign == campaignId) {
                     "Nie można supersede truth record z innej kampanii."
                 }
+                supersededWorldSubjectUid=db.rawQuery(
+                    "SELECT subject_uid FROM campaign_truth_records WHERE truth_uid=? AND campaign_id=? AND truth_kind='FACT' AND predicate LIKE 'RPGOS-WORLD:%' LIMIT 1",
+                    arrayOf(supersedesTruthUid,campaignId)
+                ).use{cursor->if(cursor.moveToFirst()&&!cursor.isNull(0))cursor.getString(0) else null}
                 db.execSQL(
                     "UPDATE campaign_truth_records SET active=0 WHERE truth_uid=? AND campaign_id=?",
                     arrayOf(supersedesTruthUid, campaignId)
@@ -73,8 +90,14 @@ class CampaignTruthStore(
                 put("active", if (record.active) 1 else 0)
             }
             db.insertOrThrow("campaign_truth_records", null, values)
+            if(record.kind==TruthKind.FACT&&record.subjectUid!=null&&record.predicate in CampaignWorldFacts.ALL){
+                CampaignWorldProjectionStore(db,campaignId).refreshSubject(record.subjectUid)
+            }
+            if(supersededWorldSubjectUid!=null&&supersededWorldSubjectUid!=record.subjectUid){
+                CampaignWorldProjectionStore(db,campaignId).refreshSubject(supersededWorldSubjectUid!!)
+            }
+            record
         }
-        return record
     }
 
     fun active(
@@ -109,33 +132,7 @@ class CampaignTruthStore(
         ).use { cursor ->
             buildList {
                 while (cursor.moveToNext()) {
-                    add(
-                        CampaignTruthRecord(
-                            truthUid = cursor.getString(0),
-                            campaignId = cursor.getString(1),
-                            kind = TruthKind.valueOf(cursor.getString(2)),
-                            subjectUid = cursor.getStringOrNull(3),
-                            predicate = cursor.getString(4),
-                            objectValue = cursor.getStringOrNull(5),
-                            perspectiveUid = cursor.getStringOrNull(6),
-                            narrativeText = cursor.getStringOrNull(7),
-                            provenance = Provenance(
-                                sourceType = ProvenanceSourceType.valueOf(cursor.getString(8)),
-                                sourceId = cursor.getStringOrNull(9),
-                                createdTurn = if (cursor.isNull(10)) null else cursor.getLong(10),
-                                createdEvent = cursor.getStringOrNull(11),
-                                confidence = cursor.getDouble(12),
-                                canonStatus = cursor.getStringOrNull(13),
-                                verified = cursor.getInt(14) != 0,
-                                actorUid = cursor.getStringOrNull(15),
-                                method = cursor.getStringOrNull(16),
-                                engineVersion = cursor.getStringOrNull(17)
-                            ),
-                            createdAt = cursor.getLong(18),
-                            supersedesTruthUid = cursor.getStringOrNull(19),
-                            active = cursor.getInt(20) != 0
-                        )
-                    )
+                    add(cursor.toTruthRecord())
                 }
             }
         }
@@ -169,6 +166,26 @@ class CampaignTruthStore(
             arrayOf(truthUid)
         ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
 
+    private fun truthByUid(truthUid: String): CampaignTruthRecord? =
+        db.rawQuery(
+            "SELECT truth_uid,campaign_id,truth_kind,subject_uid,predicate,object_value," +
+                "perspective_uid,narrative_text,source_type,source_id,created_turn,created_event," +
+                "confidence,canon_status,verified,actor_uid,method,engine_version,created_at," +
+                "supersedes_truth_uid,active FROM campaign_truth_records WHERE truth_uid=? LIMIT 1",
+            arrayOf(truthUid)
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.toTruthRecord() else null }
+
+    private fun CampaignTruthRecord.sameCanonicalIdentityAs(other: CampaignTruthRecord): Boolean =
+        campaignId == other.campaignId &&
+            kind == other.kind &&
+            subjectUid == other.subjectUid &&
+            predicate == other.predicate &&
+            objectValue == other.objectValue &&
+            perspectiveUid == other.perspectiveUid &&
+            narrativeText == other.narrativeText &&
+            supersedesTruthUid == other.supersedesTruthUid &&
+            active == other.active
+
     private fun <T> tx(block: () -> T): T {
         if (db.inTransaction()) return block()
         db.beginTransaction()
@@ -183,4 +200,30 @@ class CampaignTruthStore(
 
     private fun android.database.Cursor.getStringOrNull(index: Int): String? =
         if (isNull(index)) null else getString(index)
+
+    private fun android.database.Cursor.toTruthRecord(): CampaignTruthRecord = CampaignTruthRecord(
+        truthUid = getString(0),
+        campaignId = getString(1),
+        kind = TruthKind.valueOf(getString(2)),
+        subjectUid = getStringOrNull(3),
+        predicate = getString(4),
+        objectValue = getStringOrNull(5),
+        perspectiveUid = getStringOrNull(6),
+        narrativeText = getStringOrNull(7),
+        provenance = Provenance(
+            sourceType = ProvenanceSourceType.valueOf(getString(8)),
+            sourceId = getStringOrNull(9),
+            createdTurn = if (isNull(10)) null else getLong(10),
+            createdEvent = getStringOrNull(11),
+            confidence = getDouble(12),
+            canonStatus = getStringOrNull(13),
+            verified = getInt(14) != 0,
+            actorUid = getStringOrNull(15),
+            method = getStringOrNull(16),
+            engineVersion = getStringOrNull(17)
+        ),
+        createdAt = getLong(18),
+        supersedesTruthUid = getStringOrNull(19),
+        active = getInt(20) != 0
+    )
 }

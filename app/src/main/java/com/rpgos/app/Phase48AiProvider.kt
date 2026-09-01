@@ -58,10 +58,12 @@ data class AiGmProposalRequest(
     val requestUid:String,
     val plan:CanonicalTurnPlan,
     val context:BudgetedCanonicalContext,
+    val strategicGuidance:DirectorGuidanceEnvelope?=null,
     val proposalSchemaVersion:Int=1
 ){init{
     require(requestUid.isNotBlank()&&proposalSchemaVersion>0)
     require(context.candidate.plan.planUid==plan.planUid&&context.safeForAi){"RPGOS-P48:UNSAFE_CONTEXT"}
+    strategicGuidance?.let{require(it.campaignUid==plan.campaignUid){"RPGOS-P48:DIRECTOR_GUIDANCE_CROSS_CAMPAIGN"}}
 }}
 
 data class AiRepairRequest(
@@ -75,12 +77,28 @@ data class AiRepairRequest(
 data class AiNarrativeRequest(
     val requestUid:String,
     val context:CommittedNarrationContext,
-    val localeUid:String
+    val localeUid:String,
+    /** The player's own committed turn input. It is presentation evidence, never new volition. */
+    val playerInput:String?=null,
+    /** Player-visible, Phase44/45-authorized context that was actually admitted for this turn. */
+    val authorizedContext:List<NarrativeAuthorizedContext> = emptyList()
 ){init{
     require(requestUid.isNotBlank()&&context.campaignUid.isNotBlank()&&localeUid.isNotBlank()&&context.committedOrder>0)
+    require(playerInput?.isBlank()!=true)
+    require(authorizedContext.map{it.recordUid}.distinct().size==authorizedContext.size)
 }
     val campaignUid:String get()=context.campaignUid
 }
+
+data class NarrativeAuthorizedContext(
+    val recordUid:String,
+    val recordKindUid:String,
+    val epistemicStateUid:String,
+    val projectedText:String
+){init{
+    require(listOf(recordUid,recordKindUid,epistemicStateUid,projectedText).none{it.isBlank()})
+    require(projectedText.length<=2_048)
+}}
 
 data class RenderedNarrative(
     val text:String,
@@ -147,14 +165,19 @@ class AiTransportException(val reasonUid:String,val retryable:Boolean=false,caus
 interface AiStructuredCodec{
     fun encodeIntent(request:AiIntentRequest):String
     fun decodeIntent(payload:String):IntentDocument
+    fun decodeIntent(payload:String,request:AiIntentRequest):IntentDocument=decodeIntent(payload)
     fun encodeProposal(request:AiGmProposalRequest):String
     fun decodeProposal(payload:String):GmProposalCandidate
+    fun decodeProposal(payload:String,request:AiGmProposalRequest):GmProposalCandidate=decodeProposal(payload)
     fun encodeRepair(request:AiRepairRequest):String
     fun encodeNarrative(request:AiNarrativeRequest):String
     fun encodeNarrativeRepair(request:AiNarrativeRepairRequest):String
     fun decodeNarrative(payload:String):RenderedNarrative
+    fun decodeNarrative(payload:String,request:AiNarrativeRequest):RenderedNarrative=decodeNarrative(payload)
     fun encodeCharacterCreation(request:AiCharacterCreationRequest):String = throw IllegalArgumentException("CHARACTER_CREATION_CODEC_UNSUPPORTED")
     fun decodeCharacterCreation(payload:String):CharacterCreationGmCandidate = throw IllegalArgumentException("CHARACTER_CREATION_CODEC_UNSUPPORTED")
+    fun decodeCharacterCreation(payload:String,request:AiCharacterCreationRequest):CharacterCreationGmCandidate=
+        decodeCharacterCreation(payload)
     fun encodeDirector(request:AiDirectorRequest):String
     fun decodeDirector(payload:String):DirectorBundle
 }
@@ -170,25 +193,32 @@ class TransportAiProviderAdapter(
     init{require(maximumOutputUnits>0)}
 
     override fun interpret(request:AiIntentRequest,cancellation:AiCancellationSignal)=call(
-        request.requestUid,AiWorkload.INTENT_INTERPRETATION,request.schemaVersion,codec.encodeIntent(request),cancellation,codec::decodeIntent
+        request.requestUid,AiWorkload.INTENT_INTERPRETATION,request.schemaVersion,codec.encodeIntent(request),cancellation,
+        {payload->codec.decodeIntent(payload,request)}
     )
     override fun propose(request:AiGmProposalRequest,cancellation:AiCancellationSignal)=call(
-        request.requestUid,AiWorkload.GM_PROPOSAL,request.proposalSchemaVersion,codec.encodeProposal(request),cancellation,codec::decodeProposal
+        request.requestUid,AiWorkload.GM_PROPOSAL,request.proposalSchemaVersion,codec.encodeProposal(request),cancellation,
+        {payload->codec.decodeProposal(payload,request).copy(providerUid=capabilities.providerUid,modelUid=capabilities.modelUid)}
     )
     override fun repair(request:AiRepairRequest,cancellation:AiCancellationSignal)=call(
-        request.requestUid,AiWorkload.PROPOSAL_REPAIR,request.original.proposalSchemaVersion,codec.encodeRepair(request),cancellation,codec::decodeProposal
+        request.requestUid,AiWorkload.PROPOSAL_REPAIR,request.original.proposalSchemaVersion,codec.encodeRepair(request),cancellation,
+        {payload->codec.decodeProposal(payload,request.original).copy(providerUid=capabilities.providerUid,modelUid=capabilities.modelUid)}
     )
     override fun renderNarrative(request:AiNarrativeRequest,cancellation:AiCancellationSignal)=call(
-        request.requestUid,AiWorkload.NARRATIVE_RENDER,1,codec.encodeNarrative(request),cancellation,codec::decodeNarrative
+        request.requestUid,AiWorkload.NARRATIVE_RENDER,1,codec.encodeNarrative(request),cancellation,
+        {payload->codec.decodeNarrative(payload,request)}
     )
     override fun repairNarrative(request:AiNarrativeRepairRequest,cancellation:AiCancellationSignal)=call(
-        request.requestUid,AiWorkload.NARRATIVE_REPAIR,1,codec.encodeNarrativeRepair(request),cancellation,codec::decodeNarrative
+        request.requestUid,AiWorkload.NARRATIVE_REPAIR,1,codec.encodeNarrativeRepair(request),cancellation,
+        {payload->codec.decodeNarrative(payload,request.original)}
     )
     override fun guideCharacterCreation(request:AiCharacterCreationRequest,cancellation:AiCancellationSignal)=call(
-        request.requestUid,AiWorkload.CHARACTER_CREATION,1,codec.encodeCharacterCreation(request),cancellation,codec::decodeCharacterCreation
+        request.requestUid,AiWorkload.CHARACTER_CREATION,1,codec.encodeCharacterCreation(request),cancellation,
+        {payload->codec.decodeCharacterCreation(payload,request)}
     )
     override fun generateDirector(request:AiDirectorRequest,cancellation:AiCancellationSignal)=call(
-        request.requestUid,AiWorkload.DIRECTOR_STRATEGY,DIRECTOR_BUNDLE_SCHEMA_VERSION,codec.encodeDirector(request),cancellation,codec::decodeDirector
+        request.requestUid,AiWorkload.DIRECTOR_STRATEGY,DIRECTOR_BUNDLE_SCHEMA_VERSION,codec.encodeDirector(request),cancellation,
+        {payload->codec.decodeDirector(payload).copy(providerUid=capabilities.providerUid,modelUid=capabilities.modelUid)}
     )
     override fun cancel(requestUid:String){require(requestUid.isNotBlank());cancellationHook(requestUid)}
 
@@ -203,7 +233,7 @@ class TransportAiProviderAdapter(
         return try{
             val decoded=decode(response.value.structuredPayload)
             AiProviderResult.Success(decoded,capabilities.providerUid,capabilities.modelUid,response.value.traceUid)
-        }catch(_:IllegalArgumentException){
+        }catch(_:RuntimeException){
             AiProviderResult.Failure(AiProviderFailureKind.INVALID_STRUCTURED_OUTPUT,"STRUCTURED_OUTPUT_DECODE_REJECTED")
         }
     }

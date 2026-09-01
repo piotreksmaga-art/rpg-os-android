@@ -2,9 +2,11 @@
 
 Status: **TARGETED ACCEPTANCE REPAIR IMPLEMENTED / LOCAL ACCEPTANCE GREEN / EXACT-SHA CI PENDING**
 
-Branch: `codex/phase-48-54-repair`
+Branch: `codex/bekko-bielik-emulator-fix`
 
-Base master SHA: `0ea25f1abb4b9e7639058df5c48466e4f5f3d70e`
+Base master SHA: `8ac8ce50549b96198b85e55f375a32dde886dd79`
+
+Final code-bearing SHA jest rejestrowany po merge przez exact-SHA CI i immutable release provenance; dokument źródłowy nie deklaruje własnego przyszłego SHA.
 
 Authoritative input: `CODEX_PLAN_POPRAWKI_48-54.md`. `poprawki_48-54.md` was reference material. The older `PHASE48_54_VERTICAL_SLICE_ACCEPTANCE.md` remains historical evidence only.
 
@@ -116,13 +118,19 @@ The APK contains the ARM64 llama.cpp runtime and Vulkan shaders but not user-sel
 - same-campaign concurrent identical turn: `GREEN`; exactly one canonical commit and one replay, without SQLite busy leakage;
 - Phase54 process-restart recovery: `GREEN`; persisted delivery preserves claims and recovery proves zero repeat assembler/commit calls;
 - targeted snapshot retention, campaign isolation and production restart paths: `GREEN` locally;
-- unchanged legacy SQLite authority/concurrency suites: post-repair exact revalidation remains assigned to Linux CI; the Windows legacy Robolectric backend cannot register the required connection-local scalar guards, while Windows Defender blocks Robolectric's native test DLL;
+- pełny finalny zestaw JVM/Robolectric po wszystkich poprawkach: `GREEN` — `1261/0/0`, bez pominiętych testów;
 - local Android debug compilation: `GREEN` as part of focused Gradle runs;
 - Android API 36 x86_64 emulator with the complete Bielik 1.5B PTE/tokenizer: `GREEN` for install, campaign resume, isolated model load, 1549-token real Naruto character-creation prompt and typed `Q` continuation in the UI; the small-model adapter bounds output inside CTX2048, stops at the first complete JSON and may recover only a malformed non-mutating question while every malformed `R` draft remains fail-closed;
-- controlled production composition root: `GREEN` for 100 consecutive narrated/committed turns, strictly increasing receipt order and final canonical position readback, plus independent multi-action/combat/restart coverage;
+- fizyczna Motorola Edge 30 Neo / Android 14, `labDebug` Bridge Stage 3 + `LAB_CODEX`: `GREEN` dla rzeczywistego utworzenia kampanii i postaci, 10 tur jakościowych, zaakceptowanego Directora i późniejszego użycia guidance, mechaniki bez fałszywego obrażenia, a następnie 100 canonical tur od order 14 do 114 przez prawdziwy `ChatApplicationPort`; harness zatrzymał się na dwóch rzeczywistych findingach, po poprawkach powtórzono dokładne akcje i wznowiono sekwencję do celu. Finalne fingerprinty to semantic `912d9ba9816b98da71716c200d30f6b26eec6b0bb629c22d45a4d7adc343aef8` i result `51edbc5929ad5d3e97760e96459f31acc4ee231d70e5b5c4cb3359cbc974353c`;
+- restart po setnej turze: `GREEN`; campaign/player/order oraz oba fingerprinty wróciły bez pending recovery, ponownego planowania, mechaniki lub commitu;
+- Director w tym przebiegu: `12/12` zaakceptowanych pakietów, ostatni przy order 110; osobna kolejka Directora nie blokowała MG;
+- Bekko na tym samym urządzeniu: audience-scoped search po 100 turach zwrócił trzy rekordy treningowe; szybkie przełączenie `Test_Motorola_2 -> Akceptacja_faz_48_54_v2` podczas pracy indeksu zachowało oba zapisy i proces aplikacji;
+- real-device finding zamknięty w kandydacie: asynchroniczny worker Bekko mógł wcześniej wyrzucić nieobsłużony `SQLITE_SCHEMA` podczas zmiany kampanii. Koordynator jest teraz związany z jednym campaign UID, anuluje pracę przy zmianie i zamienia każdy błąd rebuildable cache na typed fallback zamiast kończyć proces;
 - Windows snapshot staging paths and campaign-isolated payload names were shortened, closing the SQLite long-path failure in Robolectric without weakening snapshot identity, digest or catalog authority;
 - Linux exact-SHA full JVM, signed release APK, signature/digest and immutable provenance: pending final push/CI;
-- complete Bielik 1.5B mobile weights/package and host-side ExecuTorch load: `GREEN`; pierwsza próba na fizycznym Samsungu ujawniła native-process crash podczas inferencji. Od alpha14 ExecuTorch działa w prywatnym procesie `:local_ai`, więc awaria runtime nie zamyka UI ani nie dotyka canonical state; zgodność samego PTE/runtime nadal pozostaje `PENDING_EXTERNAL_DEPENDENCY` do ponownego testu urządzenia. Live OpenRouter używa system-first, szyfrowanego DNS fallbacku ograniczonego do `openrouter.ai` po potwierdzonym `UnknownHostException` resolvera Androida.
+- complete Bielik 1.5B mobile weights/package and host-side ExecuTorch load: `GREEN`; pierwsza próba na fizycznym Samsungu ujawniła native-process crash podczas inferencji. Od alpha14 ExecuTorch działa w prywatnym procesie `:local_ai`, więc awaria runtime nie zamyka UI ani nie dotyka canonical state; zgodność samego PTE/runtime nadal pozostaje `PENDING_EXTERNAL_DEPENDENCY` do ponownego testu na reprezentatywnych klasach urządzeń. Live OpenRouter używa system-first, szyfrowanego DNS fallbacku ograniczonego do `openrouter.ai` po potwierdzonym `UnknownHostException` resolvera Androida.
+
+Motorola jest dowodem zgodności jednego fizycznego urządzenia, nie docelowym ograniczeniem produktu. RPG OS pozostaje uniwersalną aplikacją Android; wydajność, termika, pamięć i backendy lokalnego AI są akceptowane macierzą reprezentatywnych urządzeń. Historyczne pomiary Galaxy S24 są punktem odniesienia, a nie jedyną bramką.
 
 ## Merge rule
 

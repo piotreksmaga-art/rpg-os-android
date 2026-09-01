@@ -1,0 +1,13 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".LabDiagnosticsActivity"
+            android:exported="false"
+            android:label="RPG OS LAB • Bridge 3" />
+        <provider
+            android:name=".RpgOsLabBridgeInitializer"
+            android:authorities="${applicationId}.labbridge.initializer"
+            android:exported="false"
+            android:initOrder="100" />
+    </application>
+</manifest>

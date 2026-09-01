@@ -115,12 +115,18 @@ class IsolatedLlamaCppLocalInferenceDriver(private val context:Context):LocalInf
         if(cancellation.isCancelled())throw AiTransportException("LOCAL_CANCELLED")
         if(active.putIfAbsent(requestUid,typed.service)!=null)throw AiTransportException("LOCAL_DUPLICATE_REQUEST")
         return try{
-            val result=typed.service.generate(typed.nativeHandle,requestUid,prompt,maximumOutputUnits)
+            // The native runtime applies the GGUF's own chat template. The ChatML-shaped value is
+            // an internal section envelope (system/user/assistant prefill), not a model-specific
+            // template: native code extracts the sections and re-renders them with model metadata.
+            val adaptedPrompt=ExecuTorchInferenceService.bielikChatPrompt(prompt)
+            val result=typed.service.generate(typed.nativeHandle,requestUid,adaptedPrompt,maximumOutputUnits)
             if(cancellation.isCancelled())throw AiTransportException("LOCAL_CANCELLED")
             if(!result.getBoolean(LlamaCppInferenceService.KEY_SUCCESS))throw AiTransportException(
                 result.getString(LlamaCppInferenceService.KEY_REASON)?:"LLAMA_SERVICE_FAILURE",true
             )
-            val output=result.getString(LlamaCppInferenceService.KEY_OUTPUT).orEmpty()
+            val output=ExecuTorchInferenceService.normalizeStructuredOutput(
+                prompt,result.getString(LlamaCppInferenceService.KEY_OUTPUT).orEmpty()
+            )
             onChunk(LocalGenerationChunk(output,true))
             LocalGenerationOutput(output,result.getString(LlamaCppInferenceService.KEY_TRACE)?:"LLAMA_CPP_NATIVE:$requestUid",0,result.getInt(LlamaCppInferenceService.KEY_TOKENS))
         }catch(failure:Throwable){throw mapFailure(failure)}finally{active.remove(requestUid)}
