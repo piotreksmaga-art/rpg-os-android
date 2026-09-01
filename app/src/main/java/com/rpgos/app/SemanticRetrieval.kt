@@ -2,6 +2,7 @@ package com.rpgos.app
 
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
@@ -11,6 +12,8 @@ const val BEKKO_OPERATION_WORLD_PACK="SEMANTIC_WORLD_PACK"
 const val BEKKO_OPERATION_RELATED="SEMANTIC_RELATED"
 const val SEMANTIC_NAMESPACE_CAMPAIGN="CAMPAIGN_MEMORY"
 const val SEMANTIC_NAMESPACE_WORLD_PACK="WORLD_PACK"
+internal fun semanticWorldPackRecordUid(option:CharacterCreationDefinitionOption)=
+    "WORLDPACK:${option.kind}:${option.definitionUid}:${option.dimensionUid.orEmpty()}"
 private const val SEMANTIC_QUERY_MAX_CHARS=1024 // early abuse bound; llama.cpp enforces the exact 256-token limit
 private const val SEMANTIC_DOCUMENT_CHUNK_CHARS=160
 private const val SEMANTIC_DOCUMENT_CHUNK_OVERLAP_CHARS=24
@@ -42,10 +45,16 @@ class SemanticStructuredQueryProvider(
         val authorized=index.authorizedRecordUids(request.campaignUid,namespace,audienceUid,purposeUid,at)
         if(authorized.isEmpty())return StructuredRetrievalResult.NoData
         val kinds=request.filters["record_kinds"]?.split(',')?.filter{it.isNotBlank()}?.toSet().orEmpty()
-        val candidates=index.searchAuthorized(SemanticSearchRequest(
+        val explicitMinimum=request.filters["minimum_score"]?.toFloatOrNull()?.coerceIn(-1f,1f)
+        var candidates=index.searchAuthorized(SemanticSearchRequest(
             request.campaignUid,namespace,audienceUid,purposeUid,at,authorized,kinds,vector,
-            request.limit,request.filters["minimum_score"]?.toFloatOrNull()?.coerceIn(-1f,1f)?:0.25f
+            request.limit,explicitMinimum?:0.25f
         ))
+        if(explicitMinimum==null)candidates=retainSemanticRelevanceBand(candidates,0.25f)
+        if(candidates.isEmpty()&&explicitMinimum==null)candidates=index.searchAuthorized(SemanticSearchRequest(
+            request.campaignUid,namespace,audienceUid,purposeUid,at,authorized,kinds,vector,
+            minOf(3,request.limit),0.18f
+        )).take(1)
         if(candidates.isEmpty())return StructuredRetrievalResult.NoData
         return StructuredRetrievalResult.Value(candidates.map{candidate->RetrievalRecord(
             candidate.canonicalRecordUid,
@@ -62,6 +71,14 @@ class SemanticStructuredQueryProvider(
             "BEKKO:${candidate.sourceFingerprint}:${candidate.indexVersion.modelSha256}"
         )},true)
     }
+}
+
+/** Keeps semantic retrieval from padding a prompt with weak neighbours merely because topK has
+ * room. Explicit developer thresholds remain exact; this band is only the production default. */
+internal fun retainSemanticRelevanceBand(candidates:List<SemanticCandidate>,floor:Float):List<SemanticCandidate>{
+    if(candidates.isEmpty())return emptyList()
+    val cutoff=maxOf(floor,candidates.maxOf{it.score}-0.035f)
+    return candidates.filter{it.score>=cutoff}
 }
 
 /**
@@ -193,8 +210,24 @@ internal class CommittedReplaySemanticProjector(
             val effect=(event.payload as? DomainEffectEventIntentPayload)?.let{"${it.subject.kindUid}:${it.subject.uid}:${it.effectKindUid}"}.orEmpty()
             records+=Triple("EVENT:${event.eventIntentUid}",event.eventKindUid,"Actor $actor wykonał ${event.eventKindUid}; cele: $targets; efekt: $effect")
         }
+        val worldTruthGroups=replay.changeSet.changes.mapNotNull{change->
+            (change.payload as? CampaignTruthChange)?.takeIf{it.subjectUid!=null&&it.predicate in CampaignWorldFacts.ALL}
+        }.groupBy{requireNotNull(it.subjectUid)}
+        worldTruthGroups.toSortedMap().forEach{(subjectUid,facts)->
+            val explicitlyPlayerVisible=facts.any{
+                it.predicate==CampaignWorldFacts.AUDIENCE_SCOPE&&it.objectValue==CampaignWorldAudience.PLAYER_VISIBLE
+            }
+            val gmAudience=audience.audienceKindUid==AudienceKinds.GM_RUNTIME
+            if(!gmAudience&&!explicitlyPlayerVisible)return@forEach
+            val visibilityKind=if(explicitlyPlayerVisible)VisibilitySubjectKinds.WORLD_PRESENTATION else VisibilitySubjectKinds.CAMPAIGN_TRUTH
+            if(!disclosed(visibilityKind,subjectUid))return@forEach
+            val description=facts.sortedWith(compareBy<CampaignTruthChange>{it.predicate}.thenBy{it.truthUid})
+                .joinToString("; "){fact->"${fact.predicate.substringAfterLast(':')}=${fact.objectValue.orEmpty()}"}
+            records+=Triple("WORLD_ELEMENT:$subjectUid","WORLD_ELEMENT","Element świata $subjectUid; $description")
+        }
         replay.changeSet.changes.forEach{change->
             val payload=change.payload
+            if(payload is CampaignTruthChange&&payload.subjectUid!=null&&payload.predicate in CampaignWorldFacts.ALL)return@forEach
             val subject=subject(payload)
             val owned=controlledPlayer!=null&&subject?.uid==controlledPlayer
             val visibilityKind=when{
@@ -263,7 +296,7 @@ internal class CommittedReplaySemanticProjector(
         is ConditionChange->"${payload.subject.kindUid}:${payload.subject.uid} status ${payload.conditionUid} ${payload.operation}"
         is RuntimeChange->"${payload.subject.kindUid}:${payload.subject.uid} licznik ${payload.runtimeCounterUid} ${payload.delta.units}"
         is WoundChange->"${payload.subject.kindUid}:${payload.subject.uid} rana ${payload.severityUid.orEmpty()} ${payload.severityDelta.units}"
-        is SpatialChange->"${payload.subject.kindUid}:${payload.subject.uid} ruch ${payload.deltaXMillimetres},${payload.deltaYMillimetres}"
+        is SpatialChange->"${payload.subject.kindUid}:${payload.subject.uid} ruch ${payload.destinationLocation?.let{"do ${it.kindUid}:${it.uid}"}?:"${payload.deltaXMillimetres},${payload.deltaYMillimetres}"}"
         is EquipmentIntegrityChange->"${payload.subject.kindUid}:${payload.subject.uid} uszkodzenie wyposażenia ${payload.componentUid} ${payload.damageDelta.units}"
         is StructureIntegrityChange->"${payload.subject.kindUid}:${payload.subject.uid} uszkodzenie struktury ${payload.componentUid.orEmpty()} ${payload.damageDelta.units}"
         is MechanicalTrackChange->"${payload.subject.kindUid}:${payload.subject.uid} tor ${payload.trackUid} ${payload.delta.units}"
@@ -295,17 +328,24 @@ class ImmediateSemanticIndexCoordinator(
     private val projector:SemanticDocumentProjector=CommittedReplaySemanticProjector(
         activePlayerUid={repository.activePlayerRef()?.playerUid}
     ),
+    /** The coordinator is a per-campaign cache worker. It must never silently follow the
+     * process-wide active campaign while a previous asynchronous catch-up is still running. */
+    private val campaignUid:String=repository.activeCampaignRef().campaignId,
     private val executor:ExecutorService=Executors.newSingleThreadExecutor{r->Thread(r,"rpgos-bekko-index").apply{isDaemon=true}},
     private val onProgress:(SemanticIndexProgress)->Unit={}
 ):AutoCloseable{
     private val running=AtomicBoolean(false)
+    private val readyForQueries=AtomicBoolean(false)
     private val activeEmbeddingRequest=AtomicReference<String?>(null)
-    fun onCanonicalCommit(){executor.execute{catchUp()}}
-    fun onCampaignOpened(){executor.execute{catchUp()}}
+    fun readyForQueries():Boolean=readyForQueries.get()
+    fun onCanonicalCommit(){readyForQueries.set(false);executor.execute{catchUp()}}
+    fun onCampaignOpened(){readyForQueries.set(false);executor.execute{catchUp()}}
     fun catchUp():SemanticIndexStatus{
-        if(!running.compareAndSet(false,true))return index.status(repository.activeCampaignRef().campaignId)
+        if(!running.compareAndSet(false,true))return safeStatus()
+        readyForQueries.set(false)
         try{
-            val campaign=repository.activeCampaignRef().campaignId
+            val campaign=campaignUid
+            requireCampaignStillActive()
             val initial=index.status(campaign)
             if(embeddings.availability().state!=EmbeddingAvailabilityState.READY){
                 onProgress(SemanticIndexProgress(false,"FALLBACK",lastIndexedCommitOrder=initial.lastIndexedCommitOrder,reasonUid=embeddings.availability().reasonUid))
@@ -317,7 +357,9 @@ class ImmediateSemanticIndexCoordinator(
                 return index.status(campaign).copy(ready=false,reasonUid=reason)
             }
             val after=index.checkpoint(campaign)
+            requireCampaignStillActive()
             val replays=repository.infrastructureReplayPayloadsAfter(after)
+            requireCampaignStillActive()
             val catchUpProjector=(projector as? CommittedReplaySemanticProjector)
                 ?.boundToActivePlayer(repository.activePlayerRef()?.playerUid)?:projector
             onProgress(SemanticIndexProgress(true,"CANONICAL_CATCH_UP",0,replays.size,after))
@@ -339,29 +381,50 @@ class ImmediateSemanticIndexCoordinator(
                 index.upsertBatch(indexed);index.advanceCheckpoint(campaign,replay.commitOrder)
                 onProgress(SemanticIndexProgress(true,"CANONICAL_CATCH_UP",replayIndex+1,replays.size,replay.commitOrder))
             }
-            return index.status(campaign).also{status->onProgress(SemanticIndexProgress(
-                false,"READY",replays.size,replays.size,status.lastIndexedCommitOrder
-            ))}
+            requireCampaignStillActive()
+            return index.status(campaign).also{status->
+                readyForQueries.set(true)
+                onProgress(SemanticIndexProgress(false,"READY",replays.size,replays.size,status.lastIndexedCommitOrder))
+            }
         }catch(failure:Throwable){
-            val campaign=runCatching{repository.activeCampaignRef().campaignId}.getOrDefault("UNKNOWN")
-            val checkpoint=runCatching{index.checkpoint(campaign)}.getOrDefault(0)
-            onProgress(SemanticIndexProgress(false,"FAILED",lastIndexedCommitOrder=checkpoint,reasonUid="BEKKO_INDEXING_FAILED:${failure::class.java.simpleName}"))
-            throw failure
+            // This worker owns only a rebuildable cache. A campaign switch, SQLite race, model
+            // failure or closed transport must therefore degrade to the structured/lexical hot
+            // tail, never escape an executor thread and terminate the Android application.
+            val reason=when(failure){
+                is InterruptedException->"BEKKO_INDEXING_CANCELLED"
+                else->"BEKKO_INDEXING_FAILED:${failure::class.java.simpleName}"
+            }
+            val failed=safeStatus(reason)
+            runCatching{onProgress(SemanticIndexProgress(false,"FAILED",lastIndexedCommitOrder=failed.lastIndexedCommitOrder,reasonUid=reason))}
+            return failed
         }finally{running.set(false)}
     }
 
+    private fun requireCampaignStillActive(){
+        check(repository.activeCampaignRef().campaignId==campaignUid){"BEKKO_CAMPAIGN_CHANGED"}
+        if(Thread.currentThread().isInterrupted)throw InterruptedException("BEKKO_INDEXING_CANCELLED")
+    }
+
+    private fun safeStatus(reasonUid:String?=null):SemanticIndexStatus =
+        runCatching{index.status(campaignUid).let{status->
+            if(reasonUid==null)status else status.copy(ready=false,reasonUid=reasonUid)
+        }}
+            .getOrElse{SemanticIndexStatus(false,0,0,0,index.version,reasonUid?:"BEKKO_INDEX_STATUS_UNAVAILABLE")}
+
     private fun ensureWorldPack(campaign:String):String?{
+        requireCampaignStillActive()
         val scopes=listOf(
             AudienceKinds.PLAYER to VisibilityPurposeKinds.GAMEPLAY_NARRATION,
             AudienceKinds.GM_RUNTIME to VisibilityPurposeKinds.INTERNAL_SIMULATION
         )
         val options=repository.characterCreationCatalog().options
+        requireCampaignStillActive()
         scopes.forEach{(audience,purpose)->
             val existing=index.authorizedRecordUids(campaign,SEMANTIC_NAMESPACE_WORLD_PACK,audience,purpose,Long.MAX_VALUE)
-            val missing=options.filter{option->"WORLDPACK:${option.kind}:${option.definitionUid}:${option.dimensionUid.orEmpty()}" !in existing}
+            val missing=options.filter{option->semanticWorldPackRecordUid(option) !in existing}
             missing.chunked(embeddings.capabilities.maximumBatchSize).forEachIndexed{batchIndex,batch->
                 val projections=batch.map{option->
-                    val uid="WORLDPACK:${option.kind}:${option.definitionUid}:${option.dimensionUid.orEmpty()}"
+                    val uid=semanticWorldPackRecordUid(option)
                     val text=listOf(option.kind.name,option.definitionUid,option.displayName,option.dimensionUid,option.minimumValue,option.maximumValue).filterNotNull().joinToString(" ")
                     SemanticDocumentProjection(
                         campaign,SEMANTIC_NAMESPACE_WORLD_PACK,audience,purpose,uid,"WORLD_PACK_${option.kind}","DEFINITION",
@@ -384,7 +447,14 @@ class ImmediateSemanticIndexCoordinator(
         finally{activeEmbeddingRequest.compareAndSet(requestUid,null)}
     }
     override fun close(){
+        readyForQueries.set(false)
         activeEmbeddingRequest.get()?.let(embeddings::cancel)
-        executor.shutdownNow();embeddings.close();index.close()
+        executor.shutdownNow()
+        // Do not close JNI/index resources underneath a catch-up that is still unwinding. The
+        // bounded wait keeps campaign activation deterministic without creating a periodic task.
+        if(!Thread.currentThread().name.startsWith("rpgos-bekko-index")){
+            runCatching{executor.awaitTermination(15,TimeUnit.SECONDS)}
+        }
+        embeddings.close();index.close()
     }
 }

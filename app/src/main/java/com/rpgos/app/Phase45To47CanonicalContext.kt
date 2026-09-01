@@ -59,7 +59,7 @@ class ContextIntegrityBuilder(private val retriever:StructuredSqlRetriever){
         val segments=requirements.map{requirement->read(requirement,requirement.request)}
         val core=SemanticCoreCapsule(
             campaignUid=plan.campaignUid,planUid=plan.planUid,intentHash=plan.intent.canonicalFingerprint(),
-            intentCanonicalPayload=plan.intent.canonicalPayload(),planSemanticPayload=plan.steps.joinToString("|") { it.toString() },
+            intentCanonicalPayload=plan.intent.canonicalPayload(),planSemanticPayload=CanonicalContextPayloadCodec.plan(plan),
             activeNodeUids=plan.steps.map{it.nodeUid},capabilityUids=plan.steps.mapNotNull{it.capabilityUid},
             dependencyEdges=plan.steps.flatMap{step->step.dependencyNodeUids.map{it to step.nodeUid}},
             hardDirectiveUids=(plan.intent.globalConstraints+plan.intent.nodes.flatMap{it.constraints}).filter{it.strength==DirectiveStrength.HARD}.map{it.directiveUid}.sorted()
@@ -137,11 +137,80 @@ data class BudgetedCanonicalContext(
     val reasonUids:List<String>
 ){
     val usedPayloadUnits:Int get()=coreUnits+segmentUnits
-    fun canonicalPayload():String=buildString{
-        append("core=").append(candidate.core)
-        includedSegments.sortedBy{it.requirement.requirementUid}.forEach{append("|segment=").append(it)}
-        omissions.sortedBy{it.requirementUid}.forEach{append("|omission=").append(it)}
+    fun canonicalPayload():String=CanonicalContextPayloadCodec.serialize(candidate,includedSegments,omissions)
+}
+
+/**
+ * Deterministic wire-sized representation used for budgeting and fingerprints. Kotlin data-class
+ * `toString()` includes envelopes and repeated wrapper metadata that is never sent to a model; it
+ * made a one-step mobile turn look several times larger than the actual prompt. Records shared by
+ * multiple requirements are serialized once, while every requirement still retains its own state.
+ */
+internal object CanonicalContextPayloadCodec{
+    fun plan(plan:CanonicalTurnPlan)=buildString{
+        plan.steps.forEach{step->
+            append("s[").append(step.nodeUid).append(',').append(step.capabilityUid.orEmpty()).append(',')
+                .append(step.matchState.name).append(',').append(step.executionKind?.name.orEmpty()).append(',')
+                .append(step.sideEffectClass?.name.orEmpty()).append(',').append(step.mechanicsOwnerUid.orEmpty())
+                .append(',').append(step.dependencyNodeUids.joinToString(",")).append(']')
+        }
     }
+
+    fun serialize(candidate:CanonicalContextCandidate,segments:List<CanonicalContextSegment>,omissions:List<ContextOmission>)=buildString{
+        append(core(candidate));append(segmentPayload(segments))
+        omissions.sortedWith(compareBy<ContextOmission>{it.requirementUid}.thenBy{it.cause.name}).forEach{
+            append("|o[").append(escape(it.requirementUid)).append(',').append(it.importance.name).append(',')
+                .append(it.cause.name).append(',').append(escape(it.reasonUid)).append(']')
+        }
+    }
+
+    fun core(candidate:CanonicalContextCandidate)=buildString{
+        val core=candidate.core
+        append("c[").append(escape(core.campaignUid)).append(',').append(escape(core.planUid)).append(',')
+            .append(escape(core.intentHash)).append(',').append(escape(candidate.plan.intent.rawInput)).append(']')
+        append(plan(candidate.plan))
+        candidate.plan.intent.nodes.forEach{node->
+            append("|n[").append(escape(node.nodeUid)).append(',')
+                .append(escape(node.semanticAction.canonicalActionUid?:node.semanticAction.semanticFamilyUid.orEmpty())).append(',')
+                .append(node.form.name).append(',').append(node.modality.name).append(',').append(node.polarity.name)
+            node.participants.forEach{participant->
+                append(",p:").append(escape(participant.roleUid)).append(':').append(escape(participant.referenceUid.orEmpty()))
+            }
+            append(']')
+        }
+        candidate.plan.intent.references.forEach{reference->
+            append("|r[").append(escape(reference.referenceUid)).append(',').append(reference.state.name).append(',')
+                .append(escape(reference.resolvedProjectedRef?.kindUid.orEmpty())).append(':')
+                .append(escape(reference.resolvedProjectedRef?.uid.orEmpty())).append(']')
+        }
+        if(core.hardDirectiveUids.isNotEmpty())append("|h[").append(core.hardDirectiveUids.joinToString(",",transform=::escape)).append(']')
+    }
+
+    fun segmentPayload(segments:List<CanonicalContextSegment>)=buildString{
+        segments.sortedBy{it.requirement.requirementUid}.forEach{segment->
+            append("|g[").append(escape(segment.requirement.requirementUid)).append(',').append(segment.requirement.importance.name)
+                .append(',').append(segment.state.name).append(',').append(if(segment.complete)'1' else '0').append(',')
+                .append(escape(segment.reasonUid.orEmpty())).append(']')
+        }
+        segments.asSequence().flatMap{it.records.asSequence()}.distinctBy{it.record.recordUid}.sortedBy{it.record.recordUid}.forEach{record->
+            append("|d[").append(escape(record.record.recordUid)).append(',').append(record.epistemicState.name).append(',')
+                .append(value(record.record.values)).append(']')
+        }
+    }
+
+    private fun value(item:Any?):String=when(item){
+        null->"null"
+        is String->"\"${escape(item)}\""
+        is Number,is Boolean->item.toString()
+        is List<*>->item.joinToString(prefix="[",postfix="]",separator=","){value(it)}
+        is Map<*,*>->item.entries.sortedBy{it.key.toString()}.joinToString(prefix="{",postfix="}",separator=","){
+            "${escape(it.key as String)}:${value(it.value)}"
+        }
+        else->error("RPGOS-P45:NON_CANONICAL_CONTEXT_VALUE:${item::class.java.name}")
+    }
+
+    private fun escape(value:String)=value.replace("\\","\\\\").replace("|","\\|").replace("]","\\]")
+        .replace("[","\\[").replace(",","\\,").replace("\n","\\n").replace("\r","\\r")
 }
 
 /** Semantic budgeting retains the core and every REQUIRED/SAFETY segment or refuses AI consumption. */
@@ -149,19 +218,20 @@ class SemanticContextBudgetManager(
     private val estimator:CanonicalContextUnitEstimator=CanonicalContextUnitEstimator{(it.length+3)/4}
 ){
     fun apply(candidate:CanonicalContextCandidate,profile:ContextRuntimeProfile):BudgetedCanonicalContext{
-        val coreUnits=estimator.units(candidate.core.toString()).coerceAtLeast(1)
+        val coreUnits=estimator.units(CanonicalContextPayloadCodec.core(candidate)).coerceAtLeast(1)
         val mandatory=candidate.segments.filter{it.requirement.importance in setOf(RequirementImportance.REQUIRED,RequirementImportance.SAFETY)}
         val elective=candidate.segments.filterNot{it in mandatory}.sortedWith(compareBy<CanonicalContextSegment>{it.requirement.importance.ordinal}.thenBy{it.requirement.requirementUid})
         val included=mandatory.toMutableList()
-        var segmentUnits=mandatory.sumOf(::segmentUnits)
         val omissions=candidate.segments.mapNotNull(::sourceOmission).toMutableList()
         elective.forEach{segment->
-            val cost=segmentUnits(segment)
-            if(coreUnits+segmentUnits+cost<=profile.payloadUnits){included+=segment;segmentUnits+=cost}
+            val projectedSegments=included+segment
+            val projectedUnits=coreUnits+estimator.units(CanonicalContextPayloadCodec.segmentPayload(projectedSegments)).coerceAtLeast(1)
+            if(projectedUnits<=profile.payloadUnits)included+=segment
             else omissions+=ContextOmission(segment.requirement.requirementUid,segment.requirement.importance,ContextOmissionCause.MODEL_BUDGET,"SEGMENT_EXCEEDS_PAYLOAD_BUDGET")
         }
+        val segmentUnits=estimator.units(CanonicalContextPayloadCodec.segmentPayload(included)).coerceAtLeast(1)
         val hardMissing=mandatory.filter{it.state!=RetrievalState.VALUE||!it.complete}
-        val provisionalPayload=serialize(candidate.core,included,omissions)
+        val provisionalPayload=CanonicalContextPayloadCodec.serialize(candidate,included,omissions)
         val finalUnits=estimator.units(provisionalPayload).coerceAtLeast(1)
         val reasons=linkedSetOf<String>()
         if(coreUnits>profile.payloadUnits)reasons+="SEMANTIC_CORE_EXCEEDS_BUDGET"
@@ -172,11 +242,6 @@ class SemanticContextBudgetManager(
         return BudgetedCanonicalContext(candidate,included.sortedBy{it.requirement.requirementUid},omissions.distinctBy{it.requirementUid to it.cause},coreUnits,segmentUnits,profile.payloadUnits,finalUnits,safe,reasons.toList())
     }
 
-    private fun segmentUnits(segment:CanonicalContextSegment)=estimator.units(segment.toString()).coerceAtLeast(1)
-    private fun serialize(core:SemanticCoreCapsule,segments:List<CanonicalContextSegment>,omissions:List<ContextOmission>)=buildString{
-        append("core=").append(core);segments.sortedBy{it.requirement.requirementUid}.forEach{append("|segment=").append(it)}
-        omissions.sortedBy{it.requirementUid}.forEach{append("|omission=").append(it)}
-    }
     private fun sourceOmission(segment:CanonicalContextSegment):ContextOmission?{
         val cause=when{
             segment.state==RetrievalState.VALUE&&!segment.complete->ContextOmissionCause.INCOMPLETE_PAGE

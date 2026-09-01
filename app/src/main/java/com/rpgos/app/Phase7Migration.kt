@@ -7,7 +7,36 @@ const val PHASE7_MIGRATION_ID = "RPGOS-7.0-SKILLS"
 object CurrentSchema {
     fun ensure(saveDb: SQLiteDatabase, campaignId: String) {
         MigrationManager().ensureV15Hardening(saveDb, campaignId)
+        repairLegacyCharacterCreationTruthProvenance(saveDb,campaignId)
         Phase50MechanicalSchema.ensureReady(saveDb)
+        CampaignWorldProjectionSchema.ensureReady(saveDb,campaignId)
+    }
+
+    /**
+     * Early character-creation builds wrote a workflow label into source_type even though the
+     * canonical column is an enum-backed ProvenanceSourceType. The row was durable but could not
+     * be decoded by privileged GM/Director reads. Explicit confirmation is a PLAYER_ACTION; keep
+     * the more precise workflow evidence in method and engine_version and repair only those exact
+     * legacy rows. The update is intentionally idempotent so activation of an affected save heals
+     * it before any gameplay context is built.
+     */
+    internal fun hasLegacyCharacterCreationTruthProvenance(saveDb:SQLiteDatabase,campaignId:String):Boolean{
+        val exists=saveDb.rawQuery(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='campaign_truth_records' LIMIT 1",null
+        ).use{it.moveToFirst()}
+        if(!exists)return false
+        return saveDb.rawQuery(
+            "SELECT 1 FROM campaign_truth_records WHERE campaign_id=? AND source_type='CHARACTER_CREATION' AND engine_version='RPGOS-CHARACTER-CREATION-V1' LIMIT 1",
+            arrayOf(campaignId)
+        ).use{it.moveToFirst()}
+    }
+
+    internal fun repairLegacyCharacterCreationTruthProvenance(saveDb:SQLiteDatabase,campaignId:String){
+        if(!hasLegacyCharacterCreationTruthProvenance(saveDb,campaignId))return
+        saveDb.execSQL(
+            "UPDATE campaign_truth_records SET source_type='PLAYER_ACTION' WHERE campaign_id=? AND source_type='CHARACTER_CREATION' AND engine_version='RPGOS-CHARACTER-CREATION-V1'",
+            arrayOf<Any?>(campaignId)
+        )
     }
 }
 

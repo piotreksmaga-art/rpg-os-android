@@ -792,7 +792,14 @@ internal fun draftReferences(draft: PlayerResolutionDraft): List<DomainRef> = bu
             is SkillChange -> { add(payload.subject); add(DomainRef("SKILL", payload.skillUid)) }
             is TechniqueChange -> { add(payload.subject); add(DomainRef("TECHNIQUE", payload.techniqueUid)) }
             is InnateChange -> { add(payload.subject); add(DomainRef("INNATE", payload.innateUid)) }
-            is InventoryChange -> { add(payload.subject); add(DomainRef("ITEM_INSTANCE", payload.itemInstanceUid)) }
+            is InventoryChange -> {
+                add(payload.subject)
+                // Acquisition starts from a resolved world object; removal starts from an item
+                // already held in the canonical inventory. Legacy/canonical transfers without an
+                // inline materialization continue to reference an existing item instance.
+                val referenceKind=if(payload.quantityDelta.units>0L&&payload.itemMaterialization!=null)"OBJECT" else "ITEM_INSTANCE"
+                add(DomainRef(referenceKind,payload.itemInstanceUid))
+            }
             is EquipmentChange -> {
                 add(payload.subject)
                 payload.itemInstanceUid?.let { add(DomainRef("ITEM_INSTANCE", it)) }

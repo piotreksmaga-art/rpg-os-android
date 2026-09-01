@@ -111,6 +111,19 @@ class BekkoSemanticMemoryTest {
         }
     }
 
+    @Test fun defaultSemanticRankingDropsWeakNeighboursOutsideTheBestScoreBand(){
+        fun candidate(uid:String,score:Float)=SemanticCandidate(
+            uid,score,"WORLD_ELEMENT","FACT","FP-$uid",1,
+            listOf(SemanticChunkEvidence(0,uid,"TEXT-$uid")),SemanticIndexVersion()
+        )
+
+        val kept=retainSemanticRelevanceBand(listOf(
+            candidate("POLIGON",0.318f),candidate("CLONE",0.278f),candidate("SHOP",0.251f)
+        ),0.25f)
+
+        assertEquals(listOf("POLIGON"),kept.map{it.canonicalRecordUid})
+    }
+
     @Test fun futurePhasePortsAreCandidateOnlyViewsOfTheSameReadOnlySearch(){
         val candidate=SemanticCandidate(
             "EVENT-1",0.9f,"EVENT","BELIEF","FP",1,
@@ -130,6 +143,34 @@ class BekkoSemanticMemoryTest {
         )
         assertEquals(8,calls)
         assertTrue(results.all{it.single()==candidate&&it.single().epistemicStateUid=="BELIEF"})
+    }
+
+    @Test fun dynamicallyMaterializedWorldElementsBecomeOnePlayerSafeBekkoDocumentWithoutHiddenLeakage(){
+        val replay=worldReplay(listOf(
+            worldTruth("PUBLIC-K","PUBLIC",CampaignWorldFacts.KIND,"PLACE"),
+            worldTruth("PUBLIC-N","PUBLIC",CampaignWorldFacts.NAME,"warsztat garncarski"),
+            worldTruth("PUBLIC-C","PUBLIC",CampaignWorldFacts.CATEGORY,"CRAFTING_VENUE"),
+            worldTruth("PUBLIC-P","PUBLIC",CampaignWorldFacts.PARENT,"VILLAGE"),
+            worldTruth("PUBLIC-F","PUBLIC",CampaignWorldFacts.AFFORDANCE,"CRAFTING"),
+            worldTruth("PUBLIC-A","PUBLIC",CampaignWorldFacts.AUDIENCE_SCOPE,CampaignWorldAudience.PLAYER_VISIBLE),
+            worldTruth("HIDDEN-K","HIDDEN",CampaignWorldFacts.KIND,"ORGANIZATION"),
+            worldTruth("HIDDEN-N","HIDDEN",CampaignWorldFacts.NAME,"tajna rada")
+        ))
+        val projector=CommittedReplaySemanticProjector(activePlayerUid={null})
+        val player=projector.project(
+            replay,VisibilityAudienceFactory.player("C1"),PurposeContext("C1",VisibilityPurposeKinds.GAMEPLAY_NARRATION)
+        )
+        assertEquals(listOf("WORLD_ELEMENT:PUBLIC"),player.map{it.canonicalRecordUid}.distinct())
+        val playerText=player.sortedBy{it.chunkOrdinal}.joinToString(" "){it.text}
+        assertTrue(playerText.contains("warsztat garncarski"))
+        assertTrue(playerText.contains("CRAFTING"))
+        assertFalse(playerText.contains("tajna rada"))
+
+        val gm=projector.project(
+            replay,AudienceContext("C1",AudienceKinds.GM_RUNTIME,VisibilityPrincipalRef(AudienceKinds.GM_RUNTIME,"LOCAL_GM")),
+            PurposeContext("C1",VisibilityPurposeKinds.INTERNAL_SIMULATION)
+        )
+        assertEquals(setOf("WORLD_ELEMENT:PUBLIC","WORLD_ELEMENT:HIDDEN"),gm.map{it.canonicalRecordUid}.toSet())
     }
 
     @Test fun indexFilesAreRebuildableCacheAndNeverChangeCanonicalSaveBytes(){
@@ -165,6 +206,7 @@ class BekkoSemanticMemoryTest {
             assertTrue(failed.isFailure)
         }
         coordinator.catchUp()
+        assertTrue(coordinator.readyForQueries())
         assertEquals(0L,index.checkpoint(campaign))
         assertTrue(index.authorizedRecordUids(
             campaign,SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,
@@ -195,9 +237,11 @@ class BekkoSemanticMemoryTest {
         provider.failOnce()
         val failed=coordinator.catchUp()
         assertFalse(failed.ready)
+        assertFalse(coordinator.readyForQueries())
         assertEquals(0,index.checkpoint(campaign))
         val recovered=coordinator.catchUp()
         assertTrue(recovered.ready)
+        assertTrue(coordinator.readyForQueries())
         assertTrue(index.checkpoint(campaign)>0)
         assertTrue(index.authorizedRecordUids(
             campaign,SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.PLAYER,
@@ -235,6 +279,38 @@ class BekkoSemanticMemoryTest {
         cleanupCampaign(testContext)
     }
 
+    @Test fun backgroundIndexFailureReturnsTypedFallbackInsteadOfEscapingTheWorker(){
+        val testContext=isolatedContext()
+        cleanupCampaign(testContext)
+        val repository=UnifiedGameRepository(testContext);repository.bootstrap()
+        val campaign=repository.activeCampaignRef().campaignId
+        val brokenIndex=object:SemanticIndexPort{
+            override val version=SemanticIndexVersion()
+            override fun upsertBatch(documents:List<SemanticIndexedDocument>)=error("BROKEN_INDEX")
+            override fun remove(campaignUid:String,namespaceUid:String,canonicalRecordUid:String)=Unit
+            override fun authorizedRecordUids(campaignUid:String,namespaceUid:String,audienceUid:String,purposeUid:String,asOfOrder:Long)=emptySet<String>()
+            override fun searchAuthorized(request:SemanticSearchRequest)=emptyList<SemanticCandidate>()
+            override fun checkpoint(campaignUid:String):Long=error("BROKEN_INDEX")
+            override fun advanceCheckpoint(campaignUid:String,committedOrder:Long)=Unit
+            override fun status(campaignUid:String):SemanticIndexStatus=error("BROKEN_INDEX")
+            override fun clear(campaignUid:String)=Unit
+            override fun close()=Unit
+        }
+        val progress=mutableListOf<SemanticIndexProgress>()
+        val coordinator=ImmediateSemanticIndexCoordinator(
+            repository,FakeEmbeddingProvider(),brokenIndex,
+            campaignUid=campaign,onProgress=progress::add
+        )
+
+        val failed=coordinator.catchUp()
+
+        assertFalse(failed.ready)
+        assertEquals("BEKKO_INDEXING_FAILED:IllegalStateException",failed.reasonUid)
+        assertEquals("FAILED",progress.last().stageUid)
+        assertFalse(coordinator.readyForQueries())
+        coordinator.close();cleanupCampaign(testContext)
+    }
+
     @Test fun pinnedModelManifestMatchesRuntimeContractAndKeepsModelOutsideApk(){
         val manifestFile=generateSequence(File(requireNotNull(System.getProperty("user.dir")))){it.parentFile}
             .map{File(it,"content/bekko-a8m-model-manifest.json")}.first{it.isFile}
@@ -258,6 +334,23 @@ class BekkoSemanticMemoryTest {
     )
 
     private fun unitVector(index:Int)=FloatArray(256).also{it[index]=1f}
+
+    private fun worldTruth(changeUid:String,subjectUid:String,predicate:String,value:String)=PlayerDomainChange.create(
+        changeUid,PlayerChangeKinds.CAMPAIGN_TRUTH,
+        CampaignTruthChange("TRUTH-$changeUid",TruthKind.FACT,subjectUid,predicate,value,null,null,null)
+    )
+
+    private fun worldReplay(changes:List<PlayerDomainChange>):CommittedReplayPayload{
+        val changeSet=PlayerChangeSet.create(
+            changeSetUid="CS-WORLD",campaignUid="C1",sourceCommandUid="CMD-WORLD",
+            actor=CommandActorRef("PLAYER","P1"),changes=changes,
+            provenance=ChangeSetProvenance("CMD-WORLD","TEST","1")
+        )
+        return CommittedReplayPayload(
+            TurnTransactionIdentity("C1","TURN-WORLD","CMD-WORLD","TX-WORLD"),1,"SEM-WORLD",
+            RequiredEventManifestSummary(0,"EMPTY"),null,1,changeSet,emptyList(),"PAYLOAD"
+        )
+    }
 
     private fun isolatedContext():Context=object:ContextWrapper(context){
         private val isolatedFiles=File(root,"app-files").apply{mkdirs()}

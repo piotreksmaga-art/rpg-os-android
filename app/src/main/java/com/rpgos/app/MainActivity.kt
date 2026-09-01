@@ -230,6 +230,11 @@ private enum class CampaignTool(val title: String) {
 
 @Composable
 fun RpgOsApp(vm: RpgOsViewModel) {
+    val startup by vm.startupUi.collectAsState()
+    if(startup.inProgress||startup.errorMessage!=null){
+        StartupScreen(startup,vm::retryStartup)
+        return
+    }
     var route by remember { mutableStateOf(AppRoute.HOME) }
     val hasActivePlayer by vm.hasActivePlayer.collectAsState()
     when (route) {
@@ -292,6 +297,30 @@ fun RpgOsApp(vm: RpgOsViewModel) {
             vm = vm,
             onExit = { route = AppRoute.HOME }
         )
+    }
+}
+
+@Composable
+private fun StartupScreen(state:AppStartupUiState,onRetry:()->Unit){
+    GradientScreen{
+        Column(
+            Modifier.fillMaxSize().padding(32.dp),
+            verticalArrangement=Arrangement.Center,
+            horizontalAlignment=Alignment.CenterHorizontally
+        ){
+            Text("RPG OS",style=MaterialTheme.typography.displayMedium,fontWeight=FontWeight.Bold)
+            Spacer(Modifier.height(24.dp))
+            if(state.inProgress){
+                CircularProgressIndicator()
+                Spacer(Modifier.height(16.dp))
+                Text("Przygotowywanie silnika i kampanii…",textAlign=TextAlign.Center)
+            }else{
+                Text("Nie udało się przygotować aplikacji.",color=MaterialTheme.colorScheme.error,fontWeight=FontWeight.Bold)
+                state.errorMessage?.let{Text(it,color=MaterialTheme.colorScheme.onSurfaceVariant,textAlign=TextAlign.Center)}
+                Spacer(Modifier.height(16.dp))
+                Button(onClick=onRetry){Text("Spróbuj ponownie")}
+            }
+        }
     }
 }
 
@@ -913,6 +942,7 @@ private fun CharacterCreatorScreen(
 ){
     val messages by vm.messages.collectAsState()
     val turnUi by vm.chatTurnUi.collectAsState()
+    val draftUi by vm.characterDraftUi.collectAsState()
     val hasActivePlayer by vm.hasActivePlayer.collectAsState()
     val aiCenter by vm.aiProviderCenter.collectAsState()
     var description by remember{mutableStateOf("")}
@@ -960,6 +990,16 @@ private fun CharacterCreatorScreen(
                     verticalArrangement=Arrangement.spacedBy(8.dp),
                     contentPadding=PaddingValues(bottom=10.dp)
                 ){
+                    draftUi.draft?.let{draft->
+                        item(key="CHARACTER_DRAFT:${draftUi.revision}"){
+                            CharacterDraftLockPanel(
+                                state=draftUi,
+                                onToggleLock=vm::toggleCharacterDraftLock,
+                                onReroll={vm.randomizeCharacterDraft()},
+                                onConfirm=vm::confirmCharacterCreation
+                            )
+                        }
+                    }
                     items(messages.filter{it.role!="system"||it.text.contains("posta",ignoreCase=true)}.takeLast(20)){message->
                         val player=message.role=="player"
                         Row(Modifier.fillMaxWidth(),horizontalArrangement=if(player)Arrangement.End else Arrangement.Start){
@@ -977,6 +1017,15 @@ private fun CharacterCreatorScreen(
                     }
                 }
 
+                OutlinedButton(
+                    onClick={vm.randomizeCharacterDraft(description).also{description=""}},
+                    enabled=aiReady&&!turnUi.canCancel,
+                    modifier=Modifier.fillMaxWidth()
+                ){
+                    Text(if(draftUi.draft==null)"Wygeneruj losową postać" else "Losuj ponownie odblokowane")
+                }
+                Spacer(Modifier.height(8.dp))
+
                 OutlinedTextField(
                     value=description,
                     onValueChange={description=it},
@@ -985,18 +1034,75 @@ private fun CharacterCreatorScreen(
                     placeholder={Text("Np. sprytny zwiadowca, który chroni słabszych…")},
                     minLines=2,
                     maxLines=5,
-                    enabled=!turnUi.canConfirmCharacterCreation
+                    enabled=!turnUi.canCancel
                 )
                 Spacer(Modifier.height(8.dp))
                 GradientActionButton(
-                    text=if(turnUi.canConfirmCharacterCreation)"Najpierw potwierdź projekt powyżej" else "Wyślij do Mistrza Gry",
+                    text=if(turnUi.canConfirmCharacterCreation)"Zaproponuj zmianę w projekcie" else "Wyślij do Mistrza Gry",
                     onClick={
                         val text=description.trim()
-                        if(text.isNotBlank()&&!turnUi.canConfirmCharacterCreation){vm.send(text);description=""}
+                        if(text.isNotBlank()&&!turnUi.canCancel){vm.send(text);description=""}
                     },
                     modifier=Modifier.fillMaxWidth(),
                     brush=TealGradient
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CharacterDraftLockPanel(
+    state:CharacterDraftUiState,
+    onToggleLock:(CharacterCreationDraftSection)->Unit,
+    onReroll:()->Unit,
+    onConfirm:()->Unit
+){
+    val draft=state.draft?:return
+    fun number(value:Double)=if(value==value.toLong().toDouble())value.toLong().toString()
+        else java.lang.String.format(java.util.Locale.ROOT,"%.2f",value)
+    fun label(uid:String,dimension:String?=null)=state.definitionLabels["$uid|${dimension.orEmpty()}"]
+        ?:state.definitionLabels[uid]?:uid
+    fun choices(values:List<CharacterCreationValueChoice>)=values.map{choice->
+        "${label(choice.definitionUid,choice.dimensionUid)}: ${number(choice.value)}"
+    }
+    fun values(section:CharacterCreationDraftSection)=when(section){
+        CharacterCreationDraftSection.IDENTITY->listOf(draft.displayName,draft.genderUid)+draft.identityChoices.toSortedMap().map{"${it.key}: ${if(it.value=="ACADEMY_STUDENT")"uczeń Akademii" else it.value}"}
+        CharacterCreationDraftSection.ORIGIN->draft.originUids.map{label(it)}
+        CharacterCreationDraftSection.INNATE_FEATURES->draft.innateFeatureUids.map{label(it)}
+        CharacterCreationDraftSection.PROGRESSION->choices(draft.stats)+choices(draft.resources)+choices(draft.talents)+choices(draft.potentials)
+        CharacterCreationDraftSection.SKILLS->choices(draft.skills)
+        CharacterCreationDraftSection.TECHNIQUES->choices(draft.techniques)
+        CharacterCreationDraftSection.STARTING_LOCATION->listOf(label(draft.startingLocationUid))
+    }.ifEmpty{listOf("Brak — możesz wybrać lub wylosować")}.joinToString(" • ")
+    fun title(section:CharacterCreationDraftSection)=when(section){
+        CharacterCreationDraftSection.IDENTITY->"Tożsamość i rola"
+        CharacterCreationDraftSection.ORIGIN->"Klan / pochodzenie"
+        CharacterCreationDraftSection.INNATE_FEATURES->"Kekkei Genkai / cechy wrodzone"
+        CharacterCreationDraftSection.PROGRESSION->"Statystyki, talent i potencjał"
+        CharacterCreationDraftSection.SKILLS->"Umiejętności"
+        CharacterCreationDraftSection.TECHNIQUES->"Techniki"
+        CharacterCreationDraftSection.STARTING_LOCATION->"Miejsce startowe"
+    }
+    Card(colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surfaceVariant),shape=RoundedCornerShape(18.dp)){
+        Column(Modifier.fillMaxWidth().padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+            Text("Projekt roboczy postaci",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
+            Text("Zablokuj elementy, które chcesz zachować. Tekstem możesz zmienić dowolną odblokowaną sekcję.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            CharacterCreationDraftSection.entries.forEach{section->
+                val locked=section in state.lockedSections
+                Surface(shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surface){
+                    Row(Modifier.fillMaxWidth().padding(start=10.dp,top=6.dp,bottom=6.dp,end=4.dp),verticalAlignment=Alignment.CenterVertically){
+                        Column(Modifier.weight(1f)){
+                            Text(title(section),fontWeight=FontWeight.SemiBold)
+                            Text(values(section),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=5)
+                        }
+                        TextButton(onClick={onToggleLock(section)}){Text(if(locked)"🔒" else "🔓")}
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                OutlinedButton(onClick=onReroll,modifier=Modifier.weight(1f)){Text("Losuj odblokowane")}
+                Button(onClick=onConfirm,modifier=Modifier.weight(1f)){Text("Potwierdź postać")}
             }
         }
     }
@@ -2020,7 +2126,7 @@ private fun FullStatusScreen(vm:RpgOsViewModel){
             if(v2.talent.isNotEmpty()){item{SectionTitle("Talenty")};items(v2.talent){DataRow(humanizeUid(it.domainUid),it.canonicalValue)}}
             if(v2.potential.isNotEmpty()){item{SectionTitle("Potencjał")};items(v2.potential){DataRow(listOfNotNull(humanizeUid(it.domainUid),it.dimensionUid?.let(::humanizeUid)).joinToString(" • "),it.canonicalValue)}}
             if(v2.innateAndEvolution.isNotEmpty()){item{SectionTitle("Cechy wrodzone, formy i rozwój")};items(v2.innateAndEvolution){DataRow(humanizeUid(it.innateUid),listOfNotNull(humanizeUid(it.stateUid),it.canonicalValue).joinToString(" • "))}}
-            if(v2.inventory.isNotEmpty()){item{SectionTitle("Ekwipunek podręczny")};items(v2.inventory){DataRow(humanizeUid(it.definitionUid?:it.itemInstanceUid),"×${it.quantity}")}}
+            if(v2.inventory.isNotEmpty()){item{SectionTitle("Ekwipunek podręczny")};items(v2.inventory){DataRow(it.displayName?:humanizeUid(it.definitionUid?:it.itemInstanceUid),"×${it.quantity}")}}
             if(v2.equipment.isNotEmpty()){item{SectionTitle("Wyposażenie")};items(v2.equipment){DataRow(humanizeUid(it.slotUid),it.itemInstanceUid?.let(::humanizeUid)?:"puste")}}
             if(v2.ownershipAndAssets.isNotEmpty()){item{SectionTitle("Własność i aktywa")};items(v2.ownershipAndAssets){DataRow(humanizeUid(it.assetKindUid),humanizeUid(it.assetUid))}}
             if(v2.economy.isNotEmpty()){item{SectionTitle("Finanse")};items(v2.economy){DataRow(humanizeUid(it.currencyUid),it.exactBalance.toString())}}

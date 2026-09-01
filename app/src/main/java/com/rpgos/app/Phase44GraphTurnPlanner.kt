@@ -75,21 +75,27 @@ data class CapabilityDescriptor(
     val allowedForms:Set<IntentForm> = IntentForm.entries.toSet(),
     val requiredParticipantRoles:Set<String> = emptySet(),
     val resolvedParticipantRoles:Set<String> = emptySet(),
+    /** Roles for which Core may accept a fingerprinted, transaction-local world draft. */
+    val latentParticipantRoles:Set<String> = emptySet(),
     val matchMode:CapabilityMatchMode=CapabilityMatchMode.FAMILY,
     val executionKind:CapabilityExecutionKind,
     val sideEffectClass:CapabilitySideEffectClass,
     val mechanicsOwnerUid:String?=null,
     val composable:Boolean=false,
-    val requirements:List<CapabilityRequirementTemplate> = emptyList()
+    val requirements:List<CapabilityRequirementTemplate> = emptyList(),
+    /** Roles whose presence makes this capability inapplicable (used to split self and targeted open actions). */
+    val prohibitedParticipantRoles:Set<String> = emptySet()
 ){init{
     require(capabilityUid.isNotBlank()&&version>0)
-    require(canonicalActionUids.none{it.isBlank()}&&semanticFamilyUids.none{it.isBlank()}&&requiredParticipantRoles.none{it.isBlank()}&&resolvedParticipantRoles.none{it.isBlank()})
+    require(canonicalActionUids.none{it.isBlank()}&&semanticFamilyUids.none{it.isBlank()}&&requiredParticipantRoles.none{it.isBlank()}&&resolvedParticipantRoles.none{it.isBlank()}&&latentParticipantRoles.none{it.isBlank()})
     require(resolvedParticipantRoles.all{it in requiredParticipantRoles})
+    require(latentParticipantRoles.all{it in resolvedParticipantRoles})
     require(canonicalActionUids.isNotEmpty()||semanticFamilyUids.isNotEmpty()||matchMode==CapabilityMatchMode.GENERIC_SAFE)
     require(matchMode!=CapabilityMatchMode.EXACT_ONLY||canonicalActionUids.isNotEmpty())
     require(matchMode!=CapabilityMatchMode.GENERIC_SAFE||sideEffectClass==CapabilitySideEffectClass.NONE){"RPGOS-P44:GENERIC_CAPABILITY_MUST_BE_READ_ONLY"}
     require(requirements.map{it.requirementUid}.distinct().size==requirements.size)
     require(mechanicsOwnerUid?.isBlank()!=true)
+    require(prohibitedParticipantRoles.none{it.isBlank()}&&prohibitedParticipantRoles.intersect(requiredParticipantRoles).isEmpty())
 }}
 
 data class PlannedRequirement(
@@ -171,12 +177,12 @@ class GraphTurnPlanner(
     private fun planNode(index:Int,node:IntentNode,document:IntentDocument,audience:AudienceContext,purpose:PurposeContext,atOrder:Long?):CanonicalTurnPlanStep{
         val participantRoles=node.participants.map{it.roleUid}.toSet()
         val ranked=capabilities.mapNotNull{capability->
-            if(node.form !in capability.allowedForms||!participantRoles.containsAll(capability.requiredParticipantRoles)||!resolvedRolesSatisfied(node,document,capability.resolvedParticipantRoles))null
+            if(node.form !in capability.allowedForms||!participantRoles.containsAll(capability.requiredParticipantRoles)||participantRoles.any{it in capability.prohibitedParticipantRoles}||!resolvedRolesSatisfied(node,document,capability.resolvedParticipantRoles,capability.latentParticipantRoles))null
             else matchRank(node,capability)?.let{it to capability}
         }.sortedWith(compareBy<Pair<Int,CapabilityDescriptor>>{it.first}.thenBy{it.second.capabilityUid}.thenByDescending{it.second.version})
         if(ranked.isEmpty())return CanonicalTurnPlanStep(
             "STEP-V2:$index:${node.nodeUid}",node.nodeUid,null,CapabilityMatchState.REQUIRES_ADJUDICATION,
-            node.dependencies.map{it.predecessorNodeUid}.sorted(),emptyList(),null,null,reasonUids=listOf("NO_REGISTERED_CAPABILITY")
+            node.dependencies.map{it.predecessorNodeUid}.sorted(),emptyList(),null,null,reasonUids=capabilityRejectionReasons(node,document)
         )
         val (rank,selected)=ranked.first()
         val ambiguous=ranked.drop(1).any{it.first==rank&&it.second.capabilityUid!=selected.capabilityUid}
@@ -195,9 +201,17 @@ class GraphTurnPlanner(
             node.dependencies.map{it.predecessorNodeUid}.sorted(),emptyList(),null,null,reasonUids=listOf("REQUIRED_REFERENCE_UNRESOLVED")
         )
         val match=when(rank){0->CapabilityMatchState.EXACT;1->CapabilityMatchState.COMPOSED;else->CapabilityMatchState.GENERIC}
+        // A question about permission keeps the semantic action (so the provider can answer it
+        // intelligently) but is not execution of that action.  In particular, "czy mogę
+        // poćwiczyć?" must not award training progress before the player actually starts.
+        val nonExecutingModality=node.modality in setOf(
+            IntentModality.INTEND,IntentModality.PLAN_FUTURE,IntentModality.CONDITIONAL_FUTURE,
+            IntentModality.ASK_IF_POSSIBLE,IntentModality.PREFER,IntentModality.AVOID
+        )
         return CanonicalTurnPlanStep(
             "STEP-V2:$index:${node.nodeUid}",node.nodeUid,selected.capabilityUid,match,node.dependencies.map{it.predecessorNodeUid}.sorted(),requirements,
-            selected.executionKind,selected.sideEffectClass,selected.mechanicsOwnerUid
+            selected.executionKind,if(nonExecutingModality)CapabilitySideEffectClass.NONE else selected.sideEffectClass,
+            if(nonExecutingModality)null else selected.mechanicsOwnerUid
         )
     }
 
@@ -208,9 +222,40 @@ class GraphTurnPlanner(
         else->null
     }
 
-    private fun resolvedRolesSatisfied(node:IntentNode,document:IntentDocument,roles:Set<String>)=roles.all{role->
+    private fun resolvedRolesSatisfied(node:IntentNode,document:IntentDocument,roles:Set<String>,latentRoles:Set<String>)=roles.all{role->
         node.participants.filter{it.roleUid==role}.all{participant->
-            participant.literalValue!=null||participant.futureResult!=null||participant.referenceUid?.let{uid->document.references.singleOrNull{it.referenceUid==uid}?.state==IntentReferenceState.RESOLVED_PROJECTED}==true
+            participant.literalValue!=null||participant.futureResult!=null||participant.referenceUid?.let{uid->
+                when(document.references.singleOrNull{it.referenceUid==uid}?.state){
+                    IntentReferenceState.RESOLVED_PROJECTED->true
+                    IntentReferenceState.RESOLVED_LATENT->role in latentRoles
+                    else->false
+                }
+            }==true
+        }
+    }
+
+    private fun capabilityRejectionReasons(node:IntentNode,document:IntentDocument):List<String>{
+        val semanticMatches=capabilities.filter{capability->
+            node.form in capability.allowedForms&&matchRank(node,capability)!=null
+        }
+        if(semanticMatches.isEmpty())return listOf("NO_REGISTERED_CAPABILITY")
+        val participantRoles=node.participants.map{it.roleUid}.toSet()
+        val missingRoles=semanticMatches.flatMap{it.requiredParticipantRoles}.filter{it !in participantRoles}
+        if(missingRoles.isNotEmpty())return listOf("REQUIRED_REFERENCE_UNRESOLVED")
+        val requiredReferences=semanticMatches.flatMap{it.resolvedParticipantRoles}.flatMap{role->
+            node.participants.filter{it.roleUid==role}.mapNotNull{participant->
+                participant.referenceUid?.let{uid->document.references.singleOrNull{it.referenceUid==uid}}
+            }
+        }
+        return when{
+            requiredReferences.any{it.state==IntentReferenceState.AMBIGUOUS}->listOf("REQUIRED_REFERENCE_AMBIGUOUS")
+            requiredReferences.any{reference->
+                reference.state==IntentReferenceState.RESOLVED_LATENT&&semanticMatches.none{capability->
+                    node.participants.any{participant->participant.referenceUid==reference.referenceUid&&participant.roleUid in capability.latentParticipantRoles}
+                }
+            }->listOf("REQUIRED_REFERENCE_LATENT_NOT_MATERIALIZABLE")
+            requiredReferences.any{it.state !in setOf(IntentReferenceState.RESOLVED_PROJECTED,IntentReferenceState.RESOLVED_LATENT)}->listOf("REQUIRED_REFERENCE_UNRESOLVED")
+            else->listOf("NO_REGISTERED_CAPABILITY")
         }
     }
 

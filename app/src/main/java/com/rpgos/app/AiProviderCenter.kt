@@ -116,7 +116,10 @@ fun openRouterFailureMessagePl(reasonUid:String?)=when(reasonUid){
 }
 
 /** Application owner for provider setup. ViewModels receive typed results, never raw SDK/HTTP/runtime handles. */
-class AndroidAiProviderCenterApplication(context:Context){
+class AndroidAiProviderCenterApplication(
+    context:Context,
+    private val wireTrace:AiWireTracePort=AiWireTracePort.NONE
+){
     private val app=context.applicationContext
     private val artifacts=AndroidLocalModelArtifactStore(app)
     private val http=OpenRouterHttpClient()
@@ -231,9 +234,13 @@ class AndroidAiProviderCenterApplication(context:Context){
                 val runtime=if(settings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP)llamaCppRuntime else execuTorchRuntime
                 val backends=if(settings.runtimeEngine==LocalRuntimeEngine.LLAMA_CPP)
                     setOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU,LocalRuntimeBackend.GPU) else setOf(LocalRuntimeBackend.AUTO,LocalRuntimeBackend.CPU)
-                LocalAiPort(profile,settings,runtime,artifacts,{AndroidLocalDeviceProbe.snapshot(app).copy(availableBackends=backends)},LocalCompactAiJsonCodec())
+                LocalAiPort(
+                    profile,settings,runtime,artifacts,
+                    {AndroidLocalDeviceProbe.snapshot(app).copy(availableBackends=backends)},
+                    LocalCompactAiJsonCodec(),wireTrace
+                )
             }
-            "OPENROUTER"->discoveredCloudModels[selection.modelUid]?.let{CloudAiPort(it,auth,http,CanonicalAiJsonCodec())}
+            "OPENROUTER"->discoveredCloudModels[selection.modelUid]?.let{CloudAiPort(it,auth,http,CanonicalAiJsonCodec(),wireTrace)}
             else->null
         }
     }

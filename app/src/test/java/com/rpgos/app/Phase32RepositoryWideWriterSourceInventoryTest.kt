@@ -100,6 +100,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         put("BekkoModelManager.kt", WriterClass.EXTERNAL_AI_CONFIGURATION)
         put("BekkoSemanticApplication.kt", WriterClass.CACHE_REBUILDABLE)
         put("SemanticSidecarIndex.kt", WriterClass.CACHE_REBUILDABLE)
+        put("CampaignWorldProjectionStore.kt", WriterClass.CACHE_REBUILDABLE)
     }
 
     private val durableWriteMarkers = listOf(

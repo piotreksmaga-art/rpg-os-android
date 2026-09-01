@@ -313,6 +313,19 @@ object PlayerChangeSetIdentity {
     }
 }
 
+private fun encodeInventoryItemMaterialization(value:InventoryItemMaterialization)=pcsObj(
+    "itemDefinitionUid" to pcsJ(value.itemDefinitionUid),"worldPackUid" to pcsJ(value.worldPackUid),
+    "itemKey" to pcsJ(value.itemKey),"displayName" to pcsJ(value.displayName),"categoryUid" to pcsJn(value.categoryUid)
+)
+
+private fun decodeInventoryItemMaterialization(value:JsonObject):InventoryItemMaterialization{
+    value.pcsOnlyKeys(setOf("itemDefinitionUid","worldPackUid","itemKey","displayName","categoryUid"))
+    return InventoryItemMaterialization(
+        value.pcsReqString("itemDefinitionUid"),value.pcsReqString("worldPackUid"),value.pcsReqString("itemKey"),
+        value.pcsReqString("displayName"),value.pcsOptString("categoryUid")
+    )
+}
+
 private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDomainChangePayload>> = linkedMapOf(
     PlayerChangeKinds.STAT to simpleCodec(
         StatChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
@@ -356,9 +369,16 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
     ),
     PlayerChangeKinds.INVENTORY to simpleCodec(
         InventoryChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
-        setOf("subject", "itemInstanceUid", "quantityDeltaUnits"),
-        encode = { pcsObj("subject" to encodeChangeSetRef(it.subject), "itemInstanceUid" to pcsJ(it.itemInstanceUid), "quantityDeltaUnits" to pcsJ(it.quantityDelta.units)) },
-        decode = { InventoryChange(decodeChangeSetRef(it.pcsReqObject("subject")), it.pcsReqString("itemInstanceUid"), ExactLongDelta.of(it.pcsReqLong("quantityDeltaUnits"))) },
+        setOf("subject", "itemInstanceUid", "quantityDeltaUnits", "itemMaterialization"),
+        encode = { pcsObj(
+            "subject" to encodeChangeSetRef(it.subject),"itemInstanceUid" to pcsJ(it.itemInstanceUid),
+            "quantityDeltaUnits" to pcsJ(it.quantityDelta.units),
+            "itemMaterialization" to (it.itemMaterialization?.let(::encodeInventoryItemMaterialization)?:JsonNull)
+        ) },
+        decode = { InventoryChange(
+            decodeChangeSetRef(it.pcsReqObject("subject")),it.pcsReqString("itemInstanceUid"),ExactLongDelta.of(it.pcsReqLong("quantityDeltaUnits")),
+            it.pcsOptObject("itemMaterialization")?.let(::decodeInventoryItemMaterialization)
+        ) },
         validate = { refAndUidErrors(it.subject, it.itemInstanceUid) },
         conflicts = { setOf(compositeConflictKey("INVENTORY", it.subject.kindUid, it.subject.uid, it.itemInstanceUid)) }
     ),
@@ -469,10 +489,10 @@ private fun coreChangeCodecs(): Map<String, TypedPlayerChangeCodec<out PlayerDom
     ),
     PlayerChangeKinds.SPATIAL to simpleCodec(
         SpatialChange::class, ChangeIntentClassification.AUTHORITATIVE_MUTATION_INTENT,
-        setOf("subject","deltaXMillimetres","deltaYMillimetres"),
-        encode = { pcsObj("subject" to encodeChangeSetRef(it.subject),"deltaXMillimetres" to pcsJ(it.deltaXMillimetres),"deltaYMillimetres" to pcsJ(it.deltaYMillimetres)) },
-        decode = { SpatialChange(decodeChangeSetRef(it.pcsReqObject("subject")),it.pcsReqLong("deltaXMillimetres"),it.pcsReqLong("deltaYMillimetres")) },
-        validate = { buildList{if(!validRef(it.subject))add("INVALID_SPATIAL_SUBJECT");if(it.deltaXMillimetres==0L&&it.deltaYMillimetres==0L)add("ZERO_SPATIAL_DELTA")} },
+        setOf("subject","deltaXMillimetres","deltaYMillimetres","destinationLocation"),
+        encode = { pcsObj("subject" to encodeChangeSetRef(it.subject),"deltaXMillimetres" to pcsJ(it.deltaXMillimetres),"deltaYMillimetres" to pcsJ(it.deltaYMillimetres),"destinationLocation" to (it.destinationLocation?.let(::encodeChangeSetRef)?:JsonNull)) },
+        decode = { SpatialChange(decodeChangeSetRef(it.pcsReqObject("subject")),it.pcsReqLong("deltaXMillimetres"),it.pcsReqLong("deltaYMillimetres"),it.pcsOptObject("destinationLocation")?.let(::decodeChangeSetRef)) },
+        validate = { buildList{if(!validRef(it.subject))add("INVALID_SPATIAL_SUBJECT");if(it.destinationLocation?.let{ref->!validRef(ref)||ref.kindUid !in setOf("PLACE","LOCATION")}==true)add("INVALID_SPATIAL_DESTINATION");if(it.deltaXMillimetres==0L&&it.deltaYMillimetres==0L&&it.destinationLocation==null)add("ZERO_SPATIAL_DELTA")} },
         conflicts = { emptySet() }
     ),
     PlayerChangeKinds.EQUIPMENT_INTEGRITY to simpleCodec(

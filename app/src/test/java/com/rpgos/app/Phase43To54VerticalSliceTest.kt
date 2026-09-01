@@ -84,6 +84,35 @@ class Phase43To54VerticalSliceTest{
         assertEquals("ENVELOPE_REJECTED",result.attempts.single().reasonUid)
     }
 
+    @Test fun mobileBudgetCountsSharedMandatoryRecordOnceAcrossMultipleNodes(){
+        val nodes=listOf(
+            IntentNode("N1",IntentForm.SEQUENCE_MEMBER,SemanticAction(semanticFamilyUid="SEARCH",rawPhrase="search")),
+            IntentNode("N2",IntentForm.SEQUENCE_MEMBER,SemanticAction(semanticFamilyUid="SEARCH",rawPhrase="search"),
+                dependencies=listOf(IntentDependency("N1",IntentDependencyKind.AFTER_SUCCESS)))
+        )
+        val document=trustedDocument("search then search",nodes,emptyList())
+        val capability=CapabilityDescriptor(
+            "CAP:SEARCH",1,semanticFamilyUids=setOf("SEARCH"),executionKind=CapabilityExecutionKind.READ_CONTEXT,
+            sideEffectClass=CapabilitySideEffectClass.NONE,requirements=listOf(
+                CapabilityRequirementTemplate("PLAYER_STATE","STATE","READ",RequirementImportance.SAFETY,maximumLimit=1)
+            )
+        )
+        val plan=(GraphTurnPlanner(listOf(capability)).plan(document,audience,purpose) as CanonicalPlanningResult.Planned).plan
+        val retriever=StructuredSqlRetriever(listOf(StructuredProviderBinding("STATE",setOf("READ"),StructuredQueryProvider{
+            StructuredRetrievalResult.Value(listOf(RetrievalRecord("SHARED-PLAYER-STATE",mapOf(
+                "active_player" to mapOf("campaign_id" to campaign,"player_uid" to "P1"),
+                "stats" to listOf(mapOf("uid" to "STAT:AGILITY","value" to 10L))
+            ),"PHASE38:TEST")),true)
+        })))
+        val budgeted=SemanticContextBudgetManager().apply(
+            ContextIntegrityBuilder(retriever).build(plan),ContextRuntimeProfile("MOBILE-2K",2_048,64,128,256,64)
+        )
+
+        assertTrue(budgeted.safeForAi)
+        assertEquals(1,Regex("SHARED-PLAYER-STATE").findAll(budgeted.canonicalPayload()).count())
+        assertTrue(budgeted.finalSerializedUnits<=budgeted.payloadCapacityUnits)
+    }
+
     @Test fun phases48To53_providerBoundaryIsSwappableAndUnsupportedFactCannotReachAssembly(){
         val a=provider("A");val b=provider("B")
         val registry=AiProviderRegistry.fromCompositionRoot(listOf(a,b))
@@ -105,7 +134,7 @@ class Phase43To54VerticalSliceTest{
     @Test fun phase48_transportFailureAndInvalidOutputStayTyped(){
         val codec=object:AiStructuredCodec{
             override fun encodeIntent(request:AiIntentRequest)="intent"
-            override fun decodeIntent(payload:String):IntentDocument=throw IllegalArgumentException("invalid")
+            override fun decodeIntent(payload:String):IntentDocument=throw NoSuchElementException("invalid enum")
             override fun encodeProposal(request:AiGmProposalRequest)="proposal"
             override fun decodeProposal(payload:String):GmProposalCandidate=throw IllegalArgumentException("invalid")
             override fun encodeRepair(request:AiRepairRequest)="repair"

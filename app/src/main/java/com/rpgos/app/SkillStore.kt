@@ -139,9 +139,19 @@ internal class SkillStore(
         if (!tableExists("character_skills")) return emptyList()
         val out = mutableListOf<LegacySkillRecord>()
         val hasDefinitions = tableExists("skill_definitions")
-        val sql = if (hasDefinitions) """SELECT cs.entity_uid,cs.skill_uid,CAST(cs.mastery AS TEXT),CAST(cs.xp AS TEXT),CAST(cs.updated_chapter AS TEXT),sd.name,sd.category
-            FROM character_skills cs LEFT JOIN skill_definitions sd ON sd.skill_uid=cs.skill_uid WHERE cs.entity_uid=? ORDER BY cs.skill_uid"""
-        else """SELECT entity_uid,skill_uid,CAST(mastery AS TEXT),CAST(xp AS TEXT),CAST(updated_chapter AS TEXT),NULL,NULL FROM character_skills WHERE entity_uid=? ORDER BY skill_uid"""
+        val label=when{
+            hasDefinitions&&columnExists("skill_definitions","display_name")->"sd.display_name"
+            hasDefinitions&&columnExists("skill_definitions","name")->"sd.name"
+            else->"NULL"
+        }
+        val category=when{
+            hasDefinitions&&columnExists("skill_definitions","category_key")->"sd.category_key"
+            hasDefinitions&&columnExists("skill_definitions","category")->"sd.category"
+            else->"NULL"
+        }
+        val join=if(hasDefinitions)" LEFT JOIN skill_definitions sd ON sd.skill_uid=cs.skill_uid" else ""
+        val sql = """SELECT cs.entity_uid,cs.skill_uid,CAST(cs.mastery AS TEXT),CAST(cs.xp AS TEXT),CAST(cs.updated_chapter AS TEXT),$label,$category
+            FROM character_skills cs$join WHERE cs.entity_uid=? ORDER BY cs.skill_uid"""
         db.rawQuery(sql, arrayOf(characterUid)).use { c ->
             while(c.moveToNext()) out += LegacySkillRecord(campaignId,c.getString(0),c.getString(1),c.getString(2),if(c.isNull(3))null else c.getString(3),if(c.isNull(4))null else c.getString(4),if(c.isNull(5))null else c.getString(5),if(c.isNull(6))null else c.getString(6))
         }
@@ -159,4 +169,7 @@ internal class SkillStore(
         db.rawQuery("SELECT world_pack_uid FROM progression_domain_definitions WHERE domain_uid=? LIMIT 1",arrayOf(domainUid)).use{c->require(c.moveToFirst()){ "Missing progression domain $domainUid" };require(c.getString(0)==pack){ "Progression domain owner mismatch for $domainUid" }}
     }
     private fun tableExists(name:String)=db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",arrayOf(name)).use{it.moveToFirst()}
+    private fun columnExists(table:String,column:String)=db.rawQuery("PRAGMA table_info($table)",null).use{c->
+        val index=c.getColumnIndex("name");while(c.moveToNext())if(index>=0&&c.getString(index)==column)return@use true;false
+    }
 }

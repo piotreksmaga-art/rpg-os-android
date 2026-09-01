@@ -5,7 +5,7 @@ import java.security.MessageDigest
 const val PHASE43_INTENT_SCHEMA_VERSION = 2
 
 enum class MeaningState { UNDERSTOOD, PARTIAL, UNINTERPRETABLE }
-enum class IntentReferenceState { UNRESOLVED, RESOLVED_PROJECTED, AMBIGUOUS, DEFERRED, NOT_DISCLOSED, INVALID }
+enum class IntentReferenceState { UNRESOLVED, RESOLVED_PROJECTED, RESOLVED_LATENT, AMBIGUOUS, DEFERRED, NOT_DISCLOSED, INVALID }
 enum class IntentCommitmentState { ACTIVE, RETRACTED, REPLACED, CANCELLED }
 enum class IntentForm { DIRECT_ACTION, SEQUENCE_MEMBER, CONDITIONAL_ACTION, GOAL, QUERY, WAIT, CORRECTION, CANCELLATION, COMMUNICATION }
 enum class IntentPolarity { AFFIRMATIVE, NEGATED }
@@ -53,7 +53,7 @@ data class IntentReference(
     require(rawPhrase?.isBlank()!=true&&semanticTypeHints.none{it.isBlank()})
     require(descriptorHints.keys.none{it.isBlank()}&&descriptorHints.values.none{it.length>512})
     require(candidateProjectedRefs.distinct()==candidateProjectedRefs)
-    require((state==IntentReferenceState.RESOLVED_PROJECTED)==(resolvedProjectedRef!=null))
+    require((state in setOf(IntentReferenceState.RESOLVED_PROJECTED,IntentReferenceState.RESOLVED_LATENT))==(resolvedProjectedRef!=null))
     require(resolutionEvidenceUid?.isBlank()!=true)
 }}
 
@@ -157,6 +157,16 @@ data class IntentDocument(
         append("|provenance=").append(provenance)
     }
 }
+
+internal fun projectedTargetRefs(intent:IntentDocument,node:IntentNode):List<DomainRef> =
+    node.participants.asSequence().filter{it.roleUid=="TARGET"}.mapNotNull{participant->
+        participant.referenceUid?.let{uid->intent.references.singleOrNull{it.referenceUid==uid}?.resolvedProjectedRef}
+    }.distinct().toList()
+
+internal fun unresolvedTargetReferenceUids(intent:IntentDocument,node:IntentNode):List<String> =
+    node.participants.asSequence().filter{it.roleUid=="TARGET"}.mapNotNull{participant->
+        participant.referenceUid?.let{uid->intent.references.singleOrNull{it.referenceUid==uid}?.takeIf{it.resolvedProjectedRef==null}?.referenceUid}
+    }.distinct().toList()
 
 data class Phase43IntentLimits(
     val maxNodes:Int=64,
@@ -262,10 +272,15 @@ class Phase43IntentValidator(private val limits:Phase43IntentLimits=Phase43Inten
 /** Compatibility bridge. Legacy rule parsing stays deterministic but is no longer the canonical semantic schema. */
 object LegacyIntentDocumentAdapter{
     fun toDocument(intent:NormalizedIntent):IntentDocument{
-        val references=intent.targetRefs.mapIndexed{index,ref->IntentReference(
-            referenceUid="LEGACY-REF:$index",kind=IntentReferenceKind.EXISTING_ENTITY,rawPhrase="@${ref.kindUid}:${ref.uid}",roleUid="TARGET",
-            state=IntentReferenceState.RESOLVED_PROJECTED,resolvedProjectedRef=ref,resolutionEvidenceUid="LEGACY_EXPLICIT_TYPED_REFERENCE"
-        )}
+        val references=intent.targetRefs.mapIndexed{index,ref->
+            if(ref.kindUid==IntentParser.UNRESOLVED_TEXT_KIND)IntentReference(
+                referenceUid="LEGACY-REF:$index",kind=IntentReferenceKind.DESCRIPTIVE,rawPhrase=ref.uid,roleUid="TARGET",
+                descriptorHints=mapOf("surface" to ref.uid),state=IntentReferenceState.UNRESOLVED
+            ) else IntentReference(
+                referenceUid="LEGACY-REF:$index",kind=IntentReferenceKind.EXISTING_ENTITY,rawPhrase="@${ref.kindUid}:${ref.uid}",roleUid="TARGET",
+                state=IntentReferenceState.RESOLVED_PROJECTED,resolvedProjectedRef=ref,resolutionEvidenceUid="LEGACY_EXPLICIT_TYPED_REFERENCE"
+            )
+        }
         val participants=references.map{IntentParticipant("TARGET",referenceUid=it.referenceUid)}
         val attributes=buildMap{intent.methodUid?.let{put("method_uid",it)};intent.timeScopeUid?.let{put("time_scope_uid",it)}}
         val document=IntentDocument(

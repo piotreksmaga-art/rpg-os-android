@@ -182,13 +182,30 @@ data class Phase9PlayerSnapshot(
     val unresolvedLegacy: List<LegacyPhase9Evidence>
 ) {
     fun toContextMap(): Map<String, Any?> = linkedMapOf(
-        "origins" to origins,
-        "innate_features" to innateFeatures,
-        "evolution_states" to evolutionStates,
-        "attained_stages" to attainedStages,
-        "form_unlocks" to formUnlocks,
-        "active_forms" to activeForms,
-        "unresolved_legacy" to unresolvedLegacy
+        "origins" to origins.map { linkedMapOf(
+            "origin_uid" to it.originUid,"relationship_kind" to it.relationshipKind,
+            "entry_version" to it.entryVersion,"provenance" to it.provenance
+        ) },
+        "innate_features" to innateFeatures.map { linkedMapOf(
+            "feature_uid" to it.featureUid,"acquired_chapter" to it.acquiredChapter,
+            "entry_version" to it.entryVersion,"provenance" to it.provenance
+        ) },
+        "evolution_states" to evolutionStates.map { linkedMapOf(
+            "path_uid" to it.pathUid,"current_stage_uid" to it.currentStageUid,
+            "state_version" to it.stateVersion,"provenance" to it.provenance
+        ) },
+        "attained_stages" to attainedStages.map { linkedMapOf(
+            "stage_uid" to it.stageUid,"attained_via_transition_uid" to it.attainedViaTransitionUid,
+            "attained_chapter" to it.attainedChapter,"entry_version" to it.entryVersion,"provenance" to it.provenance
+        ) },
+        "form_unlocks" to formUnlocks.map { linkedMapOf(
+            "form_uid" to it.formUid,"entry_version" to it.entryVersion,"provenance" to it.provenance
+        ) },
+        "active_forms" to activeForms.map { linkedMapOf(
+            "form_uid" to it.formUid,"activated_at" to it.activatedAt,
+            "state_version" to it.stateVersion,"provenance" to it.provenance
+        ) },
+        "unresolved_legacy" to unresolvedLegacy.map { linkedMapOf("field" to it.field,"value" to it.value) }
     )
 }
 

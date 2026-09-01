@@ -41,8 +41,14 @@ internal class UniversalMechanicsWorldRuleProvider(binding:WorldPackRuleBinding)
         }
         if(request.stage==WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK&&request.effects?.changes?.any{change->
                 change.payload !is ResourceChange&&change.payload !is ConditionChange&&change.payload !is RuntimeChange&&change.payload !is AssetChange&&
+                    change.payload !is InventoryChange&&
                     change.payload !is WoundChange&&change.payload !is SpatialChange&&change.payload !is EquipmentIntegrityChange&&
-                    change.payload !is StructureIntegrityChange&&change.payload !is MechanicalTrackChange&&change.payload !is AggregatePopulationChange
+                    change.payload !is StructureIntegrityChange&&change.payload !is MechanicalTrackChange&&change.payload !is AggregatePopulationChange&&
+                    (change.payload !is CampaignTruthChange||when(change.payload.kind){
+                        TruthKind.FACT->change.payload.predicate !in CampaignWorldFacts.ALL
+                        TruthKind.NARRATIVE->change.payload.predicate !in GmNarrativePredicates.ALLOWED
+                        TruthKind.BELIEF->true
+                    })
             }==true){
             return WorldRuleDecision.Rejected.create("RPGOS-RULE:MECHANICS-OWNER-ALLOWLIST","UNOWNED_MECHANICS_CHANGE")
         }
@@ -125,7 +131,7 @@ internal class ProductionCombatSnapshotAuthority(
             repository.infrastructurePlayerResources().filter{it.characterUid==active.playerUid}.map{MechanicalResource(it.resourceUid,it.currentValue.roundToLong().coerceAtLeast(0),it.currentValue.roundToLong().coerceAtLeast(0))},
             setOf(ability),conditions=(conditions(attackerPersistence)+committedMechanical?.conditions.orEmpty()).distinctBy{it.conditionUid},generationProvenanceUid="PLAYER-DOMAIN:${active.playerUid}"
         ),context.stagedEffects)
-        val targetRefs=(node.participants.mapNotNull{participant->participant.referenceUid?.let{uid->context.plan.intent.references.singleOrNull{it.referenceUid==uid}?.resolvedProjectedRef}}+target).distinct()
+        val targetRefs=(projectedTargetRefs(context.plan.intent,node)+target).distinct()
         val targetPersistence=targetRefs.associateWith{repository.infrastructureMechanicalPersistence(it.uid)}
         val defenders=targetRefs.map{ref->
             val canonical=repository.infrastructureMechanicalActor(ref)?:return null
@@ -136,10 +142,17 @@ internal class ProductionCombatSnapshotAuthority(
             if(aggregateKind&&aggregatePopulation==null)return null
             applyStaged(canonical.copy(aggregatePopulation=aggregatePopulation),context.stagedEffects)
         }
-        val positions=buildMap{
+        val rawPositions=buildMap{
             applyStagedPosition(actor,attackerPersistence.position,context.stagedEffects)?.let{put(actor,it)}
             targetPersistence.forEach{(ref,persistence)->applyStagedPosition(ref,persistence.position,context.stagedEffects)?.let{put(ref,it)}}
         }
+        val participantRefs=(listOf(actor)+targetRefs).distinct()
+        val scenePaths=participantRefs.associateWith{repository.infrastructureEntityScenePathUids(it.uid)}
+        val sharedScene=nearestCombatSceneAnchor(scenePaths)
+        val positions=normalizeCombatPositionsForSharedLocation(
+            rawPositions,
+            participantRefs.associateWith{ref->sharedScene?:scenePaths[ref]?.firstOrNull()}
+        )
         val fingerprint=mechanicsHash(listOf(context.context.canonicalPayload(),attacker,defenders,positions,context.plan.atOrder,context.stagedEffects).joinToString("|"))
         val intent=CombatIntent("P50:${request.effectUid}",context.campaignUid,actor,target,ability,VolitionalActionSource.VALIDATED_PLAYER_COMMAND,
             node.intendedResult?.semanticTypeUid?:"DISABLE",context.plan.atOrder?:0)
@@ -149,9 +162,16 @@ internal class ProductionCombatSnapshotAuthority(
             context.campaignUid,ability,semanticFamily,targetRefs.size,hasAggregate
         ))?:return null
         if(abilityContract.abilityUid!=ability)return null
+        val safeAbilityContract=if(nonDamagingCombatRequested(context.plan.intent,node))
+            abilityContract.copy(
+                statusApplications=emptyList(),
+                effectKinds=listOf(UniversalMechanicalEffectKind.INTERACTION),
+                damageTypeUid="NON_DAMAGING_CONTACT"
+            )
+        else abilityContract
         return UniversalCombatRequest(intent,ImmutableCombatSnapshot(
             "SNAPSHOT:$fingerprint",context.campaignUid,context.plan.atOrder?:0,listOf(attacker)+defenders,emptyList(),emptyMap(),emptyMap(),fingerprint
-        ),abilityContract,CombatSpatialState(positions))
+        ),safeAbilityContract,CombatSpatialState(positions))
     }
 
     private fun conditions(state:InfrastructureMechanicalPersistence)=state.activeEffects.filter{it.first.startsWith("CONDITION:")}
@@ -211,6 +231,11 @@ internal class ProductionCombatSnapshotAuthority(
 }
 
 internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapshots:ProductionCombatSnapshotAuthority):MechanicsRuleResolver{
+    private sealed interface CanonicalEffectResolution{
+        data class Applied(val payload:Map<String,String>):CanonicalEffectResolution
+        data class Rejected(val reasonUid:String):CanonicalEffectResolution
+    }
+
     override fun resolve(request:MechanicsEffectRequest,context:MechanicsResolutionContext):MechanicsEffectResolution{
         val node=context.plan.intent.nodes.singleOrNull{it.nodeUid==request.nodeUid}
             ?:return MechanicsEffectResolution.Rejected("INTENT_NODE_NOT_FOUND")
@@ -218,8 +243,11 @@ internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapsh
         val owner=context.plan.steps.singleOrNull{it.nodeUid==request.nodeUid}?.mechanicsOwnerUid
             ?:return MechanicsEffectResolution.Rejected("MECHANICS_OWNER_MISSING")
         if(owner!=request.mechanicsOwnerUid)return MechanicsEffectResolution.Rejected("MECHANICS_OWNER_MISMATCH")
-        val canonical=(if(owner=="UNIVERSAL_COMBAT")resolveCombat(request,context,node,target) else resolveUniversal(request,context,node,target))
-            ?:return MechanicsEffectResolution.Rejected("UNSUPPORTED_OR_UNVERIFIABLE_EFFECT")
+        val resolved=if(owner=="UNIVERSAL_COMBAT")resolveCombat(request,context,node,target)
+        else resolveUniversal(request,context,node,target)?.let(CanonicalEffectResolution::Applied)
+            ?:CanonicalEffectResolution.Rejected("UNSUPPORTED_OR_UNVERIFIABLE_EFFECT")
+        if(resolved is CanonicalEffectResolution.Rejected)return MechanicsEffectResolution.Rejected(resolved.reasonUid)
+        val canonical=(resolved as CanonicalEffectResolution.Applied).payload
         val input=mechanicsHash(listOf(context.plan.intent.canonicalFingerprint(),context.context.canonicalPayload(),context.stagedEffects,request.effectUid,request.effectKindUid,owner).joinToString("|"))
         val output=mechanicsHash(canonical.toSortedMap().toString())
         return MechanicsEffectResolution.Verified(VerifiedMechanicsEffect(
@@ -228,12 +256,16 @@ internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapsh
         ))
     }
 
-    private fun resolveCombat(request:MechanicsEffectRequest,context:MechanicsResolutionContext,node:IntentNode,target:DomainRef):Map<String,String>?{
-        val coreRequest=combatSnapshots.build(request,context,node,target)?:return null
-        val result=UniversalCombatEngine().resolve(coreRequest) as? CombatResolution.Resolved?:return null
-        if(result.effects.isEmpty())return null
+    private fun resolveCombat(request:MechanicsEffectRequest,context:MechanicsResolutionContext,node:IntentNode,target:DomainRef):CanonicalEffectResolution{
+        val coreRequest=combatSnapshots.build(request,context,node,target)
+            ?:return CanonicalEffectResolution.Rejected("COMBAT_SNAPSHOT_UNAVAILABLE")
+        val result=when(val resolution=UniversalCombatEngine().resolve(coreRequest)){
+            is CombatResolution.Resolved->resolution
+            is CombatResolution.Rejected->return CanonicalEffectResolution.Rejected("COMBAT_${resolution.reasonUid}")
+        }
+        if(result.effects.isEmpty())return CanonicalEffectResolution.Rejected("COMBAT_RESOLUTION_EMPTY")
         val resolved=result.effects.singleOrNull{it.target==target}?:result.effects.first()
-        return resolved.payload+buildMap{
+        return CanonicalEffectResolution.Applied(resolved.payload+buildMap{
             put("magnitude",resolved.magnitude.toString());put("target_kind_uid",resolved.target.kindUid);put("target_uid",resolved.target.uid)
             put("combat_proof_uid",result.evidence.proofUid);put("canonical_effect_kind_uid",resolved.kind.name)
             if(result.effects.size>1){
@@ -243,16 +275,18 @@ internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapsh
                     put("area_target_${index}_magnitude",effect.magnitude.toString());put("area_target_${index}_effect_kind_uid",effect.kind.name)
                 }
             }
-        }
+        })
     }
 
     private fun resolveUniversal(request:MechanicsEffectRequest,context:MechanicsResolutionContext,node:IntentNode,target:DomainRef):Map<String,String>?{
         val kind=request.effectKindUid.substringAfterLast(':').uppercase()
         val actor=DomainRef(context.plan.intent.actor.actorKindUid,context.plan.intent.actor.actorUid)
         val deterministic=(mechanicsHash("${context.plan.intent.canonicalFingerprint()}|${request.effectUid}|$kind").take(8).toLong(16)%10)+1
-        val canonicalTarget=when(kind){"MOVEMENT","DISPLACEMENT","RESOURCE_DELTA","CONDITION","BUFF","DEBUFF","CONTROL","RESTRICTION"->actor;else->target}
+        val canonicalTarget=when(kind){"MOVEMENT","DISPLACEMENT","LOCATION_TRANSITION","TRAINING","INTERACTION","INVENTORY_ADD","INVENTORY_REMOVE","RESOURCE_DELTA","CONDITION","BUFF","DEBUFF","CONTROL","RESTRICTION"->actor;else->target}
         val magnitude=when(kind){
             "MOVEMENT","DISPLACEMENT"->1_000L
+            "LOCATION_TRANSITION","TRAINING","INTERACTION","INVENTORY_ADD"->1L
+            "INVENTORY_REMOVE"->-1L
             "RESOURCE_DELTA"->-deterministic
             "CONDITION","BUFF","DEBUFF","CONTROL","RESTRICTION"->1L
             "WOUND","EQUIPMENT_DAMAGE","STRUCTURE_DAMAGE","MORALE","COHESION","FORMATION","ENVIRONMENT","PERSISTENT_EFFECT"->deterministic
@@ -263,6 +297,24 @@ internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapsh
             "semantic_action_uid" to (node.semanticAction.canonicalActionUid?:node.semanticAction.semanticFamilyUid?:"OPEN_ACTION")
         )
         when(kind){
+            "LOCATION_TRANSITION"->{
+                if(target.kindUid !in setOf("PLACE","LOCATION"))return null
+                safePayload["destination_kind_uid"]=target.kindUid;safePayload["destination_uid"]=target.uid
+            }
+            "TRAINING"->safePayload["track_uid"]="TRAINING:GENERAL"
+            "INTERACTION"->safePayload["track_uid"]="ACTION:${normalizedWorldToken(node.semanticAction.canonicalActionUid?:node.semanticAction.semanticFamilyUid?:"GENERAL")}"
+            "INVENTORY_ADD","INVENTORY_REMOVE"->{
+                if(target.kindUid !in setOf("OBJECT","ITEM","ITEM_INSTANCE","ASSET"))return null
+                safePayload["item_instance_uid"]=target.uid
+                if(kind=="INVENTORY_ADD"){
+                    val materialization=universalInventoryItemMaterialization()
+                    safePayload["item_definition_uid"]=materialization.itemDefinitionUid
+                    safePayload["item_world_pack_uid"]=materialization.worldPackUid
+                    safePayload["item_key"]=materialization.itemKey
+                    safePayload["item_display_name"]=materialization.displayName
+                    materialization.categoryUid?.let{safePayload["item_category_uid"]=it}
+                }
+            }
             "RESOURCE_DELTA"->{
                 val resource=request.parameters["resource_uid"]?:return null
                 if(!context.context.canonicalPayload().contains(resource))return null
@@ -277,34 +329,138 @@ internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapsh
     }
 }
 
+/**
+ * The save may know exact coordinates for one participant and only a scene/zone for another.
+ * A mixed representation is not comparable by the generic spatial resolver. When Core proves
+ * that every participant belongs to the same canonical location, degrade the whole comparison
+ * to that common zone. This is the same conservative precision already used by Zone-vs-Zone;
+ * different or unknown locations are never coerced together.
+ */
+internal fun normalizeCombatPositionsForSharedLocation(
+    positions:Map<DomainRef,CombatPosition>,
+    locationUids:Map<DomainRef,String?>
+):Map<DomainRef,CombatPosition>{
+    if(locationUids.isEmpty()||locationUids.keys.any{it !in positions})return positions
+    val locations=locationUids.values.mapNotNull{it?.takeIf(String::isNotBlank)}
+    if(locations.size!=locationUids.size)return positions
+    val distinct=locations.distinct()
+    if(distinct.size==1&&locationUids.keys.all{positions[it] is CombatPosition.Exact})return positions
+    return positions+locationUids.mapValues{(_,location)->CombatPosition.Zone(requireNotNull(location))}
+}
+
+/** Equal locations and one-step containment (actor in yard, player in a child training area) are
+ * one coarse combat scene. Sibling rooms and more distant shared ancestors remain separate. */
+internal fun nearestCombatSceneAnchor(paths:Map<DomainRef,List<String>>):String?{
+    if(paths.isEmpty()||paths.values.any(List<String>::isEmpty))return null
+    val common=paths.values.map(List<String>::toSet).reduce(Set<String>::intersect)
+    return common.map{uid->uid to paths.values.sumOf{it.indexOf(uid)}}
+        .filter{it.second<=1}
+        .sortedWith(compareBy<Pair<String,Int>>{it.second}.thenBy{it.first})
+        .firstOrNull()?.first
+}
+
+internal fun nonDamagingCombatRequested(intent:IntentDocument,node:IntentNode):Boolean{
+    val accepted=setOf("NO_DAMAGE","NON_DAMAGING","NON_LETHAL","NONLETHAL","TOUCH_ONLY","CONTACT_ONLY")
+    fun marker(value:String?)=value?.trim()?.uppercase()?.replace('-','_')?.replace(' ','_') in accepted
+    if(marker(node.intendedResult?.semanticTypeUid))return true
+    return (intent.globalConstraints+node.constraints).any{directive->
+        directive.strength==DirectiveStrength.HARD&&
+            (directive.scopeNodeUid==null||directive.scopeNodeUid==node.nodeUid)&&marker(directive.valueCanonical)
+    }
+}
+
 private class ProductionIntentResolver(
     private val repository:UnifiedGameRepository,
     private val audience:()->AudienceContext,
-    private val purpose:()->PurposeContext
+    private val purpose:()->PurposeContext,
+    evidenceProvider:WorldEvidenceProviderPort=WorldEvidenceProviderPort.NONE,
+    private val semanticWorldPack:SemanticWorldPackReferenceCandidatePort=SemanticWorldPackReferenceCandidatePort.NONE
 ):TrustedIntentResolutionPort{
+    private val universal=UniversalWorldMaterializationResolver(evidenceProvider)
     override fun resolve(candidate:IntentDocument):IntentDocument{
         val player=repository.activePlayerRef()
+        val currentAnchor=player?.let{repository.infrastructureEntityLocationUid(it.playerUid)}
         val resolved=candidate.references.map{reference->
-            if(reference.state==IntentReferenceState.RESOLVED_PROJECTED||reference.kind in setOf(IntentReferenceKind.FUTURE_RESULT,IntentReferenceKind.RESOURCE_FROM_RESULT))return@map reference
+            if(reference.state in setOf(IntentReferenceState.RESOLVED_PROJECTED,IntentReferenceState.RESOLVED_LATENT)||reference.kind in setOf(IntentReferenceKind.FUTURE_RESULT,IntentReferenceKind.RESOURCE_FROM_RESULT))return@map reference
             val phrase=(reference.rawPhrase?:reference.descriptorHints["surface"]).orEmpty().trim()
+            val directConsumers=candidate.nodes.filter{node->node.participants.any{it.referenceUid==reference.referenceUid}}
             val direct=when{
                 phrase.lowercase() in setOf("ja","mnie","mi","sobie","self","me")&&player!=null->DomainRef("PLAYER",player.playerUid)
-                else->null
+                else->resolveCommittedTurnResultReference(reference,repository.infrastructureLastReceipt())
             }
             val candidates=if(direct!=null)listOf(direct) else buildList{
                 runCatching{repository.npcsProjection(phrase,audience(),purpose()).value.orEmpty()}.getOrDefault(emptyList()).filter{nameMatch(it.name,phrase)}.forEach{add(DomainRef("NPC",it.uid))}
                 repository.infrastructureAggregateTargets(phrase).forEach{add(it.second)}
-                repository.worldLocations(phrase).filter{nameMatch(it.name,phrase)}.forEach{add(DomainRef("LOCATION",it.uid))}
+                runCatching{repository.worldLocations(phrase)}.getOrDefault(emptyList()).filter{nameMatch(it.name,phrase)}.forEach{add(DomainRef("LOCATION",it.uid))}
+                runCatching{semanticWorldPack.candidates(candidate.campaignUid,reference,directConsumers)}.getOrDefault(emptyList()).forEach{add(it)}
             }.distinct()
-            when(candidates.size){
-                1->reference.copy(state=IntentReferenceState.RESOLVED_PROJECTED,resolvedProjectedRef=candidates.single(),candidateProjectedRefs=emptyList(),resolutionEvidenceUid="PHASE38:EXACT-DESCRIPTOR")
-                in 2..Int.MAX_VALUE->reference.copy(state=IntentReferenceState.AMBIGUOUS,candidateProjectedRefs=candidates,resolutionEvidenceUid="PHASE38:AMBIGUOUS-DESCRIPTOR")
-                else->reference
+            resolveExistingDescriptorCandidates(reference,directConsumers,candidates)?:run{
+                    val consumerIds=directConsumers.map{it.nodeUid}.toSet()
+                    val consumers=(directConsumers+candidate.nodes.filter{node->node.dependencies.any{it.predecessorNodeUid in consumerIds}}).distinctBy{it.nodeUid}
+                    val dynamic=runCatching{repository.infrastructureWorldElements(reference,consumers)}.getOrDefault(emptyList())
+                    val packElements=runCatching{repository.worldLocations(phrase)}.getOrDefault(emptyList()).map{
+                        CampaignWorldElement(DomainRef("LOCATION",it.uid),it.name,"WORLD_PACK_LOCATION",null,emptySet(),"WORLD_PACK",WorldEvidenceClassification.SOURCE_CANON)
+                    }
+                    when(val decision=universal.resolve(candidate.campaignUid,reference,consumers,currentAnchor,dynamic+packElements,null)){
+                        is UniversalWorldReferenceResolution.Existing->reference.copy(state=IntentReferenceState.RESOLVED_PROJECTED,resolvedProjectedRef=decision.element.element,candidateProjectedRefs=emptyList(),resolutionEvidenceUid=decision.evidenceUid)
+                        is UniversalWorldReferenceResolution.Latent->LatentWorldReferenceCodec.attach(reference,decision.draft,decision.feasibility)
+                        is UniversalWorldReferenceResolution.Rejected->reference.copy(state=IntentReferenceState.INVALID,descriptorHints=reference.descriptorHints+("world_resolution_reason" to decision.reasonUid))
+                        is UniversalWorldReferenceResolution.Unresolved->reference.copy(descriptorHints=reference.descriptorHints+("world_resolution_reason" to decision.reasonUid))
+                    }
             }
         }
-        return candidate.copy(references=resolved,provenance=candidate.provenance.copy(source=IntentInterpretationSource.TRUSTED_REFERENCE_RESOLUTION,sourceUid="RPGOS-CORE-REFERENCE-RESOLVER"))
+        val trustedNodes=candidate.nodes.map{node->node.copy(
+            semanticAction=UniversalIntentFamilies.trustProviderAction(node.semanticAction)
+        )}
+        return candidate.copy(nodes=trustedNodes,references=resolved,provenance=candidate.provenance.copy(source=IntentInterpretationSource.TRUSTED_REFERENCE_RESOLUTION,sourceUid="RPGOS-CORE-REFERENCE-RESOLVER"))
     }
-    private fun nameMatch(name:String,phrase:String)=name.trim().equals(phrase,true)||name.lowercase().contains(phrase.lowercase()).takeIf{phrase.length>=3}==true
+    private fun nameMatch(name:String,phrase:String)=worldNamesEquivalent(name,phrase)||name.lowercase().contains(phrase.lowercase()).takeIf{phrase.length>=3}==true
+}
+
+/**
+ * A category names any suitable member, not one unique proper-named instance. Semantic retrieval
+ * can legitimately return several previous exercises, tools or local facilities for such a
+ * reference. Selecting a stable member (or the requested ordinal) keeps an unambiguous action
+ * playable; only a proper name, role, quantity or unknown shape remains ambiguity-sensitive.
+ */
+internal fun resolveExistingDescriptorCandidates(
+    reference:IntentReference,
+    consumerNodes:List<IntentNode>,
+    candidates:List<DomainRef>
+):IntentReference?{
+    val ordered=candidates.distinct().sortedWith(compareBy<DomainRef>{it.kindUid}.thenBy{it.uid})
+    if(ordered.isEmpty())return null
+    if(ordered.size==1)return reference.copy(
+        state=IntentReferenceState.RESOLVED_PROJECTED,resolvedProjectedRef=ordered.single(),candidateProjectedRefs=emptyList(),
+        resolutionEvidenceUid="PHASE38:EXACT-DESCRIPTOR"
+    )
+    val shape=WorldReferenceShapeClassifier.classify(reference,consumerNodes)
+    if(shape.kind in setOf(WorldReferenceShapeKind.CATEGORY,WorldReferenceShapeKind.AFFORDANCE)){
+        val selected=shape.ordinal?.let{ordered.getOrNull(it-1)}?:ordered.first()
+        return reference.copy(
+            state=IntentReferenceState.RESOLVED_PROJECTED,resolvedProjectedRef=selected,candidateProjectedRefs=emptyList(),
+            resolutionEvidenceUid="PHASE38:CATEGORY-DESCRIPTOR"
+        )
+    }
+    return reference.copy(
+        state=IntentReferenceState.AMBIGUOUS,candidateProjectedRefs=ordered,resolutionEvidenceUid="PHASE38:AMBIGUOUS-DESCRIPTOR"
+    )
+}
+
+/** Resolves retrospective discourse such as "rezultat klona" or "wskazówka nauczyciela"
+ * to the last authoritative commit receipt. It never guesses the referenced contents and
+ * never binds future/ordinal references. The receipt is only an identity anchor; the AI text
+ * from the previous turn is not promoted to a new canonical FACT. */
+internal fun resolveCommittedTurnResultReference(reference:IntentReference,receipt:TurnCommitReceipt?):DomainRef?{
+    if(receipt?.commitOrder==null)return null
+    if(reference.descriptorHints["ordinal"]?.uppercase() in setOf("NEXT","FUTURE","UPCOMING"))return null
+    val token=(reference.semanticTypeHints+reference.descriptorHints.values+listOfNotNull(reference.rawPhrase))
+        .joinToString(" ").let(::normalizedWorldToken)
+    if(listOf(
+            "RESULT","OUTCOME","REZULTAT","WYNIK","EFEKT",
+            "ADVICE","GUIDANCE","INSTRUCTIONAL_HINT","WSKAZOWK","RADA","ZALECEN"
+        ).none{it in token})return null
+    return DomainRef("TURN_RESULT",receipt.transactionUid)
 }
 
 /** Exact as-of readback: only material bound to this committed order may enter narration. */
@@ -313,23 +469,41 @@ private class ProductionCommittedNarrationReadPort(private val repository:Unifie
         val order=requireNotNull(receipt.commitOrder)
         val replay=requireNotNull(repository.infrastructureReplayPayload(identity.transactionUid,order)){"RPGOS-P54:COMMITTED_REPLAY_MISSING"}
         val snapshot=mapOf("committed_order" to order.toString(),"committed_change_count" to replay.changeSet.changes.size.toString())
-        val facts=replay.changeSet.changes.map{change->CommittedNarrativeFact(
-            "FACT:${mechanicsHash(change.changeUid).take(24)}",CommittedNarrativeFactKind.MECHANICAL_RESULT,
-            subjectOf(change)?.uid,change.changeKindUid,valueOf(change),order
-        )}
-        val consequences=replay.changeSet.changes.map{change->when(val payload=change.payload){
-            is ResourceChange->"Zasób ${payload.resourceUid} zmienił się o ${payload.delta.units}."
-            is ConditionChange->if(payload.operation==ConditionOperation.ADD)"Pojawił się stan ${payload.conditionUid}." else "Stan ${payload.conditionUid} ustąpił."
-            is RuntimeChange->"Skutek działania został zastosowany."
-            is WoundChange->"Cel otrzymał ranę o nasileniu ${payload.severityDelta.units}."
-            is SpatialChange->"Pozycja celu zmieniła się."
-            is EquipmentIntegrityChange->"Wyposażenie celu zostało uszkodzone."
-            is StructureIntegrityChange->"Struktura została uszkodzona."
-            is MechanicalTrackChange->"Stan ${payload.trackUid.lowercase()} zmienił się."
-            is AggregatePopulationChange->"Zmienił się stan walczącej grupy."
-            is AssetChange->"Stan obiektu zmienił się na ${payload.proposedLifecycleStateUid.lowercase()}."
-            else->"Świat przyjął skutek tej decyzji."
-        }}
+        val facts=replay.changeSet.changes.map{change->
+            val truth=change.payload as? CampaignTruthChange
+            CommittedNarrativeFact(
+                "FACT:${mechanicsHash(change.changeUid).take(24)}",
+                when(truth?.kind){
+                    TruthKind.NARRATIVE->CommittedNarrativeFactKind.NARRATIVE_COLOR
+                    TruthKind.BELIEF->CommittedNarrativeFactKind.HOLDER_BELIEF
+                    TruthKind.FACT->CommittedNarrativeFactKind.FACT
+                    null->CommittedNarrativeFactKind.MECHANICAL_RESULT
+                },
+                truth?.subjectUid?:subjectOf(change)?.uid,truth?.predicate?:change.changeKindUid,
+                truth?.objectValue?:truth?.narrativeText?:valueOf(change),order
+            )
+        }
+        val consequences=buildList{
+            replay.changeSet.changes.mapNotNullTo(this){change->when(val payload=change.payload){
+                is ResourceChange->"Zasób ${payload.resourceUid} zmienił się o ${payload.delta.units}."
+                is ConditionChange->if(payload.operation==ConditionOperation.ADD)"Pojawił się stan ${payload.conditionUid}." else "Stan ${payload.conditionUid} ustąpił."
+                is RuntimeChange->"Skutek działania został zastosowany."
+                is InventoryChange->if(payload.quantityDelta.units>0L)"Przedmiot trafia do twojego ekwipunku." else "Przedmiot opuszcza twój ekwipunek."
+                is WoundChange->"Cel otrzymał ranę o nasileniu ${payload.severityDelta.units}."
+                is SpatialChange->"Postać zmieniła swoje położenie."
+                is EquipmentIntegrityChange->"Wyposażenie celu zostało uszkodzone."
+                is StructureIntegrityChange->"Struktura została uszkodzona."
+                is MechanicalTrackChange->playerVisibleTrackConsequence(payload)
+                is AggregatePopulationChange->"Zmienił się stan walczącej grupy."
+                is AssetChange->"Stan obiektu zmienił się na ${payload.proposedLifecycleStateUid.lowercase()}."
+                is CampaignTruthChange->when{
+                    payload.predicate==CampaignWorldFacts.NAME->"Rozpoznano element bieżącej okolicy: ${payload.objectValue}."
+                    payload.kind==TruthKind.NARRATIVE&&payload.predicate==GmNarrativePredicates.NPC_UTTERANCE->"Rozmówca odpowiada: „${payload.narrativeText}”"
+                    else->null
+                }
+                else->null
+            }}
+        }
         val forbidden=replay.changeSet.changes.flatMap{listOf(it.changeUid,it.sourceRuleUid)}.filterNotNull().toSet()
         return PostCommitPlayerVisibleReadback(
             identity.campaignUid,identity.turnUid,identity.commandUid,identity.transactionUid,order,
@@ -345,12 +519,26 @@ private class ProductionCommittedNarrationReadPort(private val repository:Unifie
     }
     private fun valueOf(change:PlayerDomainChange)=when(val payload=change.payload){
         is ResourceChange->payload.delta.units.toString();is ConditionChange->payload.operation.name;is RuntimeChange->payload.delta.units.toString()
+        is InventoryChange->payload.itemInstanceUid
         is WoundChange->payload.severityDelta.units.toString();is SpatialChange->"${payload.deltaXMillimetres},${payload.deltaYMillimetres}"
         is EquipmentIntegrityChange->payload.damageDelta.units.toString();is StructureIntegrityChange->payload.damageDelta.units.toString()
-        is MechanicalTrackChange->payload.delta.units.toString();is AggregatePopulationChange->"${payload.eliminatedDelta}/${payload.woundedDelta}/${payload.conditionAffectedDelta}"
+        is MechanicalTrackChange->playerVisibleTrackValue(payload);is AggregatePopulationChange->"${payload.eliminatedDelta}/${payload.woundedDelta}/${payload.conditionAffectedDelta}"
         is AssetChange->payload.proposedLifecycleStateUid;else->"APPLIED"
     }
 }
+
+/**
+ * A removal proposal carries its inventory instance in the verified payload while the canonical
+ * effect target is the player. Admit only an exact instance already held by that actor; an AI-
+ * supplied or cross-inventory UID therefore remains unknown to PlayerDomainEngine.
+ */
+internal fun canonicalHeldInventoryReferences(
+    command:PlayerCommand<ApplyVerifiedMechanicsCommandPayload>,
+    heldItemInstanceUids:Set<String>
+):Set<DomainRef> = command.payload.effects.asSequence()
+    .filter{it.effectKindUid.substringAfterLast(':').equals("INVENTORY_REMOVE",ignoreCase=true)}
+    .mapNotNull{it.canonicalPayload["item_instance_uid"]?.takeIf(heldItemInstanceUids::contains)}
+    .mapTo(linkedSetOf()){DomainRef("ITEM_INSTANCE",it)}
 
 private class DynamicProductionModelRoute(
     private val providers:AndroidAiProviderCenterApplication,
@@ -362,6 +550,7 @@ private class DynamicProductionModelRoute(
         val registry=AiProviderRegistry.fromCompositionRoot(all)
         val ui=providers.initialState(config)
         val availability=AiAvailabilityPort{provider->
+            if(provider is AiProviderAvailabilityReporter)return@AiAvailabilityPort provider.currentAvailability()
             val (state,reason)=when(provider.capabilities.providerKind){
                 AiProviderKind.LOCAL->when{
                     !ui.localArtifactInstalled->AiAvailabilityState.NOT_CONFIGURED to "MODEL_ARTIFACT_REQUIRED"
@@ -380,6 +569,56 @@ private class DynamicProductionModelRoute(
     }
 }
 
+/** Keeps internal counters authoritative while preventing engine bookkeeping from leaking into
+ * prose as lines such as "postęp o 1". Exact values remain in the committed replay. */
+internal fun playerVisibleTrackValue(payload:MechanicalTrackChange):String=when{
+    payload.trackUid.startsWith("TRAINING:")&&payload.delta.units>0L->"PROGRESS_GAINED"
+    payload.trackUid.startsWith("TRAINING:")&&payload.delta.units<0L->"PROGRESS_LOST"
+    payload.trackUid.startsWith("TRAINING:")->"NO_PROGRESS_CHANGE"
+    payload.trackUid=="CONTEST:CONTACT_SUCCESS"->"CONTACT_SUCCESS_WITHOUT_DAMAGE"
+    payload.trackUid=="CONTEST:CONTACT_EVADED"->"CONTACT_EVADED_WITHOUT_DAMAGE"
+    payload.trackUid.startsWith("ACTION:")->"ACTION_COMPLETED"
+    else->"MECHANICAL_RESULT_APPLIED"
+}
+
+internal fun playerVisibleTrackConsequence(payload:MechanicalTrackChange):String=when{
+    payload.trackUid.startsWith("TRAINING:")&&payload.delta.units>0L->"Ćwiczenie przyniosło zauważalny postęp."
+    payload.trackUid.startsWith("TRAINING:")&&payload.delta.units<0L->"Ćwiczenie ujawniło potrzebę poprawy podstaw."
+    payload.trackUid.startsWith("TRAINING:")->"Próba nie przyniosła jeszcze wyraźnego postępu."
+    payload.trackUid=="CONTEST:CONTACT_SUCCESS"->"W sparingu udaje ci się osiągnąć zamierzony kontakt bez zadawania obrażeń."
+    payload.trackUid=="CONTEST:CONTACT_EVADED"->"W sparingu przeciwnik unika kontaktu; nikt nie odnosi obrażeń."
+    payload.trackUid.startsWith("ACTION:")->"Udaje ci się wykonać zamierzone działanie."
+    else->"Skutek działania został zastosowany."
+}
+
+internal fun productionUniversalCapabilities(requirements:List<CapabilityRequirementTemplate>):List<CapabilityDescriptor> {
+    val executableForms=IntentForm.entries.filterNot{it==IntentForm.GOAL}.toSet()
+    return listOf(
+    CapabilityDescriptor("RPGOS-CAPABILITY:DECLARED-GOAL",1,semanticFamilyUids=UniversalIntentFamilies.REGISTERED,
+        allowedForms=setOf(IntentForm.GOAL),executionKind=CapabilityExecutionKind.READ_CONTEXT,
+        sideEffectClass=CapabilitySideEffectClass.NONE,composable=true,requirements=requirements),
+    CapabilityDescriptor("RPGOS-CAPABILITY:UNIVERSAL-COMBAT",2,semanticFamilyUids=UniversalIntentFamilies.COMBAT,
+        allowedForms=executableForms,
+        requiredParticipantRoles=setOf("TARGET"),resolvedParticipantRoles=setOf("TARGET"),
+        executionKind=CapabilityExecutionKind.MECHANICS_PROPOSAL,sideEffectClass=CapabilitySideEffectClass.PROPOSED_WORLD_EFFECT,
+        mechanicsOwnerUid="UNIVERSAL_COMBAT",composable=true,requirements=requirements),
+    CapabilityDescriptor("RPGOS-CAPABILITY:UNIVERSAL-MOVEMENT",2,semanticFamilyUids=UniversalIntentFamilies.MOVEMENT,
+        allowedForms=executableForms,
+        requiredParticipantRoles=setOf("TARGET"),resolvedParticipantRoles=setOf("TARGET"),latentParticipantRoles=setOf("TARGET"),
+        executionKind=CapabilityExecutionKind.MECHANICS_PROPOSAL,sideEffectClass=CapabilitySideEffectClass.PROPOSED_WORLD_EFFECT,
+        mechanicsOwnerUid="UNIVERSAL_MOVEMENT",composable=true,requirements=requirements),
+    CapabilityDescriptor("RPGOS-CAPABILITY:UNIVERSAL-ACTION-TARGET",4,semanticFamilyUids=UniversalIntentFamilies.ACTION,
+        allowedForms=executableForms,
+        requiredParticipantRoles=setOf("TARGET"),resolvedParticipantRoles=setOf("TARGET"),latentParticipantRoles=setOf("TARGET"),
+        executionKind=CapabilityExecutionKind.MECHANICS_PROPOSAL,sideEffectClass=CapabilitySideEffectClass.PROPOSED_WORLD_EFFECT,
+        mechanicsOwnerUid="UNIVERSAL_ACTION",composable=true,requirements=requirements),
+    CapabilityDescriptor("RPGOS-CAPABILITY:UNIVERSAL-ACTION-SELF",4,semanticFamilyUids=UniversalIntentFamilies.ACTION,
+        allowedForms=executableForms,
+        executionKind=CapabilityExecutionKind.MECHANICS_PROPOSAL,sideEffectClass=CapabilitySideEffectClass.PROPOSED_WORLD_EFFECT,
+        mechanicsOwnerUid="UNIVERSAL_ACTION",composable=true,requirements=requirements,prohibitedParticipantRoles=setOf("TARGET"))
+    )
+}
+
 /** One production composition root for Chat/UI, providers, mechanics, PlayerDomain and commit. */
 class ProductionGameEngineCompositionRoot(
     context:Context,
@@ -389,11 +628,13 @@ class ProductionGameEngineCompositionRoot(
     private val additionalProviders:() -> List<AiProvider> = { emptyList() },
     private val aggregateCombatState:AggregateCombatStatePort=AggregateCombatStatePort.NONE,
     private val combatAbilityContracts:CombatAbilityContractPort=CombatAbilityContractPort.UNIVERSAL_FALLBACK,
-    private val semanticApplication:BekkoSemanticApplication?=null
+    private val semanticApplication:BekkoSemanticApplication?=null,
+    private val directorGuidance:DirectorGuidancePort=DirectorGuidancePort.NONE
 ){
     private val app=context.applicationContext
     fun characterCreationApplication():AiCharacterCreationApplication=AiCharacterCreationApplication(
-        DynamicProductionModelRoute(providerCenter,configuration,additionalProviders),repository
+        DynamicProductionModelRoute(providerCenter,configuration,additionalProviders),repository,
+        semanticApplication?.characterCreationCatalogProjection()?:CharacterCreationCatalogProjectionPort.LEXICAL
     )
     fun directorEngine(
         jobs:DirectorJobStore,
@@ -405,10 +646,11 @@ class ProductionGameEngineCompositionRoot(
         contextScout=semanticApplication?.directorScout()?:DirectorContextScoutPort.NONE
     )
     fun chatApplication():CanonicalChatApplication{
-        val authority=repository.infrastructureWorldPackAuthority()
-        val worldProvider=UniversalMechanicsWorldRuleProvider(authority.binding)
-        val worldRules=WorldRuleProviderRegistry.of(listOf(worldProvider))
-        val worldAuthority=WorldPackAuthoritySnapshot.single(authority.campaignUid,authority.binding)
+        val campaignUid=repository.activeCampaignRef().campaignId
+        val authority=runCatching{repository.infrastructureWorldPackAuthority()}.getOrNull()
+        val worldRules=authority?.let{WorldRuleProviderRegistry.of(listOf(UniversalMechanicsWorldRuleProvider(it.binding)))}?:WorldRuleProviderRegistry.empty()
+        val worldAuthority=authority?.let{WorldPackAuthoritySnapshot.single(it.campaignUid,it.binding)}?:WorldPackAuthoritySnapshot.empty()
+        val worldRuleMode:WorldRuleMode=authority?.let{WorldRuleMode.Bound(it.binding)}?:UnboundGenericWorldRuleMode
         val playerEngine=productionMechanicsPlayerDomainEngine(worldRules,worldAuthority)
         val mechanics=ProductionUniversalMechanicsRuleResolver(ProductionCombatSnapshotAuthority(repository,aggregateCombatState,combatAbilityContracts))
         val mechanicsRegistry=MechanicsResolverRegistry.fromCompositionRoot(mapOf(
@@ -429,17 +671,8 @@ class ProductionGameEngineCompositionRoot(
                 ))
             }
         }
-        val capabilities=listOf(
-            CapabilityDescriptor("RPGOS-CAPABILITY:UNIVERSAL-COMBAT",2,semanticFamilyUids=setOf(
-                "ATTACK","COMBAT","STRIKE","FIGHT","DEFEND","AREA_ATTACK","BLAST","EXPLOSION","AOE","CONE_ATTACK","LINE_ATTACK","ZONE_ATTACK","SWEEP_ATTACK"
-            ),
-                executionKind=CapabilityExecutionKind.MECHANICS_PROPOSAL,sideEffectClass=CapabilitySideEffectClass.PROPOSED_WORLD_EFFECT,mechanicsOwnerUid="UNIVERSAL_COMBAT",composable=true,requirements=requirements),
-            CapabilityDescriptor("RPGOS-CAPABILITY:UNIVERSAL-MOVEMENT",2,semanticFamilyUids=setOf("MOVE","TRAVEL","ESCAPE","REACH","PUSH"),
-                executionKind=CapabilityExecutionKind.MECHANICS_PROPOSAL,sideEffectClass=CapabilitySideEffectClass.PROPOSED_WORLD_EFFECT,mechanicsOwnerUid="UNIVERSAL_MOVEMENT",composable=true,requirements=requirements),
-            CapabilityDescriptor("RPGOS-CAPABILITY:UNIVERSAL-ACTION",2,semanticFamilyUids=setOf("USE","CRAFT","FISH","BUY","SELL","HEAL","REST","CAPTURE","PROTECT","HOLD","DISABLE","DESTROY"),
-                executionKind=CapabilityExecutionKind.MECHANICS_PROPOSAL,sideEffectClass=CapabilitySideEffectClass.PROPOSED_WORLD_EFFECT,mechanicsOwnerUid="UNIVERSAL_ACTION",composable=true,requirements=requirements)
-        )
-        val binding=StructuredProviderBinding(CORE_PLAYER_CONTEXT_PROVIDER,setOf(CORE_PLAYER_CONTEXT_OPERATION),ProductionPlayerContextProvider(repository,authority.campaignUid))
+        val capabilities=productionUniversalCapabilities(requirements)
+        val binding=StructuredProviderBinding(CORE_PLAYER_CONTEXT_PROVIDER,setOf(CORE_PLAYER_CONTEXT_OPERATION),ProductionPlayerContextProvider(repository,campaignUid))
         val bindings=buildList{add(binding);semanticApplication?.let{add(it.structuredBinding())}}
         val contextPipeline=CanonicalIterativeRetrievalPipeline(StructuredSqlRetriever(bindings),SemanticContextBudgetManager(),TypedContextCompletionStrategy{_,_,_->emptyList()})
         val evaluator=GmProposalEvaluator(StructuredGmProposalValidator(),MechanicsResolutionEngine(mechanicsRegistry))
@@ -447,6 +680,10 @@ class ProductionGameEngineCompositionRoot(
             val refs=linkedSetOf<CampaignScopedDomainRef>()
             fun add(ref:DomainRef){refs+=CampaignScopedDomainRef(command.campaignUid,ref)}
             add(DomainRef(command.actor.actorKindUid,command.actor.actorUid))
+            val heldItemInstanceUids=if(command.actor.actorKindUid=="PLAYER")
+                repository.infrastructureHeldItemInstanceUids(command.actor.actorUid)
+            else emptySet()
+            canonicalHeldInventoryReferences(command,heldItemInstanceUids).forEach(::add)
             command.payload.effects.forEach{effect->
                 add(effect.target)
                 when(effect.effectKindUid.substringAfterLast(':').uppercase()){
@@ -457,19 +694,26 @@ class ProductionGameEngineCompositionRoot(
                     else->Unit
                 }
             }
-            PlayerResolutionContext.create(command.campaignUid,command.actor,refs,dependencyVersions=mapOf("PHASE50" to "2"),worldRuleMode=WorldRuleMode.Bound(authority.binding))
+            PlayerResolutionContext.create(command.campaignUid,command.actor,refs,dependencyVersions=mapOf("PHASE50" to "3"),worldRuleMode=worldRuleMode)
         })
         val route=DynamicProductionModelRoute(providerCenter,configuration,additionalProviders)
         val facade=AiChatEngineFacade(
             route,Phase43IntentValidator(),ProductionIntentResolver(repository,
                 {VisibilityAudienceFactory.player(repository.activeCampaignRef().campaignId)},
-                {PurposeContext(repository.activeCampaignRef().campaignId,VisibilityPurposeKinds.GAMEPLAY_NARRATION)}),
+                {PurposeContext(repository.activeCampaignRef().campaignId,VisibilityPurposeKinds.GAMEPLAY_NARRATION)},
+                if(configuration().privacy.cloudAllowedForDirector)MediaWikiWorldEvidenceProvider() else WorldEvidenceProviderPort.NONE,
+                semanticApplication?.gameplayReferenceCandidates()?:SemanticWorldPackReferenceCandidatePort.NONE),
             LegacyRuleIntentFallback(),GraphTurnPlanner(capabilities),contextPipeline,
             ContextRuntimeProfile("ANDROID-PRODUCTION",8_192,256,768,1_024,256),BoundedProposalRepair(evaluator),assembler,
             AuthoritativeTurnCommitPort{identity,proposal->try{
                 repository.commitTurn(identity,proposal).also{result->
                     if(result is TurnExecutionResult.Committed||result is TurnExecutionResult.AlreadyCommitted){
                         semanticApplication?.onCanonicalCommit()
+                        val receipt=when(result){
+                            is TurnExecutionResult.Committed->result.receipt
+                            is TurnExecutionResult.AlreadyCommitted->result.receipt
+                        }
+                        AiProviderExtensionRegistry.onCanonicalCommit(receipt)
                     }
                 }
             }catch(t:Throwable){throw CanonicalCommitException(t.message?:"TURN_COMMIT_FAILED",t)}},
@@ -477,6 +721,7 @@ class ProductionGameEngineCompositionRoot(
             CommittedNarrationContextBuilder(ProductionCommittedNarrationReadPort(repository)),
             deliveryStore=FileNarrativeDeliveryStore(File(app.filesDir,"narrative-delivery")),
             recoveryStore=FileNarrationRecoveryStore(File(app.filesDir,"narrative-recovery")),
+            directorGuidance=directorGuidance,
             recoveryDiscovery={repository.infrastructureLastReceipt()?.let{receipt->
                 if(!receipt.transactionUid.startsWith("TRANSACTION:")||!receipt.commandUid.startsWith("COMMAND:")||!receipt.turnUid.startsWith("TURN:"))return@let null
                 val order=receipt.commitOrder?:return@let null

@@ -4,6 +4,15 @@ enum class ItemDefinitionStatus { ACTIVE, DEPRECATED }
 enum class ItemStoragePolicy { STACKABLE, UNIQUE_INSTANCE }
 enum class InventoryAuthoritySource { TYPED, LEGACY_MAPPED, LEGACY_UNRESOLVED }
 
+const val UNIVERSAL_WORLD_OBJECT_ITEM_DEFINITION_UID="RPGOS:UNIVERSAL:ITEM:WORLD_OBJECT"
+const val UNIVERSAL_WORLD_OBJECT_ITEM_PACK_UID="RPGOS:UNIVERSAL"
+const val UNIVERSAL_WORLD_OBJECT_ITEM_KEY="world-object"
+
+internal fun universalWorldObjectItemDefinition(provenance:String)=ItemDefinition(
+ UNIVERSAL_WORLD_OBJECT_ITEM_DEFINITION_UID,UNIVERSAL_WORLD_OBJECT_ITEM_PACK_UID,UNIVERSAL_WORLD_OBJECT_ITEM_KEY,
+ "Przedmiot świata","WORLD_OBJECT",ItemStoragePolicy.UNIQUE_INSTANCE,ItemDefinitionStatus.ACTIVE,1,provenance
+)
+
 data class ItemDefinition(val itemDefinitionUid:String,val worldPackUid:String,val key:String,val displayName:String,val category:String?=null,val storagePolicy:ItemStoragePolicy,val definitionStatus:ItemDefinitionStatus=ItemDefinitionStatus.ACTIVE,val definitionVersion:Long=1,val provenance:String)
 data class ItemInstance(val campaignId:String,val itemInstanceUid:String,val itemDefinitionUid:String,val instanceVersion:Long=1,val provenance:String)
 data class PlayerInventoryStack(val campaignId:String,val characterUid:String,val itemDefinitionUid:String,val quantity:Long,val entryVersion:Long=1,val provenance:String)

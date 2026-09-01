@@ -3,7 +3,7 @@ package com.rpgos.app
 import java.io.File
 import java.security.MessageDigest
 
-enum class CommittedNarrativeFactKind { FACT, HOLDER_BELIEF, PLAYER_ASSERTION, MECHANICAL_RESULT, PRESENTATION_CONSEQUENCE }
+enum class CommittedNarrativeFactKind { FACT, HOLDER_BELIEF, PLAYER_ASSERTION, MECHANICAL_RESULT, NARRATIVE_COLOR, PRESENTATION_CONSEQUENCE }
 data class CommittedNarrativeFact(
     val factUid:String,
     val kind:CommittedNarrativeFactKind,
@@ -86,34 +86,107 @@ enum class NarrativeClaimKind { FACT, BELIEF, PLAYER_ASSERTION, MECHANICAL_RESUL
 data class NarrativeSemanticClaim(
     val claimUid:String,val kind:NarrativeClaimKind,val supportFactUid:String?,val predicateUid:String?,val valueCanonical:String?
 ){init{
-    require(claimUid.isNotBlank()&&supportFactUid?.isBlank()!=true&&predicateUid?.isBlank()!=true&&valueCanonical?.isBlank()!=true)
-    if(kind in setOf(NarrativeClaimKind.FACT,NarrativeClaimKind.MECHANICAL_RESULT))require(supportFactUid!=null&&predicateUid!=null&&valueCanonical!=null)
+    require(claimUid.isNotBlank()&&!supportFactUid.isNullOrBlank()&&!predicateUid.isNullOrBlank()&&!valueCanonical.isNullOrBlank())
 }}
 
 data class NarrativeValidationResult(val accepted:Boolean,val reasonUids:List<String>){init{require(accepted==reasonUids.isEmpty())}}
 
 class NarrativeValidator{
-    fun validate(narrative:RenderedNarrative,context:CommittedNarrationContext):NarrativeValidationResult{
+    fun validate(narrative:RenderedNarrative,context:CommittedNarrationContext,playerInput:String?=null):NarrativeValidationResult{
         val reasons=linkedSetOf<String>()
         if(narrative.committedOrder!=context.committedOrder)reasons+="NARRATIVE_COMMIT_ORDER_MISMATCH"
         if(narrative.stopReasonUid!=context.stopPointUid)reasons+="NARRATIVE_STOP_POINT_MISMATCH"
-        if(narrative.assertsPlayerVolition)reasons+="NARRATIVE_INVENTED_PLAYER_VOLITION"
+        val authorizedNonPlayerUtterances=context.legalFacts.filter{
+            it.kind==CommittedNarrativeFactKind.NARRATIVE_COLOR&&it.predicateUid==GmNarrativePredicates.NPC_UTTERANCE
+        }.map{it.valueCanonical}
+        if(narrative.assertsPlayerVolition||NarrativePlayerAgencySurfaceGuard.violates(narrative.text,playerInput,authorizedNonPlayerUtterances))
+            reasons+="NARRATIVE_INVENTED_PLAYER_VOLITION"
         val facts=context.legalFacts.associateBy{it.factUid}
         narrative.claims.forEach{claim->
-            if(claim.kind in setOf(NarrativeClaimKind.FACT,NarrativeClaimKind.MECHANICAL_RESULT)){
-                val support=facts[claim.supportFactUid]
-                if(support==null)reasons+="NARRATIVE_UNSUPPORTED_FACT:${claim.claimUid}"
-                else if(support.predicateUid!=claim.predicateUid||support.valueCanonical!=claim.valueCanonical)reasons+="NARRATIVE_FACT_DRIFT:${claim.claimUid}"
-                if(claim.kind==NarrativeClaimKind.MECHANICAL_RESULT&&support?.kind!=CommittedNarrativeFactKind.MECHANICAL_RESULT)reasons+="NARRATIVE_MECHANICS_DRIFT:${claim.claimUid}"
+            val support=facts[claim.supportFactUid]
+            if(support==null)reasons+="NARRATIVE_UNSUPPORTED_FACT:${claim.claimUid}"
+            else if(support.predicateUid!=claim.predicateUid||support.valueCanonical!=claim.valueCanonical)reasons+="NARRATIVE_FACT_DRIFT:${claim.claimUid}"
+            when(claim.kind){
+                NarrativeClaimKind.FACT->if(support?.kind!=CommittedNarrativeFactKind.FACT)reasons+="NARRATIVE_FACT_WITHOUT_FACT_SUPPORT:${claim.claimUid}"
+                NarrativeClaimKind.MECHANICAL_RESULT->if(support?.kind!=CommittedNarrativeFactKind.MECHANICAL_RESULT)reasons+="NARRATIVE_MECHANICS_DRIFT:${claim.claimUid}"
+                NarrativeClaimKind.NARRATIVE_COLOR->if(support?.kind!=CommittedNarrativeFactKind.NARRATIVE_COLOR)reasons+="NARRATIVE_COLOR_WITHOUT_SUPPORT:${claim.claimUid}"
+                NarrativeClaimKind.BELIEF->if(support?.kind!=CommittedNarrativeFactKind.HOLDER_BELIEF)reasons+="NARRATIVE_BELIEF_WITHOUT_SUPPORT:${claim.claimUid}"
+                NarrativeClaimKind.PLAYER_ASSERTION->if(support?.kind!=CommittedNarrativeFactKind.PLAYER_ASSERTION)reasons+="NARRATIVE_PLAYER_ASSERTION_WITHOUT_SUPPORT:${claim.claimUid}"
             }
-            if(claim.kind==NarrativeClaimKind.BELIEF&&claim.supportFactUid?.let{facts[it]?.kind!=CommittedNarrativeFactKind.HOLDER_BELIEF}!=false)reasons+="NARRATIVE_BELIEF_WITHOUT_SUPPORT:${claim.claimUid}"
         }
         val lowercase=narrative.text.lowercase()
         context.forbiddenDisclosureTokens.filter{it.lowercase() in lowercase}.forEach{reasons+="HIDDEN_DISCLOSURE_TOKEN"}
         val internalPatterns=listOf(Regex("RPGOS-[A-Z0-9:_-]+"),Regex("(?:EVENT|PROOF|TX|RECEIPT):[A-Za-z0-9:_-]+"))
         if(internalPatterns.any{it.containsMatchIn(narrative.text)})reasons+="INTERNAL_PROVENANCE_DISCLOSURE"
+        val technicalSurface=listOf(
+            Regex("(?iu)\\btor(?:ze|u|em)?\\s+mechanicz\\p{L}*"),
+            Regex("(?iu)\\bmechanicz\\p{L}*\\s+(?:tor|licznik|wynik)\\p{L}*"),
+            Regex("(?iu)\\b(?:odnotowano|zarejestrowano)\\s+[+-]?\\d+\\b"),
+            Regex("\\b[A-Z]{2,}(?:_[A-Z0-9]+)+\\b")
+        )
+        if(technicalSurface.any{it.containsMatchIn(narrative.text)})reasons+="INTERNAL_MECHANICS_SURFACE_DISCLOSURE"
         return NarrativeValidationResult(reasons.isEmpty(),reasons.sorted())
     }
+}
+
+/**
+ * A provider-controlled `assertsPlayerVolition=false` is not evidence that the prose preserves
+ * player agency.  This deliberately conservative surface guard catches the high-confidence
+ * failures which can be recognized without treating the language model as an authority:
+ * first-person narration, explicit first-person future decisions and a new Polish adverbial
+ * action (for example `szukając`) which has no lexical root in the submitted player action.
+ */
+private object NarrativePlayerAgencySurfaceGuard{
+    private val firstPersonPronouns=setOf("ja","mnie","mi","mna","moj","moja","moje","moim","moich","moja")
+    private val explicitFirstPersonFuture=setOf(
+        "zacznę","zaczne","będę","bede","pójdę","pojde","zrobię","zrobie","poszukam","spróbuję","sprobuje",
+        "zaatakuję","zaatakuje","wybiorę","wybiore","zdecyduję","zdecyduje","postanowię","postanowie",
+        "zamierzam","planuję","planuje"
+    )
+    private val words=Regex("(?iu)\\p{L}+")
+    private val sentenceStart=Regex("(?iu)(?:^|[.!?]\\s+)(\\p{L}+)")
+    private val polishGerund=Regex("(?iu)\\b(\\p{L}{4,})ąc\\b")
+    private val explicitFirstPersonDesire=Regex("(?iu)\\bchcę\\b|\\bja\\s+chce\\b")
+
+    fun violates(text:String,playerInput:String?,authorizedNonPlayerUtterances:List<String> = emptyList()):Boolean{
+        var playerAgencySurface=text
+        authorizedNonPlayerUtterances.sortedByDescending{it.length}.forEach{utterance->
+            val plain=utterance.trim().trim('„','”','“','"')
+            listOf(utterance,plain).filter{it.isNotBlank()}.distinct().forEach{authorized->
+                playerAgencySurface=playerAgencySurface.replace(authorized,"",ignoreCase=false)
+            }
+        }
+        if(explicitFirstPersonDesire.containsMatchIn(playerAgencySurface))return true
+        val outputWords=words.findAll(playerAgencySurface).map{fold(it.value)}.toList()
+        if(outputWords.any{it in firstPersonPronouns||it in explicitFirstPersonFuture})return true
+        val inputWords=playerInput?.let{value->words.findAll(value).map{fold(it.value)}.toList()}?:emptyList()
+        if(inputWords.isNotEmpty()){
+            val mirroredFirstPerson=sentenceStart.findAll(playerAgencySurface).map{fold(it.groupValues[1])}.any{token->
+                token in inputWords&&looksLikeFirstPersonVerb(token)
+            }
+            if(mirroredFirstPerson)return true
+            val unauthorizedGerund=polishGerund.findAll(playerAgencySurface).any{match->
+                val stem=fold(match.groupValues[1]).removeSuffix("uj")
+                inputWords.none{candidate->commonPrefixLength(stem,candidate)>=4}
+            }
+            if(unauthorizedGerund)return true
+        }
+        return false
+    }
+
+    private fun looksLikeFirstPersonVerb(token:String)=token.length>=4&&(
+        token.endsWith("am")||token.endsWith("em")||token.endsWith("ę")||token.endsWith("e")&&token in explicitFirstPersonFuture
+    )
+
+    private fun commonPrefixLength(left:String,right:String):Int{
+        var index=0
+        while(index<left.length&&index<right.length&&left[index]==right[index])index++
+        return index
+    }
+
+    private fun fold(value:String)=value.lowercase()
+        .replace('ą','a').replace('ć','c').replace('ę','e').replace('ł','l')
+        .replace('ń','n').replace('ó','o').replace('ś','s').replace('ź','z').replace('ż','z')
 }
 
 data class AiNarrativeRepairRequest(
@@ -132,11 +205,11 @@ class CommittedNarrativeRenderer(
         val first=provider.renderNarrative(request,cancellation)
         if(first is AiProviderResult.Failure)return fallback(request.context,"NARRATOR_FAILURE:${first.reasonUid}",0)
         var current=(first as AiProviderResult.Success).value
-        var validation=validator.validate(current,request.context);var attempts=0
+        var validation=validator.validate(current,request.context,request.playerInput);var attempts=0
         while(!validation.accepted&&attempts<policy.maximumAttempts&&!cancellation.isCancelled()){
             val repaired=provider.repairNarrative(AiNarrativeRepairRequest("${request.requestUid}:REPAIR:${attempts+1}",request,current,validation.reasonUids,attempts+1),cancellation)
             if(repaired is AiProviderResult.Failure)return fallback(request.context,"NARRATIVE_REPAIR_FAILURE:${repaired.reasonUid}",attempts)
-            current=(repaired as AiProviderResult.Success).value;attempts++;validation=validator.validate(current,request.context)
+            current=(repaired as AiProviderResult.Success).value;attempts++;validation=validator.validate(current,request.context,request.playerInput)
         }
         return if(validation.accepted)NarrativeRenderOutcome(current,false,attempts,"NARRATIVE_ACCEPTED")
         else fallback(request.context,"NARRATIVE_VALIDATION_REJECTED",attempts)
@@ -155,6 +228,7 @@ class CommittedNarrativeRenderer(
         )}
         return NarrativeRenderOutcome(RenderedNarrative(text,context.stopPointUid,context.committedOrder,claims,false),true,attempts,reason)
     }
+
     private fun humanize(value:String)=value.lowercase().replace('_',' ').replaceFirstChar{it.uppercase()}
 }
 

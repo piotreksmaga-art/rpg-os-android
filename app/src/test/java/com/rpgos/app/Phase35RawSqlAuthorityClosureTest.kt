@@ -8,10 +8,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.SQLiteMode
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
+@SQLiteMode(SQLiteMode.Mode.NATIVE)
 class Phase35RawSqlAuthorityClosureTest {
     private lateinit var root: File
     private lateinit var dbFile: File

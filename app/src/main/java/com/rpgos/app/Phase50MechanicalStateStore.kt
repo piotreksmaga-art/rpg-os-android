@@ -196,9 +196,17 @@ internal class MechanicalActorStateStore(private val db:SQLiteDatabase,private v
 
     fun applySpatial(identity:TurnTransactionIdentity,changeUid:String,change:SpatialChange,effectiveOrder:Long){
         requireTurn(identity)
-        val update=db.compileStatement("UPDATE entity_positions SET x_coord=COALESCE(x_coord,0)+?,y_coord=COALESCE(y_coord,0)+?,last_updated_day=?,updated_chapter=? WHERE entity_uid=?")
-        val changed=update.use{it.bindDouble(1,change.deltaXMillimetres.toDouble());it.bindDouble(2,change.deltaYMillimetres.toDouble());it.bindLong(3,effectiveOrder);it.bindLong(4,effectiveOrder);it.bindString(5,change.subject.uid);it.executeUpdateDelete()}
-        if(changed==0)db.execSQL("INSERT INTO entity_positions(entity_uid,x_coord,y_coord,last_updated_day,updated_chapter) VALUES(?,?,?,?,?)",arrayOf<Any?>(change.subject.uid,change.deltaXMillimetres.toDouble(),change.deltaYMillimetres.toDouble(),effectiveOrder,effectiveOrder))
+        val destination=change.destinationLocation
+        val changed=if(destination!=null){
+            db.compileStatement("UPDATE entity_positions SET location_uid=?,x_coord=?,y_coord=?,last_updated_day=?,updated_chapter=? WHERE entity_uid=?").use{
+                it.bindString(1,destination.uid);it.bindDouble(2,change.deltaXMillimetres.toDouble());it.bindDouble(3,change.deltaYMillimetres.toDouble())
+                it.bindLong(4,effectiveOrder);it.bindLong(5,effectiveOrder);it.bindString(6,change.subject.uid);it.executeUpdateDelete()
+            }
+        }else db.compileStatement("UPDATE entity_positions SET x_coord=COALESCE(x_coord,0)+?,y_coord=COALESCE(y_coord,0)+?,last_updated_day=?,updated_chapter=? WHERE entity_uid=?").use{
+            it.bindDouble(1,change.deltaXMillimetres.toDouble());it.bindDouble(2,change.deltaYMillimetres.toDouble());it.bindLong(3,effectiveOrder);it.bindLong(4,effectiveOrder);it.bindString(5,change.subject.uid);it.executeUpdateDelete()
+        }
+        if(changed==0)db.execSQL("INSERT INTO entity_positions(entity_uid,location_uid,x_coord,y_coord,last_updated_day,updated_chapter) VALUES(?,?,?,?,?,?)",
+            arrayOf<Any?>(change.subject.uid,destination?.uid,change.deltaXMillimetres.toDouble(),change.deltaYMillimetres.toDouble(),effectiveOrder,effectiveOrder))
         bumpIfMaterialized(change.subject,effectiveOrder)
     }
 
@@ -289,6 +297,7 @@ internal object WorldActorMechanicalBootstrap{
         }
         CanonCharacterProjectionReader(worldDb).list("").forEach{npc->store.materializeIfMissing(seed(DomainRef("NPC",npc.uid),MechanicalActorKind.NPC,npc.name,null))}
         WorldReader(worldDb,saveDb).locations().forEach{location->store.materializeIfMissing(seed(DomainRef("LOCATION",location.uid),MechanicalActorKind.WORLD_ACTOR,location.name,null))}
+        materializeCampaignProjectionActors(saveDb,campaignUid,store)
         if(tableExists(worldDb,"organization_units"))worldDb.rawQuery("SELECT unit_uid,name,command_level FROM organization_units ORDER BY unit_uid",null).use{c->while(c.moveToNext()){
             val count=(c.getLong(2).coerceAtLeast(1)*20).coerceAtLeast(1);store.materializeIfMissing(seed(DomainRef("UNIT",c.getString(0)),MechanicalActorKind.UNIT,c.getString(1),count))
         }}
@@ -300,6 +309,50 @@ internal object WorldActorMechanicalBootstrap{
         }}
         if(ownsTransaction)saveDb.setTransactionSuccessful()
         }finally{if(ownsTransaction&&saveDb.inTransaction())saveDb.endTransaction()}
+    }
+
+    /**
+     * Campaign-created actors become mechanically usable on the next administrative preparation
+     * of the campaign. Their public world projection proves identity and location; generic combat
+     * values remain deterministic and never depend on the active player's power.
+     */
+    internal fun materializeCampaignProjectionActors(
+        saveDb:SQLiteDatabase,
+        campaignUid:String,
+        store:MechanicalActorStateStore=MechanicalActorStateStore(saveDb,campaignUid)
+    ){
+        if(!CampaignWorldProjectionSchema.isReady(saveDb))return
+        val activePlayer=if(tableExists(saveDb,"active_player_ref"))ActivePlayerStore(saveDb,campaignUid).active() else null
+        val playerPosition=activePlayer?.let{active->saveDb.rawQuery(
+            "SELECT location_uid,x_coord,y_coord FROM entity_positions WHERE entity_uid=? LIMIT 1",arrayOf(active.playerUid)
+        ).use{cursor->if(!cursor.moveToFirst())null else Triple(
+            if(cursor.isNull(0))null else cursor.getString(0),
+            if(cursor.isNull(1))null else cursor.getDouble(1),
+            if(cursor.isNull(2))null else cursor.getDouble(2)
+        )}}
+        saveDb.rawQuery("""SELECT element_kind_uid,element_uid,display_name,parent_anchor_uid
+            FROM ${CampaignWorldProjectionSchema.TABLE}
+            WHERE campaign_id=? AND audience_scope_uid=? AND element_kind_uid IN ('ACTOR','GROUP')
+              AND display_name IS NOT NULL ORDER BY element_kind_uid,element_uid""",
+            arrayOf(campaignUid,CampaignWorldAudience.PLAYER_VISIBLE)
+        ).use{cursor->while(cursor.moveToNext()){
+            val kind=cursor.getString(0)
+            val ref=DomainRef(kind,cursor.getString(1))
+            val population=if(kind=="GROUP")1L+(stable(ref.uid,"POPULATION")%20L) else null
+            store.materializeIfMissing(seed(
+                ref,if(kind=="GROUP")MechanicalActorKind.GROUP else MechanicalActorKind.NPC,
+                cursor.getString(2),population
+            ))
+            val parent=if(cursor.isNull(3))null else cursor.getString(3)?.takeIf(String::isNotBlank)
+            if(parent!=null&&tableExists(saveDb,"entity_positions")){
+                val sameScene=playerPosition?.first==parent
+                val x=playerPosition?.second.takeIf{sameScene}
+                val y=playerPosition?.third.takeIf{sameScene}
+                saveDb.execSQL("""INSERT OR IGNORE INTO entity_positions
+                    (entity_uid,location_uid,x_coord,y_coord,last_updated_day,updated_chapter)
+                    VALUES(?,?,?,?,0,0)""",arrayOf<Any?>(ref.uid,parent,x,y))
+            }
+        }}
     }
 
     private fun seed(ref:DomainRef,kind:MechanicalActorKind,name:String,population:Long?):MechanicalActorSeed{

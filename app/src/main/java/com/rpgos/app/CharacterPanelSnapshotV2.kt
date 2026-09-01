@@ -9,7 +9,7 @@ data class CharacterPanelExactValueV2(val targetUid: String, val exactValue: Lon
 data class CharacterPanelMasteryV2(val targetUid: String, val exactProgress: Long, val displayName: String?)
 data class CharacterPanelProfileValueV2(val domainUid: String, val dimensionUid: String?, val canonicalValue: String, val evidenceUid: String?)
 data class CharacterPanelInnateV2(val innateUid: String, val stateUid: String, val canonicalValue: String?)
-data class CharacterPanelInventoryV2(val itemInstanceUid: String, val definitionUid: String?, val quantity: Long)
+data class CharacterPanelInventoryV2(val itemInstanceUid: String, val definitionUid: String?, val quantity: Long, val displayName:String?=null)
 data class CharacterPanelEquipmentV2(val slotUid: String, val itemInstanceUid: String?)
 data class CharacterPanelOwnershipV2(val assetKindUid: String, val assetUid: String, val ownerUid: String)
 data class CharacterPanelEconomyV2(val currencyUid: String, val exactBalance: Long, val authorityRecordUid: String)
@@ -126,7 +126,7 @@ object CharacterPanelSnapshotV2Builder {
         val talent = source.talent(campaignUid, characterUid).sortedWith(compareBy({ it.domainUid }, { it.dimensionUid ?: "" }, { it.canonicalValue }, { it.evidenceUid ?: "" }))
         val potential = source.potential(campaignUid, characterUid).sortedWith(compareBy({ it.domainUid }, { it.dimensionUid ?: "" }, { it.canonicalValue }, { it.evidenceUid ?: "" }))
         val innate = source.innateAndEvolution(campaignUid, characterUid).sortedWith(compareBy({ it.innateUid }, { it.stateUid }, { it.canonicalValue ?: "" }))
-        val inventory = source.inventory(campaignUid, characterUid).sortedWith(compareBy({ it.itemInstanceUid }, { it.definitionUid ?: "" }, { it.quantity }))
+        val inventory = source.inventory(campaignUid, characterUid).sortedWith(compareBy({ it.itemInstanceUid }, { it.definitionUid ?: "" }, { it.quantity }, { it.displayName?:"" }))
         val equipment = source.equipment(campaignUid, characterUid).sortedWith(compareBy({ it.slotUid }, { it.itemInstanceUid ?: "" }))
         val ownership = source.ownershipAndAssets(campaignUid, characterUid).sortedWith(compareBy({ it.assetKindUid }, { it.assetUid }, { it.ownerUid }))
         val economy = source.economy(campaignUid, characterUid).sortedWith(compareBy({ it.currencyUid }, { it.authorityRecordUid }, { it.exactBalance }))
@@ -145,7 +145,7 @@ object CharacterPanelSnapshotV2Builder {
             talent.joinToString("|") { "${it.domainUid}:${it.dimensionUid ?: "<NULL>"}:${it.canonicalValue}:${it.evidenceUid ?: "<NULL>"}" },
             potential.joinToString("|") { "${it.domainUid}:${it.dimensionUid ?: "<NULL>"}:${it.canonicalValue}:${it.evidenceUid ?: "<NULL>"}" },
             innate.joinToString("|") { "${it.innateUid}:${it.stateUid}:${it.canonicalValue ?: "<NULL>"}" },
-            inventory.joinToString("|") { "${it.itemInstanceUid}:${it.definitionUid ?: "<NULL>"}:${it.quantity}" },
+            inventory.joinToString("|") { "${it.itemInstanceUid}:${it.definitionUid ?: "<NULL>"}:${it.quantity}:${it.displayName?:"<NULL>"}" },
             equipment.joinToString("|") { "${it.slotUid}:${it.itemInstanceUid ?: "<NULL>"}" },
             ownership.joinToString("|") { "${it.assetKindUid}:${it.assetUid}:${it.ownerUid}" },
             economy.joinToString("|") { "${it.currencyUid}:${it.exactBalance}:${it.authorityRecordUid}" },

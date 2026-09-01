@@ -308,6 +308,17 @@ internal object CanonicalPlayerChangeApplier{
         when(p.quantityDelta.units){
             1L->{
                 require(instance==null){"RPGOS-TURN-APPLIER:INVENTORY_INSTANCE_ALREADY_HELD"}
+                p.itemMaterialization?.let{materialization->
+                    val expected=universalInventoryItemMaterialization()
+                    require(materialization==expected){"RPGOS-TURN-APPLIER:DYNAMIC_ITEM_IDENTITY_MISMATCH"}
+                    store.ensureUniqueInstance(
+                        ItemDefinition(
+                            materialization.itemDefinitionUid,materialization.worldPackUid,materialization.itemKey,
+                            materialization.displayName,materialization.categoryUid,ItemStoragePolicy.UNIQUE_INSTANCE,
+                            ItemDefinitionStatus.ACTIVE,1,provenance(identity,changeUid)
+                        ),p.itemInstanceUid,provenance(identity,changeUid)
+                    )
+                }
                 store.addUnique(p.subject.uid,p.itemInstanceUid,provenance(identity,changeUid))
             }
             -1L->{
@@ -482,7 +493,13 @@ object TurnTransactionBoundary{
         require(proposal.isCanonical()){"RPGOS-TURN-TRANSACTION:FORGED_PROPOSAL"}
         require(identity.campaignUid==proposal.campaignUid){CAMPAIGN_MISMATCH}
         require(identity.commandUid==proposal.playerChangeSet.sourceCommandUid){COMMAND_MISMATCH}
-        GameplayRuntimeBootstrap.requireReady(db,identity.campaignUid)
+        // Readiness verification touches the same SQLite schema metadata that a concurrent turn
+        // may temporarily lock while committing. Keep construction fail-fast, but serialize this
+        // verification with commits/recovery for the same campaign so a legal duplicate request
+        // cannot escape as SQLITE_BUSY before idempotency is evaluated.
+        CampaignRuntimeLifecycleLock.withTurn(identity.campaignUid) {
+            GameplayRuntimeBootstrap.requireReady(db,identity.campaignUid)
+        }
 
         val normalizedProposal = when {
             causalRelationIntents.isEmpty() -> proposal

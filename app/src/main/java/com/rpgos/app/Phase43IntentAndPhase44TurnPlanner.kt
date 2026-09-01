@@ -7,8 +7,59 @@ sealed interface IntentParseResult{val state:IntentParseState;data class Parsed(
 
 class IntentParser(rules:List<IntentRule> = defaultRules){
     private val rules=rules.sortedBy{it.actionUid};init{require(this.rules.map{it.actionUid}.distinct().size==this.rules.size)}
-    fun parse(campaignUid:String,actor:CommandActorRef,input:String):IntentParseResult{val clean=input.trim();if(clean.isEmpty())return IntentParseResult.Empty;val tokens=clean.lowercase().split(Regex("\\s+")).filter{it.isNotBlank()};val matches=rules.filter{rule->rule.verbs.any{it in tokens}};if(matches.isEmpty())return IntentParseResult.Unsupported(tokens.firstOrNull());if(matches.size>1)return IntentParseResult.Ambiguous(matches.map{it.actionUid});val rule=matches.single();val targets=tokens.filter{it.startsWith("@")&&it.length>1}.map{raw->val body=raw.drop(1);val split=body.split(':',limit=2);if(split.size==2)DomainRef(split[0].uppercase(),split[1])else DomainRef("ENTITY",body)}.distinct();if(rule.requiresTarget&&targets.isEmpty())return IntentParseResult.Ambiguous(listOf(rule.actionUid));val method=tokens.firstOrNull{it.startsWith("method:")}?.substringAfter(':')?.takeIf{it.isNotBlank()};val time=tokens.firstOrNull{it.startsWith("time:")}?.substringAfter(':')?.takeIf{it.isNotBlank()};return IntentParseResult.Parsed(NormalizedIntent(campaignUid,actor,rule.actionUid,targets,method,time,clean,"RULE_EXACT"))}
-    companion object{val defaultRules=listOf(IntentRule("LOOK",setOf("look","inspect","sprawdź","obejrzyj")),IntentRule("MOVE",setOf("move","go","idź","rusz"),true),IntentRule("TALK",setOf("talk","ask","porozmawiaj","zapytaj"),true),IntentRule("ATTACK",setOf("attack","strike","atakuj","uderz"),true),IntentRule("USE",setOf("use","użyj"),true),IntentRule("WAIT",setOf("wait","czekaj")),IntentRule("STATUS",setOf("status","stan")))}
+    fun parse(campaignUid:String,actor:CommandActorRef,input:String):IntentParseResult{
+        val clean=input.trim();if(clean.isEmpty())return IntentParseResult.Empty
+        val tokens=WORD.findAll(clean.lowercase()).map{it.value}.toList()
+        val matches=rules.filter{rule->rule.verbs.any{it in tokens}}
+        if(matches.isEmpty())return IntentParseResult.Unsupported(tokens.firstOrNull())
+        if(matches.size>1)return IntentParseResult.Ambiguous(matches.map{it.actionUid})
+        val rule=matches.single()
+        val explicitTargets=TYPED_REFERENCE.findAll(clean).map{match->
+            val kind=match.groups[1]?.value?.uppercase()?:"ENTITY"
+            DomainRef(kind,match.groupValues[2].trimEnd('.',',',';',':','!','?'))
+        }.filter{it.uid.isNotBlank()}.toList().distinct()
+        val targets=if(explicitTargets.isNotEmpty())explicitTargets else naturalTarget(clean,rule)?.let{
+            listOf(DomainRef(UNRESOLVED_TEXT_KIND,it))
+        }.orEmpty()
+        if(rule.requiresTarget&&targets.isEmpty())return IntentParseResult.Ambiguous(listOf(rule.actionUid))
+        val method=INLINE_SETTING.findAll(clean).firstOrNull{it.groupValues[1].equals("method",true)}?.groupValues?.get(2)
+        val time=INLINE_SETTING.findAll(clean).firstOrNull{it.groupValues[1].equals("time",true)}?.groupValues?.get(2)
+        return IntentParseResult.Parsed(NormalizedIntent(campaignUid,actor,rule.actionUid,targets,method,time,clean,
+            if(explicitTargets.isNotEmpty())"RULE_EXPLICIT_REFERENCE" else "RULE_NATURAL_LANGUAGE_FALLBACK"))
+    }
+
+    private fun naturalTarget(input:String,rule:IntentRule):String?{
+        if(!rule.requiresTarget)return null
+        val withoutSettings=input.replace(INLINE_SETTING," ").trim()
+        if(rule.actionUid=="MOVE"){
+            LOCATION_PREPOSITION.findAll(withoutSettings).lastOrNull()?.let{preposition->
+                withoutSettings.substring(preposition.range.last+1).cleanTarget()?.let{return it}
+            }
+        }
+        val verb=rule.verbs.sortedByDescending{it.length}.firstOrNull{candidate->
+            Regex("(?iu)(?:^|\\s)${Regex.escape(candidate)}(?:\\s|$)").containsMatchIn(withoutSettings)
+        }?:return null
+        return Regex("(?iu)(?:^|\\s)${Regex.escape(verb)}(?:\\s+)(.+)$").find(withoutSettings)
+            ?.groupValues?.get(1)?.removePrefix("do ")?.removePrefix("z ")?.cleanTarget()
+    }
+
+    private fun String.cleanTarget()=trim().trim('.',',',';',':','!','?').takeIf{it.isNotBlank()}?.take(160)
+
+    companion object{
+        const val UNRESOLVED_TEXT_KIND="UNRESOLVED_TEXT"
+        private val WORD=Regex("(?iu)[@\\p{L}\\p{N}_:-]+")
+        private val TYPED_REFERENCE=Regex("(?iu)@(?:(\\p{L}[\\p{L}\\p{N}_-]*):)?([\\p{L}\\p{N}_-]+)")
+        private val INLINE_SETTING=Regex("(?iu)\\b(method|time):([^\\s,;]+)")
+        private val LOCATION_PREPOSITION=Regex("(?iu)\\b(?:do|na|nad|w|we|pod|przed|za)\\s+")
+        val defaultRules=listOf(
+            IntentRule("LOOK",setOf("look","inspect","sprawdź","sprawdzam","oglądam","ogladam","obejrzyj")),
+            IntentRule("MOVE",setOf("move","go","idź","ide","idę","jadę","jade","wyruszam","ruszam","rusz"),true),
+            IntentRule("TALK",setOf("talk","ask","mówię","mowie","pytam","rozmawiam","porozmawiaj","zapytaj"),true),
+            IntentRule("ATTACK",setOf("attack","strike","atakuję","atakuje","uderzam","atakuj","uderz"),true),
+            IntentRule("USE",setOf("use","używam","uzywam","użyj","uzyj"),true),
+            IntentRule("WAIT",setOf("wait","czekam","czekaj")),IntentRule("STATUS",setOf("status","stan"))
+        )
+    }
 }
 
 enum class PlanStepPriority { REQUIRED, SAFETY, QUALITY, OPTIONAL }

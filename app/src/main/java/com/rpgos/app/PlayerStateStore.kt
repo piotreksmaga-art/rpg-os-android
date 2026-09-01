@@ -103,15 +103,15 @@ class PlayerStateStore(
         }
     }
 
-    private fun phase9Context(characterUid: String): Map<String, Any?> = linkedMapOf(
-        "origins" to phase9Origins(characterUid),
-        "innate_features" to phase9InnateFeatures(characterUid),
-        "evolution_states" to phase9EvolutionStates(characterUid),
-        "attained_stages" to phase9AttainedStages(characterUid),
-        "form_unlocks" to phase9FormUnlocks(characterUid),
-        "active_forms" to phase9ActiveForms(characterUid),
-        "unresolved_legacy" to phase9LegacyEvidence(characterUid)
-    )
+    /**
+     * The AI projection boundary accepts only primitive JSON-shaped values. Phase 9 repositories
+     * deliberately return typed domain records, so project them through Phase9PlayerSnapshot's
+     * primitive context contract instead of leaking Kotlin data-class instances into Phase 45.
+     */
+    private fun phase9Context(characterUid: String): Map<String, Any?> = Phase9PlayerSnapshot(
+        phase9Origins(characterUid),phase9InnateFeatures(characterUid),phase9EvolutionStates(characterUid),
+        phase9AttainedStages(characterUid),phase9FormUnlocks(characterUid),phase9ActiveForms(characterUid),phase9LegacyEvidence(characterUid)
+    ).toContextMap()
 
     private fun phase9Origins(characterUid: String): List<PlayerOrigin> {
         val out = mutableListOf<PlayerOrigin>()

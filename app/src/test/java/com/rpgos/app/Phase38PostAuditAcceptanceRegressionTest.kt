@@ -29,7 +29,7 @@ class Phase38PostAuditAcceptanceRegressionTest {
         root.deleteRecursively()
     }
 
-    @Test fun publicBuildContextRejectsForgedPrivilegedDescriptorsAndRuntimeIssuedDiagnosticMayProject() {
+    @Test fun privilegedBuildContextIsRuntimeIssuedOnly() {
         val concrete = UnifiedGameRepository(context)
         concrete.bootstrap()
         val publicRepository: CampaignRepository = concrete

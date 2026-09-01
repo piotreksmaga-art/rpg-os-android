@@ -49,7 +49,7 @@ Host utrzymuje heartbeat co 5 sekund. Provider uznaje go za niedostępny po 15 s
 .\tools\rpgos-lab.ps1 HOST_CODEX_STOP
 ```
 
-`tools/rpgos-codex-host.ps1` uruchamia supervisora i dwóch ukrytych workerów. Każde żądanie dostaje osobny pusty katalog w katalogu tymczasowym oraz własny output schema. Profil używa `gpt-5.6-sol`, poziomu `medium` dla intentu i narracji oraz `high` dla propozycji, napraw, kreatora i Directora.
+`tools/rpgos-codex-host.ps1` uruchamia supervisora i dwóch ukrytych workerów. Każde żądanie dostaje osobny pusty katalog w katalogu tymczasowym oraz własny output schema. Domyślny profil `QUALITY` używa `gpt-5.6-sol`, poziomu `medium` dla intentu i narracji oraz `high` dla propozycji, napraw, kreatora i Directora. Jawny profil `STRESS` pozostawia ten sam model i całą ścieżkę produkcyjną, ale ustawia `low` dla wszystkich workloadów; służy wyłącznie do długich testów stabilności i nie jest dowodem jakości narracji.
 
 Panel można otworzyć komendą `OPEN_LAB_DIAGNOSTICS`; sama aktywność nie jest eksportowana. Pokazuje heartbeat, model, kolejki, aktywne zadania, ostatni błąd, trwały stan Directora oraz użycie wskazówki w ostatnim żądaniu propozycji MG.
 

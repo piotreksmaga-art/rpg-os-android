@@ -1,5 +1,6 @@
 # Gradle
 .gradle/
+.kotlin/
 build/
 **/build/
 
@@ -29,6 +30,7 @@ Thumbs.db
 *.aab
 
 # Python cache (backend/tools)
+.venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -42,3 +44,22 @@ RPG_OS_STRESS_REPORT.json
 *.log
 .tmp/
 tmp/
+.dependency-downloads/
+
+# Local Android/Codex validation workspaces
+.android/
+.android-codex/
+.gradle-codex/
+.java-tmp/
+.m2/
+.toolchains/
+.test-home/
+.lab-models/
+.validation-artifacts/
+.codex-director-inspect/
+.codex-remote-attachments/
+.tmp-campaign-inspect/
+t/
+analytics.settings
+motorola-*.png
+motorola-*.xml

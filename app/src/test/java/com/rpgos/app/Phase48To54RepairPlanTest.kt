@@ -84,6 +84,24 @@ class Phase48To54RepairPlanTest{
         assertEquals(UniversalMechanicalEffectKind.FORMATION,first.effects.single().kind)
     }
 
+    @Test fun nonDamagingContactContestProducesTypedOutcomeWithoutWound(){
+        val intent=CombatIntent("TOUCH",campaign,attacker,defender,"SPAR_TOUCH",VolitionalActionSource.VALIDATED_PLAYER_COMMAND,"TOUCH_ONLY",10)
+        val actors=listOf(
+            actor(attacker,setOf("SPAR_TOUCH"),attributes=mapOf("POWER" to 20_000,"SKILL" to 20_000,"DEFENCE" to 1,"AGILITY" to 1)),
+            actor(defender,emptySet(),attributes=mapOf("DEFENCE" to 0,"AGILITY" to 0,"ARMOR" to 50_000))
+        )
+        val state=CombatSpatialState(mapOf(attacker to CombatPosition.Exact(0,0),defender to CombatPosition.Exact(1_000,0)))
+        val result=UniversalCombatEngine().resolve(UniversalCombatRequest(
+            intent,snapshot(actors),CombatAbilityContract(
+                "SPAR_TOUCH",effectKinds=listOf(UniversalMechanicalEffectKind.INTERACTION),damageTypeUid="NON_DAMAGING_CONTACT"
+            ),state
+        )) as CombatResolution.Resolved
+
+        assertEquals(listOf(UniversalMechanicalEffectKind.INTERACTION),result.effects.map{it.kind})
+        assertEquals("CONTEST:CONTACT_SUCCESS",result.effects.single().payload["track_uid"])
+        assertFalse(result.effects.any{it.kind==UniversalMechanicalEffectKind.WOUND})
+    }
+
     @Test fun areaAttackSelectsEveryActorInsideCoreAreaAndReplaysExactly(){
         val near=DomainRef("NPC","N2");val far=DomainRef("NPC","N3")
         val actors=listOf(
@@ -218,6 +236,14 @@ class Phase48To54RepairPlanTest{
     @Test fun confirmedNewCampaignCharacterIsValidatedAndCreatedAtomically(){
         SQLiteDatabase.create(null).use{db->
             db.execSQL("CREATE TABLE entity_positions(entity_uid TEXT PRIMARY KEY,location_uid TEXT,x_coord REAL,y_coord REAL,last_updated_day INTEGER,updated_chapter INTEGER)")
+            db.execSQL("CREATE TABLE campaign_calendar(id INTEGER PRIMARY KEY,absolute_day INTEGER,year_number INTEGER,year_label TEXT,season TEXT,hour INTEGER,minute INTEGER,era_key TEXT,era_name TEXT,canon_anchor_event_uid TEXT,updated_chapter INTEGER)")
+            db.execSQL("INSERT INTO campaign_calendar VALUES(1,-14600,-40,'40 lat przed założeniem Konohy','spring',8,0,'warring_states','Era Walczących Klanów','BASE-WARRING',0)")
+            db.execSQL("CREATE TABLE world_clock(id INTEGER PRIMARY KEY,campaign_day INTEGER,campaign_year INTEGER,season TEXT,era TEXT,updated_chapter INTEGER)")
+            db.execSQL("INSERT INTO world_clock VALUES(1,-14600,-40,'spring','Era Walczących Klanów',0)")
+            db.execSQL("CREATE TABLE active_world_events(active_event_uid TEXT PRIMARY KEY,status TEXT NOT NULL)")
+            db.execSQL("INSERT INTO active_world_events VALUES('OLD-EPOCH-EVENT','active')")
+            db.execSQL("CREATE TABLE timeline_events(timeline_uid TEXT PRIMARY KEY,status TEXT NOT NULL)")
+            db.execSQL("INSERT INTO timeline_events VALUES('OLD-EPOCH-TIMELINE','active')")
             CurrentSchema.ensure(db,campaign)
             StatResourceStore(db,campaign).apply{
                 registerStatDefinitions("WORLD",listOf(StatDefinition("POWER","power","BASE",minValue=0.0,maxValue=100.0,worldPackUid="WORLD")))
@@ -234,7 +260,7 @@ class Phase48To54RepairPlanTest{
             }
             GameplayRuntimeBootstrap.initialize(db,campaign)
             val draft=PlayerCharacterCreationDraft(
-                "CREATE-P1",campaign,"P1","Ari","NON_BINARY",mapOf("BACKGROUND" to "VILLAGER"),
+                "CREATE-P1",campaign,"P1","Ari","NON_BINARY",mapOf("BACKGROUND" to "VILLAGER","ERA" to "NARUTO"),
                 stats=listOf(CharacterCreationValueChoice("POWER",20.0)),resources=listOf(CharacterCreationValueChoice("HEALTH",100.0)),
                 talents=listOf(CharacterCreationValueChoice("BODY",15.0)),potentials=listOf(CharacterCreationValueChoice("BODY",80.0,"MAXIMUM")),
                 skills=listOf(CharacterCreationValueChoice("SWORD",20.0)),techniques=listOf(CharacterCreationValueChoice("SLASH",10.0)),
@@ -254,6 +280,21 @@ class Phase48To54RepairPlanTest{
             assertEquals(1L,scalar(db,"SELECT COUNT(*) FROM player_origins_v2 WHERE character_uid='P1'"))
             assertEquals(1L,scalar(db,"SELECT COUNT(*) FROM player_innate_features WHERE character_uid='P1'"))
             assertEquals(1L,scalar(db,"SELECT COUNT(*) FROM campaign_truth_records WHERE source_id='CREATE-P1' AND predicate='RPGOS:CHARACTER_CREATION:FINGERPRINT'"))
+            assertEquals("naruto",text(db,"SELECT era_key FROM campaign_calendar WHERE id=1"))
+            assertEquals("Era Naruto",text(db,"SELECT era_name FROM campaign_calendar WHERE id=1"))
+            assertEquals("Era Naruto",text(db,"SELECT era FROM world_clock WHERE id=1"))
+            assertEquals(0L,scalar(db,"SELECT absolute_day FROM campaign_calendar WHERE id=1"))
+            assertEquals("cancelled",text(db,"SELECT status FROM active_world_events WHERE active_event_uid='OLD-EPOCH-EVENT'"))
+            assertEquals("cancelled",text(db,"SELECT status FROM timeline_events WHERE timeline_uid='OLD-EPOCH-TIMELINE'"))
+            val gmAudience=AudienceContext(campaign,AudienceKinds.GM_RUNTIME,VisibilityPrincipalRef(AudienceKinds.GM_RUNTIME,"TEST_DIRECTOR"))
+            val gmPurpose=PurposeContext(campaign,VisibilityPurposeKinds.INTERNAL_SIMULATION)
+            val gmTrusted=Phase38RuntimeAuthority.privileged(gmAudience,Phase38RuntimeAuthority.PRIV_GM)
+            val truthRead=ProtectedCampaignReadRepository.borrowedTrusted(db,campaign,{ActivePlayerStore(db,campaign).active()},gmTrusted)
+                .truthContextRows(gmAudience,gmPurpose)
+            assertTrue(
+                (truthRead as? ProtectedReadResult.Corruption)?.let{"${it.reasonCode}: ${it.error.stackTraceToString()}"} ?: truthRead.toString(),
+                (truthRead as? ProtectedReadResult.Allow)?.value?.any{it["predicate"]=="RPGOS:CHARACTER_CREATION:FINGERPRINT"}==true
+            )
             assertTrue(service.commit(draft,PlayerCharacterCreationConfirmation(fp,"USER-RETRY")).idempotentReplay)
         }
     }
@@ -275,6 +316,27 @@ class Phase48To54RepairPlanTest{
             val genreSpecificTerms=setOf("CHAKRA","NARUTO","KEKKEI","VILLAGE")
             assertTrue((sciFi.options+fantasyCatalog.options).none{option->genreSpecificTerms.any{term->term in option.definitionUid.uppercase()||term in option.displayName.uppercase()}})
         }}
+    }
+
+    @Test fun legacyCharacterCreationTruthProvenanceIsRepairedBeforePrivilegedRead(){
+        SQLiteDatabase.create(null).use{db->
+            CurrentSchema.ensure(db,campaign)
+            db.execSQL("""INSERT INTO campaign_truth_records(
+                truth_uid,campaign_id,truth_kind,subject_uid,predicate,object_value,source_type,source_id,
+                created_turn,confidence,verified,method,engine_version,created_at,active
+            ) VALUES('LEGACY-CREATION','$campaign','FACT','P1','RPGOS:CHARACTER_CREATION:FINGERPRINT','FP',
+                'CHARACTER_CREATION','CREATE-P1',0,1.0,1,'EXPLICIT_USER_CONFIRMATION:CLICK',
+                'RPGOS-CHARACTER-CREATION-V1',1,1)""".trimIndent())
+
+            CurrentSchema.ensure(db,campaign)
+
+            assertEquals("PLAYER_ACTION",text(db,"SELECT source_type FROM campaign_truth_records WHERE truth_uid='LEGACY-CREATION'"))
+            val audience=AudienceContext(campaign,AudienceKinds.GM_RUNTIME,VisibilityPrincipalRef(AudienceKinds.GM_RUNTIME,"TEST_DIRECTOR"))
+            val purpose=PurposeContext(campaign,VisibilityPurposeKinds.INTERNAL_SIMULATION)
+            val trusted=Phase38RuntimeAuthority.privileged(audience,Phase38RuntimeAuthority.PRIV_GM)
+            val read=ProtectedCampaignReadRepository.borrowedTrusted(db,campaign,{null},trusted).truthContextRows(audience,purpose)
+            assertTrue(read.toString(),read is ProtectedReadResult.Allow && read.value.single()["source_type"]=="PLAYER_ACTION")
+        }
     }
 
     @Test fun effectMaterializerRoutesEveryOwnedFamilyAndRejectsUnknown(){
@@ -358,6 +420,54 @@ class Phase48To54RepairPlanTest{
         }
     }
 
+    @Test fun universalWorldElementAndPlayerTransitionCommitAtomicallyAndRollbackWithoutGhosts(){
+        SQLiteDatabase.create(null).use{db->
+            createMechanicalTables(db);GroupATransactionTestFixtures.setupFinance(db,campaign)
+            fun world(effectUid:String,targetUid:String,name:String)=VerifiedMechanicsCommandEffect(
+                effectUid,"N","RPGOS-CORE:WORLD-MATERIALIZER","WORLD_ELEMENT_MATERIALIZE",DomainRef("PLACE",targetUid),1,
+                mapOf(
+                    "world_base_kind" to "PLACE","display_name" to name,"category_uid" to "CRAFTING_VENUE",
+                    "parent_anchor_uid" to "VILLAGE","affordance_uids" to "CRAFTING,LEARNING",
+                    "topology_class_uid" to "SETTLEMENT_FACILITY","source_classification" to "GENERATED_PLAUSIBLE",
+                    "materialization_level_uid" to "PARTIAL"
+                ),"PROOF-$effectUid","INPUT-$effectUid","OUTPUT-$effectUid"
+            )
+            fun transition(effectUid:String,targetUid:String)=VerifiedMechanicsCommandEffect(
+                effectUid,"N","RPGOS-CORE:SPATIAL","LOCATION_TRANSITION",attacker,1,
+                mapOf("destination_kind_uid" to "PLACE","destination_uid" to targetUid),
+                "PROOF-$effectUid","INPUT-$effectUid","OUTPUT-$effectUid"
+            )
+            val committedTarget="WORLD-ATELIER"
+            val committed=mechanicsProposal(listOf(world("WORLD-OK",committedTarget,"pracownia tkacka"),transition("MOVE-OK",committedTarget)),"CMD-WORLD-OK")
+            assertTrue(TurnTransactionBoundary.create(
+                db,TurnTransactionIdentity(campaign,"TURN-WORLD-OK","CMD-WORLD-OK","TX-WORLD-OK"),committed
+            ).commit() is TurnExecutionResult.Committed)
+            val shape=WorldReferenceShape(WorldReferenceShapeKind.CATEGORY,WorldElementBaseKind.PLACE,"CRAFTING_VENUE",setOf("CRAFTING"),"SETTLEMENT_FACILITY")
+            assertEquals(committedTarget,CampaignWorldProjectionStore(db,campaign).searchPlayerVisible("pracownia tkacka",shape).single().element.uid)
+            assertEquals(committedTarget,text(db,"SELECT location_uid FROM entity_positions WHERE entity_uid='P1'"))
+
+            val beforeRepeat=scalar(db,"SELECT COUNT(*) FROM campaign_truth_records WHERE campaign_id='$campaign' AND subject_uid='$committedTarget'")
+            val repeated=mechanicsProposal(listOf(world("WORLD-REPEAT",committedTarget,"pracownia tkacka")),"CMD-WORLD-REPEAT")
+            assertTrue(TurnTransactionBoundary.create(
+                db,TurnTransactionIdentity(campaign,"TURN-WORLD-REPEAT","CMD-WORLD-REPEAT","TX-WORLD-REPEAT"),repeated
+            ).commit() is TurnExecutionResult.Committed)
+            assertEquals(beforeRepeat,scalar(db,"SELECT COUNT(*) FROM campaign_truth_records WHERE campaign_id='$campaign' AND subject_uid='$committedTarget'"))
+            assertEquals(committedTarget,CampaignWorldProjectionStore(db,campaign).searchPlayerVisible("pracownia tkacka",shape).single().element.uid)
+
+            val rejectedTarget="WORLD-OBSERVATORY"
+            val rejected=mechanicsProposal(listOf(world("WORLD-ROLLBACK",rejectedTarget,"obserwatorium"),transition("MOVE-ROLLBACK",rejectedTarget)),"CMD-WORLD-ROLLBACK")
+            val failed=runCatching{TurnTransactionBoundary.create(
+                db,TurnTransactionIdentity(campaign,"TURN-WORLD-ROLLBACK","CMD-WORLD-ROLLBACK","TX-WORLD-ROLLBACK"),rejected,
+                TurnFailureInjector{if(it==TurnFailurePoint.AFTER_FIRST_WRITE)error("FAULT")}
+            ).commit()}
+            assertTrue(failed.isFailure)
+            assertTrue(CampaignWorldProjectionStore(db,campaign).searchPlayerVisible("obserwatorium",shape.copy(categoryUid=null,affordanceUids=emptySet())).isEmpty())
+            assertEquals(0L,db.rawQuery("SELECT COUNT(*) FROM campaign_truth_records WHERE campaign_id=? AND subject_uid=?",arrayOf(campaign,rejectedTarget)).use{it.moveToFirst();it.getLong(0)})
+            assertEquals(committedTarget,text(db,"SELECT location_uid FROM entity_positions WHERE entity_uid='P1'"))
+            assertNull(TurnTransactionReceiptStore(db).committedTransaction("TX-WORLD-ROLLBACK"))
+        }
+    }
+
     @Test fun committedNarrationRecoverySurvivesRestartPreservesClaimsAndNeverRecommits(){
         val root=File(System.getProperty("java.io.tmpdir"),"rpgos-p54-${System.nanoTime()}").also{it.mkdirs()}
         try{
@@ -370,8 +480,16 @@ class Phase48To54RepairPlanTest{
             assertNull(authority.authorize(receipt.copy(turnUid="OTHER"),TurnTransactionIdentity(campaign,"TURN","CMD","TX")))
             FileNarrationRecoveryStore(recoveryDir).record(request,receipt)
             var routeCalls=0;var assemblerCalls=0;var commitCalls=0
-            fun engine()=AiChatEngineFacade(
-                AiModelRoutePort{_,_,_->routeCalls++;AiRouteResult.Unavailable(listOf("OFFLINE"))},Phase43IntentValidator(),TrustedIntentResolutionPort.NONE,
+            val narrator=DeterministicAiProvider(
+                AiCapabilityContract("RECOVERY-NARRATOR","RECOVERY-PROVIDER","RECOVERY-MODEL",setOf(AiWorkload.NARRATIVE_RENDER,AiWorkload.NARRATIVE_REPAIR),maximumContextUnits=1_000),
+                intentFunction={error("NOT_USED")},proposalFunction={error("NOT_USED")},
+                narrativeFunction={narrativeRequest->RenderedNarrative(
+                    "Przeciwnik został ranny.",narrativeRequest.context.stopPointUid,narrativeRequest.context.committedOrder,
+                    listOf(NarrativeSemanticClaim("C1",NarrativeClaimKind.MECHANICAL_RESULT,"F1","WOUND","4"))
+                )}
+            )
+            fun engine(providerAvailable:Boolean=false)=AiChatEngineFacade(
+                AiModelRoutePort{_,_,_->routeCalls++;if(providerAvailable)AiRouteResult.Selected(narrator,true,"RECOVERY_TEST") else AiRouteResult.Unavailable(listOf("OFFLINE"))},Phase43IntentValidator(),TrustedIntentResolutionPort.NONE,
                 IntentInterpretationFallback.NONE,GraphTurnPlanner(emptyList()),
                 CanonicalIterativeRetrievalPipeline(StructuredSqlRetriever(emptyList()),SemanticContextBudgetManager(),TypedContextCompletionStrategy{_,_,_->emptyList()}),
                 ContextRuntimeProfile("TEST",1_000,10,10,100,10),
@@ -385,8 +503,10 @@ class Phase48To54RepairPlanTest{
                 deliveryStore=FileNarrativeDeliveryStore(deliveryDir),recoveryStore=FileNarrationRecoveryStore(recoveryDir)
             )
             val firstEngine=engine();assertEquals(request,firstEngine.pendingNarrationRecovery(campaign)?.request)
-            val recovered=firstEngine.recoverNarration(request) as NarrativeRecoveryResult.Recovered
-            assertTrue(recovered.rebuilt);assertEquals(0,assemblerCalls);assertEquals(0,commitCalls);assertEquals(1,routeCalls)
+            assertTrue(firstEngine.recoverNarration(request) is NarrativeRecoveryResult.Unavailable)
+            assertEquals(request,engine().pendingNarrationRecovery(campaign)?.request)
+            val recovered=engine(providerAvailable=true).recoverNarration(request) as NarrativeRecoveryResult.Recovered
+            assertTrue(recovered.rebuilt);assertEquals(0,assemblerCalls);assertEquals(0,commitCalls);assertEquals(2,routeCalls)
             val reopenedDelivery=FileNarrativeDeliveryStore(deliveryDir).find(recovered.delivery.identity)
             assertEquals(recovered.delivery,reopenedDelivery);assertEquals(recovered.delivery.narrative.claims,reopenedDelivery?.narrative?.claims)
             val volitionalNarrative=recovered.delivery.narrative.copy(assertsPlayerVolition=true)
@@ -427,6 +547,7 @@ class Phase48To54RepairPlanTest{
         db.execSQL("CREATE TABLE entity_positions(entity_uid TEXT PRIMARY KEY,location_uid TEXT,x_coord REAL,y_coord REAL,last_updated_day INTEGER,updated_chapter INTEGER)")
     }
     private fun scalar(db:SQLiteDatabase,sql:String)=db.rawQuery(sql,null).use{assertTrue(it.moveToFirst());it.getLong(0)}
+    private fun text(db:SQLiteDatabase,sql:String)=db.rawQuery(sql,null).use{assertTrue(it.moveToFirst());it.getString(0)}
     private fun actor(ref:DomainRef,abilities:Set<String>,resources:List<MechanicalResource> = emptyList(),attributes:Map<String,Long> = mapOf("POWER" to 60,"SKILL" to 50,"DEFENCE" to 40,"AGILITY" to 35))=
         MechanicalActorView(campaign,ref,if(ref.kindUid=="PLAYER")MechanicalActorKind.ACTIVE_PLAYER else MechanicalActorKind.NPC,1,MechanicalStateMaterialization.FULL,attributes,resources,abilities,generationProvenanceUid="TEST")
     private fun snapshot(actors:List<MechanicalActorView>,perception:List<CombatPerceptionEvidence> = emptyList(),timing:Map<String,Long> = emptyMap())=
@@ -454,6 +575,21 @@ class Phase48NativePackageAndProductionWiringTest{
         assertTrue(File(artifact.absolutePath).isFile);assertTrue(File(requireNotNull(artifact.tokenizerAbsolutePath)).isFile)
         assertEquals(LocalArtifactFormat.EXECUTORCH,variant.format)
         assertTrue(store.remove(profile.modelUid,variant.variantUid));assertNull(store.find(profile.modelUid,variant.variantUid))
+    }
+
+    @Test fun timeReaderReturnsCanonicalCalendarInsteadOfDiscardingNestedCursorResult(){
+        cleanup()
+        val store=LocalGameStore(context)
+        store.bootstrap()
+        val campaignUid=CampaignSelectionManager(context).activeCampaignRef().campaignId
+        store.openGameplaySaveDb().use{db->withAdministrativeMutationAuthority(db,campaignUid){
+            db.execSQL(
+                "UPDATE campaign_calendar SET year_label=?,era_name=?,season=?,hour=?,minute=? WHERE id=1",
+                arrayOf<Any?>("Początek ery Naruto","Era Naruto","summer",9,7)
+            )
+        }}
+
+        assertEquals(TimeSnapshot("Początek ery Naruto","Era Naruto","summer","09:07"),store.time())
     }
 
     @Test fun gameMasterCharacterDraftCannotMutateUntilSeparateUserConfirmation(){
@@ -508,14 +644,14 @@ class Phase48NativePackageAndProductionWiringTest{
         assertTrue(execuTorchService.contains(".dataPath(null)"))
         assertTrue(execuTorchService.contains("bielikChatPrompt(prompt)"))
         assertTrue(execuTorchService.contains("<|im_start|>assistant"))
-        assertTrue(execuTorchService.contains("bielikStructuredOutput(output.toString())"))
+        assertTrue(execuTorchService.contains("seedCharacterCreationJson(output.toString(),structuredSeed)"))
         assertTrue(execuTorchService.contains("RPGOS_CC_LOCAL_1"))
-        assertTrue(execuTorchService.contains("minOf(maximumOutputUnits,320)"))
+        assertTrue(execuTorchService.contains("minOf(maximumOutputUnits,512)"))
         assertTrue(execuTorchService.contains("tokens>=maximumOutputUnits||completeJsonObjectOrNull"))
         assertTrue(execuTorchService.contains("Nigdy nie przepisuj danych wejściowych"))
         val runtime=File(root,"Phase48ProductionAiRuntime.kt").readText()
-        assertTrue(runtime.contains("request.workload==AiWorkload.CHARACTER_CREATION"))
-        assertTrue(runtime.contains("minOf(request.maximumOutputUnits,320)"))
+        assertTrue(runtime.contains("AiWorkload.CHARACTER_CREATION->512"))
+        assertTrue(runtime.contains("minOf(request.maximumOutputUnits,workloadLimit)"))
         val llamaNative=File(module,"src/main/cpp/rpgos_llama_jni.cpp").readText()
         assertTrue(llamaNative.contains("gpu_layers < 0 ? std::numeric_limits<int32_t>::max() : gpu_layers"))
         val manifest=File("src/main/AndroidManifest.xml").readText()

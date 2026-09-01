@@ -88,14 +88,18 @@ object CampaignMutationBoundary {
         expectedCampaignUid: String,
         engine: PlayerDomainEngine,
         command: PlayerCommand<P>,
-        context: PlayerResolutionContext
+        context: PlayerResolutionContext,
+        onResolutionRejected: ((PlayerResolutionRejection)->Unit)? = null
     ): CampaignMutationAdmission {
         require(expectedCampaignUid.isNotBlank())
         if (command.campaignUid != expectedCampaignUid || context.campaignUid != expectedCampaignUid) {
             return CampaignMutationAdmission.Rejected(CAMPAIGN_MISMATCH)
         }
         return when (val resolution = engine.resolve(command, context)) {
-            is PlayerResolutionOutcome.Rejected -> CampaignMutationAdmission.Rejected(NOT_RESOLVED)
+            is PlayerResolutionOutcome.Rejected -> {
+                onResolutionRejected?.invoke(resolution.rejection)
+                CampaignMutationAdmission.Rejected(NOT_RESOLVED)
+            }
             is PlayerResolutionOutcome.Resolved -> {
                 if (resolution.proposal.campaignUid != expectedCampaignUid) {
                     CampaignMutationAdmission.Rejected(CAMPAIGN_MISMATCH)

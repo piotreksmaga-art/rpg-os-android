@@ -104,7 +104,7 @@ class Work036Phase30To32PostAuditRepairTest {
         }
     }
 
-    @Test fun publicAdminWritesFailBeforeReadinessAndDefinitionWritesRequireAdminAfterReadiness(){
+    @Test fun adminWritesRequireReadinessAndAuthority(){
         val dbFile=prepareDefaultCampaignDb();SQLiteDatabase.openDatabase(dbFile.absolutePath,null,SQLiteDatabase.OPEN_READWRITE).use{db->CurrentSchema.ensure(db,campaignUid);db.execSQL("CREATE TABLE IF NOT EXISTS character_stats(entity_uid TEXT,stat_key TEXT,current_value REAL)");db.execSQL("INSERT INTO character_stats(entity_uid,stat_key,current_value) VALUES('P1','x',1)")}
         val store=LocalGameStore(context);assertFails{store.setActivePlayer("P1")}
         SQLiteDatabase.openDatabase(dbFile.absolutePath,null,SQLiteDatabase.OPEN_READWRITE).use{db->GameplayRuntimeBootstrap.initialize(db,campaignUid);assertFails{StatResourceStore(db,campaignUid).registerStatDefinitions("W",listOf(StatDefinition("S-W36","s","CORE",worldPackUid="W")))};withAdministrativeMutationAuthority(db,campaignUid){StatResourceStore(db,campaignUid).registerStatDefinitions("W",listOf(StatDefinition("S-W36","s","CORE",worldPackUid="W")))}}
