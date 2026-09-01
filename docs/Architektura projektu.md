@@ -785,6 +785,31 @@ Android jest głównym targetem. Typowa tura nie skanuje liniowo pełnej histori
 
 Local inference profiling obejmuje m.in. storage/load, TTFT, prefill/decode, RAM/KV, battery/thermal, cancel, OOM/restart i sustained workload. World simulation posiada budżet pracy/backlog tak, aby nie blokować UI.
 
+### 20.1 RPG OS LAB Bridge — Etapy 1–3
+
+Wariant `labDebug` wystawia lokalny socket `localabstract:rpgos_lab_bridge`, dostępny komputerowi wyłącznie przez jawny forwarding ADB i protokół `RPGOS_LAB_V1`. Bridge jest narzędziem laboratoryjnym, nie częścią produktu, nową warstwą authority ani alternatywnym silnikiem. Initializer, socket, panel diagnostyczny, `LAB_CODEX` i jego przypisania muszą być nieobecne w wariancie `release`.
+
+Nienaruszalne zasady:
+
+- Core pozostaje jedynym źródłem prawdy. Bridge nie rozstrzyga mechaniki, nie tworzy FACT i nie zapisuje arbitralnie do canonical SQL;
+- każda komenda gameplay wywołuje te same application/Core ports co prawdziwy interfejs i przechodzi normalny planner, retrieval, AI, walidację, mechanikę i `TurnTransaction`;
+- odczyty ContextBundle, AI/Bekko/Director i failure bundle są ograniczone do aktywnej kampanii oraz legalnego audience/purpose/as-of; posiadanie ADB nie znosi polityk wiedzy ani prywatności;
+- AI zawsze zwraca kandydata. Bielik, generatywny GGUF, OpenRouter i `LAB_CODEX` używają tych samych produkcyjnych kodeków i walidatorów;
+- awaria narracji po commicie używa recovery i nie może ponownie wykonać mechaniki ani commitu;
+- trace, fixtures, indeks Bekko, sidecar Directora i failure bundle nie należą do canonical save/hash. Fixture jest weryfikowalnym wskaźnikiem istniejącej kampanii, nie drugim formatem save;
+- każdy błąd pozostaje typed failure. Bridge nie może maskować regresji narracją awaryjną ani niejawnym sukcesem;
+- testy wykonuje się na dedykowanym urządzeniu/emulatorze i kampaniach laboratoryjnych. Artefakty mogą zawierać legalny kontekst i nie są automatycznie publikowane.
+
+Etap 1 ustanawia izolowany transport i pojedynczą pionową ścieżkę: health/capabilities, kampanie, stan postaci i tury, ContextBundle, commit/fingerprint, pojedynczą akcję, kreator postaci, stan AI, trace, Bekko oraz wybór lokalnego modelu. Już ta ścieżka korzysta z produkcyjnych portów i nie posiada własnych writerów mechaniki.
+
+Etap 2 dodaje pełny snapshot pipeline'u, sekwencje do 100 realnych akcji, scenariusze walki, ostatnią wymianę AI, restart-safe recovery, weryfikowalne fixtures, runtime/memory diagnostics oraz hostowe screenshoty i failure bundles. Sekwencja może zatrzymać się przy pierwszym wyniku innym niż `NARRATED`, pozostawiając dowód i nie fałszując wyniku.
+
+Etap 3 rejestruje wyłącznie w `labDebug` rozszerzenie `LAB_CODEX`, dostępne zarówno dla UI, jak i Bridge'a. Supervisor utrzymuje heartbeat co 5 sekund; po 15 sekundach provider jest niedostępny. Osobne kolejki MG i Directora uruchamiają bezstanowe `codex exec --ephemeral` w pustym katalogu, z pojedynczym autoryzowanym payloadem i istniejącym schematem odpowiedzi. Provider ma rodzaj `CLOUD` i podlega wszystkim zgodom prywatności. Jawny PIN bez hosta kończy się typed failure; AUTO może użyć istniejącego fallbacku.
+
+Phase65 Director pracuje asynchronicznie po otwarciu kampanii, zatwierdzeniu postaci, co 10 commitów i po legalnych triggerach. Zadania i kandydaci są trwałym per-campaign `CACHE/REBUILDABLE` sidecarem. Do `GM_PROPOSAL` trafia tylko budżetowana `DirectorGuidanceEnvelope`, której supporting UID-y są ponownie dozwolone także w kontekście bieżącej tury. Wskazówka nie jest FACT, narracją ani mutation authority i nie może samodzielnie wykonać commitu.
+
+Pełna architektura, lista komend, procedura instalacji, przykłady dla kampanii/postaci/Bekko/Codex/Directora, recovery, fixtures, failure bundle oraz diagnostyka znajdują się w `docs/development/RPG_OS_LAB_BRIDGE.md`. Raporty etapowe pozostają w `docs/development/RPG_OS_LAB_BRIDGE_STAGE2.md` i `docs/development/RPG_OS_LAB_BRIDGE_STAGE3.md`. Machine-readable źródłem aktualnej listy komend jest zawsze `GET_CAPABILITIES` działającego APK.
+
 ## 21. Finalny pipeline tury
 `PLAYER INPUT -> Input Normalizer -> Intent Parser -> Turn Planner -> Retrieval -> Knowledge/Temporal Filters -> Rule/Simulation Precheck -> Domain Mechanics -> Director Context -> Context Budget -> Context Bundle -> AI GM -> Structured Proposal -> Mechanics/ChangeSets -> Consistency/Invariant/Counterfactual Validation -> Repair -> Transaction -> COMMIT -> Derived/Presentation Snapshots -> committed narrative -> deferred bounded work`.
 
