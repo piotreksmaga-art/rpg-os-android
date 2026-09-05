@@ -132,7 +132,8 @@ class AiChatEngineFacade(
     private val deliveryStore:NarrativeDeliveryStore=InMemoryNarrativeDeliveryStore(),
     private val recoveryStore:NarrationRecoveryStore=InMemoryNarrationRecoveryStore(),
     private val recoveryDiscovery:()->ChatTurnRequest?={null},
-    private val directorGuidance:DirectorGuidancePort=DirectorGuidancePort.NONE
+    private val directorGuidance:DirectorGuidancePort=DirectorGuidancePort.NONE,
+    private val workingMemoryScopes:WorkingMemoryScopePort=WorkingMemoryScopePort.NONE
 ){
     fun play(request:ChatTurnRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):ChatTurnResult{
         if(cancellation.isCancelled())return ChatTurnResult.Cancelled(AiTurnStage.INTERPRETATION,TurnMutationState.NOT_STARTED)
@@ -183,6 +184,11 @@ class AiChatEngineFacade(
             })
             return ChatTurnResult.Rejected(AiTurnStage.CONTEXT,(context.budgeted.reasonUids+context.terminationUid).distinct())
         }
+        val workingMemory=try{
+            workingMemoryScopes.scope(request)?.let{scope->WorkingMemoryOwner.materialize(scope,context.budgeted)}
+        }catch(failure:IllegalArgumentException){
+            return ChatTurnResult.Rejected(AiTurnStage.CONTEXT,listOf(failure.message?:"WORKING_MEMORY_SCOPE_REJECTED"))
+        }
         val narrativeContext=authorizedNarrativeContext(context.budgeted)
         if(cancellation.isCancelled())return ChatTurnResult.Cancelled(AiTurnStage.PROPOSAL,TurnMutationState.NOT_STARTED)
         val authorizedRecordUids=authorizedDirectorEvidenceUids(
@@ -203,7 +209,9 @@ class AiChatEngineFacade(
         if(proposalRequestVersionUnsupported(proposalProvider))return ChatTurnResult.Failed(
             AiTurnStage.PROPOSAL,"PROVIDER_SCHEMA_UNSUPPORTED",TurnMutationState.NOT_STARTED
         )
-        val proposalRequest=AiGmProposalRequest("${request.requestUid}:PROPOSAL",plan,context.budgeted,guidance)
+        val proposalRequest=AiGmProposalRequest(
+            "${request.requestUid}:PROPOSAL",plan,context.budgeted,guidance,workingMemory
+        )
         val candidate=when(val generated=proposalProvider.propose(proposalRequest,cancellation)){
             is AiProviderResult.Success->generated.value
             is AiProviderResult.Failure->return if(generated.kind==AiProviderFailureKind.CANCELLED)

@@ -80,6 +80,8 @@ class Phase32WriterBypassInventoryTest {
         "createSnapshot" to WriterReachability.ADMINISTRATIVE,
         "snapshots" to WriterReachability.READ_ONLY_NON_AUTHORITATIVE,
         "restoreLatestSnapshot" to WriterReachability.ADMINISTRATIVE,
+        "previewUndoLastTurn" to WriterReachability.ADMINISTRATIVE,
+        "confirmUndoLastTurn" to WriterReachability.ADMINISTRATIVE,
         "finalizeChapter" to WriterReachability.ADMINISTRATIVE
     )
 

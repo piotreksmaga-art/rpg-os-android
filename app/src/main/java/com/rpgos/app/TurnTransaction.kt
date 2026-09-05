@@ -82,10 +82,11 @@ class TurnTransaction internal constructor(
             }
             failureInjector.failIfRequested(TurnFailurePoint.BEFORE_COMMIT)
             val eventBoundaryUid=eventStore.eventsForTransaction(identity.transactionUid).lastOrNull()?.eventUid
+            val postAuthoritativeDigest=AuthoritativeStateDigest.compute(db)
             val receipt=withCanonicalCommitEvidenceForTurn(db,identity.campaignUid,seal){
                 CommittedReplayPayloadStore(db).append(
                     identity,commitOrder,semanticFingerprint,requiredManifest.summary,proposal.playerChangeSet,
-                    causalRelationIntents,eventBoundaryUid
+                    causalRelationIntents,eventBoundaryUid,postAuthoritativeDigest
                 )
                 val committed=receiptStore.appendCommitted(identity,semanticFingerprint,commitOrder,requiredManifest.summary)
                 failureInjector.failIfRequested(TurnFailurePoint.AFTER_RECEIPT_BEFORE_COMMIT)
@@ -469,8 +470,11 @@ internal fun replayCommittedTransaction(db:SQLiteDatabase,payload:CommittedRepla
             require(applied.appliedChangeUids==payload.changeSet.changes.map{it.changeUid})
             val boundary=eventStore.eventsForTransaction(payload.identity.transactionUid).lastOrNull()?.eventUid
             require(boundary==payload.eventBoundaryUid){"RPGOS-SNAPSHOT:REPLAY_EVENT_BOUNDARY_MISMATCH"}
+            payload.postAuthoritativeDigest?.let{expected->
+                require(AuthoritativeStateDigest.compute(db)==expected){"RPGOS-SNAPSHOT:REPLAY_POST_AUTHORITY_DIGEST_MISMATCH"}
+            }
             withCanonicalCommitEvidenceForTurn(db,payload.identity.campaignUid,TURN_TRANSACTION_SEAL){
-                CommittedReplayPayloadStore(db).append(payload.identity,payload.commitOrder,payload.semanticFingerprint,payload.eventManifest,payload.changeSet,payload.causalPlan,boundary)
+                CommittedReplayPayloadStore(db).append(payload.identity,payload.commitOrder,payload.semanticFingerprint,payload.eventManifest,payload.changeSet,payload.causalPlan,boundary,payload.postAuthoritativeDigest)
                 TurnTransactionReceiptStore(db).appendCommitted(payload.identity,payload.semanticFingerprint,payload.commitOrder,payload.eventManifest)
             }
             db.setTransactionSuccessful()

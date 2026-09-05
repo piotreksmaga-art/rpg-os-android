@@ -44,6 +44,36 @@ class Phase36SchemaVersioningTest {
         }
     }
 
+    @Test fun replayV2ColumnsAreAddedWithoutRelabelingLegacyManualSnapshotPayloads() {
+        SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
+            db.execSQL("""CREATE TABLE ${CampaignSnapshotSchema.CATALOG}(
+                snapshot_uid TEXT PRIMARY KEY,campaign_uid TEXT NOT NULL,snapshot_kind TEXT NOT NULL,
+                snapshot_schema_version INTEGER NOT NULL,created_order INTEGER NOT NULL,created_at_epoch_ms INTEGER NOT NULL,
+                anchor_commit_order INTEGER NOT NULL,anchor_transaction_uid TEXT,anchor_turn_uid TEXT,anchor_event_uid TEXT,
+                payload_path TEXT NOT NULL,payload_sha256 TEXT,publication_state TEXT NOT NULL,pinned INTEGER NOT NULL CHECK(pinned IN (0,1)),
+                UNIQUE(campaign_uid,created_order))""")
+            db.execSQL("""CREATE TABLE ${CampaignSnapshotSchema.REPLAY}(
+                transaction_uid TEXT PRIMARY KEY,campaign_uid TEXT NOT NULL,turn_uid TEXT NOT NULL,command_uid TEXT NOT NULL,
+                commit_order INTEGER NOT NULL,semantic_fingerprint TEXT NOT NULL,required_event_count INTEGER NOT NULL,
+                required_event_manifest_fingerprint TEXT NOT NULL,event_boundary_uid TEXT,replay_schema_version INTEGER NOT NULL,
+                player_change_set_json TEXT NOT NULL,causal_plan_json TEXT NOT NULL,payload_sha256 TEXT NOT NULL,
+                UNIQUE(campaign_uid,commit_order))""")
+            db.execSQL("""INSERT INTO ${CampaignSnapshotSchema.CATALOG}(
+                snapshot_uid,campaign_uid,snapshot_kind,snapshot_schema_version,created_order,created_at_epoch_ms,
+                anchor_commit_order,payload_path,publication_state,pinned)
+                VALUES('LEGACY-MANUAL','C1','MANUAL_BACKUP',1,1,1,0,'legacy.db','VALID',1)""")
+
+            GameplayRuntimeBootstrap.initialize(db, "C1")
+
+            assertTrue(column(db,CampaignSnapshotSchema.CATALOG,"anchor_authoritative_digest"))
+            assertTrue(column(db,CampaignSnapshotSchema.REPLAY,"post_authoritative_digest"))
+            assertEquals(1,db.rawQuery(
+                "SELECT snapshot_schema_version FROM ${CampaignSnapshotSchema.CATALOG} WHERE snapshot_uid='LEGACY-MANUAL'",null
+            ).use{it.moveToFirst();it.getInt(0)})
+            assertEquals(1,version(db,SchemaFamilyUid.SNAPSHOT))
+        }
+    }
+
     @Test fun everyUnsupportedFutureFamilyFailsBeforeMigrationMutation() {
         SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->
             GameplayRuntimeBootstrap.initialize(db, "C1")
@@ -386,6 +416,10 @@ class Phase36SchemaVersioningTest {
     }
 
     private fun table(db:SQLiteDatabase,name:String)=db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",arrayOf(name)).use{it.moveToFirst()}
+    private fun column(db:SQLiteDatabase,table:String,column:String)=db.rawQuery("PRAGMA table_info(`$table`)",null).use{c->
+        while(c.moveToNext())if(c.getString(1)==column)return@use true
+        false
+    }
     private fun count(db:SQLiteDatabase,table:String)=db.rawQuery("SELECT COUNT(*) FROM $table",null).use{it.moveToFirst();it.getLong(0)}
     private fun countWhere(db:SQLiteDatabase,table:String,where:String)=db.rawQuery("SELECT COUNT(*) FROM $table WHERE $where",null).use{it.moveToFirst();it.getLong(0)}
     private fun version(db:SQLiteDatabase,family:SchemaFamilyUid)=db.rawQuery("SELECT schema_version FROM ${Phase36SchemaVersioning.VERSIONS} WHERE schema_family_uid=?",arrayOf(family.name)).use{it.moveToFirst();it.getInt(0)}

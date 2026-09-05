@@ -1,6 +1,6 @@
 package com.rpgos.app
 
-enum class ContextEpistemicState { PROJECTED_FACT, PLAYER_ASSERTION, SYSTEM_CONSTRAINT, UNKNOWN }
+enum class ContextEpistemicState { PROJECTED_FACT, HOLDER_BELIEF, MEMORY, PLAYER_ASSERTION, SYSTEM_CONSTRAINT, UNKNOWN }
 enum class ContextOmissionCause { MODEL_BUDGET, PROVIDER_NO_DATA, PROVIDER_DENIED, NOT_DISCLOSED, UNKNOWN, UNSUPPORTED, CORRUPTION, INCOMPLETE_PAGE }
 enum class ContextCompletionState { COMPLETE, NEEDS_INFORMATION, UNSAFE_FOR_AI, EXHAUSTED }
 
@@ -76,7 +76,12 @@ class ContextIntegrityBuilder(private val retriever:StructuredSqlRetriever){
                 if(unsafe!=null)emptySegment(requirement,RetrievalState.CORRUPTION,true,if(unsafe.provenanceUid.isNullOrBlank())"MISSING_PROJECTION_PROVENANCE" else "UNSAFE_CONTEXT_VALUE")
                 else CanonicalContextSegment(
                     segmentUid="CTX:${requirement.requirementUid}",requirement=requirement,state=result.state,
-                    records=result.records.map{CanonicalContextRecord(it,ContextEpistemicState.PROJECTED_FACT,it.provenanceUid!!,requirement.requirementUid)},
+                    records=result.records.map{record->CanonicalContextRecord(
+                        record,
+                        mapEpistemicState(record.values["epistemic_state_uid"]),
+                        record.provenanceUid!!,
+                        requirement.requirementUid
+                    )},
                     complete=result.complete,continuation=result.continuation,nextCursor=result.nextCursor,
                     reasonUid=if(result.complete)null else "INCOMPLETE_PAGE"
                 )
@@ -93,6 +98,16 @@ class ContextIntegrityBuilder(private val retriever:StructuredSqlRetriever){
     private fun emptySegment(requirement:PlannedRequirement,state:RetrievalState,complete:Boolean,reason:String)=CanonicalContextSegment(
         "CTX:${requirement.requirementUid}",requirement,state,emptyList(),complete,RetrievalContinuation.COMPLETE,reasonUid=reason
     )
+    private fun mapEpistemicState(value:Any?)=when((value as? String)?.uppercase()){
+        "BELIEF","HOLDER_BELIEF"->ContextEpistemicState.HOLDER_BELIEF
+        "MEMORY","EPISODIC_MEMORY","SEMANTIC_MEMORY","NARRATIVE_MEMORY"->ContextEpistemicState.MEMORY
+        "PLAYER_ASSERTION"->ContextEpistemicState.PLAYER_ASSERTION
+        "SYSTEM_CONSTRAINT","CONSTRAINT","RULE","WORLD_RULE"->ContextEpistemicState.SYSTEM_CONSTRAINT
+        "FACT","PROJECTED_FACT","PROJECTED_FACT_CONCLUSION"->ContextEpistemicState.PROJECTED_FACT
+        "UNKNOWN","UNSPECIFIED"->ContextEpistemicState.UNKNOWN
+        null->ContextEpistemicState.UNKNOWN
+        else->ContextEpistemicState.UNKNOWN
+    }
     private fun isSafeContextValue(value:Any?):Boolean=when(value){
         null,is String,is Number,is Boolean->true
         is List<*>->value.all(::isSafeContextValue)

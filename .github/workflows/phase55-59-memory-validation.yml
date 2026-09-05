@@ -1,0 +1,164 @@
+name: Phase55-59 Memory Validation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ "master" ]
+  push:
+    branches: [ "codex/phase55-59-memory", "master" ]
+
+permissions:
+  contents: read
+
+jobs:
+  memory-and-undo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Verify exact source SHA
+        run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Run Phase55-59 and destructive Undo gates
+        run: |
+          gradle --no-daemon :app:testDebugUnitTest \
+            --tests 'com.rpgos.app.Phase55To57MemoryOwnersTest' \
+            --tests 'com.rpgos.app.Phase55To58MemoryContractTest' \
+            --tests 'com.rpgos.app.Phase58MemoryConsolidationTest' \
+            --tests 'com.rpgos.app.Phase58MemoryConsolidationScaleTest' \
+            --tests 'com.rpgos.app.Phase59CanonicalRegressionTest' \
+            --tests 'com.rpgos.app.Phase59CanonicalRegressionPublicApiTest' \
+            --tests 'com.rpgos.app.Phase59CanonicalRehydrationTest' \
+            --tests 'com.rpgos.app.UnifiedGameRepositoryMemoryArtifactLookupTest' \
+            --tests 'com.rpgos.app.DestructiveTurnUndoTest' \
+            --tests 'com.rpgos.app.CampaignFrontendSafetyContractTest' \
+            --tests 'com.rpgos.app.Phase59LifecycleRegressionTest' \
+            --tests 'com.rpgos.app.SemanticSidecarConstructorLockContractTest' \
+            --tests 'com.rpgos.app.Phase32RepositoryWideWriterSourceInventoryTest' \
+            --tests 'com.rpgos.app.Phase36SchemaVersioningTest' \
+            --tests 'com.rpgos.app.BekkoSemanticMemoryTest' \
+            --stacktrace
+      - name: Compile Android device acceptance suites
+        run: gradle --no-daemon :app:compileDebugAndroidTestKotlin --stacktrace
+
+  full-jvm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Verify exact source SHA
+        run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Run complete JVM regression
+        run: gradle --no-daemon :app:testDebugUnitTest :app:testLabDebugUnitTest --stacktrace
+
+  android-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [28, 36]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Verify exact source SHA
+        run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Run Phase55-59 device and 100-turn acceptance
+        # The APK includes the native Vulkan backend even for controlled-provider tests.
+        run: sudo apt-get update && sudo apt-get install -y glslc spirv-headers ninja-build
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run Phase55-59 device and 100-turn acceptance
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: gradle --no-daemon :app:connectedDebugAndroidTest -PrpgosEmulatorX86=true -Pandroid.testInstrumentationRunnerArguments.class=com.rpgos.app.Phase55To59DeviceAcceptanceTest,com.rpgos.app.Phase55To59HundredTurnAcceptanceTest --stacktrace
+
+  release-isolation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Verify exact source SHA
+        run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Verify development and publication workflow separation
+        run: python3 tools/validate_release_workflows.py
+      - name: Create ephemeral signing key for isolation-only APK
+        shell: bash
+        run: |
+          keytool -genkeypair -v -keystore "$RUNNER_TEMP/rpgos-ci-isolation.jks" \
+            -storepass rpgos-ci-only -keypass rpgos-ci-only -alias rpgos \
+            -keyalg RSA -keysize 2048 -validity 1 -dname "CN=RPG OS CI Isolation"
+          echo "RPGOS_KEYSTORE_PATH=$RUNNER_TEMP/rpgos-ci-isolation.jks" >> "$GITHUB_ENV"
+          echo "RPGOS_KEYSTORE_PASSWORD=rpgos-ci-only" >> "$GITHUB_ENV"
+          echo "RPGOS_KEY_PASSWORD=rpgos-ci-only" >> "$GITHUB_ENV"
+      - name: Build release variant for isolation inspection only
+        run: sudo apt-get update && sudo apt-get install -y glslc spirv-headers ninja-build
+      - name: Build release variant for isolation inspection only
+        run: gradle --no-daemon :app:assembleRelease --stacktrace
+      - name: Verify LAB components are absent from manifest, DEX and packaged assets
+        shell: bash
+        run: |
+          apk="$(find app/build/outputs/apk/release -name '*.apk' -type f | head -n 1)"
+          test -n "$apk"
+          manifest="$(apkanalyzer manifest print "$apk")"
+          packaged_names="$(unzip -Z1 "$apk")"
+          dex_strings="$(unzip -p "$apk" 'classes*.dex' | strings)"
+          for forbidden in RpgOsLabBridgeInitializer LabDiagnosticsActivity LabCodexProvider LAB_CODEX RPGOS_LAB_V1; do
+            ! grep -Fq "$forbidden" <<<"$manifest"
+            ! grep -Fq "$forbidden" <<<"$packaged_names"
+            ! grep -Fq "$forbidden" <<<"$dex_strings"
+          done

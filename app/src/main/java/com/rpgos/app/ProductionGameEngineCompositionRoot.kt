@@ -569,6 +569,33 @@ private class DynamicProductionModelRoute(
     }
 }
 
+/**
+ * Phase58 may ask the currently legal Director provider for presentation-only episode labels.
+ * Routing is evaluated for every request, so privacy, explicit pinning and provider availability
+ * remain identical to the rest of the production AI boundary. Any failure is typed and the
+ * deterministic consolidation fallback remains authoritative.
+ */
+private class DynamicMemoryEnrichmentPort(
+    private val route:AiModelRoutePort
+):MemoryEnrichmentPort{
+    override fun enrich(
+        request:MemoryEnrichmentRequest,
+        cancellation:AiCancellationSignal
+    ):MemoryEnrichmentResult{
+        if(cancellation.isCancelled())return MemoryEnrichmentResult.Failure("MEMORY_ENRICHMENT_CANCELLED",true)
+        val requiredContextUnits=(128+request.manifest.eventUids.size*16).coerceAtMost(2_048)
+        return when(val selected=route.route(AiRole.DIRECTOR_SCENARIST,AiWorkload.MEMORY_ENRICHMENT,requiredContextUnits)){
+            is AiRouteResult.Unavailable->MemoryEnrichmentResult.Failure(
+                "MEMORY_ENRICHMENT_ROUTE:${selected.reasonUids.joinToString("|")}",true
+            )
+            is AiRouteResult.Selected->when(val result=selected.provider.enrichMemory(request,cancellation)){
+                is AiProviderResult.Success->result.value
+                is AiProviderResult.Failure->MemoryEnrichmentResult.Failure(result.reasonUid,result.retryable)
+            }
+        }
+    }
+}
+
 /** Keeps internal counters authoritative while preventing engine bookkeeping from leaking into
  * prose as lines such as "postęp o 1". Exact values remain in the committed replay. */
 internal fun playerVisibleTrackValue(payload:MechanicalTrackChange):String=when{
@@ -632,6 +659,11 @@ class ProductionGameEngineCompositionRoot(
     private val directorGuidance:DirectorGuidancePort=DirectorGuidancePort.NONE
 ){
     private val app=context.applicationContext
+    init{
+        repository.configureMemoryEnrichment(
+            DynamicMemoryEnrichmentPort(DynamicProductionModelRoute(providerCenter,configuration,additionalProviders))
+        )
+    }
     fun characterCreationApplication():AiCharacterCreationApplication=AiCharacterCreationApplication(
         DynamicProductionModelRoute(providerCenter,configuration,additionalProviders),repository,
         semanticApplication?.characterCreationCatalogProjection()?:CharacterCreationCatalogProjectionPort.LEXICAL
@@ -722,6 +754,19 @@ class ProductionGameEngineCompositionRoot(
             deliveryStore=FileNarrativeDeliveryStore(File(app.filesDir,"narrative-delivery")),
             recoveryStore=FileNarrationRecoveryStore(File(app.filesDir,"narrative-recovery")),
             directorGuidance=directorGuidance,
+            workingMemoryScopes=WorkingMemoryScopePort{turn->
+                val principal=turn.audience.principal?.uid?:turn.actor.actorUid
+                WorkingMemoryScope(
+                    campaignUid=turn.campaignUid,
+                    historyGenerationUid=repository.infrastructureHistoryGenerationUid(),
+                    audienceKindUid=turn.audience.audienceKindUid,
+                    principalUid=principal,
+                    purposeUid=turn.purpose.purposeUid,
+                    sceneUid=null,
+                    asOfCommittedOrder=repository.infrastructureLastCommitOrder(),
+                    accessPolicyVersion=1
+                )
+            },
             recoveryDiscovery={repository.infrastructureLastReceipt()?.let{receipt->
                 if(!receipt.transactionUid.startsWith("TRANSACTION:")||!receipt.commandUid.startsWith("COMMAND:")||!receipt.turnUid.startsWith("TURN:"))return@let null
                 val order=receipt.commitOrder?:return@let null

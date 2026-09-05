@@ -11,6 +11,61 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import java.util.UUID
+
+/** One native Bekko handle per model/backend in this Android process. labDebug composes UI,
+ * Bridge and Director with separate repositories, but they must not load the 118 MB model three
+ * times. Leases preserve independent lifecycle while inference remains serialized by the native
+ * provider's existing request lock. */
+internal object BekkoEmbeddingProviderPool{
+    private data class Key(val path:String,val backend:EmbeddingBackend,val threads:Int)
+    private data class Entry(val provider:LlamaCppBekkoEmbeddingProvider,var references:Int)
+    private val lock=Any();private val entries=mutableMapOf<Key,Entry>()
+
+    fun acquire(context:Context,modelFile:File,backend:EmbeddingBackend,threads:Int=4):EmbeddingProviderPort{
+        val key=Key(modelFile.canonicalPath,backend,threads)
+        val entry=synchronized(lock){entries.getOrPut(key){Entry(LlamaCppBekkoEmbeddingProvider(context,modelFile,backend,threads),0)}.also{it.references++}}
+        return Lease(key,entry.provider)
+    }
+
+    private class Lease(private val key:Key,private val delegate:LlamaCppBekkoEmbeddingProvider):EmbeddingProviderPort{
+        private val leaseUid=UUID.randomUUID().toString()
+        @Volatile private var closed=false
+        private val lifecycle=ReentrantReadWriteLock()
+        override val capabilities get()=delegate.capabilities
+        override fun availability()=withOpenLease(
+            {EmbeddingAvailability(EmbeddingAvailabilityState.UNAVAILABLE,"BEKKO_PROVIDER_LEASE_CLOSED")},
+            delegate::availability
+        )
+        override fun open()=withOpenLease(
+            {EmbeddingAvailability(EmbeddingAvailabilityState.UNAVAILABLE,"BEKKO_PROVIDER_LEASE_CLOSED")},
+            delegate::open
+        )
+        override fun embedBatch(request:EmbeddingRequest)=withOpenLease(
+            {EmbeddingBatchResult.Failure("BEKKO_PROVIDER_LEASE_CLOSED",false)},
+            {delegate.embedBatch(request.copy(requestUid=namespaced(request.requestUid)))}
+        )
+        override fun cancel(requestUid:String)=withOpenLease({Unit}){delegate.cancel(namespaced(requestUid))}
+        override fun close(){
+            val write=lifecycle.writeLock();write.lock()
+            try{
+                if(closed)return
+                closed=true
+                synchronized(lock){
+                    val entry=entries[key]?:return
+                    entry.references--
+                    if(entry.references<=0){entries.remove(key);entry.provider.close()}
+                }
+            }finally{write.unlock()}
+        }
+        private inline fun <T> withOpenLease(closedResult:()->T,operation:()->T):T{
+            val read=lifecycle.readLock();read.lock()
+            return try{if(closed)closedResult() else operation()}finally{read.unlock()}
+        }
+        private fun namespaced(requestUid:String)="$leaseUid:$requestUid"
+    }
+}
 
 class LlamaCppBekkoEmbeddingProvider(
     context:Context,
@@ -28,21 +83,25 @@ class LlamaCppBekkoEmbeddingProvider(
     @Volatile private var connection:RemoteConnection?=null
     @Volatile private var service:ILlamaCppInferenceService?=null
     @Volatile private var nativeHandle:Long=0
+    @Volatile private var runtimeAvailability:EmbeddingAvailability?=null
 
     override fun availability():EmbeddingAvailability=when{
         !NativeLocalInferenceBridge.available->EmbeddingAvailability(EmbeddingAvailabilityState.UNAVAILABLE,"BEKKO_NATIVE_RUNTIME_UNAVAILABLE")
         !modelFile.isFile||modelFile.length()!=BEKKO_MODEL_BYTES->EmbeddingAvailability(EmbeddingAvailabilityState.NOT_INSTALLED,"BEKKO_MODEL_NOT_INSTALLED")
-        else->EmbeddingAvailability(EmbeddingAvailabilityState.READY,"BEKKO_READY")
+        else->runtimeAvailability?:EmbeddingAvailability(EmbeddingAvailabilityState.READY,"BEKKO_READY")
     }
 
     override fun open():EmbeddingAvailability=try{
         ensureOpen()
-        EmbeddingAvailability(EmbeddingAvailabilityState.READY,"BEKKO_RUNTIME_READY")
+        EmbeddingAvailability(EmbeddingAvailabilityState.READY,"BEKKO_RUNTIME_READY").also{runtimeAvailability=it}
     }catch(failure:Throwable){
         close()
-        val reason=failure.message?.takeIf{it.startsWith("LLAMA_")||it.startsWith("BEKKO_")}
-            ?:"BEKKO_RUNTIME_OPEN_FAILED:${failure::class.java.simpleName}"
-        EmbeddingAvailability(EmbeddingAvailabilityState.DEGRADED,reason)
+        val reason=typedFailureReason(failure)
+        EmbeddingAvailability(
+            if(reason=="BEKKO_VULKAN_UNSUPPORTED_ON_DEVICE")EmbeddingAvailabilityState.UNAVAILABLE
+            else EmbeddingAvailabilityState.DEGRADED,
+            reason
+        ).also{runtimeAvailability=it}
     }
 
     @Synchronized private fun ensureOpen():ILlamaCppInferenceService{
@@ -80,14 +139,28 @@ class LlamaCppBekkoEmbeddingProvider(
             val reason=when(failure){
                 is DeadObjectException->"BEKKO_SERVICE_DIED"
                 is RemoteException->"BEKKO_SERVICE_IPC_FAILED"
-                else->failure.message?.takeIf{it.startsWith("LLAMA_")||it.startsWith("BEKKO_")}
-                    ?:"BEKKO_EMBEDDING_FAILURE:${failure::class.java.simpleName}"
+                else->typedFailureReason(failure)
             }
-            close();EmbeddingBatchResult.Failure(reason,true)
+            if(reason=="BEKKO_VULKAN_UNSUPPORTED_ON_DEVICE")runtimeAvailability=EmbeddingAvailability(
+                EmbeddingAvailabilityState.UNAVAILABLE,reason
+            )
+            close();EmbeddingBatchResult.Failure(reason,reason!="BEKKO_VULKAN_UNSUPPORTED_ON_DEVICE")
         }finally{active.remove(request.requestUid)}
     }
 
     override fun cancel(requestUid:String){runCatching{service?.cancel(requestUid)}}
+
+    private fun typedFailureReason(failure:Throwable):String{
+        val nativeReason=failure.message?.takeIf{it.startsWith("LLAMA_")||it.startsWith("BEKKO_")}
+        if(backend==EmbeddingBackend.VULKAN&&nativeReason=="LLAMA_EMBEDDING_MODEL_LOAD_FAILED"){
+            // The pinned Bekko artifact is already size/SHA verified by the model manager. On
+            // Android this llama.cpp error is emitted when the Vulkan device cannot host the
+            // model (for example a driver without storageBuffer16BitAccess). Vulkan is manual
+            // and optional, so expose a stable capability failure instead of a retryable crash.
+            return "BEKKO_VULKAN_UNSUPPORTED_ON_DEVICE"
+        }
+        return nativeReason?:"BEKKO_RUNTIME_OPEN_FAILED:${failure::class.java.simpleName}"
+    }
 
     @Synchronized override fun close(){
         val handle=nativeHandle;nativeHandle=0

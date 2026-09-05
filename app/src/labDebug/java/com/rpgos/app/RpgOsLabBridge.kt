@@ -43,14 +43,15 @@ internal object RpgOsLabBridgeContract {
         "GET_RECOVERY_STATE", "GET_DIRECTOR_STATE", "SEARCH_BEKKO", "GET_AI_TRACE",
         "GET_LAST_AI_EXCHANGE", "GET_LAST_TURN", "GET_LAST_SCENARIO", "GET_LAST_FAILURE",
         "EXPORT_FAILURE_BUNDLE", "EXPORT_LAB_FIXTURE", "GET_PENDING_CHARACTER_DRAFT",
-        "GET_CODEX_PROVIDER_STATE", "GET_DIRECTOR_JOBS", "GET_DIRECTOR_CANDIDATES", "GET_DIRECTOR_GUIDANCE"
+        "GET_CODEX_PROVIDER_STATE", "GET_DIRECTOR_JOBS", "GET_DIRECTOR_CANDIDATES", "GET_DIRECTOR_GUIDANCE",
+        "PREVIEW_UNDO_LAST_TURN"
     )
     val labAdminCommands = setOf(
         "SET_ACTIVE_CAMPAIGN", "CREATE_CAMPAIGN", "LOAD_LAB_FIXTURE", "IMPORT_LOCAL_GGUF",
-        "SELECT_LOCAL_AI", "CLEAR_AI_TRACE", "CANCEL_ACTIVE_OPERATION", "REGISTER_CODEX_HOST",
+        "SELECT_LOCAL_AI", "SET_BEKKO_SETTINGS", "CLEAR_AI_TRACE", "CANCEL_ACTIVE_OPERATION", "REGISTER_CODEX_HOST",
         "CODEX_HOST_HEARTBEAT", "CLAIM_AI_REQUEST", "COMPLETE_AI_REQUEST", "FAIL_AI_REQUEST",
         "CANCEL_AI_REQUEST", "SET_LAB_AI_ASSIGNMENTS", "RUN_DIRECTOR_NOW", "CLEAR_DIRECTOR_SIDECAR",
-        "OPEN_LAB_DIAGNOSTICS"
+        "OPEN_LAB_DIAGNOSTICS", "CONFIRM_UNDO_LAST_TURN"
     )
     val allCommands = productionPathCommands + readCommands + labAdminCommands
 }
@@ -197,6 +198,7 @@ private class RpgOsLabRuntime(context: Context) {
                 "SET_LAB_AI_ASSIGNMENTS" -> LabCodexProviderRuntime.setAssignments(arguments)
                 "OPEN_LAB_DIAGNOSTICS" -> openLabDiagnostics()
                 "SEARCH_BEKKO" -> searchBekko(arguments)
+                "SET_BEKKO_SETTINGS" -> setBekkoSettings(arguments)
                 "IMPORT_LOCAL_GGUF" -> importLocalGguf(arguments)
                 "SELECT_LOCAL_AI" -> selectLocalAi(arguments)
                 "GET_AI_TRACE" -> aiTrace.read(arguments.optInt("limit", 100).coerceIn(1, 500), arguments.optString("request_uid_prefix").ifBlank { null })
@@ -205,6 +207,8 @@ private class RpgOsLabRuntime(context: Context) {
                 "GET_LAST_TURN" -> lastTurn ?: JSONObject().put("available", false)
                 "GET_LAST_SCENARIO" -> lastScenario ?: JSONObject().put("available", false)
                 "GET_LAST_FAILURE" -> lastFailure ?: JSONObject().put("available", false)
+                "PREVIEW_UNDO_LAST_TURN" -> previewUndoLastTurn()
+                "CONFIRM_UNDO_LAST_TURN" -> confirmUndoLastTurn(arguments)
                 "EXPORT_FAILURE_BUNDLE" -> failureBundle(arguments)
                 "EXPORT_LAB_FIXTURE" -> fixtureManifest()
                 "LOAD_LAB_FIXTURE" -> loadFixture(arguments)
@@ -523,6 +527,19 @@ private class RpgOsLabRuntime(context: Context) {
                 .put("index_reason_uid", bekko.indexStatus?.reasonUid ?: JSONObject.NULL))
     }
 
+    private fun setBekkoSettings(arguments:JSONObject):JSONObject=synchronized(actionLock){
+        val requestedBackend=arguments.optString("backend","").trim().uppercase().takeIf{it.isNotEmpty()}
+        val backend=requestedBackend?.let{value->
+            runCatching{EmbeddingBackend.valueOf(value)}
+                .getOrElse{throw IllegalArgumentException("LAB_BEKKO_BACKEND_INVALID")}
+        }
+        semantic.updateSettings{current->BekkoSettings(
+            if(arguments.has("enabled"))arguments.getBoolean("enabled") else current.enabled,
+            backend?:current.backend
+        )}
+        aiState()
+    }
+
     private fun searchBekko(arguments: JSONObject): JSONObject {
         val query=arguments.requiredString("query").take(1_024)
         val campaign=repository.activeCampaignRef().campaignId
@@ -723,6 +740,42 @@ private class RpgOsLabRuntime(context: Context) {
         val signal = activeCancellation
         signal?.cancel()
         return JSONObject().put("cancel_requested", signal != null)
+    }
+
+    private fun previewUndoLastTurn():JSONObject{
+        val preview=repository.previewUndoLastTurn()
+        return JSONObject()
+            .put("preview_token",preview.previewToken)
+            .put("campaign_uid",preview.campaignUid)
+            .put("current_commit_order",preview.currentCommitOrder)
+            .put("target_commit_order",preview.targetCommitOrder)
+            .put("removed_transaction_uid",preview.removedTransactionUid)
+            .put("removed_turn_uid",preview.removedTurnUid)
+            .put("history_generation_uid",preview.historyGenerationUid)
+            .put("created_at_epoch_ms",preview.createdAtEpochMs)
+            .put("expires_at_epoch_ms",preview.expiresAtEpochMs)
+            .put("availability",preview.availability.name)
+            .put("can_confirm",preview.canConfirm)
+            .put("reason_uid",preview.reasonUid?:JSONObject.NULL)
+    }
+
+    private fun confirmUndoLastTurn(arguments:JSONObject):JSONObject=synchronized(actionLock){
+        val result=repository.confirmUndoLastTurn(arguments.requiredString("preview_token"))
+        when(result){
+            is DestructiveUndoResult.Completed->{
+                lastTurn=null;lastScenario=null
+                runCatching{semantic.onCampaignOpened()}
+                runCatching{AiProviderExtensionRegistry.onCampaignOpened(result.campaignUid)}
+                JSONObject().put("outcome","COMPLETED")
+                    .put("campaign_uid",result.campaignUid)
+                    .put("removed_commit_order",result.removedCommitOrder)
+                    .put("active_commit_order",result.activeCommitOrder)
+                    .put("history_generation_uid",result.historyGenerationUid)
+                    .put("manual_backups_preserved",true)
+            }
+            is DestructiveUndoResult.Rejected->JSONObject().put("outcome","REJECTED")
+                .put("reason",result.reason.name).put("reason_uid",result.reasonUid)
+        }
     }
 
     private fun submitCharacterCreation(arguments: JSONObject): JSONObject = synchronized(actionLock) {

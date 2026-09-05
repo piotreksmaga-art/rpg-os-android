@@ -314,18 +314,18 @@ Future Player Interaction acceptance, rozwijane wraz z Phase 43–54, 63–64 i 
 - optional Assisted Mode automatycznie pokazuje sugestie, ale nadal nie wybiera za gracza;
 - `Continue`: kontynuacja już zatwierdzonej intencji/świata/NPC bez tworzenia nowej wolitywnej decyzji PC;
 - `Player Decision Point` + meaningful-interruption/soft-stop policy zatrzymuje auto-advance przed nowym ważnym wyborem PC;
-- `Undo Request` korzysta z replay/branch/reconstruction, nie z ręcznego partial rollback;
-- `UNDO CONFIRMATION INVARIANT`: cofnięcie committed tury wymaga osobnego świadomego potwierdzenia po pierwszym kliknięciu; większy rewind wymaga wyraźnego zakresu/confirm;
-- undo odtwarza pełny stan świata na canonical granicy, w tym knowledge/events/relations/resources/ownership/background consequences;
+- `Undo Request` uruchamia replay-V2 rekonstrukcję poprzedniej committed granicy (obecnie ostatniej committed tury), bez branchingu i bez ręcznego partial rollback;
+- `UNDO CONFIRMATION INVARIANT`: pierwsze kliknięcie tworzy `UndoPreview`; potwierdzenie wykonuje rekonstrukcję i commit-safe swap aktywnego stanu;
+- obecnie rollback jest bezpowrotny i obejmuje pełny stan świata/knowledge/events/relations/resources/ownership/background na canonical granicy, bez utrzymywania alternatywnych gałęzi;
 - domyślny mobile/chat UX pozostaje minimalistyczny: pole tekstowe + `Cofnij` / `Kontynuuj` / `Sugestie`; zaawansowane opcje przez progressive disclosure/menu;
 - situation recap / `Co się dzieje?` respektuje PC knowledge/visibility i nie ujawnia internal GM context.
 
 # FAZA E — PAMIĘĆ I DŁUGOTERMINOWA SYMULACJA
-- [-] 55. Working Memory — AI provider/model is not durable owner `[REF-ADAPTER]`
-- [-] 56. Episodic Memory — AI provider/model is not durable owner `[REF-ADAPTER]`
-- [-] 57. Semantic Campaign Memory — AI provider/model is not durable owner `[REF-ADAPTER]`
-- [ ] 58. Memory Consolidation without recursive summary degradation
-- [-] 59. Vector/Semantic Retrieval engine/index integration `[REF-ADAPTER]` — Bekko a8m Q8_0, oddzielny CPU/manual-Vulkan embedding runtime, audience-scoped exact FP16 sidecar, Phase41 provider, Phase44 capability i Phase45 budget/fallback są zaimplementowanym kandydatem; physical-device correctness jest zielone na Motoroli/Android 14, a exact-SHA CI/release i performance/thermal/coexistence na reprezentatywnej macierzy urządzeń pozostają otwarte
+- [-] 55. Working Memory — AI provider/model is not durable owner `[REF-ADAPTER]` — implementation candidate / local green
+- [-] 56. Episodic Memory — AI provider/model is not durable owner `[REF-ADAPTER]` — implementation candidate / local green
+- [-] 57. Semantic Campaign Memory — AI provider/model is not durable owner `[REF-ADAPTER]` — implementation candidate / local green
+- [-] 58. Memory Consolidation without recursive summary degradation — implementation candidate / local green
+- [-] 59. Vector/Semantic Retrieval engine/index integration `[REF-ADAPTER]` — implementation candidate / local green; Bekko a8m Q8_0, oddzielny CPU/manual-Vulkan embedding runtime, audience-scoped exact FP16 sidecar, Phase41 provider, Phase44 capability i Phase45 budget/fallback pozostają kandydatem; physical-device correctness jest zielone na Motoroli/Android 14, a exact-SHA CI/release i performance/thermal/coexistence na reprezentatywnej macierzy urządzeń pozostają otwarte
 - [ ] 60. Time Skip Processor + Scheduler/WorldProcess orchestration `[REF-ADAPTER]`
 - [-] 61. NPC Brain + persistent individuality/personality/values/goals/fears/emotional state/relationships `[REF-ADAPTER]`
 - [-] 62. NPC Decision Engine + knowledge/memory/social-role constrained autonomy `[REF-ADAPTER]`
@@ -333,7 +333,20 @@ Future Player Interaction acceptance, rozwijane wraz z Phase 43–54, 63–64 i 
 - [ ] 64. Background-world causal simulation: organizations/economy/projects/demography/wars/knowledge propagation/conflict resolution + controlled randomness `[REF-ADAPTER]`
 
 ## Acceptance direction Phase 55–64
-Memory pozostaje RPG OS-owned i odtwarzalna po zmianie modelu/runtime.
+Memory pozostaje RPG OS-owned i odtwarzalna po zmianie modelu/runtime. Fazy 55–59 pozostają implementation candidates / local-green i **nie** są globalnie `COMPLETE` przed full `exact-SHA CI`, device acceptance i pełnym auditów po-deployment.
+
+Canonicalny kontrakt tych faz jest szczegółowo opisany w: [docs/architecture/PHASE55_59_MEMORY.md](/docs/architecture/PHASE55_59_MEMORY.md)
+
+Obowiązujące zasady:
+- `RPG OS owns memory` — pamięć kampanii/derived runtime jest własnością RPG OS.
+- `Phase37 remains knowledge owner` — holder knowledge pozostaje domeną Phase37.
+- Bekko wykonuje jedynie `FIND / MATCH / RANK / CLUSTER`; nie nadaje FACT ani authority.
+- AI output to interpretacja prezentacyjna; nie posiada durable mutation authority.
+- `Undo` jest bezbranchingowy: `UndoRequest` → `UndoPreview` → potwierdzenie; w tym wydaniu tylko cofnięcie ostatniej committed tury po `Replay V2` + atomowej walidowanej podmianie stanu.
+- `HistoryGenerationUid`/`GenerationFingerprint` stanowią granicę odświeżenia i unieważniają nieaktualne derived artefakty po `backup restore` i `undo`.
+- Wyuczone/derived memory i vector index są rebuildable sidecars i nie uczestniczą w canonical hash/save/snapshot/replay truth.
+- 58: idempotentny consolidation loop (receipt/watermark/resume, bounded by 256 leaves i 500ms), wyzwalany po commit i otwarciu kampanii.
+- 59: retrieval wymusza rehydratację z aktualnego canonical ownera; `REQUIRED/SAFETY` ma wyższy priorytet niż similarity score.
 
 ### Bekko a8m — aktywny semantic retrieval candidate
 
@@ -345,7 +358,7 @@ Aktywne są: pamięć MG, redukcja kontekstu, semantic scout istniejącego Direc
 
 Porty kandydatów dla Phase58, Phase61–64, Phase66 i Phase68 są przetestowanymi seamami bez ownershipu i bez aktywacji brakującej fazy. Nie zmieniają statusu tych faz i nie mogą samodzielnie konsolidować pamięci, podejmować decyzji NPC, symulować świata, tworzyć obietnic, rozstrzygać sprzeczności ani nadawać causal authority.
 
-Indeks jest per-campaign `CACHE/REBUILDABLE`, pozostaje poza save hash/snapshot/canonical truth i przechowuje 256-wymiarowe Matryoshka FP16. Wersja wiąże model SHA, wymiar, normalizację, format oraz projector. Po legalnym `Committed`/`AlreadyCommitted` działa idempotentny post-commit catch-up; rollback niczego nie indeksuje. Nie istnieje cykliczny WorkManager. Otwieranie kampanii porównuje checkpoint z replay i domyka lukę po awarii.
+Indeks jest per-campaign `CACHE/REBUILDABLE`, pozostaje poza save hash/snapshot/canonical truth i przechowuje 256-wymiarowe Matryoshka FP16. Wersja wiąże model SHA, wymiar, normalizację, format, `policy version` i `HistoryGenerationUid`. Po legalnym `Committed`/`AlreadyCommitted` działa idempotentny post-commit catch-up; rollback niczego nie indeksuje. Nie istnieje cykliczny WorkManager. Otwieranie kampanii porównuje checkpoint z replay i domyka lukę po awarii. Phase58 i Phase59 współdzielą sprawiedliwą procesową bramkę read/write: Undo/storage/config najpierw zatrzymuje nowych czytelników oraz anuluje aktywny request embeddingu, a następnie czeka na konsolidację i pełne zapytanie z canonical rehydration. Zmiana CPU/Vulkan atomowo zamyka wszystkie procesowe instancje Bekko; pooled model chroni aktywne wywołania read-lease i ostatni close write-lease. Zamknięta instancja jest terminalna, a potencjalnie blokujący lifecycle panelu działa poza głównym wątkiem Androida. Vector sidecar ma crash-safe kompaktowanie także przy wielu otwartych konsumentach. Po Undo stary per-campaign sidecar jest fizycznie usuwany, plik wektorów nie zajmuje pamięci ani dysku dla cofniętej historii, a indeks odbudowuje się dla nowej generacji.
 
 Phase 61 NPC individuality:
 - personality/traits persisted lub deterministically reproducible;
@@ -610,8 +623,8 @@ Przyszłe obowiązkowe gates obejmują co najmniej:
 - [ ] clicking a suggestion is explicit user authorization; generating/showing a suggestion alone never creates PlayerCommand/COMMIT
 - [ ] `CONTINUE_COMMAND` cannot invent new voluntary PC action and stops at the next meaningful Player Decision Point
 - [ ] Continue during travel/training/waiting respects previously authorized intent and interrupts on significant threat/opportunity/choice
-- [ ] `UNDO_CONFIRMATION`: first undo click/request cannot mutate committed state; separate confirmation is mandatory
-- [ ] confirmed undo reconstructs/branches whole canonical turn state, not partial tables; knowledge/events/relations/resources remain consistent
+- [ ] `UNDO_CONFIRMATION`: first undo click/request cannot mutate committed state; `UndoPreview` i osobne potwierdzenie są obligatoryjne
+- [ ] confirmed undo reconstructs whole canonical turn state via replay + digest/staging verification + atomic swap (target: last committed turn), no partial table mutation or branching
 - [ ] mobile default interaction remains usable with text input + three primary helpers (`Cofnij`, `Kontynuuj`, `Sugestie`) and progressive disclosure for advanced features
 - [ ] `WORLD_ACTOR_MECHANICAL_STATE`: same canonical combat-facing contract works for PC/NPC/former PC/monster/summon/vehicle/unit/group without creating a second Player physics
 - [ ] materialized actor mechanical state persists and cannot be rerolled from template after combat/history changes
@@ -633,6 +646,8 @@ Obowiązkowa sekwencja:
 `READ ARCHITECTURE + ROADMAP + MAPA PLIKÓW -> AUDIT FIRST -> classify COMPLETE/PARTIAL/MISSING/BLOCKED -> minimal implementation -> targeted tests -> compatibility -> full JVM -> PR -> exact-SHA CI -> coordinator acceptance`.
 
 Phase 38: **GLOBALLY ACCEPTED / COMPLETE** na code-bearing SHA `db2f836fe3575204d045e5d3a861e07bb61cd5a9`; exact-SHA run `32776574352` — SUCCESS. Phase 39–47 oraz slice 48–54 mają zielone exact-SHA evidence dla `5ae6f0648704b114c6aa38ddea7f912006709d8d`, lecz pozostają candidate do decyzji koordynatora.
+
+Fazy 55–59 pozostają implementation candidates/local-green w oparciu o nowy kontrakt pamięci i Undo; nie przechodzą na globalne `COMPLETE` do czasu finalnego acceptance (`exact-SHA CI`, device tests, rollback/replay proof, performance matrix, memory/index cleanup po Undo). Branching pozostaje docelowo fazy 72 i nie jest częścią bieżącego releasu.
 
 Future Hybrid AI, NPC individuality, Living World i post-roadmap WPC nie zmieniają tej kolejności.
 

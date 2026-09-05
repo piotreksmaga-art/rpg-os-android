@@ -6,7 +6,7 @@ import java.util.UUID
 
 enum class SchemaFamilyUid {
     ENGINE, CAMPAIGN, WORLD_PACK, PLAYER, RECEIPT, EVENT, CAUSAL, SNAPSHOT, REPLAY,
-    CANON_DIVERGENCE, KNOWLEDGE, FINANCE, INVENTORY, OWNERSHIP, DEVELOPMENT_PROJECT, ACCESS_AUTHORITY
+    CANON_DIVERGENCE, KNOWLEDGE, MEMORY, FINANCE, INVENTORY, OWNERSHIP, DEVELOPMENT_PROJECT, ACCESS_AUTHORITY
 }
 
 enum class MigrationMateriality { STRUCTURAL_ADDITIVE, MATERIAL_DATA_MUTATION }
@@ -125,6 +125,7 @@ internal object Phase36SchemaVersioning {
         SchemaFamilyContract(SchemaFamilyUid.REPLAY, 1, 1, setOf(SchemaFamilyUid.SNAPSHOT, SchemaFamilyUid.EVENT)),
         SchemaFamilyContract(SchemaFamilyUid.CANON_DIVERGENCE, CANON_DIVERGENCE_SCHEMA_VERSION, 1, setOf(SchemaFamilyUid.EVENT)),
         SchemaFamilyContract(SchemaFamilyUid.KNOWLEDGE, PHASE37_KNOWLEDGE_SCHEMA_VERSION, 1, setOf(SchemaFamilyUid.CAMPAIGN, SchemaFamilyUid.EVENT)),
+        SchemaFamilyContract(SchemaFamilyUid.MEMORY, PHASE55_TO_58_MEMORY_SCHEMA_VERSION, 1, setOf(SchemaFamilyUid.KNOWLEDGE,SchemaFamilyUid.REPLAY)),
         SchemaFamilyContract(SchemaFamilyUid.FINANCE, 1, 1, setOf(SchemaFamilyUid.PLAYER)),
         SchemaFamilyContract(SchemaFamilyUid.INVENTORY, 1, 1, setOf(SchemaFamilyUid.PLAYER)),
         SchemaFamilyContract(SchemaFamilyUid.OWNERSHIP, 1, 1, setOf(SchemaFamilyUid.INVENTORY)),
@@ -196,6 +197,11 @@ internal object Phase36SchemaVersioning {
                 Phase37KnowledgeSchema.ensureReady(db)
             } else {
                 check(Phase37KnowledgeSchema.isReady(db)) { "RPGOS-SCHEMA:KNOWLEDGE_PHYSICAL_SCHEMA_NOT_CURRENT" }
+            }
+            if (current(db, SchemaFamilyUid.MEMORY) == null) {
+                Phase55To58MemorySchema.ensureReady(db,campaignUid)
+            } else {
+                check(Phase55To58MemorySchema.isReady(db)) { "RPGOS-SCHEMA:MEMORY_PHYSICAL_SCHEMA_NOT_CURRENT" }
             }
         }
 
@@ -440,6 +446,8 @@ internal object Phase36SchemaVersioning {
             SchemaFamilyUid.EVENT -> Phase36EventSchemaScaffold.detectPhysicalVersion(db) ?: contract.currentVersion
             SchemaFamilyUid.KNOWLEDGE -> if (Phase37KnowledgeSchema.isReady(db)) PHASE37_KNOWLEDGE_SCHEMA_VERSION
                 else error("RPGOS-SCHEMA:KNOWLEDGE_PHYSICAL_SCHEMA_NOT_CURRENT")
+            SchemaFamilyUid.MEMORY -> if (Phase55To58MemorySchema.isReady(db)) PHASE55_TO_58_MEMORY_SCHEMA_VERSION
+                else error("RPGOS-SCHEMA:MEMORY_PHYSICAL_SCHEMA_NOT_CURRENT")
             else -> contract.currentVersion
         }
     }

@@ -42,16 +42,55 @@ set(SPIRV-Headers_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake" CACHE PATH "Vendored Khr
 include_directories(SYSTEM "${CMAKE_CURRENT_LIST_DIR}/third_party/SPIRV-Headers/include")
 
 # Vulkan shader generation runs on the build host while the runtime itself is cross-compiled for
-# Android. Provide llama.cpp with a portable host toolchain. Windows needs an actual MinGW/MSVC
-# host compiler; the clang executable in the Android NDK intentionally does not ship Windows SDK
-# libraries and therefore cannot link the shader generator.
+# Android. Provide llama.cpp with a portable host toolchain. On managed Windows workstations,
+# Device Guard can reject unsigned MinGW-produced helpers. A pinned llvm-mingw sysroot lets the
+# trusted NDK clang produce an equivalent self-contained Windows helper instead.
+set(RPGOS_HOST_TOOLCHAIN_CONFIGURATION "")
 if(CMAKE_HOST_WIN32)
     unset(RPGOS_HOST_C CACHE)
     unset(RPGOS_HOST_CXX CACHE)
-    find_program(RPGOS_HOST_C NAMES x86_64-w64-mingw32-clang.exe clang.exe gcc.exe
-        NO_CMAKE_FIND_ROOT_PATH REQUIRED)
-    find_program(RPGOS_HOST_CXX NAMES x86_64-w64-mingw32-clang++.exe clang++.exe g++.exe
-        NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+    set(RPGOS_PINNED_MINGW_ROOT
+        "${CMAKE_CURRENT_LIST_DIR}/../../../../.toolchains/llvm-mingw-20251216-ucrt-x86_64")
+    if(EXISTS "${RPGOS_PINNED_MINGW_ROOT}/include/c++/v1" AND ANDROID_NDK)
+        set(RPGOS_HOST_C "${ANDROID_NDK}/toolchains/llvm/prebuilt/windows-x86_64/bin/clang.exe")
+        set(RPGOS_HOST_CXX "${ANDROID_NDK}/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe")
+        set(RPGOS_NDK_CLANG_RESOURCE "${ANDROID_NDK}/toolchains/llvm/prebuilt/windows-x86_64/lib/clang/21")
+        set(RPGOS_HOST_RESOURCE "${CMAKE_BINARY_DIR}/rpgos-ndk-host-resource")
+        file(MAKE_DIRECTORY "${RPGOS_HOST_RESOURCE}/lib/x86_64-w64-windows-gnu")
+        file(COPY_FILE
+            "${RPGOS_PINNED_MINGW_ROOT}/lib/clang/21/lib/windows/libclang_rt.builtins-x86_64.a"
+            "${RPGOS_HOST_RESOURCE}/lib/x86_64-w64-windows-gnu/libclang_rt.builtins.a"
+            ONLY_IF_DIFFERENT)
+        file(TO_CMAKE_PATH "${RPGOS_PINNED_MINGW_ROOT}" RPGOS_PINNED_MINGW_ROOT)
+        file(TO_CMAKE_PATH "${RPGOS_NDK_CLANG_RESOURCE}" RPGOS_NDK_CLANG_RESOURCE)
+        file(TO_CMAKE_PATH "${RPGOS_HOST_RESOURCE}" RPGOS_HOST_RESOURCE)
+        set(RPGOS_HOST_COMMON_FLAGS
+            "--target=x86_64-w64-windows-gnu -resource-dir=${RPGOS_HOST_RESOURCE} -isystem ${RPGOS_NDK_CLANG_RESOURCE}/include -isystem ${RPGOS_PINNED_MINGW_ROOT}/include -L${RPGOS_PINNED_MINGW_ROOT}/x86_64-w64-mingw32/lib -rtlib=compiler-rt -static")
+        set(RPGOS_HOST_CXX_FLAGS
+            "--target=x86_64-w64-windows-gnu -resource-dir=${RPGOS_HOST_RESOURCE} -isystem ${RPGOS_PINNED_MINGW_ROOT}/include/c++/v1 -isystem ${RPGOS_NDK_CLANG_RESOURCE}/include -isystem ${RPGOS_PINNED_MINGW_ROOT}/include -L${RPGOS_PINNED_MINGW_ROOT}/x86_64-w64-mingw32/lib -rtlib=compiler-rt -unwindlib=libunwind -stdlib=libc++ -pthread -static")
+        set(RPGOS_HOST_TOOLCHAIN_CONFIGURATION
+            "set(CMAKE_C_FLAGS \"${RPGOS_HOST_COMMON_FLAGS}\")\nset(CMAKE_CXX_FLAGS \"${RPGOS_HOST_CXX_FLAGS}\")\nset(CMAKE_C_FLAGS_RELEASE \"-O2 -DNDEBUG\")\nset(CMAKE_CXX_FLAGS_RELEASE \"-O2 -DNDEBUG\")\nset(CMAKE_EXE_LINKER_FLAGS \"${RPGOS_HOST_CXX_FLAGS}\")\n")
+    else()
+        set(RPGOS_HOST_COMPILER_HINTS "")
+        if(DEFINED ENV{RPGOS_HOST_TOOLCHAIN_ROOT})
+            list(APPEND RPGOS_HOST_COMPILER_HINTS "$ENV{RPGOS_HOST_TOOLCHAIN_ROOT}/bin")
+        endif()
+        find_program(RPGOS_HOST_C NAMES x86_64-w64-mingw32-clang.exe clang.exe gcc.exe
+            HINTS ${RPGOS_HOST_COMPILER_HINTS}
+            NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+        find_program(RPGOS_HOST_CXX NAMES x86_64-w64-mingw32-clang++.exe clang++.exe g++.exe
+            HINTS ${RPGOS_HOST_COMPILER_HINTS}
+            NO_CMAKE_FIND_ROOT_PATH REQUIRED)
+        file(TO_CMAKE_PATH "${ANDROID_NDK}" RPGOS_ANDROID_NDK_NORMALIZED)
+        file(TO_CMAKE_PATH "${RPGOS_HOST_CXX}" RPGOS_HOST_CXX_NORMALIZED)
+        string(FIND "${RPGOS_HOST_CXX_NORMALIZED}" "${RPGOS_ANDROID_NDK_NORMALIZED}/" RPGOS_NDK_HOST_COMPILER_OFFSET)
+        if(RPGOS_NDK_HOST_COMPILER_OFFSET EQUAL 0)
+            message(FATAL_ERROR
+                "The Android NDK compiler needs the pinned llvm-mingw sysroot to link the Windows "
+                "Vulkan shader generator. Install llvm-mingw 20251216 under .toolchains or set "
+                "RPGOS_HOST_TOOLCHAIN_ROOT to a complete Windows host compiler.")
+        endif()
+    endif()
 else()
     find_program(RPGOS_HOST_C NAMES cc gcc clang NO_CMAKE_FIND_ROOT_PATH REQUIRED)
     find_program(RPGOS_HOST_CXX NAMES c++ g++ clang++ NO_CMAKE_FIND_ROOT_PATH REQUIRED)
@@ -62,6 +101,7 @@ file(WRITE "${RPGOS_HOST_TOOLCHAIN}"
     "set(CMAKE_BUILD_TYPE Release)\n"
     "set(CMAKE_C_COMPILER \"${RPGOS_HOST_C}\")\n"
     "set(CMAKE_CXX_COMPILER \"${RPGOS_HOST_CXX}\")\n"
+    "${RPGOS_HOST_TOOLCHAIN_CONFIGURATION}"
     "set(CMAKE_MAKE_PROGRAM \"${RPGOS_HOST_NINJA}\" CACHE FILEPATH \"\" FORCE)\n"
 )
 set(GGML_VULKAN_SHADERS_GEN_TOOLCHAIN "${RPGOS_HOST_TOOLCHAIN}" CACHE FILEPATH "Host Vulkan shader generator toolchain" FORCE)

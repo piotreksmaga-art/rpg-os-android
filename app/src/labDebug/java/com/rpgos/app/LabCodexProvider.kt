@@ -177,7 +177,7 @@ internal class LabCodexRequestBroker(
     override fun execute(request:AiTransportRequest,cancellation:AiCancellationSignal):AiProviderResult<AiTransportResponse>{
         if(!hostReady())return AiProviderResult.Failure(AiProviderFailureKind.UNAVAILABLE,currentHostReason(),true)
         if(cancellation.isCancelled())return AiProviderResult.Failure(AiProviderFailureKind.CANCELLED,"LAB_CODEX_CANCELLED_BEFORE_QUEUE")
-        val lane=if(request.workload==AiWorkload.DIRECTOR_STRATEGY)LabAiLane.DIRECTOR else LabAiLane.GAME_MASTER
+        val lane=if(request.workload.isDirectorWorkload())LabAiLane.DIRECTOR else LabAiLane.GAME_MASTER
         val now=clock();val timeout=if(lane==LabAiLane.DIRECTOR)DIRECTOR_TIMEOUT_MILLIS else GM_TIMEOUT_MILLIS
         val pendingRequest=LabAiPendingRequest(request,lane,now,now+timeout,OpenRouterStructuredOutputSchema.schema(request.workload).toString())
         require(pending.putIfAbsent(request.requestUid,pendingRequest)==null){"LAB_CODEX_DUPLICATE_REQUEST_UID"}
@@ -254,6 +254,9 @@ internal class LabCodexRequestBroker(
         LabAiRequestState.COMPLETED,LabAiRequestState.FAILED,LabAiRequestState.CANCELLED,LabAiRequestState.TIMED_OUT
     )
 }
+
+private fun AiWorkload.isDirectorWorkload():Boolean =
+    this == AiWorkload.DIRECTOR_STRATEGY || this == AiWorkload.MEMORY_ENRICHMENT
 
 /** Name used by the Stage-3 public lab contract; retained alias keeps older tests/source compatible. */
 internal typealias LabCodexStructuredTransport=LabCodexRequestBroker

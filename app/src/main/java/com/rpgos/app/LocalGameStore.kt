@@ -4,6 +4,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.ZipInputStream
 
 /**
@@ -17,6 +18,7 @@ internal class LocalGameStore(private val context: Context) {
     private val worldDir: File get() = File(baseDir, "worldpacks/${selection.activeWorldPackDirName()}")
     private val coreDir = File(baseDir, "core")
     private val worldActorPerceptionRuntime = Phase38WorldActorPerceptionRuntime()
+    private val undoPreviews=ConcurrentHashMap<String,UndoPreview>()
 
     /** The single production initialization owner. No public authoritative writer is ready before this returns. */
     fun bootstrap() {
@@ -69,7 +71,8 @@ internal class LocalGameStore(private val context: Context) {
                     snapshot.schemaVersion==CampaignSnapshotSchema.VERSION&&
                     snapshot.payloadSha256!=null&&File(snapshot.payloadPath).isFile
             }
-            if(!hasPublishedSnapshot)snapshots.create(SnapshotKind.AUTOMATIC)
+            if(!hasPublishedSnapshot)snapshots.create(SnapshotKind.UNDO_BASELINE,pinned=true)
+            ensureUndoBaseline(save,campaignUid,snapshots)
         }
     }
 
@@ -252,13 +255,16 @@ internal class LocalGameStore(private val context: Context) {
     fun worldLocations(search: String = ""): List<WorldLocationItem> { openWorldDb().use { world -> openGameplaySaveDb().use { save -> return WorldReader(world, save).locations(search) } } }
     fun activeWorldEvents(audience:AudienceContext,purpose:PurposeContext): List<WorldEventItem> { requireActiveVisibility(audience,purpose);openWorldDb().use { world -> openGameplaySaveDb().use { save -> return WorldReader(world, save).activeEvents(audience,purpose) } } }
 
-    fun restoreBackup(path: String): String {
-        SemanticCampaignTransitionRegistry.beforeCampaignStorageTransition()
+    fun restoreBackup(path: String): String = SemanticCampaignTransitionRegistry.withCampaignStorageTransition {
         val safety = RestoreManager(context).restoreBackup(selection.activeCampaignDirName(), path)
         val campaignUid=selection.activeCampaignRef().campaignId
-        openSaveDb().use { restored -> prepareCampaignRuntime(restored,campaignUid) }
+        openSaveDb().use { restored ->
+            prepareCampaignRuntime(restored,campaignUid)
+            advanceHistoryGenerationAfterReplacement(restored,campaignUid,"MANUAL_BACKUP_RESTORE")
+        }
+        invalidateSemanticSidecar(campaignUid)
         openGameplaySaveDb().use { GameplayRuntimeBootstrap.requireReady(it, selection.activeCampaignRef().campaignId) }
-        return safety.absolutePath
+        safety.absolutePath
     }
 
     fun techniqueBrowser(search: String = ""): List<TechniqueBrowserItem> { openWorldDb().use { world -> openGameplaySaveDb().use { save -> return TechniqueMissionReader(world, save).techniques(search) } } }
@@ -266,33 +272,32 @@ internal class LocalGameStore(private val context: Context) {
 
     fun setActiveCampaign(dirName: String) {
         val previousCampaign=selection.activeCampaignDirName()
-        if(dirName!=previousCampaign)SemanticCampaignTransitionRegistry.beforeCampaignStorageTransition()
-        selection.setActiveCampaign(dirName)
-        try{
-            val campaignUid=selection.activeCampaignRef().campaignId
-            openSaveDb().use { db -> prepareCampaignRuntime(db,campaignUid) }
-        }catch(t:Throwable){
-            // A failed preparation of an older save must not leave it selected. Otherwise the next
-            // startup would bootstrap the same incomplete campaign and could enter a crash loop.
-            runCatching{selection.setActiveCampaign(previousCampaign)}
-                .onFailure{DiagnosticLogger.log(context,"CAMPAIGN_ACTIVATION_ROLLBACK_FAILED",it)}
-            throw t
+        val activate={
+            selection.setActiveCampaign(dirName)
+            try{
+                val campaignUid=selection.activeCampaignRef().campaignId
+                openSaveDb().use { db -> prepareCampaignRuntime(db,campaignUid) }
+            }catch(t:Throwable){
+                // A failed preparation of an older save must not leave it selected. Otherwise the next
+                // startup would bootstrap the same incomplete campaign and could enter a crash loop.
+                runCatching{selection.setActiveCampaign(previousCampaign)}
+                    .onFailure{DiagnosticLogger.log(context,"CAMPAIGN_ACTIVATION_ROLLBACK_FAILED",it)}
+                throw t
+            }
         }
+        if(dirName!=previousCampaign)SemanticCampaignTransitionRegistry.withCampaignStorageTransition(activate) else activate()
     }
     fun setActiveWorldPack(dirName: String) {
-        if(dirName!=selection.activeWorldPackDirName())SemanticCampaignTransitionRegistry.beforeCampaignStorageTransition()
-        selection.setActiveWorldPack(dirName)
-        val campaignUid=selection.activeCampaignRef().campaignId
-        openSaveDb().use{db->prepareCampaignRuntime(db,campaignUid)}
+        val activate={selection.setActiveWorldPack(dirName);val campaignUid=selection.activeCampaignRef().campaignId;openSaveDb().use{db->prepareCampaignRuntime(db,campaignUid)}}
+        if(dirName!=selection.activeWorldPackDirName())SemanticCampaignTransitionRegistry.withCampaignStorageTransition(activate) else activate()
     }
-    fun createCampaign(name: String): File {
+    fun createCampaign(name: String): File = SemanticCampaignTransitionRegistry.withCampaignStorageTransition {
         val previousCampaign=selection.activeCampaignDirName()
-        SemanticCampaignTransitionRegistry.beforeCampaignStorageTransition()
         val created = selection.createCampaign(name)
         try{
             val campaignUid=selection.activeCampaignRef().campaignId
             openSaveDb().use { db -> prepareCampaignRuntime(db,campaignUid) }
-            return created
+            created
         }catch(t:Throwable){
             // A failed post-clone migration/bootstrap must not leave a broken campaign selected.
             // Restore the previous authority first; the incomplete clone can then be quarantined
@@ -304,7 +309,9 @@ internal class LocalGameStore(private val context: Context) {
             throw t
         }
     }
-    fun moveCampaignToTrash(dirName:String):File = selection.moveCampaignToTrash(dirName)
+    fun moveCampaignToTrash(dirName:String):File = if(dirName==selection.activeCampaignDirName()){
+        SemanticCampaignTransitionRegistry.withCampaignStorageTransition{selection.moveCampaignToTrash(dirName)}
+    }else selection.moveCampaignToTrash(dirName)
     fun activeCampaignDirName(): String = selection.activeCampaignDirName()
     fun activeWorldPackDirName(): String = selection.activeWorldPackDirName()
     fun packageManager(): RpgPackageManager = RpgPackageManager(context)
@@ -314,13 +321,48 @@ internal class LocalGameStore(private val context: Context) {
     fun restoreLatestSnapshot():String {
         return restoreSnapshot(null)
     }
-    fun restoreSnapshot(snapshotUid:String?):String {
-        SemanticCampaignTransitionRegistry.beforeCampaignStorageTransition()
+    fun restoreSnapshot(snapshotUid:String?):String = SemanticCampaignTransitionRegistry.withCampaignStorageTransition {
         val active=File(saveDir,"campaign.db");val db=openGameplaySaveDb();val manager=CampaignSnapshotManager(db,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots"))
         val staged=manager.reconstructToVerifiedStaging(snapshotUid);manager.activateVerifiedStaging(active,staged)
         val campaignUid=selection.activeCampaignRef().campaignId
-        openSaveDb().use{prepareCampaignRuntime(it,campaignUid)}
-        return active.absolutePath
+        openSaveDb().use{restored->
+            prepareCampaignRuntime(restored,campaignUid)
+            advanceHistoryGenerationAfterReplacement(restored,campaignUid,"SNAPSHOT_RESTORE")
+        }
+        invalidateSemanticSidecar(campaignUid)
+        active.absolutePath
+    }
+    fun previewUndoLastTurn():UndoPreview=openGameplaySaveDb().use{db->
+        val campaignUid=selection.activeCampaignRef().campaignId
+        val preview=DestructiveTurnUndoCoordinator(db,campaignUid,File(saveDir,"snapshots"),File(saveDir,"campaign.db")).previewLastTurn()
+        undoPreviews.entries.removeIf{it.value.expiresAtEpochMs<System.currentTimeMillis()}
+        undoPreviews[preview.previewToken]=preview
+        preview
+    }
+    fun confirmUndoLastTurn(previewToken:String):DestructiveUndoResult{
+        val preview=undoPreviews.remove(previewToken)
+            ?:return DestructiveUndoResult.Rejected(UndoAvailabilityReason.STALE_PREVIEW,"RPGOS-UNDO:UNKNOWN_PREVIEW")
+        return SemanticCampaignTransitionRegistry.withCampaignStorageTransition{
+            val db=openGameplaySaveDb()
+            val result=try{
+                val campaignUid=selection.activeCampaignRef().campaignId
+                DestructiveTurnUndoCoordinator(db,campaignUid,File(saveDir,"snapshots"),File(saveDir,"campaign.db")).confirm(preview)
+            }finally{if(db.isOpen)db.close()}
+            if(result is DestructiveUndoResult.Completed){
+                val campaignUid=selection.activeCampaignRef().campaignId
+                invalidateSemanticSidecar(campaignUid)
+                openSaveDb().use{prepareCampaignRuntime(it,campaignUid)}
+            }
+            result
+        }
+    }
+
+    private fun advanceHistoryGenerationAfterReplacement(db:SQLiteDatabase,campaignUid:String,reasonUid:String){
+        withAdministrativeMutationAuthority(db,campaignUid){replaceDerivedMemoryHistory(db,campaignUid,reasonUid)}
+    }
+    private fun invalidateSemanticSidecar(campaignUid:String){
+        runCatching{SemanticSidecarStorage.invalidateCampaign(context,campaignUid)}
+            .onFailure{DiagnosticLogger.log(context,"BEKKO_HISTORY_INVALIDATION_FAILED",it)}
     }
     fun finalizeChapter(chapter: Int, title: String): Pair<String, String> { openGameplaySaveDb().use { save -> val hash = ChapterSaveManager(save).finalizeChapter(chapter, title); CampaignSnapshotManager(save,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots")).create(SnapshotKind.AUTOMATIC);val backup = BackupManager(context).createBackup("chapter_$chapter"); return hash to backup.absolutePath } }
     internal fun applyPatch(patch: StatePatch): PatchResult { openGameplaySaveDb().use { save -> openCoreDb().use { core -> return StatePatchEngine(save, SourceOfTruthRegistry(core)).apply(patch) } } }
@@ -404,6 +446,26 @@ internal class LocalGameStore(private val context: Context) {
                 DiagnosticLogger.log(context,"CAMPAIGN_TIME_READ_FAILED",failure)
                 null
             }?:TimeSnapshot()
+        }
+    }
+
+    private fun ensureUndoBaseline(db:SQLiteDatabase,campaignUid:String,manager:CampaignSnapshotManager){
+        val currentOrder=TurnTransactionReceiptStore(db).lastValidCommit(campaignUid)?.commitOrder?:0L
+        val latest=manager.list().filter{it.kind==SnapshotKind.UNDO_BASELINE&&it.state==SnapshotPublicationState.VALID}
+            .maxByOrNull{it.anchorCommitOrder}
+        val replayBytes=db.rawQuery(
+            "SELECT COALESCE(SUM(LENGTH(player_change_set_json)+LENGTH(causal_plan_json)),0) FROM ${CampaignSnapshotSchema.REPLAY} WHERE campaign_uid=? AND commit_order>?",
+            arrayOf(campaignUid,(latest?.anchorCommitOrder?:0L).toString())
+        ).use{c->c.moveToFirst();c.getLong(0)}
+        if(latest==null||currentOrder-latest.anchorCommitOrder>=25L||replayBytes>=32L*1024L*1024L){
+            manager.create(SnapshotKind.UNDO_BASELINE,pinned=true)
+            manager.pruneUndoBaselines()
+        }
+    }
+    internal fun ensureUndoCheckpointAfterCommit(){
+        openGameplaySaveDb().use{db->
+            val campaignUid=selection.activeCampaignRef().campaignId
+            ensureUndoBaseline(db,campaignUid,CampaignSnapshotManager(db,campaignUid,File(saveDir,"snapshots")))
         }
     }
     private fun ensureUniversalInventoryDefinition(saveDb:SQLiteDatabase,campaignUid:String){

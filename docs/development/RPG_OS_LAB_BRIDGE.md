@@ -165,12 +165,12 @@ Odpowiedź:
 | Rodzaj | Komendy |
 |---|---|
 | Production path | `SUBMIT_PLAYER_ACTION`, `RUN_ACTION_SEQUENCE`, `RUN_COMBAT_SCENARIO`, `SUBMIT_CHARACTER_CREATION`, `CONFIRM_CHARACTER_CREATION`, `RECOVER_PENDING_NARRATION` |
-| Stan bazowy | `HEALTH`, `GET_CAPABILITIES`, `LIST_CAMPAIGNS`, `GET_ACTIVE_STATE`, `GET_CHARACTER_STATE`, `GET_MECHANICAL_STATE`, `GET_CONTEXT_BUNDLE`, `GET_TURN_STATE` |
+| Stan bazowy | `HEALTH`, `GET_CAPABILITIES`, `LIST_CAMPAIGNS`, `GET_ACTIVE_STATE`, `GET_CHARACTER_STATE`, `GET_MECHANICAL_STATE`, `GET_CONTEXT_BUNDLE`, `GET_TURN_STATE`, `PREVIEW_UNDO_LAST_TURN` |
 | Commit/pipeline | `GET_PIPELINE_SNAPSHOT`, `GET_LAST_COMMIT`, `GET_CANONICAL_FINGERPRINT`, `GET_COMMIT_STATE`, `GET_RECOVERY_STATE` |
 | AI/runtime | `GET_AI_STATE`, `GET_RUNTIME_STATE`, `GET_AI_TRACE`, `GET_LAST_AI_EXCHANGE`, `GET_LAST_TURN`, `GET_LAST_SCENARIO`, `GET_LAST_FAILURE` |
 | Bekko/Director | `SEARCH_BEKKO`, `GET_DIRECTOR_STATE`, `GET_DIRECTOR_JOBS`, `GET_DIRECTOR_CANDIDATES`, `GET_DIRECTOR_GUIDANCE` |
 | Diagnostyka/fixtures | `EXPORT_FAILURE_BUNDLE`, `EXPORT_LAB_FIXTURE`, `GET_PENDING_CHARACTER_DRAFT` |
-| Administracja lab | `SET_ACTIVE_CAMPAIGN`, `CREATE_CAMPAIGN`, `LOAD_LAB_FIXTURE`, `IMPORT_LOCAL_GGUF`, `SELECT_LOCAL_AI`, `CLEAR_AI_TRACE`, `CANCEL_ACTIVE_OPERATION`, `OPEN_LAB_DIAGNOSTICS` |
+| Administracja lab | `SET_ACTIVE_CAMPAIGN`, `CREATE_CAMPAIGN`, `LOAD_LAB_FIXTURE`, `IMPORT_LOCAL_GGUF`, `SELECT_LOCAL_AI`, `SET_BEKKO_SETTINGS`, `CLEAR_AI_TRACE`, `CANCEL_ACTIVE_OPERATION`, `PREVIEW_UNDO_LAST_TURN`, `CONFIRM_UNDO_LAST_TURN`, `OPEN_LAB_DIAGNOSTICS` |
 | Host Codexa | `REGISTER_CODEX_HOST`, `CODEX_HOST_HEARTBEAT`, `CLAIM_AI_REQUEST`, `COMPLETE_AI_REQUEST`, `FAIL_AI_REQUEST`, `CANCEL_AI_REQUEST`, `GET_CODEX_PROVIDER_STATE`, `SET_LAB_AI_ASSIGNMENTS` |
 | Director Etapu 3 | `RUN_DIRECTOR_NOW`, `CLEAR_DIRECTOR_SIDECAR` oraz odczyty Directora wymienione wyżej |
 
@@ -262,6 +262,15 @@ Długie testy wytrzymałościowe mogą uruchomić host z `-ExecutionProfile STRE
 ```
 
 To jest audience-scoped retrieval. Wynik Bekko jest rankingiem kandydatów, nigdy canonical FACT ani samodzielnym skutkiem tury.
+
+Do laboratoryjnego A/B można przełączać Bekko bez zmiany modelu generatywnego:
+
+```powershell
+.\tools\rpgos-lab.ps1 SET_BEKKO_SETTINGS '{"enabled":false}' -Serial $serial
+.\tools\rpgos-lab.ps1 SET_BEKKO_SETTINGS '{"enabled":true,"backend":"CPU"}' -Serial $serial
+```
+
+Komenda jest dostępna tylko w `labDebug`. Nie omija ustawień produkcyjnych: wywołuje ten sam `BekkoSemanticApplication.updateSettings`, zamyka poprzedni runtime i uruchamia zwykły catch-up po ponownym włączeniu.
 
 ### 8.5 Automatyczny Codex MG + Director
 

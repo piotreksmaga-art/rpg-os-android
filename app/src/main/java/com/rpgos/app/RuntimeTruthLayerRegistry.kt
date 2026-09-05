@@ -72,6 +72,7 @@ object RuntimeTruthLayerRegistry {
         RuntimeStateFamily("CHAPTER_MANIFESTS_SUMMARIES",setOf(RuntimeTruthLayer.PRESENTATION,RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY),setOf("chapter_manifests_v2")),
         f("REBUILDABLE_INDEXES_MATERIALIZATIONS",RuntimeTruthLayer.CACHE,"narrative_memory_index"),
         RuntimeStateFamily("SEMANTIC_SIDECAR_CACHE",setOf(RuntimeTruthLayer.CACHE,RuntimeTruthLayer.OPERATIONAL_INFRASTRUCTURE)),
+        RuntimeStateFamily("MEMORY_DERIVED_STATE",setOf(RuntimeTruthLayer.DERIVED,RuntimeTruthLayer.OPERATIONAL_INFRASTRUCTURE),Phase55To58MemorySchema.tables),
         f("UI_STATE",RuntimeTruthLayer.PRESENTATION,"campaign_visual_library"),
         f("BACKUP_PACKAGES",RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY),
         f("SCHEMA_MIGRATION_REPAIR",RuntimeTruthLayer.ADMINISTRATIVE_MIGRATION_RECOVERY,"rpgos_schema_migrations"),

@@ -69,6 +69,12 @@ android {
             matchingFallbacks += listOf("debug")
             versionNameSuffix = "-lab"
             isDebuggable = true
+            // Device acceptance can coexist with a differently signed lab APK already
+            // installed on a developer phone. The suffix is opt-in and never affects
+            // normal debug, labDebug, release, or the public update identity.
+            if (providers.gradleProperty("rpgosDeviceAcceptance").orNull == "true") {
+                applicationIdSuffix = ".acceptance"
+            }
         }
         getByName("release") {
             isMinifyEnabled = false

@@ -5,6 +5,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CharacterCreationLocalBudgetTest {
+    @Test fun execuTorchStreamingTokenizerKeepsMetaspaceWordBoundaries(){
+        val source="""{"version":"1.0","decoder":{"type":"Sequence","decoders":[{"type":"Replace","pattern":{"String":"▁"},"content":" "},{"type":"ByteFallback"},{"type":"Fuse"},{"type":"Strip","content":" ","start":1,"stop":0}]},"model":{"type":"BPE"}}"""
+
+        val adjusted=requireNotNull(ExecuTorchInferenceService.normalizeStreamingTokenizerJson(source))
+        val decoders=org.json.JSONObject(adjusted).getJSONObject("decoder").getJSONArray("decoders")
+
+        assertEquals(3,decoders.length())
+        assertEquals("Replace",decoders.getJSONObject(0).getString("type"))
+        assertEquals("Fuse",decoders.getJSONObject(2).getString("type"))
+        assertTrue((0 until decoders.length()).none{decoders.getJSONObject(it).optString("type")=="Strip"})
+    }
+
+    @Test fun unrelatedTokenizerDecoderIsNotRewritten(){
+        assertEquals(null,ExecuTorchInferenceService.normalizeStreamingTokenizerJson(
+            """{"decoder":{"type":"ByteLevel"},"model":{"type":"BPE"}}"""
+        ))
+    }
+
     @Test fun execuTorchCharacterOutputStopsAtFirstCompleteJsonObject(){
         val expected="""{"s":"Q","q":"Jaki styl walki wybierasz?","m":["styl"]}"""
         val raw="wstęp $expected<|im_end|> nieużywany ogon"
@@ -296,6 +314,56 @@ class CharacterCreationLocalBudgetTest {
         assertEquals("NARUTO",first.draft.identityChoices["ERA"])
         assertTrue(first.draft.skills.single().value<99.0)
         assertTrue(first.draft.techniques.single().value<99.0)
+    }
+
+    @Test fun academyRandomPrefersWorldPackAcademyTechniqueOverLegendaryCatalogEntries(){
+        val catalog=CharacterCreationCatalog("C",listOf(
+            option(CharacterCreationDefinitionKind.STAT,"STAT-POWER","Power"),
+            option(CharacterCreationDefinitionKind.RESOURCE,"RES-HEALTH","Health"),
+            option(CharacterCreationDefinitionKind.TALENT,"TAL-PHYSICAL","Physical"),
+            option(CharacterCreationDefinitionKind.POTENTIAL,"TAL-PHYSICAL","Physical potential","MAXIMUM"),
+            option(CharacterCreationDefinitionKind.SKILL,"SK-NIN","Ninjutsu"),
+            option(CharacterCreationDefinitionKind.TECHNIQUE,"CTECH-AMATERASU","Amaterasu"),
+            option(CharacterCreationDefinitionKind.TECHNIQUE,"CTECH-KAMUI","Kamui"),
+            option(CharacterCreationDefinitionKind.TECHNIQUE,"CTECH-ACADEMY-CLONE","Academy Clone Technique"),
+            option(CharacterCreationDefinitionKind.ORIGIN,"VIL-KONOHA","Konohagakure"),
+            option(CharacterCreationDefinitionKind.STARTING_LOCATION,"VIL-KONOHA","Konohagakure")
+        ))
+        val request=AiCharacterCreationRequest("REQ","C",catalog,listOf(
+            CharacterCreationConversationEntry(CharacterCreationConversationRole.PLAYER,
+                "Jestem Smagi, uczniem Akademii w Konoha. Wylosuj kompletną postać.")
+        ),authorityCatalog=catalog)
+
+        val result=CanonicalAiJsonCodec().decodeCharacterCreation(
+            """{"state":"NEEDS_PLAYER_CHOICE","question":"?","missing_category_uids":["TECHNIQUE"]}""",request
+        ) as CharacterCreationGmCandidate.ReadyForConfirmation
+
+        assertEquals("CTECH-ACADEMY-CLONE",result.draft.techniques.single().definitionUid)
+    }
+
+    @Test fun explicitRemoveKekkeiEditActuallyClearsDraftAndSaysSo(){
+        val catalog=CharacterCreationCatalog("C",listOf(
+            option(CharacterCreationDefinitionKind.STAT,"STAT-POWER","Power"),
+            option(CharacterCreationDefinitionKind.RESOURCE,"RES-HEALTH","Health"),
+            option(CharacterCreationDefinitionKind.TALENT,"TAL-PHYSICAL","Physical"),
+            option(CharacterCreationDefinitionKind.POTENTIAL,"TAL-PHYSICAL","Physical potential","MAXIMUM"),
+            option(CharacterCreationDefinitionKind.SKILL,"SK-NIN","Ninjutsu"),
+            option(CharacterCreationDefinitionKind.TECHNIQUE,"CTECH-ACADEMY-CLONE","Academy Clone Technique"),
+            option(CharacterCreationDefinitionKind.INNATE_FEATURE,"KG-BYAKUGAN","Byakugan"),
+            option(CharacterCreationDefinitionKind.STARTING_LOCATION,"VIL-KONOHA","Konohagakure")
+        ))
+        val draft=PlayerCharacterCreationDraft(
+            "CREATION","C","PLAYER","Smagi","MALE",stats=listOf(CharacterCreationValueChoice("STAT-POWER",10.0)),
+            resources=listOf(CharacterCreationValueChoice("RES-HEALTH",100.0)),talents=listOf(CharacterCreationValueChoice("TAL-PHYSICAL",1.0)),
+            potentials=listOf(CharacterCreationValueChoice("TAL-PHYSICAL",50.0,"MAXIMUM")),skills=listOf(CharacterCreationValueChoice("SK-NIN",10.0)),
+            techniques=listOf(CharacterCreationValueChoice("CTECH-ACADEMY-CLONE",10.0)),innateFeatureUids=listOf("KG-BYAKUGAN"),
+            startingLocationUid="VIL-KONOHA"
+        )
+
+        val edited=requireNotNull(draft.applyExplicitLegalEdit("Usuń Kekkei Genkai.",catalog))
+
+        assertTrue(edited.innateFeatureUids.isEmpty())
+        assertTrue(edited.playerFacingEditSummary(catalog).contains("bez cech wrodzonych"))
     }
 
     private fun option(kind:CharacterCreationDefinitionKind,uid:String,name:String,dimension:String?=null)=

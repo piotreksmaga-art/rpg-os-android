@@ -3,6 +3,8 @@ package com.rpgos.app
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import java.io.File
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.math.roundToLong
 
 internal data class InfrastructureMechanicalPersistence(
@@ -17,11 +19,39 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     private val store = LocalGameStore(this.context)
     private val selection = CampaignSelectionManager(this.context)
     private val visibility = VisibilityAuthorityService()
+    private val memoryExecutor=Executors.newSingleThreadExecutor{task->Thread(task,"rpgos-memory-consolidation").apply{isDaemon=true}}
+    @Volatile private var memoryEnrichmentPort:MemoryEnrichmentPort?=null
+    @Volatile private var memoryConsolidationListener:(()->Unit)?=null
+    @Volatile private var semanticScopeChangeListener:(()->Unit)?=null
 
-    override fun bootstrap() = store.bootstrap()
+    internal fun closeBackgroundWork(){memoryExecutor.shutdownNow()}
+    internal fun closeBackgroundWorkForTest(){
+        closeBackgroundWork()
+        memoryExecutor.awaitTermination(5,TimeUnit.SECONDS)
+    }
+
+    internal fun configureMemoryEnrichment(port:MemoryEnrichmentPort?){
+        memoryEnrichmentPort=port
+    }
+
+    internal fun configureMemoryConsolidationListener(listener:(()->Unit)?){
+        memoryConsolidationListener=listener
+    }
+
+    internal fun configureSemanticScopeChangeListener(listener:(()->Unit)?){
+        semanticScopeChangeListener=listener
+    }
+
+    override fun bootstrap(){store.bootstrap();scheduleMemoryCatchUp()}
     override fun activeCampaignRef(): ActiveCampaignRef = selection.activeCampaignRef()
     override fun activePlayerRef(): ActivePlayerRef? = store.activePlayerRef()
-    override fun setActivePlayer(playerUid: String): ActivePlayerRef = store.setActivePlayer(playerUid)
+    override fun setActivePlayer(playerUid: String): ActivePlayerRef {
+        val previous=store.activePlayerRef()?.playerUid
+        return store.setActivePlayer(playerUid).also{
+            if(previous!=playerUid)runCatching{semanticScopeChangeListener?.invoke()}
+                .onFailure{DiagnosticLogger.log(context,"PHASE59_ACTIVE_PLAYER_REINDEX_SIGNAL_FAILED",it)}
+        }
+    }
     fun characterCreationCatalog():CharacterCreationCatalog=store.characterCreationCatalog()
     fun createPlayerCharacter(draft:PlayerCharacterCreationDraft,confirmation:PlayerCharacterCreationConfirmation):PlayerCharacterBootstrapReceipt=
         store.createPlayerCharacter(draft,confirmation)
@@ -67,6 +97,151 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         openGameplaySaveDb().use{db->CommittedReplayPayloadStore(db).after(activeCampaignRef().campaignId,(committedOrder-1).coerceAtLeast(0)).singleOrNull{it.identity.transactionUid==transactionUid}}
     internal fun infrastructureReplayPayloadsAfter(committedOrder:Long):List<CommittedReplayPayload> =
         openGameplaySaveDb().use{db->CommittedReplayPayloadStore(db).after(activeCampaignRef().campaignId,committedOrder.coerceAtLeast(0))}
+    internal fun infrastructureReplayPayloadsAfterLimited(committedOrder:Long,maximumTransactions:Int):List<CommittedReplayPayload> =
+        openGameplaySaveDb().use{db->CommittedReplayPayloadStore(db).afterLimited(activeCampaignRef().campaignId,committedOrder.coerceAtLeast(0),maximumTransactions)}
+    internal fun infrastructureReplayTailAfterLimited(committedOrder:Long,maximumTransactions:Int):List<CommittedReplayPayload> =
+        openGameplaySaveDb().use{db->CommittedReplayPayloadStore(db).tailAfterLimited(activeCampaignRef().campaignId,committedOrder.coerceAtLeast(0),maximumTransactions)}
+    internal fun infrastructureReplayPayloadsAtOrders(committedOrders:Set<Long>):List<CommittedReplayPayload> =
+        openGameplaySaveDb().use{db->CommittedReplayPayloadStore(db).atOrders(activeCampaignRef().campaignId,committedOrders)}
+    internal fun infrastructureCanonicalWorldElementsAt(
+        subjectUids:Set<String>,asOfOrder:Long
+    ):List<CanonicalWorldElementSemanticState> = openGameplaySaveDb().use{db->
+        require(asOfOrder>=0&&subjectUids.size in 1..200&&subjectUids.none{it.isBlank()})
+        val campaign=activeCampaignRef().campaignId
+        val ordered=subjectUids.sorted();val placeholders=ordered.joinToString(","){"?"}
+        val latestChangeBySubject=db.rawQuery("""SELECT b.subject_uid,
+                MAX(CASE WHEN COALESCE(sr.commit_order,0)<=?
+                    THEN MAX(COALESCE(br.commit_order,0),COALESCE(sr.commit_order,0))
+                    ELSE COALESCE(br.commit_order,0) END)
+            FROM campaign_truth_records b
+            LEFT JOIN ${CampaignSnapshotSchema.REPLAY} br ON br.campaign_uid=b.campaign_id AND br.turn_uid=b.created_turn
+            LEFT JOIN campaign_truth_records s ON s.campaign_id=b.campaign_id AND s.supersedes_truth_uid=b.truth_uid
+            LEFT JOIN ${CampaignSnapshotSchema.REPLAY} sr ON sr.campaign_uid=s.campaign_id AND sr.turn_uid=s.created_turn
+            WHERE b.campaign_id=? AND b.subject_uid IN ($placeholders)
+              AND b.predicate LIKE 'RPGOS-WORLD:%' AND COALESCE(br.commit_order,0)<=?
+            GROUP BY b.subject_uid""",
+            (listOf(asOfOrder.toString(),campaign)+ordered+listOf(asOfOrder.toString())).toTypedArray()
+        ).use{cursor->buildMap{while(cursor.moveToNext())put(cursor.getString(0),cursor.getLong(1))}}
+        val args=(listOf(campaign)+ordered+listOf(asOfOrder.toString(),campaign,asOfOrder.toString())).toTypedArray()
+        data class Fact(val truthUid:String,val subjectUid:String,val predicate:String,val value:String?,val order:Long,val createdAt:Long)
+        val facts=db.rawQuery("""SELECT t.truth_uid,t.subject_uid,t.predicate,t.object_value,
+                COALESCE(r.commit_order,0),t.created_at
+            FROM campaign_truth_records t
+            LEFT JOIN ${CampaignSnapshotSchema.REPLAY} r ON r.campaign_uid=t.campaign_id AND r.turn_uid=t.created_turn
+            WHERE t.campaign_id=? AND t.subject_uid IN ($placeholders) AND t.truth_kind='FACT'
+              AND t.predicate LIKE 'RPGOS-WORLD:%' AND COALESCE(r.commit_order,0)<=?
+              AND NOT EXISTS(
+                SELECT 1 FROM campaign_truth_records s
+                LEFT JOIN ${CampaignSnapshotSchema.REPLAY} sr ON sr.campaign_uid=s.campaign_id AND sr.turn_uid=s.created_turn
+                WHERE s.campaign_id=? AND s.supersedes_truth_uid=t.truth_uid AND COALESCE(sr.commit_order,0)<=?
+              )
+            ORDER BY t.subject_uid,t.predicate,COALESCE(r.commit_order,0),t.created_at,t.truth_uid""",args
+        ).use{cursor->buildList{while(cursor.moveToNext())add(Fact(
+            cursor.getString(0),cursor.getString(1),cursor.getString(2),
+            if(cursor.isNull(3))null else cursor.getString(3),cursor.getLong(4),cursor.getLong(5)
+        ))}}
+        facts.filter{it.predicate in CampaignWorldFacts.ALL}.groupBy{it.subjectUid}.mapNotNull{(subject,group)->
+            fun latest(predicate:String)=group.filter{it.predicate==predicate}
+                .maxWithOrNull(compareBy<Fact>{it.order}.thenBy{it.createdAt}.thenBy{it.truthUid})?.value
+            val presentation=linkedMapOf<String,String>()
+            listOf(
+                CampaignWorldFacts.KIND,CampaignWorldFacts.NAME,CampaignWorldFacts.CATEGORY,
+                CampaignWorldFacts.PARENT,CampaignWorldFacts.TOPOLOGY,CampaignWorldFacts.AUDIENCE_SCOPE
+            ).forEach{predicate->latest(predicate)?.takeIf(String::isNotBlank)?.let{presentation[predicate]=it}}
+            val affordances=group.filter{it.predicate==CampaignWorldFacts.AFFORDANCE}
+                .mapNotNull{it.value?.takeIf(String::isNotBlank)}.distinct().sorted()
+            if(affordances.isNotEmpty())presentation[CampaignWorldFacts.AFFORDANCE]=affordances.joinToString(",")
+            if(presentation.isEmpty())null else CanonicalWorldElementSemanticState(
+                campaign,subject,presentation,latestChangeBySubject[subject]?:group.maxOf{it.order}
+            )
+        }.sortedBy{it.subjectUid}
+    }
+    internal fun infrastructureWorldTruthSubjects(truthUids:Set<String>):Map<String,String> = openGameplaySaveDb().use{db->
+        if(truthUids.isEmpty())return@use emptyMap()
+        require(truthUids.size<=200&&truthUids.none{it.isBlank()})
+        val ordered=truthUids.sorted();val placeholders=ordered.joinToString(","){"?"}
+        val args=(listOf(activeCampaignRef().campaignId)+ordered).toTypedArray()
+        db.rawQuery("""SELECT truth_uid,subject_uid FROM campaign_truth_records
+            WHERE campaign_id=? AND truth_uid IN ($placeholders) AND subject_uid IS NOT NULL
+              AND predicate LIKE 'RPGOS-WORLD:%'""",args
+        ).use{cursor->buildMap{while(cursor.moveToNext())put(cursor.getString(0),cursor.getString(1))}}
+    }
+    internal fun infrastructureCanonicalWorldEpistemicAssertionsAt(
+        truthUids:Set<String>,asOfOrder:Long
+    ):List<CanonicalWorldEpistemicSemanticState> = openGameplaySaveDb().use{db->
+        require(asOfOrder>=0&&truthUids.size in 1..200&&truthUids.none{it.isBlank()})
+        val campaign=activeCampaignRef().campaignId;val ordered=truthUids.sorted()
+        val placeholders=ordered.joinToString(","){"?"}
+        val args=(listOf(campaign)+ordered+listOf(asOfOrder.toString(),campaign,asOfOrder.toString())).toTypedArray()
+        db.rawQuery("""SELECT t.truth_uid,t.truth_kind,t.subject_uid,t.predicate,t.object_value,
+                t.perspective_uid,t.narrative_text,COALESCE(r.commit_order,0)
+            FROM campaign_truth_records t
+            LEFT JOIN ${CampaignSnapshotSchema.REPLAY} r ON r.campaign_uid=t.campaign_id AND r.turn_uid=t.created_turn
+            WHERE t.campaign_id=? AND t.truth_uid IN ($placeholders) AND t.truth_kind!='FACT'
+              AND t.predicate LIKE 'RPGOS-WORLD:%' AND COALESCE(r.commit_order,0)<=?
+              AND NOT EXISTS(
+                SELECT 1 FROM campaign_truth_records s
+                LEFT JOIN ${CampaignSnapshotSchema.REPLAY} sr ON sr.campaign_uid=s.campaign_id AND sr.turn_uid=s.created_turn
+                WHERE s.campaign_id=? AND s.supersedes_truth_uid=t.truth_uid AND COALESCE(sr.commit_order,0)<=?
+              ) ORDER BY t.truth_uid""",args
+        ).use{cursor->buildList{while(cursor.moveToNext())add(CanonicalWorldEpistemicSemanticState(
+            campaignUid=campaign,truthUid=cursor.getString(0),epistemicKind=TruthKind.valueOf(cursor.getString(1)),
+            subjectUid=if(cursor.isNull(2))null else cursor.getString(2),predicate=cursor.getString(3),
+            objectValue=if(cursor.isNull(4))null else cursor.getString(4),
+            perspectiveUid=if(cursor.isNull(5))null else cursor.getString(5),
+            narrativeText=if(cursor.isNull(6))null else cursor.getString(6),sourceAsOfOrder=cursor.getLong(7)
+        ))}}
+    }
+    internal fun infrastructureHistoryGenerationUid():HistoryGenerationUid = openGameplaySaveDb().use{db->
+        HistoryGenerationStore(db,activeCampaignRef().campaignId).current()
+    }
+    internal fun infrastructureActiveMemoryArtifacts(
+        asOfOrder:Long=Long.MAX_VALUE,
+        revisionUids:Set<String> = emptySet()
+    ):List<ActiveMemoryArtifactRevision> = openGameplaySaveDb().use{db->
+        require(asOfOrder>=0)
+        val campaign=activeCampaignRef().campaignId
+        val generation=HistoryGenerationStore(db,campaign).current()
+        if(revisionUids.isNotEmpty())return@use MemoryArtifactStore(db).activeCleanRevisionsByUid(
+            campaign,generation,revisionUids,asOfOrder
+        )
+        db.rawQuery("""SELECT logical_artifact_uid,artifact_revision_uid,artifact_kind_uid,
+            source_leaf_set_fingerprint,derivation_version,as_of_committed_order,payload_json
+            FROM ${Phase55To58MemorySchema.ARTIFACTS}
+            WHERE campaign_uid=? AND history_generation_uid=? AND status_uid=? AND as_of_committed_order<=?
+            ORDER BY as_of_committed_order,artifact_revision_uid""",arrayOf(
+            campaign,generation.value,MemoryArtifactStatus.CLEAN.name,asOfOrder.toString()
+        )).use{cursor->buildList{
+            while(cursor.moveToNext()){
+                val revision=cursor.getString(1)
+                add(ActiveMemoryArtifactRevision(
+                    campaign,generation,cursor.getString(0),revision,
+                    MemoryArtifactKind.valueOf(cursor.getString(2)),cursor.getString(3),cursor.getLong(4),
+                    cursor.getLong(5),cursor.getString(6)
+                ))
+            }
+        }}
+    }
+    internal fun infrastructureActiveMemoryArtifactsPage(
+        afterAsOfOrder:Long,afterRevisionUid:String,limit:Int,asOfOrder:Long=Long.MAX_VALUE
+    ):List<ActiveMemoryArtifactRevision> = openGameplaySaveDb().use{db->
+        require(afterAsOfOrder>=-1&&limit in 1..256&&asOfOrder>=0)
+        val campaign=activeCampaignRef().campaignId
+        val generation=HistoryGenerationStore(db,campaign).current()
+        db.rawQuery("""SELECT logical_artifact_uid,artifact_revision_uid,artifact_kind_uid,
+            source_leaf_set_fingerprint,derivation_version,as_of_committed_order,payload_json
+            FROM ${Phase55To58MemorySchema.ARTIFACTS}
+            WHERE campaign_uid=? AND history_generation_uid=? AND status_uid=? AND as_of_committed_order<=?
+              AND (as_of_committed_order>? OR (as_of_committed_order=? AND artifact_revision_uid>?))
+            ORDER BY as_of_committed_order,artifact_revision_uid LIMIT ?""",arrayOf(
+            campaign,generation.value,MemoryArtifactStatus.CLEAN.name,asOfOrder.toString(),
+            afterAsOfOrder.toString(),afterAsOfOrder.toString(),afterRevisionUid,limit.toString()
+        )).use{cursor->buildList{while(cursor.moveToNext())add(ActiveMemoryArtifactRevision(
+            campaign,generation,cursor.getString(0),cursor.getString(1),
+            MemoryArtifactKind.valueOf(cursor.getString(2)),cursor.getString(3),cursor.getLong(4),
+            cursor.getLong(5),cursor.getString(6)
+        ))}}
+    }
     internal fun infrastructureWorldPackAuthority():CurrentWorldPackAuthority = CampaignSelectionManager(context).currentWorldPackAuthority()
     internal fun infrastructureMechanicalPersistence(entityUid:String):InfrastructureMechanicalPersistence = openGameplaySaveDb().use{db->
         val effects=mutableListOf<Pair<String,Long>>();var version=0L
@@ -147,8 +322,54 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         identity: TurnTransactionIdentity,
         proposal: CanonicalCampaignMutationProposal,
         failureInjector: TurnFailureInjector
-    ): TurnExecutionResult<TurnCommitAppliedResult> = openGameplaySaveDb().use { db ->
-        TurnTransactionBoundary.create(db, identity, proposal, failureInjector).commit()
+    ): TurnExecutionResult<TurnCommitAppliedResult> {
+        val result=openGameplaySaveDb().use { db ->TurnTransactionBoundary.create(db, identity, proposal, failureInjector).commit()}
+        runCatching{store.ensureUndoCheckpointAfterCommit()}
+            .onFailure{DiagnosticLogger.log(context,"UNDO_BASELINE_CHECKPOINT_FAILED",it)}
+        scheduleMemoryConsolidation(identity.campaignUid)
+        return result
+    }
+
+    private fun scheduleMemoryConsolidation(campaignUid:String)=scheduleMemoryCatchUp(campaignUid,"PHASE58_POST_COMMIT_FAILED")
+
+    private fun scheduleMemoryCatchUp(
+        campaignUid:String=activeCampaignRef().campaignId,
+        failureCode:String="PHASE58_OPEN_CATCHUP_FAILED"
+    ){
+        memoryExecutor.execute{
+            // Storage replacement (restore, campaign switch, destructive undo) owns the same
+            // process-wide gate. It therefore waits for the bounded <=500ms consolidation slice
+            // and prevents queued workers from opening an obsolete campaign.db/WAL handle.
+            SemanticCampaignTransitionRegistry.withSemanticRuntimeAccess{
+                var continueCatchUp=false
+                var consolidationCommitted=false
+                runCatching{
+                    if(activeCampaignRef().campaignId!=campaignUid)return@runCatching
+                    openGameplaySaveDb().use{db->
+                        val generationAtOpen=HistoryGenerationStore(db,campaignUid).current()
+                        val pending=CanonicalMemoryLeafProjection.pending(db,campaignUid,256)
+                        if(pending.isEmpty()&&!CanonicalMemoryLeafProjection.hasPendingResume(db,campaignUid))return@use
+                        val receipt=Phase58MemoryConsolidation(
+                            db=db,campaignUid=campaignUid,enrichmentPort=memoryEnrichmentPort
+                        ).open(pending,"pl-PL")
+                        check(HistoryGenerationStore(db,campaignUid).current()==generationAtOpen){
+                            "RPGOS-MEMORY:HISTORY_GENERATION_CHANGED_DURING_CONSOLIDATION"
+                        }
+                        if(receipt.status==ConsolidationStatus.COMMITTED){
+                            consolidationCommitted=true
+                            continueCatchUp=receipt.resumeCursor!=null||CanonicalMemoryLeafProjection.pending(db,campaignUid,1).isNotEmpty()
+                        }
+                    }
+                }.onFailure{DiagnosticLogger.log(context,failureCode,it)}
+                if(consolidationCommitted&&activeCampaignRef().campaignId==campaignUid){
+                    runCatching{memoryConsolidationListener?.invoke()}
+                        .onFailure{DiagnosticLogger.log(context,"PHASE59_MEMORY_INDEX_SIGNAL_FAILED",it)}
+                }
+                if(continueCatchUp&&activeCampaignRef().campaignId==campaignUid){
+                    scheduleMemoryCatchUp(campaignUid,failureCode)
+                }
+            }
+        }
     }
 
     override fun buildContext(playerInput: String, chapter: Int, audience: AudienceContext, purpose: PurposeContext): ContextBundle =
@@ -243,6 +464,8 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun createSnapshot(kind: SnapshotKind, pinned: Boolean): CampaignSnapshotDescriptor = store.createSnapshot(kind, pinned)
     override fun snapshots(): List<CampaignSnapshotDescriptor> = store.snapshots()
     override fun restoreLatestSnapshot(): String = store.restoreLatestSnapshot()
+    override fun previewUndoLastTurn():UndoPreview=store.previewUndoLastTurn()
+    override fun confirmUndoLastTurn(previewToken:String):DestructiveUndoResult=store.confirmUndoLastTurn(previewToken)
     override fun finalizeChapter(chapter: Int, title: String): Pair<String, String> = store.finalizeChapter(chapter, title)
 }
 

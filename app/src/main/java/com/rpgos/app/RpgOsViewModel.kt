@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicBoolean
 
 data class CampaignCreationUiState(
@@ -33,7 +35,8 @@ data class PackageTransferUiState(
 data class SaveRecoveryUiState(
     val inProgress:Boolean=false,
     val notice:String?=null,
-    val errorMessage:String?=null
+    val errorMessage:String?=null,
+    val undoPreview:UndoPreview?=null
 )
 
 data class AppStartupUiState(
@@ -53,6 +56,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     private val store = LocalGameStore(app)
     private val repository = UnifiedGameRepository(app)
     private val semanticApplication=BekkoSemanticApplication(app,repository)
+    private val bekkoLifecycleMutex=Mutex()
     private val appSettings = AppSettings(app)
     private val providerCenterApplication=AndroidAiProviderCenterApplication(app)
     private fun playerAudience() = VisibilityAudienceFactory.player(store.activeCampaignId())
@@ -499,22 +503,40 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun updateBekkoEnabled(enabled:Boolean){
-        semanticApplication.updateSettings(semanticApplication.settings().copy(enabled=enabled))
-        _bekkoSemantic.value=semanticApplication.state().copy(notice=if(enabled)"Pamięć semantyczna została włączona." else "Pamięć semantyczna została wyłączona.")
+        _bekkoSemantic.value=_bekkoSemantic.value.copy(notice="Aktualizowanie pamięci semantycznej…",errorMessage=null)
+        viewModelScope.launch{
+            runCatching{withContext(Dispatchers.IO){bekkoLifecycleMutex.withLock{
+                semanticApplication.updateSettings{it.copy(enabled=enabled)}
+            }}}.onSuccess{
+                _bekkoSemantic.value=semanticApplication.state().copy(notice=if(enabled)"Pamięć semantyczna została włączona." else "Pamięć semantyczna została wyłączona.")
+            }.onFailure{
+                DiagnosticLogger.log(getApplication(),"BEKKO_SETTINGS_UPDATE_FAILED",it)
+                _bekkoSemantic.value=semanticApplication.state().copy(errorMessage=it.message?:"BEKKO_SETTINGS_UPDATE_FAILED")
+            }
+        }
     }
 
     fun updateBekkoBackend(backend:EmbeddingBackend){
-        semanticApplication.updateSettings(semanticApplication.settings().copy(backend=backend))
-        _bekkoSemantic.value=semanticApplication.state().copy(notice="Backend Bekko: ${backend.name}")
+        _bekkoSemantic.value=_bekkoSemantic.value.copy(notice="Przełączanie backendu Bekko…",errorMessage=null)
+        viewModelScope.launch{
+            runCatching{withContext(Dispatchers.IO){bekkoLifecycleMutex.withLock{
+                semanticApplication.updateSettings{it.copy(backend=backend)}
+            }}}.onSuccess{
+                _bekkoSemantic.value=semanticApplication.state().copy(notice="Backend Bekko: ${backend.name}")
+            }.onFailure{
+                DiagnosticLogger.log(getApplication(),"BEKKO_BACKEND_UPDATE_FAILED",it)
+                _bekkoSemantic.value=semanticApplication.state().copy(errorMessage=it.message?:"BEKKO_BACKEND_UPDATE_FAILED")
+            }
+        }
     }
 
     fun downloadBekko(){
         if(_bekkoSemantic.value.downloading)return
         _bekkoSemantic.value=_bekkoSemantic.value.copy(downloading=true,downloadFraction=0f,notice="Pobieranie Bekko…",errorMessage=null)
         viewModelScope.launch{
-            runCatching{semanticApplication.download{progress->_bekkoSemantic.value=_bekkoSemantic.value.copy(
+            runCatching{withContext(Dispatchers.IO){bekkoLifecycleMutex.withLock{semanticApplication.download{progress->_bekkoSemantic.value=_bekkoSemantic.value.copy(
                 downloading=true,downloadFraction=progress.fraction,notice="Pobieranie Bekko: ${(progress.fraction*100).toInt()}%"
-            )}}.onSuccess{
+            )}}}}.onSuccess{
                 _bekkoSemantic.value=semanticApplication.state().copy(notice="Bekko został pobrany, zweryfikowany i uruchomiony.")
             }.onFailure{
                 DiagnosticLogger.log(getApplication(),"BEKKO_DOWNLOAD_FAILED",it)
@@ -525,8 +547,8 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun rebuildBekkoIndex(){
         _bekkoSemantic.value=_bekkoSemantic.value.copy(notice="Odbudowa indeksu Bekko…",errorMessage=null)
-        viewModelScope.launch(Dispatchers.IO){
-            runCatching{semanticApplication.rebuild()}.onSuccess{status->_bekkoSemantic.value=semanticApplication.state().copy(
+        viewModelScope.launch{
+            runCatching{withContext(Dispatchers.IO){bekkoLifecycleMutex.withLock{semanticApplication.rebuild()}}}.onSuccess{status->_bekkoSemantic.value=semanticApplication.state().copy(
                 indexStatus=status,notice="Indeks Bekko został odbudowany."
             )}.onFailure{
                 DiagnosticLogger.log(getApplication(),"BEKKO_REBUILD_FAILED",it)
@@ -536,11 +558,17 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun removeBekko(){
-        val removed=semanticApplication.removeModelAndIndexes()
-        _bekkoSemantic.value=semanticApplication.state().copy(
-            notice=if(removed)"Usunięto model Bekko i jego odbudowywalne indeksy." else null,
-            errorMessage=if(removed)null else "Nie udało się usunąć wszystkich plików Bekko."
-        )
+        _bekkoSemantic.value=_bekkoSemantic.value.copy(notice="Usuwanie Bekko…",errorMessage=null)
+        viewModelScope.launch{
+            runCatching{withContext(Dispatchers.IO){bekkoLifecycleMutex.withLock{semanticApplication.removeModelAndIndexes()}}}
+                .onSuccess{removed->_bekkoSemantic.value=semanticApplication.state().copy(
+                    notice=if(removed)"Usunięto model Bekko i jego odbudowywalne indeksy." else null,
+                    errorMessage=if(removed)null else "Nie udało się usunąć wszystkich plików Bekko."
+                )}.onFailure{
+                    DiagnosticLogger.log(getApplication(),"BEKKO_REMOVE_FAILED",it)
+                    _bekkoSemantic.value=semanticApplication.state().copy(errorMessage=it.message?:"BEKKO_REMOVE_FAILED")
+                }
+        }
     }
 
     fun beginOpenRouterConnect():String{
@@ -826,6 +854,51 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun previewUndoLastTurn(){
+        if(_saveRecoveryUi.value.inProgress)return
+        _saveRecoveryUi.value=SaveRecoveryUiState(inProgress=true)
+        viewModelScope.launch{
+            val preview=withContext(Dispatchers.IO){store.previewUndoLastTurn()}
+            _saveRecoveryUi.value=if(preview.canConfirm){
+                SaveRecoveryUiState(undoPreview=preview)
+            }else SaveRecoveryUiState(errorMessage=undoReasonMessage(preview.availability,preview.reasonUid))
+        }
+    }
+
+    fun cancelUndoPreview(){_saveRecoveryUi.value=SaveRecoveryUiState()}
+
+    fun confirmUndoLastTurn(){
+        val preview=_saveRecoveryUi.value.undoPreview?:return
+        if(_saveRecoveryUi.value.inProgress)return
+        _saveRecoveryUi.value=SaveRecoveryUiState(inProgress=true,undoPreview=preview)
+        viewModelScope.launch{
+            val result=withContext(Dispatchers.IO){store.confirmUndoLastTurn(preview.previewToken)}
+            when(result){
+                is DestructiveUndoResult.Completed->{
+                    semanticApplication.onCampaignOpened()
+                    AiProviderExtensionRegistry.onCampaignOpened(result.campaignUid)
+                    refresh()
+                    _messages.value=_messages.value
+                        .filterNot{it.committedOrder==result.removedCommitOrder}+
+                        ChatMessage("system","Cofnięto ostatnią turę. Możesz wybrać inną decyzję.")
+                    _saveRecoveryUi.value=SaveRecoveryUiState(notice="Ostatnia tura została bezpowrotnie usunięta z aktywnego zapisu.")
+                }
+                is DestructiveUndoResult.Rejected->{
+                    _saveRecoveryUi.value=SaveRecoveryUiState(errorMessage=undoReasonMessage(result.reason,result.reasonUid))
+                }
+            }
+        }
+    }
+
+    private fun undoReasonMessage(reason:UndoAvailabilityReason,reasonUid:String?):String=when(reason){
+        UndoAvailabilityReason.NO_COMMITTED_TURN->"Nie ma zatwierdzonej tury do cofnięcia."
+        UndoAvailabilityReason.NO_VERIFIED_BASELINE->"Ten zapis nie ma jeszcze bezpiecznego punktu bazowego dla cofania. Zagraj kolejną turę po aktualizacji."
+        UndoAvailabilityReason.REPLAY_COVERAGE_INCOMPLETE,UndoAvailabilityReason.REPLAY_V2_REQUIRED->"Historia tej kampanii nie ma pełnego, zweryfikowanego replay V2. Cofnięcie niczego nie zmieniło."
+        UndoAvailabilityReason.STALE_PREVIEW,UndoAvailabilityReason.PREVIEW_EXPIRED->"Podgląd cofnięcia wygasł lub kampania się zmieniła. Spróbuj ponownie."
+        UndoAvailabilityReason.VERIFICATION_FAILED->"Nie udało się bezpiecznie zweryfikować cofnięcia. Aktywny zapis pozostał bez zmian. ${reasonUid.orEmpty()}"
+        UndoAvailabilityReason.READY->"Cofnięcie jest gotowe do potwierdzenia."
+    }
+
     fun clearSaveRecoveryMessage(){_saveRecoveryUi.value=SaveRecoveryUiState()}
 
     fun importCampaign(uri:android.net.Uri){
@@ -957,16 +1030,24 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun activateWorldPack(dirName: String) {
-        store.setActiveWorldPack(dirName)
-        refresh()
-        _messages.value = _messages.value + ChatMessage("system", "Aktywny World Pack: $dirName")
+        viewModelScope.launch{
+            runCatching{withContext(Dispatchers.IO){store.setActiveWorldPack(dirName);refresh()}}
+                .onSuccess{_messages.value = _messages.value + ChatMessage("system", "Aktywny World Pack: $dirName")}
+                .onFailure{
+                    DiagnosticLogger.log(getApplication(),"WORLD_PACK_ACTIVATION_FAILED",it)
+                    _messages.value = _messages.value + ChatMessage("system", "Nie udało się aktywować World Packa: ${it.message}")
+                }
+        }
     }
 
     fun createCampaign(name: String) {
-        val dir = store.createCampaign(name)
-        semanticApplication.onCampaignOpened()
-        refresh()
-        resetConversationForActiveCampaign(dir.name)
+        viewModelScope.launch{
+            runCatching{withContext(Dispatchers.IO){
+                val dir=store.createCampaign(name)
+                semanticApplication.onCampaignOpened();refresh();dir
+            }}.onSuccess{dir->resetConversationForActiveCampaign(dir.name)}
+                .onFailure{DiagnosticLogger.log(getApplication(),"CAMPAIGN_CREATION_FAILED",it)}
+        }
     }
 
     fun createAndActivateCampaign(name: String) {
@@ -1140,7 +1221,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         val cancellation=MutableAiCancellationSignal().also{activeAiCancellation=it}
         val requestUid="CHAT:${System.currentTimeMillis()}"
         _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.INTERPRETING,requestUid,"Rozumiem Twoją decyzję…",canCancel=true)
-        _messages.value = _messages.value + ChatMessage("player", text)
+        _messages.value = _messages.value + ChatMessage("player",text,requestUid=requestUid)
 
         viewModelScope.launch {
             val app = getApplication<Application>()
@@ -1186,12 +1267,19 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                 when(val outcome=applicationOutcome){
                     is ChatApplicationOutcome.Narrated->{
                         _chatTurnUi.value=_chatTurnUi.value.copy(stage=ChatTurnUiStage.NARRATING,statusText="Odbieram zatwierdzoną narrację…",canCancel=false)
-                        _messages.value+=ChatMessage("gm",outcome.result.narrative.text)
+                        val committedOrder=outcome.result.receipt.commitOrder
+                        _messages.value=_messages.value.map{message->
+                            if(message.requestUid==requestUid)message.copy(committedOrder=committedOrder) else message
+                        }+ChatMessage("gm",outcome.result.narrative.text,requestUid,committedOrder)
                         _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.COMPLETED,requestUid,"Tura zapisana i zakończona",committedOrder=outcome.result.receipt.commitOrder)
                         runCatching{refresh()}.onFailure{DiagnosticLogger.log(app,"REFRESH_GUARDED",it)}
                     }
                     is ChatApplicationOutcome.CommittedNarrationPending->{
                         pendingNarrationRecovery=outcome.recovery
+                        val committedOrder=outcome.result.receipt.commitOrder
+                        _messages.value=_messages.value.map{message->
+                            if(message.requestUid==requestUid)message.copy(committedOrder=committedOrder) else message
+                        }
                         _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.COMMITTED_NARRATION_PENDING,requestUid,"Tura jest zapisana. Narrację można bezpiecznie ponowić.",canRetryNarration=true,committedOrder=outcome.result.receipt.commitOrder,reasonUid=outcome.result.reasonUid)
                     }
                     is ChatApplicationOutcome.Clarification->{
@@ -1281,7 +1369,13 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                 val recoveryOutcome=withContext(Dispatchers.IO){chatApplication.recover(token,cancellation)}
                 when(val recovered=recoveryOutcome){
                     is NarrativeRecoveryResult.Recovered->{
-                        _messages.value+=ChatMessage("gm",recovered.delivery.narrative.text)
+                        val committedOrder=recovered.delivery.identity.committedOrder
+                        _messages.value+=ChatMessage(
+                            "gm",
+                            recovered.delivery.narrative.text,
+                            token.request.requestUid,
+                            committedOrder
+                        )
                         pendingNarrationRecovery=null
                         _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.COMPLETED,token.request.requestUid,"Narracja odzyskana",committedOrder=recovered.delivery.identity.committedOrder)
                     }
@@ -1300,7 +1394,13 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         semanticApplication.setProgressListener(null)
-        semanticApplication.close()
+        semanticApplication.beginClose()
+        // Native cancellation/close belongs off the main thread. The terminal flag is set before
+        // this worker waits for an in-flight semantic lease, so retained ports cannot reopen it.
+        Thread({
+            semanticApplication.close()
+            repository.closeBackgroundWork()
+        },"rpgos-bekko-close").apply{isDaemon=true}.start()
         super.onCleared()
     }
 }
