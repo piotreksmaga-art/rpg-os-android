@@ -174,5 +174,6 @@ Data: 2026-09-02
   doprowadzony do stanu testowego: obraz API 36 osiąga `Boot completed`, ale lokalny host
   ADB odrzuca go jako `unauthorized` (brak interaktywnego potwierdzenia klucza w trybie
   headless).
-- Wydanie publiczne i oznaczenie faz 55–59 jako globalnie `COMPLETE` pozostają zablokowane
-  do A/B i jakości Bielik/Bekko oraz ponownego exact-SHA CI obejmującego poprawki Directora.
+- Użytkownik zlecił wydanie ALPHA 18 z ujawnionymi ograniczeniami jakości. Publikacja wymaga
+  zielonego CI finalnej rewizji. Oznaczenie faz 55–59 jako globalnie `COMPLETE` nadal wymaga
+  A/B i jakości Bielik/Bekko; wydanie ALPHA nie zastępuje tej bramki.
