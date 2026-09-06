@@ -54,6 +54,10 @@ object VisibilityConsumerInventory {
         ProtectedConsumerContract(uid, path, capability, purposes.toSet())
 
     val contracts: List<ProtectedConsumerContract> = listOf(
+        // The compact Director consumes only the already-authorized context envelope;
+        // it cannot open stores or grant access to protected records.
+        c("local-director-codec", "app/src/main/java/com/rpgos/app/LocalDirectorCodec.kt", ProtectedConsumerCapability.PROJECTED_CONSUMER,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION),
         c("visibility-authority", "app/src/main/java/com/rpgos/app/Phase38Visibility.kt", ProtectedConsumerCapability.PROJECTION_AUTHORITY,
             VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING,
             VisibilityPurposeKinds.SCENE_VISUALIZATION, VisibilityPurposeKinds.CHARACTER_VISUALIZATION, VisibilityPurposeKinds.LOCATION_VISUALIZATION, VisibilityPurposeKinds.IMAGE_EDIT_VISUALIZATION,
