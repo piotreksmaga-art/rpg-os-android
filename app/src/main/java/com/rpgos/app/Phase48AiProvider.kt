@@ -189,6 +189,7 @@ interface AiStructuredCodec{
         decodeCharacterCreation(payload)
     fun encodeDirector(request:AiDirectorRequest):String
     fun decodeDirector(payload:String):DirectorBundle
+    fun decodeDirector(payload:String,request:AiDirectorRequest):DirectorBundle=decodeDirector(payload)
     fun encodeMemoryEnrichment(request:MemoryEnrichmentRequest):String=encodeMemoryEnrichmentRequest(request)
     fun decodeMemoryEnrichment(payload:String):MemoryEnrichmentResult.Success=decodeMemoryEnrichmentPresentation(payload)
 }
@@ -229,7 +230,7 @@ class TransportAiProviderAdapter(
     )
     override fun generateDirector(request:AiDirectorRequest,cancellation:AiCancellationSignal)=call(
         request.requestUid,AiWorkload.DIRECTOR_STRATEGY,DIRECTOR_BUNDLE_SCHEMA_VERSION,codec.encodeDirector(request),cancellation,
-        {payload->codec.decodeDirector(payload).copy(providerUid=capabilities.providerUid,modelUid=capabilities.modelUid)}
+        {payload->codec.decodeDirector(payload,request).copy(providerUid=capabilities.providerUid,modelUid=capabilities.modelUid)}
     )
     override fun enrichMemory(request:MemoryEnrichmentRequest,cancellation:AiCancellationSignal)=call(
         request.requestUid,AiWorkload.MEMORY_ENRICHMENT,1,codec.encodeMemoryEnrichment(request),cancellation,

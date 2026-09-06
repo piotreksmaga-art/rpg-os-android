@@ -415,6 +415,8 @@ class CanonicalAiJsonCodec:AiStructuredCodec{
 class LocalCompactAiJsonCodec(
     private val canonical:CanonicalAiJsonCodec=CanonicalAiJsonCodec()
 ):AiStructuredCodec by canonical{
+    override fun encodeDirector(request:AiDirectorRequest)=LocalDirectorCodec.encode(request)
+    override fun decodeDirector(payload:String,request:AiDirectorRequest)=LocalDirectorCodec.decode(payload,request)
     override fun encodeIntent(request:AiIntentRequest)=JSONObject()
         .put("v","RPGOS_INTENT_LOCAL_9").put("u",request.rawInput).put("locale",request.localeUid)
         .put("segments",JSONArray(localIntentSegments(request.rawInput)))

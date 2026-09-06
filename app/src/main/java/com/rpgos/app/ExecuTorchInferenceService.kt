@@ -143,6 +143,9 @@ class ExecuTorchInferenceService:Service(){
             }
         }
         internal fun bielikChatPrompt(payload:String):String{
+            if(payload.contains("\"v\":\"RPGOS_DIRECTOR_LOCAL_1\"")){
+                return "<|im_start|>system\nZwróć wyłącznie JSON z propozycją, nie faktem.<|im_end|>\n<|im_start|>user\n$payload<|im_end|>\n<|im_start|>assistant\n"
+            }
             if(payload.contains("\"v\":\"RPGOS_INTENT_LOCAL_9\"")){
                 val root=org.json.JSONObject(payload)
                 val rawInput=root.optString("u")
@@ -420,7 +423,7 @@ class IsolatedExecuTorchLocalInferenceDriver(private val context:Context):LocalI
             // A real Bielik 1.5B draft reached the former 320-token ceiling at token 319 and was
             // consequently rejected as truncated JSON. 512 still fits the shipped 2k context
             // with the bounded creator prompt while leaving enough room for one compact R draft.
-            val outputLimit=if(prompt.contains("\"v\":\"RPGOS_CC_LOCAL_1\""))minOf(maximumOutputUnits,512) else maximumOutputUnits
+            val outputLimit=if(prompt.contains("\"v\":\"RPGOS_CC_LOCAL_1\"")||prompt.contains("\"v\":\"RPGOS_DIRECTOR_LOCAL_1\""))minOf(maximumOutputUnits,512) else maximumOutputUnits
             val result=service.generate(
                 typed.artifact.absolutePath,requireNotNull(typed.artifact.tokenizerAbsolutePath),typed.settings.contextUnits,
                 prompt,outputLimit
