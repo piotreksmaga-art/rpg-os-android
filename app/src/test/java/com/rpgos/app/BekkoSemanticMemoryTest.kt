@@ -4,11 +4,14 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.database.sqlite.SQLiteDatabase
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlin.math.sqrt
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -57,6 +60,138 @@ class BekkoSemanticMemoryTest {
         }
     }
 
+    @Test fun sidecarKeepsHistoricalRecordVersionsAndSelectsLatestAtRequestedOrder(){
+        FileSemanticIndex(root).use{index->
+            val old=SemanticDocumentProjection(
+                "C1",SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,VisibilityPurposeKinds.INTERNAL_SIMULATION,
+                "WORLD_ELEMENT:KONOHA","WORLD_ELEMENT","FACT",5,1,"FP-OLD",0,"stara nazwa"
+            )
+            val current=old.copy(asOfOrder=10,sourceVersion=2,sourceFingerprint="FP-NEW",text="nowa nazwa")
+            index.replaceRecord(listOf(SemanticIndexedDocument(old,unitVector(0))))
+            index.replaceRecord(listOf(SemanticIndexedDocument(current,unitVector(1))))
+
+            fun search(at:Long,query:FloatArray)=index.searchAuthorized(SemanticSearchRequest(
+                "C1",SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,VisibilityPurposeKinds.INTERNAL_SIMULATION,
+                at,setOf(old.canonicalRecordUid),queryVector=query,topK=1,minimumScore=0.5f
+            )).single()
+            assertEquals(1L,search(5,unitVector(0)).sourceVersion)
+            assertEquals("FP-OLD",search(5,unitVector(0)).sourceFingerprint)
+            assertEquals(2L,search(10,unitVector(1)).sourceVersion)
+            assertEquals("FP-NEW",search(10,unitVector(1)).sourceFingerprint)
+        }
+    }
+
+    @Test fun projectionRetirementPreservesEarlierAsOfButHidesCurrentState(){
+        FileSemanticIndex(root).use{index->
+            val projection=SemanticDocumentProjection(
+                "C1",SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,VisibilityPurposeKinds.INTERNAL_SIMULATION,
+                "WORLD_ASSERTION:OLD","CAMPAIGN_TRUTH","BELIEF",5,1,"FP-OLD",0,"stare przekonanie"
+            )
+            index.replaceRecord(listOf(SemanticIndexedDocument(projection,unitVector(0))))
+            index.retireProjection(
+                "C1",SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,
+                VisibilityPurposeKinds.INTERNAL_SIMULATION,projection.canonicalRecordUid,10
+            )
+            assertEquals(setOf(projection.canonicalRecordUid),index.authorizedRecordUids(
+                "C1",SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,VisibilityPurposeKinds.INTERNAL_SIMULATION,5
+            ))
+            assertTrue(index.authorizedRecordUids(
+                "C1",SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,VisibilityPurposeKinds.INTERNAL_SIMULATION,10
+            ).isEmpty())
+        }
+    }
+
+    @Test fun staleWorkerCannotResurrectARevisionRetiredByNewerWorker(){
+        FileSemanticIndex(root).use{index->
+            val projection=SemanticDocumentProjection(
+                "C1",SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,VisibilityPurposeKinds.INTERNAL_SIMULATION,
+                "MEMORY:STALE","MEMORY:EPISODE_INTERPRETATION","NARRATIVE",5,1,"FP-STALE",0,"stara pamięć"
+            )
+            val document=SemanticIndexedDocument(projection,unitVector(0))
+            index.replaceRecord(listOf(document))
+            index.retireProjection(
+                "C1",SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,
+                VisibilityPurposeKinds.INTERNAL_SIMULATION,projection.canonicalRecordUid,10
+            )
+            // Simulates a worker that fetched this old revision before the retirement committed.
+            index.replaceRecord(listOf(document))
+            assertTrue(index.authorizedRecordUids(
+                "C1",SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,
+                VisibilityPurposeKinds.INTERNAL_SIMULATION,10
+            ).isEmpty())
+            assertEquals(setOf(projection.canonicalRecordUid),index.authorizedRecordUids(
+                "C1",SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,
+                VisibilityPurposeKinds.INTERNAL_SIMULATION,5
+            ))
+        }
+    }
+
+    @Test fun reconciliationRetiresMissingDerivedRevisionAtTheSameCommitOrder(){
+        FileSemanticIndex(root).use{index->
+            val projection=SemanticDocumentProjection(
+                "C1",SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,VisibilityPurposeKinds.INTERNAL_SIMULATION,
+                "MEMORY:SUPERSEDED","MEMORY:SEMANTIC_ASSERTION","BELIEF",5,1,"FP-OLD",0,"stary wniosek"
+            )
+            index.replaceRecord(listOf(SemanticIndexedDocument(projection,unitVector(0))))
+            val scope=SemanticProjectionScope(
+                "C1",SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,VisibilityPurposeKinds.INTERNAL_SIMULATION
+            )
+            val session=index.beginProjectionReconciliation(scope,"MEMORY:")
+            assertTrue(index.finishProjectionReconciliation(scope,"MEMORY:",session,5))
+            assertTrue(index.authorizedRecordUids(
+                "C1",SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,
+                VisibilityPurposeKinds.INTERNAL_SIMULATION,5
+            ).isEmpty())
+        }
+    }
+
+    @Test fun checkpointScopeMismatchAtomicallyForcesRebuild(){
+        FileSemanticIndex(root).use{index->
+            assertTrue(index.bindCheckpointScope("C1","GEN-1|PLAYER-1"))
+            index.upsertBatch(listOf(indexed("C1","PLAYER","GAMEPLAY_NARRATION","A",unitVector(0))))
+            index.advanceCheckpoint("C1",7)
+            assertFalse(index.bindCheckpointScope("C1","GEN-1|PLAYER-1"))
+            assertEquals(7,index.checkpoint("C1"))
+            assertTrue(index.bindCheckpointScope("C1","GEN-2|PLAYER-2"))
+            assertEquals(0,index.checkpoint("C1"))
+            assertEquals(0L,index.status("C1").recordCount)
+        }
+    }
+
+    @Test fun wholeRecordReplacementIsIdempotentRemovesStaleChunksAndRecoversUncommittedTail(){
+        val vectorFile=File(root,"semantic-vectors.fp16")
+        val first=SemanticDocumentProjection(
+            "C1",SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,VisibilityPurposeKinds.INTERNAL_SIMULATION,
+            "MEMORY:R1","MEMORY:EPISODE_INTERPRETATION","NARRATIVE",5,1,"FP-1",0,"pierwszy fragment"
+        )
+        FileSemanticIndex(root).use{index->
+            val twoChunks=listOf(
+                SemanticIndexedDocument(first,unitVector(0)),
+                SemanticIndexedDocument(first.copy(chunkOrdinal=1,text="drugi fragment"),unitVector(1))
+            )
+            index.replaceRecord(twoChunks)
+            val exactLength=vectorFile.length()
+            index.replaceRecord(twoChunks)
+            assertEquals(exactLength,vectorFile.length())
+            index.replaceRecord(listOf(SemanticIndexedDocument(
+                first.copy(sourceFingerprint="FP-2",text="jeden aktualny fragment"),unitVector(2)
+            )))
+            val candidate=index.searchAuthorized(SemanticSearchRequest(
+                "C1",SEMANTIC_NAMESPACE_CAMPAIGN,AudienceKinds.GM_RUNTIME,VisibilityPurposeKinds.INTERNAL_SIMULATION,
+                5,setOf(first.canonicalRecordUid),queryVector=unitVector(2),topK=1,minimumScore=0.5f
+            )).single()
+            assertEquals("FP-2",candidate.sourceFingerprint)
+            assertEquals(listOf(0),candidate.chunkEvidence.map{it.chunkOrdinal})
+        }
+        val durableLength=vectorFile.length()
+        vectorFile.appendBytes(ByteArray(37){7})
+        assertEquals(durableLength+37,vectorFile.length())
+        FileSemanticIndex(root).use{reopened->
+            assertEquals(durableLength,vectorFile.length())
+            assertEquals(1L,reopened.status("C1").chunkCount)
+        }
+    }
+
     @Test fun exactScanMergesChunksToCanonicalUidAndKeepsBestEvidence(){
         FileSemanticIndex(root).use{index->
             val first=indexed("C1","PLAYER","GAMEPLAY_NARRATION","EVENT",unitVector(0))
@@ -73,6 +208,63 @@ class BekkoSemanticMemoryTest {
             assertEquals(listOf("EVENT"),result.map{it.canonicalRecordUid})
             assertEquals(listOf(1,0),result.single().chunkEvidence.map{it.chunkOrdinal})
             assertEquals("drugi fragment",result.single().chunkEvidence.first().projectedText)
+        }
+    }
+
+    @Test fun identicalRecordAndChunkRemainIsolatedAcrossPrincipalAndHistoryScopes(){
+        fun scoped(principal:String,generation:String,text:String,vector:FloatArray)=SemanticIndexedDocument(
+            SemanticDocumentProjection(
+                campaignUid="C1",namespaceUid=SEMANTIC_NAMESPACE_CAMPAIGN,audienceUid="PLAYER",
+                purposeUid="GAMEPLAY_NARRATION",canonicalRecordUid="SHARED",recordKindUid="EVENT",
+                epistemicStateUid="BELIEF",asOfOrder=5,sourceVersion=1,
+                sourceFingerprint="FP-$principal-$generation",chunkOrdinal=0,text=text,
+                historyGenerationUid=HistoryGenerationUid(generation),principalUid=principal,
+                holderSetFingerprint="HOLDER-$principal",accessPolicyVersion=1,activePlayerUid=principal
+            ),vector
+        )
+        fun request(principal:String,generation:String,vector:FloatArray)=SemanticSearchRequest(
+            campaignUid="C1",namespaceUid=SEMANTIC_NAMESPACE_CAMPAIGN,audienceUid="PLAYER",
+            purposeUid="GAMEPLAY_NARRATION",asOfOrder=5,authorizedRecordUids=setOf("SHARED"),
+            queryVector=vector,topK=1,minimumScore=-1f,
+            historyGenerationUid=HistoryGenerationUid(generation),principalUid=principal,
+            holderSetFingerprint="HOLDER-$principal",accessPolicyVersion=1,activePlayerUid=principal
+        )
+
+        FileSemanticIndex(root).use{index->
+            index.upsertBatch(listOf(
+                scoped("P1","HGEN-1","widok pierwszego gracza",unitVector(0)),
+                scoped("P2","HGEN-2","widok drugiego gracza",unitVector(1))
+            ))
+
+            val first=index.searchAuthorized(request("P1","HGEN-1",unitVector(0))).single()
+            val second=index.searchAuthorized(request("P2","HGEN-2",unitVector(1))).single()
+            assertEquals("widok pierwszego gracza",first.chunkEvidence.single().projectedText)
+            assertEquals("widok drugiego gracza",second.chunkEvidence.single().projectedText)
+            assertTrue(first.score.value>0.99f)
+            assertTrue(second.score.value>0.99f)
+
+            val exactScope=request("P1","HGEN-1",unitVector(0)).copy(
+                authorizedRecordUids=emptySet(),exactScopeAuthorized=true
+            )
+            val exact=index.searchAuthorized(exactScope).single()
+            assertEquals("widok pierwszego gracza",exact.chunkEvidence.single().projectedText)
+        }
+    }
+
+    @Test fun sidecarDefensivelyRejectsCorruptedTopKBeforeAllocatingRankingState(){
+        val request=SemanticSearchRequest(
+            "C1",SEMANTIC_NAMESPACE_CAMPAIGN,"PLAYER","GAMEPLAY_NARRATION",10,setOf("A"),
+            queryVector=unitVector(0),topK=1,minimumScore=-1f
+        )
+        SemanticSearchRequest::class.java.getDeclaredField("topK").apply{
+            isAccessible=true
+            setInt(request,0)
+        }
+        assertEquals(0,request.topK)
+
+        FileSemanticIndex(root).use{index->
+            val failure=assertThrows(IllegalArgumentException::class.java){index.searchAuthorized(request)}
+            assertEquals("SEMANTIC_TOP_K_OUT_OF_RANGE",failure.message)
         }
     }
 
@@ -113,7 +305,7 @@ class BekkoSemanticMemoryTest {
 
     @Test fun defaultSemanticRankingDropsWeakNeighboursOutsideTheBestScoreBand(){
         fun candidate(uid:String,score:Float)=SemanticCandidate(
-            uid,score,"WORLD_ELEMENT","FACT","FP-$uid",1,
+            uid,SemanticSimilarityScore(score),"WORLD_ELEMENT","FACT","FP-$uid",1,
             listOf(SemanticChunkEvidence(0,uid,"TEXT-$uid")),SemanticIndexVersion()
         )
 
@@ -126,7 +318,7 @@ class BekkoSemanticMemoryTest {
 
     @Test fun futurePhasePortsAreCandidateOnlyViewsOfTheSameReadOnlySearch(){
         val candidate=SemanticCandidate(
-            "EVENT-1",0.9f,"EVENT","BELIEF","FP",1,
+            "EVENT-1",SemanticSimilarityScore(0.9f),"EVENT","BELIEF","FP",1,
             listOf(SemanticChunkEvidence(0,"wspomnienie","TEXT-FP")),SemanticIndexVersion()
         )
         var calls=0
@@ -146,31 +338,78 @@ class BekkoSemanticMemoryTest {
     }
 
     @Test fun dynamicallyMaterializedWorldElementsBecomeOnePlayerSafeBekkoDocumentWithoutHiddenLeakage(){
-        val replay=worldReplay(listOf(
-            worldTruth("PUBLIC-K","PUBLIC",CampaignWorldFacts.KIND,"PLACE"),
-            worldTruth("PUBLIC-N","PUBLIC",CampaignWorldFacts.NAME,"warsztat garncarski"),
-            worldTruth("PUBLIC-C","PUBLIC",CampaignWorldFacts.CATEGORY,"CRAFTING_VENUE"),
-            worldTruth("PUBLIC-P","PUBLIC",CampaignWorldFacts.PARENT,"VILLAGE"),
-            worldTruth("PUBLIC-F","PUBLIC",CampaignWorldFacts.AFFORDANCE,"CRAFTING"),
-            worldTruth("PUBLIC-A","PUBLIC",CampaignWorldFacts.AUDIENCE_SCOPE,CampaignWorldAudience.PLAYER_VISIBLE),
-            worldTruth("HIDDEN-K","HIDDEN",CampaignWorldFacts.KIND,"ORGANIZATION"),
-            worldTruth("HIDDEN-N","HIDDEN",CampaignWorldFacts.NAME,"tajna rada")
-        ))
-        val projector=CommittedReplaySemanticProjector(activePlayerUid={null})
-        val player=projector.project(
-            replay,VisibilityAudienceFactory.player("C1"),PurposeContext("C1",VisibilityPurposeKinds.GAMEPLAY_NARRATION)
-        )
+        val public=CanonicalWorldElementSemanticState("C1","PUBLIC",mapOf(
+            CampaignWorldFacts.KIND to "PLACE",CampaignWorldFacts.NAME to "warsztat garncarski",
+            CampaignWorldFacts.CATEGORY to "CRAFTING_VENUE",CampaignWorldFacts.PARENT to "VILLAGE",
+            CampaignWorldFacts.AFFORDANCE to "CRAFTING",
+            CampaignWorldFacts.AUDIENCE_SCOPE to CampaignWorldAudience.PLAYER_VISIBLE
+        ),1)
+        val hidden=CanonicalWorldElementSemanticState("C1","HIDDEN",mapOf(
+            CampaignWorldFacts.KIND to "ORGANIZATION",CampaignWorldFacts.NAME to "tajna rada"
+        ),1)
+        val projector=CanonicalWorldElementSemanticProjector()
+        val playerAudience=VisibilityAudienceFactory.player("C1")
+        val playerPurpose=PurposeContext("C1",VisibilityPurposeKinds.GAMEPLAY_NARRATION)
+        val player=listOf(public,hidden).flatMap{projector.project(it,playerAudience,playerPurpose)}
         assertEquals(listOf("WORLD_ELEMENT:PUBLIC"),player.map{it.canonicalRecordUid}.distinct())
         val playerText=player.sortedBy{it.chunkOrdinal}.joinToString(" "){it.text}
         assertTrue(playerText.contains("warsztat garncarski"))
         assertTrue(playerText.contains("CRAFTING"))
         assertFalse(playerText.contains("tajna rada"))
 
+        val gmAudience=AudienceContext("C1",AudienceKinds.GM_RUNTIME,VisibilityPrincipalRef(AudienceKinds.GM_RUNTIME,"LOCAL_GM"))
+        val gmPurpose=PurposeContext("C1",VisibilityPurposeKinds.INTERNAL_SIMULATION)
+        val gm=listOf(public,hidden).flatMap{projector.project(it,gmAudience,gmPurpose)}
+        assertEquals(setOf("WORLD_ELEMENT:PUBLIC","WORLD_ELEMENT:HIDDEN"),gm.map{it.canonicalRecordUid}.toSet())
+    }
+
+    @Test fun projectedWorldElementsPreserveBeliefAndNarrativeTruthKinds(){
+        val states=listOf(
+            CanonicalWorldEpistemicSemanticState("C1","S-B",TruthKind.BELIEF,"KOKRAN",CampaignWorldFacts.KIND,"BELIEF-PLACE",null,null,1),
+            CanonicalWorldEpistemicSemanticState("C1","S-N",TruthKind.NARRATIVE,"KOKRAN",CampaignWorldFacts.NAME,"Cień",null,null,1)
+        )
+        val projector=CanonicalWorldEpistemicSemanticProjector()
+        val audience=AudienceContext("C1",AudienceKinds.GM_RUNTIME,VisibilityPrincipalRef(AudienceKinds.GM_RUNTIME,"LOCAL_GM"))
+        val purpose=PurposeContext("C1",VisibilityPurposeKinds.INTERNAL_SIMULATION)
+        val gm=states.flatMap{projector.project(it,audience,purpose)}
+        assertEquals(setOf("WORLD_ASSERTION:S-B","WORLD_ASSERTION:S-N"),gm.map{it.canonicalRecordUid}.toSet())
+        assertEquals(setOf("BELIEF","NARRATIVE"),gm.map{it.epistemicStateUid}.toSet())
+        assertTrue(gm.any{it.text.contains("BELIEF-PLACE")})
+        assertTrue(gm.any{it.text.contains("Cień")})
+    }
+
+    @Test fun projectedWorldElementsNeverPromoteBeliefToFact(){
+        val audience=AudienceContext("C1",AudienceKinds.GM_RUNTIME,VisibilityPrincipalRef(AudienceKinds.GM_RUNTIME,"LOCAL_GM"))
+        val purpose=PurposeContext("C1",VisibilityPurposeKinds.INTERNAL_SIMULATION)
+        val belief=CanonicalWorldEpistemicSemanticProjector().project(
+            CanonicalWorldEpistemicSemanticState("C1","S-B1",TruthKind.BELIEF,"NATSU",CampaignWorldFacts.KIND,"WIOSKA",null,null,1),audience,purpose
+        ).single()
+        val fact=CanonicalWorldElementSemanticProjector().project(
+            CanonicalWorldElementSemanticState("C1","NATSU",mapOf(CampaignWorldFacts.NAME to "Dom"),1),audience,purpose
+        ).single()
+        assertEquals("BELIEF",belief.epistemicStateUid)
+        assertEquals("FACT",fact.epistemicStateUid)
+    }
+
+    @Test fun phase38AccessAuthorityMetadataIsNeverAPlayerOrGmSemanticDocument(){
+        val access=PlayerDomainChange.create(
+            "ACCESS-CHANGE",PlayerChangeKinds.ACCESS_AUTHORITY,
+            AccessAuthorityChange(
+                AccessOperation.UPSERT_BINDING,"ACCESS-RECORD",AudienceKinds.PLAYER,"P1",
+                AccessBindingKind.ROLE.name,"ROLE-SECRET",validFromOrder=1
+            )
+        )
+        val replay=worldReplay(listOf(access))
+        val projector=CommittedReplaySemanticProjector(activePlayerUid={"P1"})
+        val player=projector.project(
+            replay,VisibilityAudienceFactory.player("C1"),PurposeContext("C1",VisibilityPurposeKinds.GAMEPLAY_NARRATION)
+        )
         val gm=projector.project(
             replay,AudienceContext("C1",AudienceKinds.GM_RUNTIME,VisibilityPrincipalRef(AudienceKinds.GM_RUNTIME,"LOCAL_GM")),
             PurposeContext("C1",VisibilityPurposeKinds.INTERNAL_SIMULATION)
         )
-        assertEquals(setOf("WORLD_ELEMENT:PUBLIC","WORLD_ELEMENT:HIDDEN"),gm.map{it.canonicalRecordUid}.toSet())
+        assertTrue(player.isEmpty())
+        assertTrue(gm.isEmpty())
     }
 
     @Test fun indexFilesAreRebuildableCacheAndNeverChangeCanonicalSaveBytes(){
@@ -308,7 +547,73 @@ class BekkoSemanticMemoryTest {
         assertEquals("BEKKO_INDEXING_FAILED:IllegalStateException",failed.reasonUid)
         assertEquals("FAILED",progress.last().stageUid)
         assertFalse(coordinator.readyForQueries())
-        coordinator.close();cleanupCampaign(testContext)
+        coordinator.close();repository.closeBackgroundWorkForTest();cleanupCampaign(testContext)
+    }
+
+    @Test fun coordinatorLeaseCannotFollowCampaignAcrossHistoryGenerationChange(){
+        val testContext=isolatedContext()
+        cleanupCampaign(testContext)
+        val repository=UnifiedGameRepository(testContext);repository.bootstrap()
+        val campaign=repository.activeCampaignRef().campaignId
+        val index=FileSemanticIndex(File(root,"generation-lease"))
+        val coordinator=ImmediateSemanticIndexCoordinator(repository,FakeEmbeddingProvider(),index)
+
+        LocalGameStore(testContext).openGameplaySaveDb().use{db->
+            db.beginTransaction()
+            GameplayMutationDatabaseGuards.enterAdmin(db,campaign)
+            try{
+                HistoryGenerationStore(db,campaign).advance("TEST_HISTORY_REPLACEMENT")
+                db.setTransactionSuccessful()
+            }finally{
+                GameplayMutationDatabaseGuards.leaveAdmin(db,campaign)
+                db.endTransaction()
+            }
+        }
+
+        val rejected=coordinator.catchUp()
+        assertFalse(rejected.ready)
+        assertEquals("BEKKO_INDEXING_FAILED:IllegalStateException",rejected.reasonUid)
+        assertEquals(0L,index.checkpoint(campaign))
+
+        coordinator.close();repository.closeBackgroundWorkForTest();cleanupCampaign(testContext)
+    }
+
+    @Test fun synchronousCatchUpHoldsSemanticLeaseUntilAllStorageWorkStops(){
+        val testContext=isolatedContext()
+        cleanupCampaign(testContext)
+        val repository=UnifiedGameRepository(testContext);repository.bootstrap()
+        val delegate=FakeEmbeddingProvider()
+        val embeddingEntered=CountDownLatch(1)
+        val releaseEmbedding=CountDownLatch(1)
+        val provider=object:EmbeddingProviderPort by delegate{
+            override fun embedBatch(request:EmbeddingRequest):EmbeddingBatchResult{
+                embeddingEntered.countDown()
+                check(releaseEmbedding.await(5,TimeUnit.SECONDS)){"TEST_EMBEDDING_RELEASE_TIMEOUT"}
+                // Finish this synthetic catch-up immediately after the lease assertion. The
+                // registry test concerns storage exclusion, not indexing the entire World Pack.
+                return EmbeddingBatchResult.Failure("TEST_EMBEDDING_RELEASED",false)
+            }
+        }
+        val index=FileSemanticIndex(File(root,"runtime-lease"))
+        val coordinator=ImmediateSemanticIndexCoordinator(repository,provider,index)
+        val worker=Thread({coordinator.catchUp()},"test-caller-run-catch-up").apply{start()}
+        assertTrue(embeddingEntered.await(5,TimeUnit.SECONDS))
+
+        val transitionAttempted=CountDownLatch(1)
+        val transitionEntered=CountDownLatch(1)
+        val transition=Thread({
+            transitionAttempted.countDown()
+            SemanticCampaignTransitionRegistry.withCampaignStorageTransition{transitionEntered.countDown()}
+        },"test-storage-transition").apply{start()}
+        assertTrue(transitionAttempted.await(5,TimeUnit.SECONDS))
+        assertFalse("Storage replacement must wait for caller-run catch-up",transitionEntered.await(150,TimeUnit.MILLISECONDS))
+
+        releaseEmbedding.countDown()
+        assertTrue(transitionEntered.await(5,TimeUnit.SECONDS))
+        worker.join(5_000);transition.join(5_000)
+        assertFalse(worker.isAlive);assertFalse(transition.isAlive)
+
+        coordinator.close();repository.closeBackgroundWorkForTest();cleanupCampaign(testContext)
     }
 
     @Test fun pinnedModelManifestMatchesRuntimeContractAndKeepsModelOutsideApk(){
@@ -326,6 +631,47 @@ class BekkoSemanticMemoryTest {
         assertEquals(SemanticIndexVersion().projectorVersion,manifest.getJSONObject("index").getInt("projectorVersion"))
     }
 
+    @Test fun historyReplacementDeletesOnlyTheCampaignSemanticSidecar(){
+        val testContext=isolatedContext()
+        val campaignA="C-HISTORY-A"
+        val campaignB="C-HISTORY-B"
+        val first=SemanticSidecarStorage.campaignDirectory(testContext,campaignA).apply{mkdirs()}
+        val second=SemanticSidecarStorage.campaignDirectory(testContext,campaignB).apply{mkdirs()}
+        File(first,"semantic-vectors.fp16").writeBytes(ByteArray(32){1})
+        File(second,"semantic-vectors.fp16").writeBytes(ByteArray(16){2})
+
+        SemanticSidecarStorage.invalidateCampaign(testContext,campaignA)
+
+        assertFalse(first.exists())
+        assertTrue(second.isDirectory)
+        assertEquals(16L,File(second,"semantic-vectors.fp16").length())
+        second.deleteRecursively()
+    }
+
+    @Test fun staleCampaignIndexAfterDetachmentIsNeverReopenedAsActiveEvenIfCleanupFails(){
+        val testContext=isolatedContext()
+        val campaign="C-SIDECAR-STALE-DETACH"
+        val campaignDir=SemanticSidecarStorage.campaignDirectory(testContext,campaign)
+        campaignDir.mkdirs()
+        FileSemanticIndex(campaignDir).use{index->
+            index.upsertBatch(listOf(
+                indexed(campaign,"PLAYER","GAMEPLAY_NARRATION","ACTIVE-STALE",unitVector(0),epistemic="BELIEF")
+            ))
+            index.advanceCheckpoint(campaign,12)
+        }
+        assertEquals(1L,FileSemanticIndex(campaignDir).use{it.status(campaign).recordCount})
+        assertTrue(campaignDir.exists())
+
+        runCatching { SemanticSidecarStorage.invalidateCampaign(testContext,campaign) }.onFailure{
+            assertTrue(it.message.orEmpty().startsWith("BEKKO_INDEX_TOMBSTONE_DELETE_FAILED") || it.message.orEmpty().startsWith("BEKKO_INDEX_INVALIDATION_FAILED"))
+        }
+
+        assertFalse(campaignDir.exists())
+        assertEquals(0L,FileSemanticIndex(campaignDir).use{recovered->
+            recovered.status(campaign).recordCount
+        })
+    }
+
     private fun indexed(
         campaign:String,audience:String,purpose:String,uid:String,vector:FloatArray,epistemic:String="FACT"
     )=SemanticIndexedDocument(
@@ -335,9 +681,16 @@ class BekkoSemanticMemoryTest {
 
     private fun unitVector(index:Int)=FloatArray(256).also{it[index]=1f}
 
-    private fun worldTruth(changeUid:String,subjectUid:String,predicate:String,value:String)=PlayerDomainChange.create(
+    private fun worldTruth(
+        changeUid:String,subjectUid:String,predicate:String,value:String,kind:TruthKind=TruthKind.FACT
+    )=PlayerDomainChange.create(
         changeUid,PlayerChangeKinds.CAMPAIGN_TRUTH,
-        CampaignTruthChange("TRUTH-$changeUid",TruthKind.FACT,subjectUid,predicate,value,null,null,null)
+        CampaignTruthChange(
+            "TRUTH-$changeUid",kind,subjectUid,predicate,value,
+            if(kind==TruthKind.BELIEF)"TEST-PERSPECTIVE" else null,
+            if(kind==TruthKind.NARRATIVE)value else null,
+            null
+        )
     )
 
     private fun worldReplay(changes:List<PlayerDomainChange>):CommittedReplayPayload{
@@ -348,7 +701,7 @@ class BekkoSemanticMemoryTest {
         )
         return CommittedReplayPayload(
             TurnTransactionIdentity("C1","TURN-WORLD","CMD-WORLD","TX-WORLD"),1,"SEM-WORLD",
-            RequiredEventManifestSummary(0,"EMPTY"),null,1,changeSet,emptyList(),"PAYLOAD"
+            RequiredEventManifestSummary(0,"EMPTY"),null,1,changeSet,emptyList(),null,"PAYLOAD"
         )
     }
 

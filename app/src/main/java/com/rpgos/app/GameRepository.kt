@@ -87,5 +87,7 @@ interface CampaignRepository {
     fun createSnapshot(kind: SnapshotKind = SnapshotKind.AUTOMATIC, pinned: Boolean = false): CampaignSnapshotDescriptor
     fun snapshots(): List<CampaignSnapshotDescriptor>
     fun restoreLatestSnapshot(): String
+    fun previewUndoLastTurn():UndoPreview
+    fun confirmUndoLastTurn(previewToken:String):DestructiveUndoResult
     fun finalizeChapter(chapter: Int, title: String): Pair<String, String>
 }

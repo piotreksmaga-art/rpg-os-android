@@ -159,10 +159,11 @@ private object NarrativePlayerAgencySurfaceGuard{
         if(explicitFirstPersonDesire.containsMatchIn(playerAgencySurface))return true
         val outputWords=words.findAll(playerAgencySurface).map{fold(it.value)}.toList()
         if(outputWords.any{it in firstPersonPronouns||it in explicitFirstPersonFuture})return true
-        val inputWords=playerInput?.let{value->words.findAll(value).map{fold(it.value)}.toList()}?:emptyList()
+        val inputSurfaceWords=playerInput?.let{value->words.findAll(value).map{it.value}.toList()}?:emptyList()
+        val inputWords=inputSurfaceWords.map(::fold)
         if(inputWords.isNotEmpty()){
             val mirroredFirstPerson=sentenceStart.findAll(playerAgencySurface).map{fold(it.groupValues[1])}.any{token->
-                token in inputWords&&looksLikeFirstPersonVerb(token)
+                inputSurfaceWords.any{source->fold(source)==token&&looksLikeFirstPersonVerb(source)}
             }
             if(mirroredFirstPerson)return true
             val unauthorizedGerund=polishGerund.findAll(playerAgencySurface).any{match->
@@ -174,9 +175,10 @@ private object NarrativePlayerAgencySurfaceGuard{
         return false
     }
 
-    private fun looksLikeFirstPersonVerb(token:String)=token.length>=4&&(
-        token.endsWith("am")||token.endsWith("em")||token.endsWith("ę")||token.endsWith("e")&&token in explicitFirstPersonFuture
-    )
+    private fun looksLikeFirstPersonVerb(token:String):Boolean{
+        val lower=token.lowercase()
+        return lower.length>=4&&(lower.endsWith("am")||lower.endsWith("em")||lower.endsWith("ę")||lower in explicitFirstPersonFuture)
+    }
 
     private fun commonPrefixLength(left:String,right:String):Int{
         var index=0

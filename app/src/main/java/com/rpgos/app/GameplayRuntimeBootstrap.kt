@@ -46,6 +46,7 @@ internal object GameplayRuntimeBootstrap {
                 CampaignCausalGraphSchema.ensureReady(db)
                 CampaignSnapshotSchema.ensureReady(db)
                 Phase40SchedulerSchema.ensureReady(db)
+                Phase55To58MemorySchema.ensureReady(db,campaignUid)
             }
             if (GameplayMutationDatabaseGuards.isInstalled(db)) {
                 withAdministrativeMutationAuthority(db, campaignUid) { ensureAcceptedStructuralSchemas() }
@@ -88,6 +89,7 @@ internal object GameplayRuntimeBootstrap {
         check(CampaignCausalGraphSchema.isReady(db)) { "RPGOS-G32:CAUSAL_GRAPH_NOT_READY" }
         check(CampaignSnapshotSchema.isReady(db)) { "RPGOS-G34:SNAPSHOT_SCHEMA_NOT_READY" }
         check(Phase37KnowledgeSchema.isReady(db)) { "RPGOS-P37:KNOWLEDGE_SCHEMA_NOT_READY" }
+        check(Phase55To58MemorySchema.isReady(db)) { "RPGOS-MEMORY:SCHEMA_NOT_READY" }
         check(CampaignWorldProjectionSchema.isReady(db)) { "RPGOS-WORLD:PROJECTION_SCHEMA_NOT_READY" }
         Phase36SchemaVersioning.requireReady(db)
         check(GameplayMutationDatabaseGuards.isInstalled(db)) { "RPGOS-G32:GAMEPLAY_GUARDS_NOT_READY" }

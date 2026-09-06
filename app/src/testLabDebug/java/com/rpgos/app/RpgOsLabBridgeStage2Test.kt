@@ -30,6 +30,7 @@ class RpgOsLabBridgeStage2Test {
         assertTrue("CLAIM_AI_REQUEST" in RpgOsLabBridgeContract.labAdminCommands)
         assertTrue("COMPLETE_AI_REQUEST" in RpgOsLabBridgeContract.labAdminCommands)
         assertTrue("RUN_DIRECTOR_NOW" in RpgOsLabBridgeContract.labAdminCommands)
+        assertTrue("SET_BEKKO_SETTINGS" in RpgOsLabBridgeContract.labAdminCommands)
 
         assertTrue(RpgOsLabBridgeContract.productionPathCommands.intersect(RpgOsLabBridgeContract.readCommands).isEmpty())
         assertTrue(RpgOsLabBridgeContract.productionPathCommands.intersect(RpgOsLabBridgeContract.labAdminCommands).isEmpty())

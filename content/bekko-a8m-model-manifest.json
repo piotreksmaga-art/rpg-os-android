@@ -34,7 +34,7 @@
     "optionalBackends": ["VULKAN"]
   },
   "index": {
-    "projectorVersion": 2,
+    "projectorVersion": 3,
     "authorization": "PHASE38_AUDIENCE_SCOPED_BEFORE_EMBEDDING",
     "cacheClass": "CACHE_REBUILDABLE"
   }

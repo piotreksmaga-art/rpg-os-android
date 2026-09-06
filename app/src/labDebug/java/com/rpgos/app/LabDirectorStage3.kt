@@ -101,6 +101,14 @@ internal class LabDirectorCoordinator(context:Context):DirectorGuidancePort,Dire
         runCatching{
             val recovered=if(recoveredCampaigns.add(campaignUid))jobs.recoverAbandoned(campaignUid) else 0
             if(recovered>0)lastScheduleReasonUid="DIRECTOR_RECOVERED_ABANDONED:$recovered"
+            val generation=repository.infrastructureHistoryGenerationUid().value
+            val order=repository.infrastructureLastCommitOrder()
+            candidates.latest(campaignUid)?.takeIf{bundle->
+                directorHistoryGeneration(bundle.contextVersion)!=generation||bundle.asOfCommittedOrder>order
+            }?.let{
+                candidates.clear(campaignUid)
+                lastScheduleReasonUid="DIRECTOR_INVALIDATED_BY_HISTORY_GENERATION"
+            }
             if(repository.activePlayerRef()==null)lastScheduleReasonUid="DIRECTOR_WAITING_FOR_CHARACTER"
             else if(candidates.latest(campaignUid)==null)schedule(campaignUid,DirectorTriggerKind.SEMANTIC_EVENT,"CAMPAIGN_OPENED",stable=true)
         }.onFailure{lastScheduleReasonUid=it.message?:"DIRECTOR_CAMPAIGN_OPEN_FAILED"}
@@ -141,6 +149,7 @@ internal class LabDirectorCoordinator(context:Context):DirectorGuidancePort,Dire
 
     override fun guidance(campaignUid:String,asOfOrder:Long,authorizedRecordUids:Set<String>):DirectorGuidanceEnvelope?{
         val bundle=candidates.latest(campaignUid)?:return null
+        if(directorHistoryGeneration(bundle.contextVersion)!=repository.infrastructureHistoryGenerationUid().value)return null
         if(bundle.asOfCommittedOrder>asOfOrder||asOfOrder-bundle.asOfCommittedOrder>16L)return null
         val eligible=bundle.candidates.asSequence().filter{it.directMutationPayload==null}
             .filter{candidate->candidate.supportingProjectedRecordUids.isEmpty()||candidate.supportingProjectedRecordUids.all{it in authorizedRecordUids}}
@@ -217,9 +226,13 @@ internal class LabDirectorCoordinator(context:Context):DirectorGuidancePort,Dire
     private fun contextVersion(campaignUid:String):String{
         require(repository.activeCampaignRef().campaignId==campaignUid){"DIRECTOR_CROSS_CAMPAIGN"}
         val receipt=repository.infrastructureLastReceipt();val order=repository.infrastructureLastCommitOrder()
-        return "DIRECTOR-CONTEXT:$order:${receipt?.resultFingerprint?:receipt?.semanticFingerprint?:"NO-RECEIPT"}"
+        val generation=repository.infrastructureHistoryGenerationUid().value
+        return "DIRECTOR-CONTEXT|$generation|$order|${receipt?.resultFingerprint?:receipt?.semanticFingerprint?:"NO-RECEIPT"}"
     }
 }
+
+internal fun directorHistoryGeneration(contextVersion:String):String?=
+    contextVersion.takeIf{it.startsWith("DIRECTOR-CONTEXT|")}?.split('|')?.getOrNull(1)?.takeIf(String::isNotBlank)
 
 private fun collectProjectedUids(value:Any?,target:MutableSet<String>,key:String?=null){
     when(value){

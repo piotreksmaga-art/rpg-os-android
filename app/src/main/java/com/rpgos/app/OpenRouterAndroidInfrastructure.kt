@@ -220,6 +220,7 @@ class OpenRouterHttpClient(
         AiWorkload.INTENT_INTERPRETATION,AiWorkload.GM_PROPOSAL,AiWorkload.PROPOSAL_REPAIR,AiWorkload.CHARACTER_CREATION->0.1
         AiWorkload.NARRATIVE_RENDER,AiWorkload.NARRATIVE_REPAIR->0.7
         AiWorkload.DIRECTOR_STRATEGY->0.6
+        AiWorkload.MEMORY_ENRICHMENT->0.2
     }
     private fun systemInstruction(workload:AiWorkload)="""
         You are a bounded RPG OS ${workload.name} adapter. Return exactly one JSON object matching the schema in the request.

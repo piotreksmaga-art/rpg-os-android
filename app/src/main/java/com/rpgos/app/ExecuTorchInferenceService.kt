@@ -9,7 +9,9 @@ import android.os.Bundle
 import android.os.DeadObjectException
 import android.os.IBinder
 import android.os.RemoteException
+import java.io.File
 import java.security.MessageDigest
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -32,7 +34,7 @@ class ExecuTorchInferenceService:Service(){
                 val intentCompact=prompt.contains("\"v\":\"RPGOS_INTENT_LOCAL_7\"")
                 val intentParsing=intentRoles||intentNamed||intentCompact||intentRows||prompt.contains("\"v\":\"RPGOS_INTENT_LOCAL_1\"")||prompt.contains("\"v\":\"RPGOS_INTENT_LOCAL_2\"")||prompt.contains("\"v\":\"RPGOS_INTENT_LOCAL_3\"")||prompt.contains("\"v\":\"RPGOS_INTENT_LOCAL_4\"")||prompt.contains("\"v\":\"RPGOS_INTENT_LOCAL_5\"")
                 val config=org.pytorch.executorch.extension.llm.LlmModuleConfig.create()
-                    .modulePath(modelPath).tokenizerPath(tokenizerPath).temperature(0.1f)
+                    .modulePath(modelPath).tokenizerPath(streamingTokenizerPath(tokenizerPath)).temperature(0.1f)
                     // ExecuTorch Android 1.3.0 initializes dataPath to an empty string. LlmModule
                     // treats every non-null value as an external metadata shard and attempts to
                     // open it; the empty path then aborts inside fbjni before Kotlin can recover.
@@ -78,10 +80,48 @@ class ExecuTorchInferenceService:Service(){
         override fun cancelGeneration(){activeModule?.stop()}
     }
     override fun onBind(intent:Intent?):IBinder=binder
+
+    /**
+     * The Hugging Face tokenizer shipped with Bielik decodes a complete token sequence by first
+     * replacing the metaspace marker with a normal space, fusing all pieces, and finally stripping
+     * the one artificial leading space. ExecuTorch's Android callback decodes and emits one token
+     * at a time. Applying that final Strip to every callback token removes every word boundary.
+     *
+     * Keep the verified installed tokenizer immutable and materialize a content-addressed cache
+     * copy without only that sequence-level Strip operation. The cache is rebuildable and has no
+     * model or campaign authority.
+     */
+    private fun streamingTokenizerPath(tokenizerPath:String):String{
+        val source=File(tokenizerPath)
+        if(!source.isFile||!source.name.endsWith(".json",true))return tokenizerPath
+        val sourceSha=MessageDigest.getInstance("SHA-256").let{digest->
+            source.inputStream().buffered().use{input->
+                val buffer=ByteArray(DEFAULT_BUFFER_SIZE)
+                while(true){val read=input.read(buffer);if(read<0)break;digest.update(buffer,0,read)}
+            }
+            digest.digest().joinToString(""){"%02x".format(it)}
+        }
+        val directory=File(cacheDir,"executorch-streaming-tokenizers").apply{mkdirs()}
+        val target=File(directory,"$sourceSha.json")
+        if(target.isFile&&target.length()>0L)return target.absolutePath
+        val adjusted=normalizeStreamingTokenizerJson(source.readText())?:return tokenizerPath
+        synchronized(ExecuTorchInferenceService::class.java){
+            if(target.isFile&&target.length()>0L)return target.absolutePath
+            val temporary=File(directory,".$sourceSha-${UUID.randomUUID()}.tmp")
+            temporary.writeText(adjusted)
+            if(!temporary.renameTo(target)){
+                temporary.delete()
+                require(target.isFile&&target.length()>0L){"EXECUTORCH_STREAMING_TOKENIZER_INSTALL_FAILED"}
+            }
+        }
+        return target.absolutePath
+    }
+
     companion object{
         const val KEY_SUCCESS="success";const val KEY_OUTPUT="output";const val KEY_TOKENS="tokens";const val KEY_TRACE="trace";const val KEY_REASON="reason"
         private fun digest(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString(""){"%02x".format(it)}
         internal fun structuredSeed(payload:String):String=when{
+            payload.contains("\"v\":\"RPGOS_DIRECTOR_LOCAL_1\"")->"{\"kind\":\""
             payload.contains("\"v\":\"RPGOS_CC_LOCAL_1\"")->characterCreationSeed(payload)
             payload.contains("\"v\":\"RPGOS_NARRATIVE_LOCAL_1\"")||payload.contains("\"v\":\"RPGOS_NARRATIVE_LOCAL_REPAIR_1\"")->"{\"t\":\""
             payload.contains("\"v\":\"RPGOS_GM_LOCAL_1\"")||payload.contains("\"v\":\"RPGOS_GM_LOCAL_REPAIR_1\"")->"{\"n\":["
@@ -104,6 +144,12 @@ class ExecuTorchInferenceService:Service(){
             }
         }
         internal fun bielikChatPrompt(payload:String):String{
+            if(payload.contains("\"v\":\"RPGOS_DIRECTOR_LOCAL_1\"")){
+                val root=org.json.JSONObject(payload)
+                val context=root.getJSONArray("context").let{a->(0 until a.length()).joinToString("\n"){a.getString(it)}}
+                val kinds=root.getJSONArray("kinds").let{a->(0 until a.length()).joinToString(","){a.getString(it)}}
+                return "<|im_start|>system\nZaproponuj dalszy kierunek opowieści. Nie opisuj go jako faktu. Tylko krótki JSON po polsku.<|im_end|>\n<|im_start|>user\nKontekst:\n$context\nDokończ JSON o trzech polach: kind, title, summary. kind wybierz z: $kinds. title to tytuł, summary to jedno zdanie propozycji. Nie przepisuj kontekstu.<|im_end|>\n<|im_start|>assistant\n{\"kind\":\""
+            }
             if(payload.contains("\"v\":\"RPGOS_INTENT_LOCAL_9\"")){
                 val root=org.json.JSONObject(payload)
                 val rawInput=root.optString("u")
@@ -287,6 +333,27 @@ Zwróć wyłącznie JSON zgodny z kontraktem i zakończ na pierwszym domkniętym
         }
         internal fun bielikPlainOutput(value:String):String=value.trim().removePrefix("<|im_start|>assistant")
             .substringBefore("<|im_end|>").substringBefore("</s>").trim()
+        internal fun normalizeStreamingTokenizerJson(value:String):String?{
+            val root=runCatching{org.json.JSONObject(value)}.getOrNull()?:return null
+            val decoder=root.optJSONObject("decoder")?.takeIf{it.optString("type")=="Sequence"}?:return null
+            val decoders=decoder.optJSONArray("decoders")?:return null
+            val entries=(0 until decoders.length()).mapNotNull(decoders::optJSONObject)
+            val restoresMetaspace=entries.any{entry->
+                entry.optString("type")=="Replace"&&entry.optJSONObject("pattern")?.optString("String")=="▁"&&entry.optString("content")==" "
+            }
+            val fusesPieces=entries.any{it.optString("type")=="Fuse"}
+            if(!restoresMetaspace||!fusesPieces)return null
+            var removed=false
+            val streaming=org.json.JSONArray()
+            entries.forEach{entry->
+                val sequenceLevelLeadingStrip=entry.optString("type")=="Strip"&&entry.optString("content")==" "&&
+                    entry.optInt("start",0)>0&&entry.optInt("stop",0)==0
+                if(sequenceLevelLeadingStrip)removed=true else streaming.put(entry)
+            }
+            if(!removed)return null
+            decoder.put("decoders",streaming)
+            return root.toString()
+        }
         /** Recovers only fully closed step objects when a small model reaches its token ceiling.
          * Incomplete trailing text is discarded; every recovered phrase is still grounded by Core. */
         internal fun recoverNamedIntentSteps(value:String):String?{
@@ -360,7 +427,7 @@ class IsolatedExecuTorchLocalInferenceDriver(private val context:Context):LocalI
             // A real Bielik 1.5B draft reached the former 320-token ceiling at token 319 and was
             // consequently rejected as truncated JSON. 512 still fits the shipped 2k context
             // with the bounded creator prompt while leaving enough room for one compact R draft.
-            val outputLimit=if(prompt.contains("\"v\":\"RPGOS_CC_LOCAL_1\""))minOf(maximumOutputUnits,512) else maximumOutputUnits
+            val outputLimit=if(prompt.contains("\"v\":\"RPGOS_CC_LOCAL_1\"")||prompt.contains("\"v\":\"RPGOS_DIRECTOR_LOCAL_1\""))minOf(maximumOutputUnits,512) else maximumOutputUnits
             val result=service.generate(
                 typed.artifact.absolutePath,requireNotNull(typed.artifact.tokenizerAbsolutePath),typed.settings.contextUnits,
                 prompt,outputLimit

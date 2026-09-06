@@ -12,8 +12,8 @@ android {
         applicationId = "com.rpgos.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 157
-        versionName = "1.3.0-alpha17-core54-bekko"
+        versionCode = 158
+        versionName = "1.3.0-alpha18-memory59"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "RPGOS_BACKEND_URL", "\"https://YOUR-BACKEND.example\"")
         buildConfigField(
@@ -69,6 +69,12 @@ android {
             matchingFallbacks += listOf("debug")
             versionNameSuffix = "-lab"
             isDebuggable = true
+            // Device acceptance can coexist with a differently signed lab APK already
+            // installed on a developer phone. The suffix is opt-in and never affects
+            // normal debug, labDebug, release, or the public update identity.
+            if (providers.gradleProperty("rpgosDeviceAcceptance").orNull == "true") {
+                applicationIdSuffix = ".acceptance"
+            }
         }
         getByName("release") {
             isMinifyEnabled = false

@@ -557,7 +557,7 @@ System rozróżnia co najmniej:
 - `TYPED_PLAYER_COMMAND` — ręcznie wpisana/wybrana przez użytkownika decyzja;
 - `SUGGESTED_PLAYER_COMMAND` — kandydat wygenerowany przez AI, który staje się PlayerCommand dopiero po jawnym kliknięciu/wyborze użytkownika;
 - `CONTINUE_COMMAND` — jawna decyzja użytkownika, by nie tworzyć teraz nowej wolitywnej akcji i pozwolić światu/NPC/już zatwierdzonym procesom działać do następnego Player Decision Point;
-- `UNDO_REQUEST` — jawne żądanie rekonstrukcji/branchingu do wcześniejszej committed granicy;
+- `UNDO_REQUEST` — jawne żądanie preview cofnięcia do wcześniejszej committed granicy;
 - `MECHANICAL CONSEQUENCE` — skutek niezależny od woli;
 - `NARRATIVE DESCRIPTION` — prezentacja, bez authority.
 
@@ -576,14 +576,14 @@ Tryb `ASSISTED` może automatycznie wyświetlać sugestie po każdej turze, lecz
 Living World/GM musi zatrzymać auto-advance przy `PLAYER DECISION POINT` — chwili, gdy dalszy istotny przebieg wymaga nowej dobrowolnej decyzji gracza. `Meaningful Interruption Policy` może uwzględniać significance/threat/opportunity/irreversibility, ale nie może służyć do pomijania ważnych wyborów PC. Soft stop powinien nastąpić przed znaczącą, nieautoryzowaną decyzją lub nieodwracalną konsekwencją zależną od woli PC.
 
 #### Undo / rewind
-`UNDO_REQUEST` nigdy nie jest pojedynczym przypadkowym write. `UNDO CONFIRMATION INVARIANT`: cofnięcie committed tury wymaga oddzielnego, świadomego potwierdzenia użytkownika po pierwszym żądaniu. Potwierdzenie powinno pokazać przynajmniej identyfikowalną ostatnią decyzję/granicę, która zostanie cofnięta.
+`UNDO_REQUEST` nigdy nie wykonuje pojedynczych SQL-level write. `UNDO CONFIRMATION INVARIANT` ma dwustopniowy przebieg: `UndoRequest` -> `UndoPreview` -> osobne potwierdzenie.
 
-Undo działa na pełnej canonical granicy tury/branch/reconstruction, nie przez ręczne odwracanie kilku rekordów. Musi cofnąć spójnie world state, knowledge, NPC reactions, resources, ownership, relations, events i inne skutki tej linii. Preferowany model zachowuje porzuconą przyszłość jako branch/evidence zamiast destrukcyjnego kasowania Event history. Większe cofnięcie z historii tur wymaga jeszcze wyraźniejszego potwierdzenia.
+Obecny model `Undo` odtwarza pełny stan na granicy wcześniej zapisanego commita (w praktyce ostatniej committed tury), a następnie wykonuje atomową podmianę aktywnej bazy po replay/odczycie stagingu + weryfikacji digesta. Nie tworzy branchingu ani alternatywnych linii historii dla aktywnej gry. Większe rewindy wymagają dalszych rozszerzeń poza ten release.
 
 #### UX simplicity
 `COMPLEXITY BELONGS IN THE ENGINE, NOT IN THE PLAYER INTERACTION SURFACE`.
 
-Domyślna powierzchnia może ograniczać się do pola tekstowego oraz trzech akcji: `Cofnij`, `Kontynuuj`, `Sugestie`. Zaawansowane funkcje — historia tur, branching, knowledge view, goals, debug/advanced assistance — powinny być schowane za progressive disclosure/menu i nie zaśmiecać głównego ekranu. Maksymalna liczba jednocześnie prezentowanych sugestii powinna pozostać mała, domyślnie trzy.
+Domyślna powierzchnia może ograniczać się do pola tekstowego oraz trzech akcji: `Cofnij`, `Kontynuuj`, `Sugestie`. Zaawansowane funkcje — historia tur, knowledge view, goals, debug/advanced assistance — powinny być schowane za progressive disclosure/menu i nie zaśmiecać głównego ekranu. Maksymalna liczba jednocześnie prezentowanych sugestii powinna pozostać mała, domyślnie trzy.
 
 UI może oferować `Co się dzieje?`/situation recap, ale podsumowanie dla gracza/PC musi respektować Phase 37/38 visibility i nie ujawniać GM/internal secrets.
 
@@ -765,9 +765,76 @@ Docelowy przykład legalny: gracz kończy grę magiem, tworzy wiedźmina w tym s
 ## 16. Memory i Chronicle
 Trwała pamięć kampanii należy do RPG OS, nie do modelu/provider/runtime/KV/session cache.
 
+Szczegółowy kontrakt etapów 55–59: [docs/architecture/PHASE55_59_MEMORY.md](/docs/architecture/PHASE55_59_MEMORY.md)
+
 Główne poziomy: Working, Episodic, Semantic Campaign Memory. Consolidation nie może opierać się na recursive summary-of-summary; Event history pozostaje historycznym źródłem.
 
 Chronicle jest czytelną projekcją committed structured reality, nie source of truth.
+
+### 16.1 Fazy 55–59 — Memory/Consolidation/Retrieval/Undo
+
+Faza 55–59 działa pod następującym modelem własności:
+
+- **RPG OS** jest właścicielem pamięci (durable + derived) oraz jej lifecycle;
+- **Phase37** pozostaje jedynym właścicielem holder knowledge (nauka, doświadczenie, beliefs, evidence history);
+- **AI/Bielik/OpenRouter/lokalne GGUF** nie posiadają durable ownership; ich wyjście to prezentacja/kandydat;
+- **Bekko** pozostaje search/match/rank helperem i nie tworzy FACT, RELATIONSHIP, CAUSAL authority ani zmian świata.
+
+#### Kontrakt pamięci
+
+- `WorkingMemoryScope` buduje working set z kanałów wejściowych i boundary z `Phase38/39/45`.
+- Episode pipeline rozdziela zdarzenia na: `EpisodeManifest`, `EpisodeInterpretation`, `HolderEpisodeMemory`.
+- Segmentacja jest deterministyczna, nie może nakładać epizodów i jest ograniczona do: max `20` tur albo max `128` eventów per porcja.
+- Holder/semantic wyprowadzania korzystają wyłącznie z legalnych `acquisition`/`evidence` z Phase37; brak twardego `closed world` domyślnie oznacza brak wnioskowania z braku danych.
+- `SemanticMemoryAssertion` zawiera typowany `polarity`, `epistemicKind`, `temporalValidity`, `lifeCycle`, `support` i `contradictionLineage`.
+- Derived memory/artifacts są trwałe, ale rebuildable i **nie wpływają na canonical hash**.
+
+#### Phase58 — Konsolidacja
+
+- `ConsolidationReceipt` + `watermark` + `resumeState` zapewniają idempotency i odporność na crash/retry.
+- Konsolidacja pracuje porcjami z limitem bezpieczeństwa: do `256` leaves na porcję i maks. okno czasu ~`500 ms` na asynchroniczny cykl.
+- Uruchomienia: bez cyklicznego WorkManagera, wyłącznie: `post-commit` i `open campaign`.
+- Wdrożony workload to `MEMORY_ENRICHMENT`; asynchroniczny AI może produkować tylko tytuł/opis/tagi, nigdy nie może blokować tury ani commit.
+- Po awarii/rebuildzie system odtwarza stan przez marker/replay i domyka luka przy otwarciu kampanii.
+- Porcja konsolidacji działa pod tą samą procesową bramką semantic-runtime co indeks. Destrukcyjna
+  podmiana storage czeka na zakończenie Phase58, a po zwolnieniu bramki worker ponownie sprawdza
+  `HistoryGenerationUid`; stare zadanie nie może pisać do DB/WAL/SHM podczas `undo`.
+
+#### Phase59 — Retrieval i index policy
+
+- Indeks per-kampania utrzymuje metadane (`principal`, `holderFingerprint`, `purpose`, `activePlayer`, `policyVersion`, `HistoryGenerationUid`) i jest per-jednostkowo rebuildable/cache.
+- Wynik wyszukiwania zwraca `canonical UID` + typed score + diagnostyczny chunk evidence; każdorazowo następuje rehydratacja z aktualnego canonical ownera.
+- Rekonstrukcja wyniku obejmuje walidacje as-of, source version, `Phase38 access`, `Phase45 budget`.
+- Błąd „wszystkie trafienia jako PROJECTED_FACT” został zamknięty — as-of i lineage decydują o typie odpowiedzi.
+- Priorytet: `REQUIRED` i `SAFETY` jest rozstrzygający przed score vektora; `REQUIRED/SAFETY` z semantyki weryfikacyjne mają pierwszeństwo.
+- Przełączenie CPU/Vulkan jest procesową transakcją konfiguracji: wszystkie instancje Bekko
+  (UI, Bridge, Director) przeładowują ustawienia i zamykają współdzielony natywny runtime przed
+  ponownym otwarciem. Nie wolno utrzymywać równocześnie dwóch backendów tego samego modelu.
+- Dzierżawa semantic-runtime obejmuje całe `embedding -> ranking -> canonical rehydration`, a nie
+  tylko pobranie referencji do runtime. Pula modelu używa współbieżnych read-lease dla aktywnych
+  operacji i wyłącznego write-lease dla ostatniego `close`; wyrejestrowanie instancji oraz zamknięcie
+  jej SQLite/RAF/JNI są atomowe względem przejścia storage/konfiguracji. Sprawiedliwa bramka
+  read/write najpierw zatrzymuje napływ nowych czytelników i wysyła `cancel(requestUid)` do aktywnego
+  embeddingu, a następnie oczekuje na wyłączny zapis; anulowanie jest ponawiane, jeżeli runtime
+  opublikował się w trakcie inicjalizacji. Zamknięta aplikacja semantyczna jest terminalna i retained
+  consumer port nie może jej ponownie otworzyć. Potencjalnie blokujące ustawienia/remove/close są
+  wykonywane poza głównym wątkiem Androida, terminalność jest ustawiana synchronicznie w
+  `onCleared()`, a executor konsolidacji repozytorium jest domykany. Każdy pooled lease przestrzenia
+  request UID własnym identyfikatorem, dlatego UI, Bridge i Director nie mogą wzajemnie anulować
+  deterministycznie tak samo nazwanych requestów. Aktualizacje pojedynczych pól ustawień są scalane
+  dopiero wewnątrz procesowej transakcji konfiguracji, bez lost update.
+- Kompaktowanie wektorów działa również przy wielu otwartych indeksach: globalna blokada,
+  crash-marker oraz transakcyjna zmiana offsetów chronią przed odczytem częściowo przeniesionych
+  danych; przerwany sidecar jest rebuildable i zostaje wyczyszczony.
+- Po `undo` per-campaign sidecar indeksu jest fizycznie usuwany (metadata SQLite i wektory),
+  po czym odbudowuje się dla nowego `HistoryGenerationUid`. Cofnięta historia nie zajmuje dalej
+  pamięci ani dysku indeksu; ręczne backupy pozostają nietknięte.
+
+#### Undo i lifecycle derived
+
+- `Undo` w zakresie wdrożenia odtwarza tylko ostatni committed stan i wykonuje **bezzwrotną** atomową podmianę aktywnej bazy po weryfikacji replay/digesta.
+- Po udanym cofnięciu `HistoryGenerationUid` zmienia się i unieważnia aktywność starych derived/legacy tasków konsolidacji oraz index jobów.
+- Manualne backupy użytkownika pozostają nietknięte.
 
 ## 17. Validation, Counterfactual Guard i Repair
 Consistency/Invariant validators sprawdzają odpowiednie dla operacji canon/divergence, timeline, NPC knowledge, stats/resources, inventory/ownership/location, causality, projects i World Pack legality.

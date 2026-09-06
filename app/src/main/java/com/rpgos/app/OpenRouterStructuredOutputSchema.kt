@@ -24,6 +24,7 @@ object OpenRouterStructuredOutputSchema {
         AiWorkload.NARRATIVE_RENDER,AiWorkload.NARRATIVE_REPAIR->narrative()
         AiWorkload.CHARACTER_CREATION->characterCreation()
         AiWorkload.DIRECTOR_STRATEGY->director()
+        AiWorkload.MEMORY_ENRICHMENT->memoryEnrichment()
     }
 
     private fun intent():JSONObject = obj(linkedMapOf(
@@ -141,6 +142,10 @@ object OpenRouterStructuredOutputSchema {
             "direct_mutation_payload" to nullSchema()
         ))),
         "created_against_fingerprint" to text()
+    ))
+
+    private fun memoryEnrichment():JSONObject=obj(linkedMapOf(
+        "schema_version" to integer(),"title" to text(),"summary" to text(),"tags" to stringArray()
     ))
 
     private fun directive()=obj(linkedMapOf(

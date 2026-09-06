@@ -397,6 +397,13 @@ class KnownGameEngineRegressionTest {
         )
         assertTrue("Provider cannot clear a surface agency violation with vol=false",
             NarrativeValidator().validate(firstPerson,context,"Czekam spokojnie przez chwilę.").reasonUids.contains("NARRATIVE_INVENTED_PLAYER_VOLITION"))
+        val mirroredFirstPersonWithNasalEnding=codec.decodeNarrative(
+            """{"t":"Wchodzę do sali Akademii i witam nauczyciela.","vol":false}""",
+            request.copy(playerInput="Wchodzę do sali Akademii i witam nauczyciela.")
+        )
+        assertTrue(NarrativeValidator().validate(
+            mirroredFirstPersonWithNasalEnding,context,"Wchodzę do sali Akademii i witam nauczyciela."
+        ).reasonUids.contains("NARRATIVE_INVENTED_PLAYER_VOLITION"))
         val addedAction=codec.decodeNarrative(
             """{"t":"Rozglądasz się uważnie po poligonie, szukając dogodnego miejsca do ćwiczeń.","vol":false}""",request
         )

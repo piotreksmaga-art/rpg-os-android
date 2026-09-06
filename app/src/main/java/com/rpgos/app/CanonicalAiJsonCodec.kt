@@ -78,6 +78,7 @@ class CanonicalAiJsonCodec:AiStructuredCodec{
             .put("allowed_effect_kind_uids",JSONArray(allowedProposalEffectKinds(request.plan,step)))
             .put("dependencies",JSONArray(step.dependencyNodeUids))}))
         .put("projected_context",encodeContext(request.context))
+        .put("working_memory",request.workingMemory?.let(::encodeWorkingMemory)?:JSONObject.NULL)
         .put("strategic_guidance",request.strategicGuidance?.let(::encodeDirectorGuidance)?:JSONObject.NULL)
         .put("requirements",JSONArray(listOf(
             "Proposal is not reality and cannot commit","Preserve actor/action/target/modality/player agency",
@@ -385,6 +386,21 @@ class CanonicalAiJsonCodec:AiStructuredCodec{
             .put("tone_hint_uids",JSONArray(candidate.narrativeBlueprint.toneHintUids)).put("stop_point_uid",candidate.narrativeBlueprint.stopPointUid)
             .put("forbidden_disclosure_uids",JSONArray(candidate.narrativeBlueprint.forbiddenDisclosureUids)))
 
+    private fun encodeWorkingMemory(memory:WorkingMemorySnapshot)=JSONObject()
+        .put("history_generation_uid",memory.scope.historyGenerationUid.value)
+        .put("audience_kind_uid",memory.scope.audienceKindUid)
+        .put("principal_uid",memory.scope.principalUid)
+        .put("purpose_uid",memory.scope.purposeUid)
+        .put("as_of_committed_order",memory.scope.asOfCommittedOrder)
+        .put("access_policy_version",memory.scope.accessPolicyVersion)
+        .put("source_fingerprint",memory.sourceFingerprint)
+        .put("records",JSONArray(memory.records.map{record->JSONObject()
+            .put("record_uid",record.canonicalRecordUid)
+            .put("epistemic_state_uid",record.sourceEpistemicStateUid)
+            .put("projection_boundary_uid",record.projectionBoundaryUid)
+            .put("query_relevance",record.relevance.value)
+            .put("pinned",record.pinned)}))
+
     private fun strictObject(payload:String):JSONObject{
         val trimmed=payload.trim();require(trimmed.startsWith('{')&&trimmed.endsWith('}'))
         return JSONObject(trimmed)
@@ -399,6 +415,8 @@ class CanonicalAiJsonCodec:AiStructuredCodec{
 class LocalCompactAiJsonCodec(
     private val canonical:CanonicalAiJsonCodec=CanonicalAiJsonCodec()
 ):AiStructuredCodec by canonical{
+    override fun encodeDirector(request:AiDirectorRequest)=LocalDirectorCodec.encode(request)
+    override fun decodeDirector(payload:String,request:AiDirectorRequest)=LocalDirectorCodec.decode(payload,request)
     override fun encodeIntent(request:AiIntentRequest)=JSONObject()
         .put("v","RPGOS_INTENT_LOCAL_9").put("u",request.rawInput).put("locale",request.localeUid)
         .put("segments",JSONArray(localIntentSegments(request.rawInput)))
@@ -875,7 +893,9 @@ class LocalCompactAiJsonCodec(
                 .put("targets",JSONArray(targets.map{JSONObject().put("k",it.kindUid).put("u",it.uid)}))
                 .put("owner",step.mechanicsOwnerUid?:JSONObject.NULL).put("effect",step.sideEffectClass?.name?:"NONE")
         })
+        val workingOrder=request.workingMemory?.records?.mapIndexed{index,record->record.canonicalRecordUid to index}?.toMap().orEmpty()
         val records=request.context.includedSegments.flatMap{segment->segment.records}.distinctBy{it.record.recordUid}
+            .sortedWith(compareBy<CanonicalContextRecord>{workingOrder[it.record.recordUid]?:Int.MAX_VALUE}.thenBy{it.record.recordUid})
         val authoritative=records.filter{it.record.values["candidate_only"]!=true}
         val rankedCandidates=records.filter{it.record.values["candidate_only"]==true}
             .sortedWith(compareByDescending<CanonicalContextRecord>{(it.record.values["semantic_score"] as? Number)?.toDouble()?:-1.0}
@@ -1168,6 +1188,7 @@ class LocalCompactAiJsonCodec(
             .split(Regex("[^\\p{L}\\p{N}]+"))
             .filter{it.length>=4}
         val playerWords=matchWords(latestPlayerText)
+        val academyStudentRequested=Regex("(?iu)akadem|academy").containsMatchIn(latestPlayerText)
         fun explicitPlayerScore(option:CharacterCreationDefinitionOption):Int{
             if(section(option.kind) !in playerRequestedSections)return 0
             val optionWords=matchWords("${option.definitionUid} ${option.displayName}")
@@ -1194,6 +1215,18 @@ class LocalCompactAiJsonCodec(
             if(playerExplicit.isNotEmpty())return playerExplicit
             val explicit=legal.filter{it.definitionUid in requested}.take(maximum)
             if(explicit.isNotEmpty())return explicit
+            // A random draft must still respect the role explicitly requested by the player.
+            // World Packs identify beginner/academy techniques in their canonical UID or label;
+            // prefer that legal subset for an Academy student instead of sampling legendary
+            // techniques from the entire catalog. If a generic pack exposes no such metadata,
+            // keep the deterministic full-catalog fallback rather than inventing compatibility.
+            if(random&&academyStudentRequested&&kind==CharacterCreationDefinitionKind.TECHNIQUE){
+                val roleCompatible=legal.filter{option->
+                    val searchable="${option.definitionUid} ${option.displayName}"
+                    Regex("(?iu)academy|akadem").containsMatchIn(searchable)
+                }
+                if(roleCompatible.isNotEmpty())return listOf(roleCompatible[randomIndex(kind,roleCompatible.size)])
+            }
             if(random&&legal.isNotEmpty())return listOf(legal[randomIndex(kind,legal.size)])
             val projected=ranked(kind).take(maximum)
             return if(projected.isNotEmpty()||!required)projected else legal.firstOrNull()?.let(::listOf).orEmpty()

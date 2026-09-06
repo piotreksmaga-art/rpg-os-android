@@ -65,6 +65,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "CharacterCreationDefinitionBootstrap.kt",
             "CanonicalPackageReplacement.kt",
             "ContentUpdateManager.kt",
+            "DestructiveTurnUndo.kt",
             "FilePickerBridge.kt",
             "LocalGameStore.kt",
             "MigrationManager.kt",
@@ -99,8 +100,11 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         put("OpenRouterAndroidInfrastructure.kt", WriterClass.EXTERNAL_AI_CONFIGURATION)
         put("BekkoModelManager.kt", WriterClass.EXTERNAL_AI_CONFIGURATION)
         put("BekkoSemanticApplication.kt", WriterClass.CACHE_REBUILDABLE)
+        put("ExecuTorchInferenceService.kt", WriterClass.CACHE_REBUILDABLE)
         put("SemanticSidecarIndex.kt", WriterClass.CACHE_REBUILDABLE)
         put("CampaignWorldProjectionStore.kt", WriterClass.CACHE_REBUILDABLE)
+        put("Phase55To58Memory.kt", WriterClass.CACHE_REBUILDABLE)
+        put("Phase58MemoryConsolidation.kt", WriterClass.CACHE_REBUILDABLE)
     }
 
     private val durableWriteMarkers = listOf(

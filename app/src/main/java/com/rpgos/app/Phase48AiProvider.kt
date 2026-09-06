@@ -7,7 +7,8 @@ enum class AiWorkload {
     NARRATIVE_RENDER,
     NARRATIVE_REPAIR,
     CHARACTER_CREATION,
-    DIRECTOR_STRATEGY
+    DIRECTOR_STRATEGY,
+    MEMORY_ENRICHMENT
 }
 enum class AiProviderKind { LOCAL, CLOUD, CONTROLLED_TEST }
 enum class AiProviderFailureKind { CANCELLED, UNAVAILABLE, TIMEOUT, INVALID_STRUCTURED_OUTPUT, CAPABILITY_MISMATCH, INTERNAL_FAILURE }
@@ -59,11 +60,17 @@ data class AiGmProposalRequest(
     val plan:CanonicalTurnPlan,
     val context:BudgetedCanonicalContext,
     val strategicGuidance:DirectorGuidanceEnvelope?=null,
+    val workingMemory:WorkingMemorySnapshot?=null,
     val proposalSchemaVersion:Int=1
 ){init{
     require(requestUid.isNotBlank()&&proposalSchemaVersion>0)
     require(context.candidate.plan.planUid==plan.planUid&&context.safeForAi){"RPGOS-P48:UNSAFE_CONTEXT"}
     strategicGuidance?.let{require(it.campaignUid==plan.campaignUid){"RPGOS-P48:DIRECTOR_GUIDANCE_CROSS_CAMPAIGN"}}
+    workingMemory?.let{
+        require(it.scope.campaignUid==plan.campaignUid){"RPGOS-P48:WORKING_MEMORY_CROSS_CAMPAIGN"}
+        val authorized=context.includedSegments.flatMap{segment->segment.records}.mapTo(hashSetOf()){entry->entry.record.recordUid}
+        require(it.records.all{record->record.canonicalRecordUid in authorized}){"RPGOS-P48:WORKING_MEMORY_OUTSIDE_AUTHORIZED_CONTEXT"}
+    }
 }}
 
 data class AiRepairRequest(
@@ -123,6 +130,8 @@ interface AiProvider{
         AiProviderResult.Failure(AiProviderFailureKind.CAPABILITY_MISMATCH,"CHARACTER_CREATION_UNSUPPORTED")
     fun generateDirector(request:AiDirectorRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<DirectorBundle> =
         AiProviderResult.Failure(AiProviderFailureKind.CAPABILITY_MISMATCH,"DIRECTOR_STRATEGY_UNSUPPORTED")
+    fun enrichMemory(request:MemoryEnrichmentRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<MemoryEnrichmentResult.Success> =
+        AiProviderResult.Failure(AiProviderFailureKind.CAPABILITY_MISMATCH,"MEMORY_ENRICHMENT_UNSUPPORTED")
     fun cancel(requestUid:String)
 }
 
@@ -180,6 +189,9 @@ interface AiStructuredCodec{
         decodeCharacterCreation(payload)
     fun encodeDirector(request:AiDirectorRequest):String
     fun decodeDirector(payload:String):DirectorBundle
+    fun decodeDirector(payload:String,request:AiDirectorRequest):DirectorBundle=decodeDirector(payload)
+    fun encodeMemoryEnrichment(request:MemoryEnrichmentRequest):String=encodeMemoryEnrichmentRequest(request)
+    fun decodeMemoryEnrichment(payload:String):MemoryEnrichmentResult.Success=decodeMemoryEnrichmentPresentation(payload)
 }
 
 /** Production-ready adapter seam: adding a model requires transport + codec + registration, not Core changes. */
@@ -218,7 +230,11 @@ class TransportAiProviderAdapter(
     )
     override fun generateDirector(request:AiDirectorRequest,cancellation:AiCancellationSignal)=call(
         request.requestUid,AiWorkload.DIRECTOR_STRATEGY,DIRECTOR_BUNDLE_SCHEMA_VERSION,codec.encodeDirector(request),cancellation,
-        {payload->codec.decodeDirector(payload).copy(providerUid=capabilities.providerUid,modelUid=capabilities.modelUid)}
+        {payload->codec.decodeDirector(payload,request).copy(providerUid=capabilities.providerUid,modelUid=capabilities.modelUid)}
+    )
+    override fun enrichMemory(request:MemoryEnrichmentRequest,cancellation:AiCancellationSignal)=call(
+        request.requestUid,AiWorkload.MEMORY_ENRICHMENT,1,codec.encodeMemoryEnrichment(request),cancellation,
+        codec::decodeMemoryEnrichment
     )
     override fun cancel(requestUid:String){require(requestUid.isNotBlank());cancellationHook(requestUid)}
 
@@ -233,7 +249,7 @@ class TransportAiProviderAdapter(
         return try{
             val decoded=decode(response.value.structuredPayload)
             AiProviderResult.Success(decoded,capabilities.providerUid,capabilities.modelUid,response.value.traceUid)
-        }catch(_:RuntimeException){
+        }catch(_:Exception){
             AiProviderResult.Failure(AiProviderFailureKind.INVALID_STRUCTURED_OUTPUT,"STRUCTURED_OUTPUT_DECODE_REJECTED")
         }
     }
@@ -248,7 +264,8 @@ class DeterministicAiProvider(
     private val narrativeFunction:(AiNarrativeRequest)->RenderedNarrative,
     private val narrativeRepairFunction:(AiNarrativeRepairRequest)->RenderedNarrative={narrativeFunction(it.original)},
     private val directorFunction:(AiDirectorRequest)->DirectorBundle={throw IllegalArgumentException("DIRECTOR_NOT_CONFIGURED")},
-    private val characterCreationFunction:(AiCharacterCreationRequest)->CharacterCreationGmCandidate={throw IllegalArgumentException("CHARACTER_CREATION_NOT_CONFIGURED")}
+    private val characterCreationFunction:(AiCharacterCreationRequest)->CharacterCreationGmCandidate={throw IllegalArgumentException("CHARACTER_CREATION_NOT_CONFIGURED")},
+    private val memoryEnrichmentFunction:(MemoryEnrichmentRequest)->MemoryEnrichmentResult.Success={throw IllegalArgumentException("MEMORY_ENRICHMENT_NOT_CONFIGURED")}
 ):AiProvider{
     override fun interpret(request:AiIntentRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){intentFunction(request)}
     override fun propose(request:AiGmProposalRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){proposalFunction(request)}
@@ -257,6 +274,7 @@ class DeterministicAiProvider(
     override fun repairNarrative(request:AiNarrativeRepairRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){narrativeRepairFunction(request)}
     override fun guideCharacterCreation(request:AiCharacterCreationRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){characterCreationFunction(request)}
     override fun generateDirector(request:AiDirectorRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){directorFunction(request)}
+    override fun enrichMemory(request:MemoryEnrichmentRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){memoryEnrichmentFunction(request)}
     override fun cancel(requestUid:String)=Unit
     private fun <T> invoke(requestUid:String,cancellation:AiCancellationSignal,block:()->T):AiProviderResult<T>{
         if(cancellation.isCancelled())return AiProviderResult.Failure(AiProviderFailureKind.CANCELLED,"CANCELLED")

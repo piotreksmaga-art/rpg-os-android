@@ -2247,6 +2247,16 @@ private fun PackagesScreen(vm:RpgOsViewModel){
         )
     }
 
+    recoveryUi.undoPreview?.let{preview->
+        AlertDialog(
+            onDismissRequest=vm::cancelUndoPreview,
+            title={Text("Bezpowrotnie cofnąć ostatnią turę?")},
+            text={Text("Z aktywnej kampanii zostanie usunięta tura z commita ${preview.currentCommitOrder}. Silnik odtworzy i zweryfikuje stan do commita ${preview.targetCommitOrder}. Ręczne backupy pozostaną nienaruszone.")},
+            confirmButton={TextButton(onClick=vm::confirmUndoLastTurn){Text("Cofnij turę",color=MaterialTheme.colorScheme.error)}},
+            dismissButton={TextButton(onClick=vm::cancelUndoPreview){Text("Anuluj")}}
+        )
+    }
+
     GradientScreen {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -2494,6 +2504,19 @@ private fun PackagesScreen(vm:RpgOsViewModel){
                     )
                 }
 
+                item{
+                    OutlinedButton(
+                        onClick=vm::previewUndoLastTurn,
+                        enabled=!recoveryUi.inProgress,
+                        modifier=Modifier.fillMaxWidth()
+                    ){Text("Cofnij ostatnią turę")}
+                    Text(
+                        "Usuwa tylko ostatnią zatwierdzoną turę z aktywnego zapisu. Wymaga potwierdzenia i pełnej weryfikacji replay.",
+                        style=MaterialTheme.typography.bodySmall,
+                        color=MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 if(backups.isNotEmpty()){
                     item{SectionTitle("Backupy (${backups.size})")}
                     items(backups.take(12)){path->
@@ -2509,9 +2532,10 @@ private fun PackagesScreen(vm:RpgOsViewModel){
                     }
                 }
 
-                if(snapshots.isNotEmpty()){
-                    item{SectionTitle("Snapshoty (${snapshots.size})")}
-                    items(snapshots.take(12)){snapshot->
+                val visibleSnapshots=snapshots.filter{it.kind!=SnapshotKind.UNDO_BASELINE}
+                if(visibleSnapshots.isNotEmpty()){
+                    item{SectionTitle("Snapshoty (${visibleSnapshots.size})")}
+                    items(visibleSnapshots.take(12)){snapshot->
                         val recoverable=snapshot.state==SnapshotPublicationState.VALID&&snapshot.kind in setOf(
                             SnapshotKind.AUTOMATIC,SnapshotKind.MANUAL_BACKUP,SnapshotKind.PRE_RESTORE,SnapshotKind.USER_PINNED
                         )
@@ -2804,7 +2828,16 @@ private fun AiProviderCenterScreen(vm:RpgOsViewModel){
                     if(bekko.modelInstalled)"Model Q8_0: zainstalowany i zweryfikowany" else "Model Q8_0: niepobrany • 113 MB",
                     color=if(bekko.modelInstalled)MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Text("Runtime: ${bekko.availability.reasonUid}",style=MaterialTheme.typography.bodySmall)
+                Text(
+                    when(bekko.availability.reasonUid){
+                        "BEKKO_VULKAN_UNSUPPORTED_ON_DEVICE"->"Vulkan nie jest obsługiwany przez ten telefon. Wybierz CPU (zalecany)."
+                        "BEKKO_READY","BEKKO_RUNTIME_READY"->"Runtime: gotowy"
+                        else->"Runtime: ${bekko.availability.reasonUid}"
+                    },
+                    style=MaterialTheme.typography.bodySmall,
+                    color=if(bekko.availability.reasonUid=="BEKKO_VULKAN_UNSUPPORTED_ON_DEVICE")MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 if(bekko.downloading){
                     LinearProgressIndicator(progress={bekko.downloadFraction},modifier=Modifier.fillMaxWidth())
                     Text("${(bekko.downloadFraction*100).toInt()}%",style=MaterialTheme.typography.labelSmall)

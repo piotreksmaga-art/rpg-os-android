@@ -1,6 +1,7 @@
 package com.rpgos.app
 
 import org.json.JSONObject
+import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -144,6 +145,52 @@ class LabCodexStage3Test{
         assertThrows(IllegalArgumentException::class.java){
             DirectorGuidanceEnvelope("CAMPAIGN","BUNDLE","VERSION",1,listOf(candidate))
         }
+    }
+
+    @Test
+    fun `Director context versions are bound to one history generation`(){
+        assertEquals("HGEN-CAMPAIGN-7",directorHistoryGeneration(
+            "DIRECTOR-CONTEXT|HGEN-CAMPAIGN-7|12|fingerprint"
+        ))
+        assertEquals(null,directorHistoryGeneration("DIRECTOR-CONTEXT:12:legacy"))
+        assertEquals(null,directorHistoryGeneration("DIRECTOR-CONTEXT||12|fingerprint"))
+    }
+
+    @Test
+    fun `MEMORY_ENRICHMENT is routed through director lane`(){
+        val broker=LabCodexRequestBroker(LabAiTraceStore())
+        broker.register(JSONObject().put("session_uid","SESSION").put("model_uid",LAB_CODEX_MODEL_UID))
+        val pool=Executors.newSingleThreadExecutor()
+        try{
+            val future=pool.submit<AiProviderResult<AiTransportResponse>>{
+                broker.execute(transport("MEM-1",AiWorkload.MEMORY_ENRICHMENT),AiCancellationSignal.NONE)
+            }
+
+            val gm=broker.claim(JSONObject().put("session_uid","SESSION").put("lane","GAME_MASTER").put("wait_ms",200))
+            assertFalse(gm.optBoolean("available"))
+
+            val director=claimEventually(broker,"DIRECTOR")
+            assertEquals("MEM-1",director.getString("ai_request_uid"))
+            assertEquals(AiWorkload.MEMORY_ENRICHMENT.name,director.getString("workload"))
+
+            val payload=JSONObject()
+                .put("schema_version",1)
+                .put("title","Episode dawn")
+                .put("summary","Wędrówka przez las zakończyła się powrotem do obozu.")
+                .put("tags",JSONArray(listOf("scene","memory","summary")))
+            broker.complete(completion("SESSION","MEM-1",payload))
+
+            val result=future.get(2,TimeUnit.SECONDS) as AiProviderResult.Success
+            val returned=JSONObject(result.value.structuredPayload)
+            assertEquals("Episode dawn",returned.getString("title"))
+            assertEquals("Wędrówka przez las zakończyła się powrotem do obozu.",returned.getString("summary"))
+            val tags=returned.getJSONArray("tags")
+            assertEquals(3,tags.length())
+            assertEquals("scene",tags.getString(0))
+            assertEquals("memory",tags.getString(1))
+            assertEquals("summary",tags.getString(2))
+            assertEquals(0,broker.state().getInt("active_requests"))
+        }finally{pool.shutdownNow()}
     }
 
     private fun claimEventually(broker:LabCodexRequestBroker,lane:String,session:String="SESSION"):JSONObject{

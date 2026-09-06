@@ -61,7 +61,7 @@ data class SemanticIndexVersion(
     val dimensions:Int=256,
     val normalizationUid:String="L2_AFTER_MATRYOSHKA_TRUNCATION",
     val vectorFormatUid:String="FP16_LE",
-    val projectorVersion:Int=2
+    val projectorVersion:Int=3
 ){init{
     require(listOf(modelUid,modelRevision,modelSha256,normalizationUid,vectorFormatUid).none{it.isBlank()})
     require(dimensions in setOf(64,128,256,384)&&projectorVersion>0)
@@ -79,10 +79,18 @@ data class SemanticDocumentProjection(
     val sourceVersion:Long,
     val sourceFingerprint:String,
     val chunkOrdinal:Int,
-    val text:String
+    val text:String,
+    val historyGenerationUid:HistoryGenerationUid? = null,
+    val principalUid:String = "",
+    val holderSetFingerprint:String = "GLOBAL",
+    val accessPolicyVersion:Long = 0L,
+    val activePlayerUid:String? = null,
+    val projectionVersionUid:String = VisibilityAuthorityService.PROJECTION_VERSION_UID
 ){init{
     require(listOf(campaignUid,namespaceUid,audienceUid,purposeUid,canonicalRecordUid,recordKindUid,epistemicStateUid,sourceFingerprint,text).none{it.isBlank()})
     require(asOfOrder>=0&&sourceVersion>=0&&chunkOrdinal>=0&&text.length<=16_384)
+    require(holderSetFingerprint.isNotBlank()&&projectionVersionUid.isNotBlank()&&accessPolicyVersion>=0)
+    require(principalUid.isNotBlank() || activePlayerUid==null)
 }}
 
 fun interface SemanticDocumentProjector{
@@ -101,26 +109,100 @@ data class SemanticSearchRequest(
     val allowedRecordKinds:Set<String> = emptySet(),
     val queryVector:FloatArray,
     val topK:Int=20,
-    val minimumScore:Float=0.25f
+    val minimumScore:Float=0.25f,
+    val historyGenerationUid:HistoryGenerationUid?=null,
+    val principalUid:String="",
+    val holderSetFingerprint:String="GLOBAL",
+    val accessPolicyVersion:Long=0L,
+    val activePlayerUid:String?=null,
+    val projectionVersionUid:String=VisibilityAuthorityService.PROJECTION_VERSION_UID,
+    /** Allows a streaming scan of a projection that was already isolated by every authority
+     * dimension. This is intentionally unavailable for legacy/global scopes: callers must then
+     * provide an explicit UID set. */
+    val exactScopeAuthorized:Boolean=false
 ){init{
     require(listOf(campaignUid,namespaceUid,audienceUid,purposeUid).none{it.isBlank()})
-    require(asOfOrder>=0&&authorizedRecordUids.isNotEmpty()&&authorizedRecordUids.none{it.isBlank()})
+    require(asOfOrder>=0&&authorizedRecordUids.none{it.isBlank()})
+    require(authorizedRecordUids.isNotEmpty()||exactScopeAuthorized)
+    if(exactScopeAuthorized)require(
+        historyGenerationUid!=null&&principalUid.isNotBlank()&&holderSetFingerprint.isNotBlank()&&accessPolicyVersion>0
+    ){"SEMANTIC_EXACT_SCOPE_NOT_AUTHORIZED"}
     require(queryVector.isNotEmpty()&&topK in 1..200&&minimumScore.isFinite()&&minimumScore in -1f..1f)
+    require(accessPolicyVersion>=0&&projectionVersionUid.isNotBlank())
 }}
+
+data class SemanticSourceProjectionState(
+    val sourceAsOfOrder:Long,
+    val sourceVersion:Long,
+    val sourceFingerprint:String,
+    val principalUid:String,
+    val holderSetFingerprint:String,
+    val historyGenerationUid:HistoryGenerationUid,
+    val accessPolicyVersion:Long,
+    val activePlayerUid:String?,
+    val projectionVersionUid:String
+){init{
+    require(sourceAsOfOrder>=0&&sourceVersion>=0&&sourceFingerprint.isNotBlank()&&principalUid.isNotBlank()
+        &&holderSetFingerprint.isNotBlank()&&historyGenerationUid.value.isNotBlank()&&accessPolicyVersion>=0&&projectionVersionUid.isNotBlank())
+}}
+
+data class SemanticRuntimeScope(
+    val historyGenerationUid:HistoryGenerationUid?,
+    val principalUid:String,
+    val holderSetFingerprint:String,
+    val accessPolicyVersion:Long,
+    val activePlayerUid:String?,
+    val projectionVersionUid:String=VisibilityAuthorityService.PROJECTION_VERSION_UID
+){init{
+    require(principalUid.isNotBlank()&&holderSetFingerprint.isNotBlank()&&accessPolicyVersion>=0&&projectionVersionUid.isNotBlank())
+}}
+
+fun interface SemanticRuntimeScopeResolver{
+    fun resolve(request:StructuredRetrievalRequest,namespaceUid:String):SemanticRuntimeScope
+}
+
+data class CanonicallyRehydratedSemanticRecord(
+    val canonicalRecordUid:String,
+    val recordKindUid:String,
+    val epistemicStateUid:String,
+    val sourceFingerprint:String,
+    val sourceVersion:Long,
+    val sourceAsOfOrder:Long,
+    val projectedText:String,
+    val chunkEvidence:List<SemanticChunkEvidence>,
+    val projectionBoundaryUid:String
+){init{
+    require(listOf(canonicalRecordUid,recordKindUid,epistemicStateUid,sourceFingerprint,projectedText,projectionBoundaryUid).none{it.isBlank()})
+    require(sourceVersion>=0&&sourceAsOfOrder>=0&&chunkEvidence.isNotEmpty())
+}}
+
+fun interface SemanticCanonicalRehydrationPort{
+    fun rehydrate(request:SemanticSearchRequest,candidates:List<SemanticCandidate>):Map<String,CanonicallyRehydratedSemanticRecord>
+}
 
 data class SemanticCandidate(
     val canonicalRecordUid:String,
-    val score:Float,
+    val score:SemanticSimilarityScore,
     val recordKindUid:String,
     val epistemicStateUid:String,
     val sourceFingerprint:String,
     val sourceVersion:Long,
     val chunkEvidence:List<SemanticChunkEvidence>,
-    val indexVersion:SemanticIndexVersion
+    val indexVersion:SemanticIndexVersion,
+    val sourceAsOfOrder:Long=0L
 ){init{
     require(listOf(canonicalRecordUid,recordKindUid,epistemicStateUid,sourceFingerprint).none{it.isBlank()})
-    require(score.isFinite()&&sourceVersion>=0&&chunkEvidence.isNotEmpty())
-}}
+    require(sourceVersion>=0&&sourceAsOfOrder>=0&&chunkEvidence.isNotEmpty())
+}
+
+}
+
+operator fun SemanticSimilarityScore.compareTo(other: SemanticSimilarityScore):Int = value.compareTo(other.value)
+operator fun SemanticSimilarityScore.compareTo(other: Float):Int = value.compareTo(other)
+operator fun Float.compareTo(other: SemanticSimilarityScore):Int = compareTo(other.value)
+operator fun SemanticSimilarityScore.minus(other: Float):Float = value - other
+operator fun SemanticSimilarityScore.minus(other:SemanticSimilarityScore):Float=value-other.value
+fun SemanticSimilarityScore.toDouble():Double = value.toDouble()
 
 data class SemanticChunkEvidence(
     val chunkOrdinal:Int,
@@ -131,6 +213,7 @@ data class SemanticChunkEvidence(
     require(projectedTextFingerprint.isNotBlank())
 }}
 
+
 data class SemanticIndexStatus(
     val ready:Boolean,
     val recordCount:Long,
@@ -139,6 +222,10 @@ data class SemanticIndexStatus(
     val version:SemanticIndexVersion,
     val reasonUid:String?=null
 ){init{require(recordCount>=0&&chunkCount>=0&&lastIndexedCommitOrder>=0&&reasonUid?.isBlank()!=true)}}
+
+data class SemanticProjectionScope(
+    val campaignUid:String,val namespaceUid:String,val audienceUid:String,val purposeUid:String
+){init{require(listOf(campaignUid,namespaceUid,audienceUid,purposeUid).none{it.isBlank()})}}
 
 data class SemanticIndexProgress(
     val active:Boolean=false,
@@ -155,10 +242,31 @@ data class SemanticIndexProgress(
 interface SemanticIndexPort:AutoCloseable{
     val version:SemanticIndexVersion
     fun upsertBatch(documents:List<SemanticIndexedDocument>)
+    /** Atomically replaces every chunk of one source revision. Implementations that do not
+     * persist chunks may safely delegate to upsertBatch; the production sidecar removes stale
+     * ordinals and publishes the new chunk set in one metadata transaction. */
+    fun replaceRecord(documents:List<SemanticIndexedDocument>)=upsertBatch(documents)
     fun remove(campaignUid:String,namespaceUid:String,canonicalRecordUid:String)
+    fun removeProjection(
+        campaignUid:String,namespaceUid:String,audienceUid:String,purposeUid:String,canonicalRecordUid:String
+    )=remove(campaignUid,namespaceUid,canonicalRecordUid)
+    fun retireProjection(
+        campaignUid:String,namespaceUid:String,audienceUid:String,purposeUid:String,
+        canonicalRecordUid:String,retiredAtOrder:Long
+    )=removeProjection(campaignUid,namespaceUid,audienceUid,purposeUid,canonicalRecordUid)
     fun authorizedRecordUids(campaignUid:String,namespaceUid:String,audienceUid:String,purposeUid:String,asOfOrder:Long):Set<String>
     fun searchAuthorized(request:SemanticSearchRequest):List<SemanticCandidate>
+    fun currentProjections(request:SemanticSearchRequest):Map<String, SemanticSourceProjectionState> = emptyMap()
     fun checkpoint(campaignUid:String):Long
+    /** Binds the replay checkpoint to the canonical history/player visibility scope. A changed
+     * scope invalidates all derived rows before catch-up, closing crash gaps after undo, restore
+     * or active-player replacement. Returns true when a reset was required. */
+    fun bindCheckpointScope(campaignUid:String,scopeFingerprint:String):Boolean=false
+    fun beginProjectionReconciliation(scope:SemanticProjectionScope,recordUidPrefix:String):String?=null
+    fun markProjectionReconciliation(sessionUid:String,recordUids:Set<String>)=Unit
+    fun finishProjectionReconciliation(
+        scope:SemanticProjectionScope,recordUidPrefix:String,sessionUid:String,retiredAtOrder:Long
+    ):Boolean=false
     fun advanceCheckpoint(campaignUid:String,committedOrder:Long)
     fun status(campaignUid:String):SemanticIndexStatus
     fun clear(campaignUid:String)

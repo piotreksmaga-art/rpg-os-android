@@ -1,6 +1,13 @@
 package com.rpgos.app
 
-data class ChatMessage(val role: String, val text: String)
+data class ChatMessage(
+    val role: String,
+    val text: String,
+    /** Correlates the transient UI message with the application request that produced it. */
+    val requestUid: String? = null,
+    /** Present only after Core committed the turn represented by this message. */
+    val committedOrder: Long? = null
+)
 
 data class StatusSnapshot(
     val name: String = "Smagi",

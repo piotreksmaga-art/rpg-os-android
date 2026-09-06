@@ -443,7 +443,7 @@ internal fun PlayerCharacterCreationDraft.applyExplicitLegalEdit(
         edited=edited.copy(originUids=it.map(CharacterCreationDefinitionOption::definitionUid));recognized=true
     }
     if(editable(CharacterCreationDraftSection.INNATE_FEATURES)){
-        val rejected=Regex("(?iu)\\b(bez|nie chc[eę]|żadn|zadn)\\b.{0,40}\\b(kekkei|genkai|wrodzon)").containsMatchIn(input)
+        val rejected=Regex("(?iu)\\b(bez|nie chc[eę]|żadn|zadn|usuń|usun|wyczyść|wyczysc)\\b.{0,40}\\b(kekkei|genkai|wrodzon)").containsMatchIn(input)
         val selected=matches(CharacterCreationDefinitionKind.INNATE_FEATURE)
         if(rejected){edited=edited.copy(innateFeatureUids=emptyList());recognized=true}
         else if(selected.isNotEmpty()){edited=edited.copy(innateFeatureUids=selected.map(CharacterCreationDefinitionOption::definitionUid));recognized=true}
@@ -490,6 +490,8 @@ internal fun PlayerCharacterCreationDraft.playerFacingEditSummary(catalog:Charac
         originUids.firstOrNull()?.let{append(" z ${label(it)}")}
         append(". Umiejętności: ${skills.joinToString{label(it.definitionUid)}}")
         append("; techniki: ${techniques.joinToString{label(it.definitionUid)}}")
+        if(innateFeatureUids.isEmpty())append("; bez cech wrodzonych")
+        else append("; cechy wrodzone: ${innateFeatureUids.joinToString{label(it)}}")
         append("; start: ${label(startingLocationUid)}. Zatwierdź dopiero, gdy wszystko Ci odpowiada.")
     }
 }

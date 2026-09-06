@@ -14,7 +14,8 @@ internal object RecoverableSnapshotPolicy {
         SnapshotKind.AUTOMATIC,
         SnapshotKind.MANUAL_BACKUP,
         SnapshotKind.PRE_RESTORE,
-        SnapshotKind.USER_PINNED
+        SnapshotKind.USER_PINNED,
+        SnapshotKind.UNDO_BASELINE
     )
 
     fun isRecoveryKind(kind: SnapshotKind): Boolean = kind in recoveryKinds
@@ -38,6 +39,9 @@ internal object RecoverableSnapshotPolicy {
                 "RPGOS-SNAPSHOT:SCHEMA_COMPATIBILITY_MISMATCH"
             }
             verifyAnchor(captured, campaignUid, descriptor)
+            descriptor.anchorAuthoritativeDigest?.let { expected ->
+                require(AuthoritativeStateDigest.compute(captured)==expected){"RPGOS-SNAPSHOT:ANCHOR_AUTHORITY_DIGEST_MISMATCH"}
+            }
         }
         verifyReplayInterval(db, campaignUid, descriptor.anchorCommitOrder)
         return descriptor
@@ -54,6 +58,22 @@ internal object RecoverableSnapshotPolicy {
                 val uid = c.getString(0)
                 val candidate = runCatching { requireRecoverable(db, campaignUid, uid) }.getOrNull()
                 if (candidate != null) return@use candidate
+            }
+            null
+        }
+    }
+
+    fun latestRecoverableAtOrBefore(db:SQLiteDatabase,campaignUid:String,targetCommitOrder:Long):CampaignSnapshotDescriptor?{
+        require(targetCommitOrder>=0L)
+        if(!CampaignSnapshotSchema.isReady(db))return null
+        return db.rawQuery(
+            """SELECT snapshot_uid FROM ${CampaignSnapshotSchema.CATALOG}
+               WHERE campaign_uid=? AND anchor_commit_order<=? ORDER BY anchor_commit_order DESC,created_order DESC,snapshot_uid DESC""".trimIndent(),
+            arrayOf(campaignUid,targetCommitOrder.toString())
+        ).use{c->
+            while(c.moveToNext()){
+                val candidate=runCatching{requireRecoverable(db,campaignUid,c.getString(0))}.getOrNull()
+                if(candidate!=null)return@use candidate
             }
             null
         }
@@ -99,7 +119,7 @@ internal object RecoverableSnapshotPolicy {
 
     private fun descriptor(db: SQLiteDatabase, campaignUid: String, snapshotUid: String): CampaignSnapshotDescriptor? = db.rawQuery(
         """SELECT snapshot_kind,snapshot_schema_version,created_order,created_at_epoch_ms,anchor_commit_order,
-            anchor_transaction_uid,anchor_turn_uid,anchor_event_uid,payload_path,payload_sha256,publication_state,pinned
+            anchor_transaction_uid,anchor_turn_uid,anchor_event_uid,anchor_authoritative_digest,payload_path,payload_sha256,publication_state,pinned
             FROM ${CampaignSnapshotSchema.CATALOG} WHERE campaign_uid=? AND snapshot_uid=? LIMIT 1""".trimIndent(),
         arrayOf(campaignUid, snapshotUid)
     ).use { c ->
@@ -114,10 +134,11 @@ internal object RecoverableSnapshotPolicy {
             anchorTransactionUid = if (c.isNull(5)) null else c.getString(5),
             anchorTurnUid = if (c.isNull(6)) null else c.getString(6),
             anchorEventUid = if (c.isNull(7)) null else c.getString(7),
-            payloadPath = c.getString(8),
-            payloadSha256 = if (c.isNull(9)) null else c.getString(9),
-            state = SnapshotPublicationState.valueOf(c.getString(10)),
-            pinned = c.getInt(11) != 0
+            anchorAuthoritativeDigest = if(c.isNull(8))null else c.getString(8),
+            payloadPath = c.getString(9),
+            payloadSha256 = if (c.isNull(10)) null else c.getString(10),
+            state = SnapshotPublicationState.valueOf(c.getString(11)),
+            pinned = c.getInt(12) != 0
         )
     }
 
