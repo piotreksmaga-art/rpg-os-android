@@ -249,7 +249,7 @@ class TransportAiProviderAdapter(
         return try{
             val decoded=decode(response.value.structuredPayload)
             AiProviderResult.Success(decoded,capabilities.providerUid,capabilities.modelUid,response.value.traceUid)
-        }catch(_:RuntimeException){
+        }catch(_:Exception){
             AiProviderResult.Failure(AiProviderFailureKind.INVALID_STRUCTURED_OUTPUT,"STRUCTURED_OUTPUT_DECODE_REJECTED")
         }
     }

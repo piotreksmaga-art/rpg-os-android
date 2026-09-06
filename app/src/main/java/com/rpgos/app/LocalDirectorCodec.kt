@@ -17,6 +17,8 @@ internal object LocalDirectorCodec {
         // Budget the serialized bytes, including JSON escaping. No characters/4 estimate and
         // no global UID manifest (which previously consumed ~6000 tokens on a 2048 model).
         for (segment in request.context.strategicSummarySegments) {
+            if (segment.substringBefore('=') in setOf("context_meta", "visibility_envelope") ||
+                segment.substringAfter('=') in setOf("[]", "{}", "null")) continue
             segments.put(segment)
             if (root.toString().toByteArray(Charsets.UTF_8).size > MAX_PAYLOAD_BYTES) {
                 segments.remove(segments.length() - 1)

@@ -121,6 +121,7 @@ class ExecuTorchInferenceService:Service(){
         const val KEY_SUCCESS="success";const val KEY_OUTPUT="output";const val KEY_TOKENS="tokens";const val KEY_TRACE="trace";const val KEY_REASON="reason"
         private fun digest(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString(""){"%02x".format(it)}
         internal fun structuredSeed(payload:String):String=when{
+            payload.contains("\"v\":\"RPGOS_DIRECTOR_LOCAL_1\"")->"{\"kind\":\""
             payload.contains("\"v\":\"RPGOS_CC_LOCAL_1\"")->characterCreationSeed(payload)
             payload.contains("\"v\":\"RPGOS_NARRATIVE_LOCAL_1\"")||payload.contains("\"v\":\"RPGOS_NARRATIVE_LOCAL_REPAIR_1\"")->"{\"t\":\""
             payload.contains("\"v\":\"RPGOS_GM_LOCAL_1\"")||payload.contains("\"v\":\"RPGOS_GM_LOCAL_REPAIR_1\"")->"{\"n\":["
@@ -144,7 +145,10 @@ class ExecuTorchInferenceService:Service(){
         }
         internal fun bielikChatPrompt(payload:String):String{
             if(payload.contains("\"v\":\"RPGOS_DIRECTOR_LOCAL_1\"")){
-                return "<|im_start|>system\nZwróć wyłącznie JSON z propozycją, nie faktem.<|im_end|>\n<|im_start|>user\n$payload<|im_end|>\n<|im_start|>assistant\n"
+                val root=org.json.JSONObject(payload)
+                val context=root.getJSONArray("context").let{a->(0 until a.length()).joinToString("\n"){a.getString(it)}}
+                val kinds=root.getJSONArray("kinds").let{a->(0 until a.length()).joinToString(","){a.getString(it)}}
+                return "<|im_start|>system\nZaproponuj dalszy kierunek opowieści. Nie opisuj go jako faktu. Tylko krótki JSON po polsku.<|im_end|>\n<|im_start|>user\nKontekst:\n$context\nDokończ JSON o trzech polach: kind, title, summary. kind wybierz z: $kinds. title to tytuł, summary to jedno zdanie propozycji. Nie przepisuj kontekstu.<|im_end|>\n<|im_start|>assistant\n{\"kind\":\""
             }
             if(payload.contains("\"v\":\"RPGOS_INTENT_LOCAL_9\"")){
                 val root=org.json.JSONObject(payload)

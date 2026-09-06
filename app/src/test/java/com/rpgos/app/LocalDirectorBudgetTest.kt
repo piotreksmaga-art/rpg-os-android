@@ -40,4 +40,15 @@ class LocalDirectorBudgetTest {
     fun modelCannotSmuggleMutationOrRequestIdentity() {
         LocalDirectorCodec.decode("""{"title":"x","summary":"y","kind":"PACING_HINT","campaign_uid":"other"}""", request())
     }
+
+    @Test fun androidJsonExceptionBecomesTypedProviderFailure() {
+        val provider = TransportAiProviderAdapter(
+            AiCapabilityContract("test", "local", "bielik", setOf(AiWorkload.DIRECTOR_STRATEGY), maximumContextUnits = 2048),
+            AiStructuredTransport { request, _ -> AiProviderResult.Success(
+                AiTransportResponse(request.requestUid, "{\"summary\":\"unfinished", "trace"), "local", "bielik", "trace") },
+            LocalCompactAiJsonCodec())
+        val result = provider.generateDirector(request()) as AiProviderResult.Failure
+        assertEquals(AiProviderFailureKind.INVALID_STRUCTURED_OUTPUT, result.kind)
+        assertEquals("STRUCTURED_OUTPUT_DECODE_REJECTED", result.reasonUid)
+    }
 }

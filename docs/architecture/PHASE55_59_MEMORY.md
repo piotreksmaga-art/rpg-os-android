@@ -151,6 +151,19 @@ Data: 2026-09-02
 
 ## 8. Aktualna bramka akceptacyjna
 
+- 2026-09-06: exact-SHA CI dla `96e24465ba080fb49330c69fb3793e1b66a9b3a3`
+  przeszedł wszystkie pięć bramek: memory/undo, pełny JVM, Android API 28 i 36,
+  izolacja release. Run: https://github.com/piotreksmaga-art/rpg-os-android/actions/runs/33999385120.
+- Dalszy test rzeczywistego Bielika ujawnił przepełnienie Directora (6024 > 2048 tokenów)
+  oraz nieobsłużony Android `JSONException` po urwanej odpowiedzi. Kompaktowy lokalny
+  kodek i obsługa wyjątku przeszły cztery testy regresyjne. Powtórka na Motoroli:
+  435 tokenów wejścia, 145 wyjścia, 37,777 s inferencji; zadanie `DIRECTOR_BUNDLE_ACCEPTED`,
+  aplikacja nadal dostępna. To dowód techniczny, nie akceptacja jakości: odpowiedź była
+  po angielsku i proponowała nieugruntowanych „Sage Warriors”. Bramka jakości/A-B pozostaje otwarta.
+- Lokalny Director generuje jedną propozycję bez referencji do rekordów. Aplikacja wiąże
+  ją z oryginalną tożsamością zadania; kandydat trafia do Phase65 i zwykłej walidacji,
+  nigdy bezpośrednio do mutacji. Pełny manifest UID-ów nie jest wysyłany małemu modelowi.
+
 - Pełny JVM (`debug` + `labDebug`) oraz celowane testy Phase55–59 są GREEN.
 - Kompilacja testów Androida i `assembleLabDebug` są GREEN.
 - Motorola Edge 30 Neo / Android 14: test utworzenia kampanii i postaci, dwóch tur,
@@ -162,4 +175,4 @@ Data: 2026-09-02
   ADB odrzuca go jako `unauthorized` (brak interaktywnego potwierdzenia klucza w trybie
   headless).
 - Wydanie publiczne i oznaczenie faz 55–59 jako globalnie `COMPLETE` pozostają zablokowane
-  do testu przepływu na emulatorze, A/B Bielik/Bekko oraz exact-SHA CI.
+  do A/B i jakości Bielik/Bekko oraz ponownego exact-SHA CI obejmującego poprawki Directora.
