@@ -1,0 +1,133 @@
+name: Phase37 Guarded Patch
+
+on:
+  push:
+    branches: [ "agent/phase37-npc-knowledge-audit" ]
+  pull_request:
+    branches: [ "master" ]
+    types: [ opened, synchronize, reopened ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase37-guarded-patch
+  cancel-in-progress: true
+
+jobs:
+  patch-test-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/phase37-npc-knowledge-audit
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Install Android SDK 36
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Apply guarded Phase37 patch
+        run: |
+          python3 .github/phase37_patch.py
+          python3 .github/phase37_patch2.py
+          python3 .github/phase37_patch3.py
+
+      - name: Targeted Phase37 tests
+        run: gradle --no-daemon :app:testDebugUnitTest --tests 'com.rpgos.app.Phase37NpcKnowledgeTest' --stacktrace
+
+      - name: Full JVM unit suite
+        id: full_jvm
+        continue-on-error: true
+        run: gradle --no-daemon :app:testDebugUnitTest --stacktrace
+
+      - name: Collect full JVM diagnostics
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p phase37-full-jvm-diagnostics
+          if [ -d app/build/test-results/testDebugUnitTest ]; then
+            cp -R app/build/test-results/testDebugUnitTest/. phase37-full-jvm-diagnostics/
+          fi
+          if [ -d app/build/reports/tests/testDebugUnitTest ]; then
+            cp -R app/build/reports/tests/testDebugUnitTest phase37-full-jvm-diagnostics/html-report
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          root = Path('app/build/test-results/testDebugUnitTest')
+          out = Path('phase37-full-jvm-diagnostics/FAILURES.txt')
+          lines = []
+          for xml in sorted(root.glob('TEST-*.xml')) if root.exists() else []:
+              try:
+                  suite = ET.parse(xml).getroot()
+              except Exception as exc:
+                  lines.append(f'XML_PARSE_ERROR {xml}: {exc}')
+                  continue
+              for case in suite.findall('testcase'):
+                  failure = case.find('failure')
+                  error = case.find('error')
+                  node = failure if failure is not None else error
+                  if node is None:
+                      continue
+                  lines.append(f"SUITE={suite.get('name')} TEST={case.get('name')} CLASS={case.get('classname')}")
+                  lines.append(f"TYPE={node.get('type')} MESSAGE={node.get('message')}")
+                  lines.append((node.text or '').strip())
+                  lines.append('---')
+          out.write_text('\n'.join(lines) if lines else 'NO_JUNIT_FAILURE_NODE_FOUND\n')
+          print(out.read_text())
+          PY
+
+      - name: Upload full JVM diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase37-full-jvm-diagnostics-${{ github.run_id }}
+          path: phase37-full-jvm-diagnostics/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enforce full JVM gate
+        if: steps.full_jvm.outcome != 'success'
+        run: exit 1
+
+      - name: Build validated source bundle
+        shell: bash
+        run: |
+          rm .github/phase37_patch.py .github/phase37_patch2.py .github/phase37_patch3.py .github/workflows/phase37-guarded-patch.yml
+          git add -A
+          git diff --cached --check
+          mkdir -p phase37-validated-source
+          git diff --cached --binary > phase37-validated-source/phase37-validated.patch
+          git diff --cached --name-status > phase37-validated-source/MANIFEST.txt
+          git diff --cached --name-only --diff-filter=AM > phase37-validated-source/FILES.txt
+          tar -czf phase37-validated-source/phase37-validated-tree.tar.gz -T phase37-validated-source/FILES.txt
+          git diff --cached --stat > phase37-validated-source/STAT.txt
+          cat phase37-validated-source/MANIFEST.txt
+          cat phase37-validated-source/STAT.txt
+
+      - name: Upload validated Phase37 source
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase37-validated-source-${{ github.run_id }}
+          path: phase37-validated-source/
+          if-no-files-found: error
+          retention-days: 7
