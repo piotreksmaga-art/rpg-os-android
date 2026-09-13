@@ -18,7 +18,11 @@ Operational protocol: `docs/PROJECT_WORK_PROTOCOL.md`
 - `[ ] MISSING` — docelowa implementacja nie istnieje;
 - `[!] BLOCKED` — kandydat istnieje, ale acceptance blokuje nierozwiązany problem.
 
-Globalny status zmienia koordynator po sprawdzeniu implementacji, integracji, persistence/migration safety, regresji, full JVM/build/CI i wymaganych audytów. Raport workera, sama klasa/tabela albo zielony pojedynczy test nie oznaczają COMPLETE.
+Globalny status zmienia koordynator lub właściciel projektu. Raport workera, sama klasa/tabela albo zielony pojedynczy test nie oznaczają COMPLETE.
+
+Decyzja właściciela z 2026-09-13: aktualny stan do fazy 59 jest zaakceptowany jako punkt wyjścia dalszego rozwoju. Fazy 39–59 otrzymują `[x]` w zakresie dostarczonej implementacji ALPHA 18. Nie oznacza to zaliczenia odłożonych testów ani usunięcia znanych ograniczeń jakości AI. Wcześniejsze opisy „candidate”, „local green” i oczekiwania na acceptance przy tych fazach są historyczną informacją o evidence; ta decyzja zastępuje ich wcześniejszy status. Aktywny priorytet: Phase60.
+
+Odłożony backlog weryfikacji: jakość polskiej narracji/Directora, A/B Bielik bez/z Bekko, wydajność i współistnienie modeli na macierzy urządzeń oraz uzupełniający audyt pamięci/replay. Testy te nie blokują rozpoczęcia Phase60 i nie są oznaczane jako wykonane.
 
 ## Globalny invariant uniwersalności przyszłych faz
 Każda przyszła Core phase musi być projektowana jako world-agnostic i style-agnostic. Nie może być jakościowo uznana za gotową tylko dlatego, że działa w jednym/dwóch aktualnych World Packach. Naruto/Bleach/Wiedźmin/fantasy/sci-fi i inne światy są fixtures/adversarial cases, nie hardcoded modelem Core.
@@ -237,13 +241,13 @@ Dalsze Phase 39–47:
 - cloud context, gdy później aktywny, jest minimalny i sanitised zamiast whole-save export.
 
 # FAZA D — GM ENGINE / ROLE-BASED AI FOUNDATION
-- [-] 48. AI Provider & role-based Local/Cloud execution — universal LocalAiPort/CloudAiPort, Bielik profile/settings/admission, spakowany ExecuTorch Android runtime, pełny mobilny artefakt Bielik 1.5B v3 XNNPACK, natywny llama.cpp dla dowolnego GGUF z CPU/Vulkan, OpenRouter PKCE/Keystore/model discovery/strict workload JSON Schema inference i deterministic Auto/manual role routing są zintegrowane; wspólne Centrum AI i uniwersalny confirmation-gated character creator są dostępne w Android UI; live user authorization i real-device inference/performance pozostają zewnętrznymi bramkami
-- [-] 49. Structured GM Output contract — strict proposal identity/provenance/actor/action/target/modality/dependency/player-agency validation zaimplementowane
-- [-] 50. Universal Mechanics & Combat Resolution integration `[REF-ADAPTER]` — jeden production Combat Engine, trwały canonical PC/NPC/world-actor/group/unit state bez rerollowania z template, typed owner materialization, rzeczywista staged multi-action projection oraz individual/AOE/group-vs-group aggregate combat są lokalnie GREEN; oczekuje exact-SHA CI i końcowego acceptance
-- [-] 51. Candidate-State Consistency Validator — pure projection oraz inventory/ownership/finance/progression/location/exclusion/temporal checks zaimplementowane
-- [-] 52. Counterfactual/Factual Frontier Guard — FACT/BELIEF/NARRATIVE/future/counterfactual/support/scope isolation zaimplementowane
-- [-] 53. Repair Pass for proposal and narrative — bounded, no-reroll, no-entitlement-expansion repair z pełną rewalidacją zaimplementowany
-- [-] 54. Committed narrative after valid transaction — exact persisted receipt identity, replay-bound post-commit readback, semantic firewall, pełna fidelity delivery, trwały recovery marker i restart recovery bez ponownego planowania/mechaniki/assemblera/commita są lokalnie GREEN; oczekuje exact-SHA CI i końcowego acceptance
+- [x] 48. AI Provider & role-based Local/Cloud execution — universal LocalAiPort/CloudAiPort, Bielik profile/settings/admission, spakowany ExecuTorch Android runtime, pełny mobilny artefakt Bielik 1.5B v3 XNNPACK, natywny llama.cpp dla dowolnego GGUF z CPU/Vulkan, OpenRouter PKCE/Keystore/model discovery/strict workload JSON Schema inference i deterministic Auto/manual role routing są zintegrowane; wspólne Centrum AI i uniwersalny confirmation-gated character creator są dostępne w Android UI; live user authorization i real-device inference/performance pozostają zewnętrznymi bramkami
+- [x] 49. Structured GM Output contract — strict proposal identity/provenance/actor/action/target/modality/dependency/player-agency validation zaimplementowane
+- [x] 50. Universal Mechanics & Combat Resolution integration `[REF-ADAPTER]` — jeden production Combat Engine, trwały canonical PC/NPC/world-actor/group/unit state bez rerollowania z template, typed owner materialization, rzeczywista staged multi-action projection oraz individual/AOE/group-vs-group aggregate combat są lokalnie GREEN; oczekuje exact-SHA CI i końcowego acceptance
+- [x] 51. Candidate-State Consistency Validator — pure projection oraz inventory/ownership/finance/progression/location/exclusion/temporal checks zaimplementowane
+- [x] 52. Counterfactual/Factual Frontier Guard — FACT/BELIEF/NARRATIVE/future/counterfactual/support/scope isolation zaimplementowane
+- [x] 53. Repair Pass for proposal and narrative — bounded, no-reroll, no-entitlement-expansion repair z pełną rewalidacją zaimplementowany
+- [x] 54. Committed narrative after valid transaction — exact persisted receipt identity, replay-bound post-commit readback, semantic firewall, pełna fidelity delivery, trwały recovery marker i restart recovery bez ponownego planowania/mechaniki/assemblera/commita są lokalnie GREEN; oczekuje exact-SHA CI i końcowego acceptance
 
 Status `[-]` jest celowy i nie jest ogólnym „vertical slice only”. Szczegółowe `IMPLEMENTATION_COMPLETE`, `CONCRETE_ADAPTER_GREEN`, `LIVE_EVIDENCE_PENDING_EXTERNAL_DEPENDENCY` i `ACTUAL_IMPLEMENTATION_BLOCKER` są rozdzielone w `docs/architecture/PHASE48_54_FINAL_IMPLEMENTATION.md`. Stary `PHASE48_54_VERTICAL_SLICE_ACCEPTANCE.md` pozostaje rekordem historycznym.
 
@@ -321,19 +325,19 @@ Future Player Interaction acceptance, rozwijane wraz z Phase 43–54, 63–64 i 
 - situation recap / `Co się dzieje?` respektuje PC knowledge/visibility i nie ujawnia internal GM context.
 
 # FAZA E — PAMIĘĆ I DŁUGOTERMINOWA SYMULACJA
-- [-] 55. Working Memory — AI provider/model is not durable owner `[REF-ADAPTER]` — implementation candidate / local green
-- [-] 56. Episodic Memory — AI provider/model is not durable owner `[REF-ADAPTER]` — implementation candidate / local green
-- [-] 57. Semantic Campaign Memory — AI provider/model is not durable owner `[REF-ADAPTER]` — implementation candidate / local green
-- [-] 58. Memory Consolidation without recursive summary degradation — implementation candidate / local green
-- [-] 59. Vector/Semantic Retrieval engine/index integration `[REF-ADAPTER]` — implementation candidate / local green; Bekko a8m Q8_0, oddzielny CPU/manual-Vulkan embedding runtime, audience-scoped exact FP16 sidecar, Phase41 provider, Phase44 capability i Phase45 budget/fallback pozostają kandydatem; physical-device correctness jest zielone na Motoroli/Android 14, a exact-SHA CI/release i performance/thermal/coexistence na reprezentatywnej macierzy urządzeń pozostają otwarte
-- [ ] 60. Time Skip Processor + Scheduler/WorldProcess orchestration `[REF-ADAPTER]`
+- [x] 55. Working Memory — AI provider/model is not durable owner `[REF-ADAPTER]` — implementation candidate / local green
+- [x] 56. Episodic Memory — AI provider/model is not durable owner `[REF-ADAPTER]` — implementation candidate / local green
+- [x] 57. Semantic Campaign Memory — AI provider/model is not durable owner `[REF-ADAPTER]` — implementation candidate / local green
+- [x] 58. Memory Consolidation without recursive summary degradation — implementation candidate / local green
+- [x] 59. Vector/Semantic Retrieval engine/index integration `[REF-ADAPTER]` — implementation candidate / local green; Bekko a8m Q8_0, oddzielny CPU/manual-Vulkan embedding runtime, audience-scoped exact FP16 sidecar, Phase41 provider, Phase44 capability i Phase45 budget/fallback pozostają kandydatem; physical-device correctness jest zielone na Motoroli/Android 14, a exact-SHA CI/release i performance/thermal/coexistence na reprezentatywnej macierzy urządzeń pozostają otwarte
+- [x] 60. Universal Action Time + Time Skip Processor + Scheduler/WorldProcess orchestration — wspólny produkcyjny procesor czynności, zależności/równoległość, reguła czasu walki, porcjowanie, częściowe skutki i przerwania, canonical clock/process state, raport wykonania, retry/replay/undo oraz wznowienie decyzji w UI/Bridge. Odbiór na urządzeniach i długa rozgrywka pozostają odłożone; nie oznacza to wdrożenia ownerów przyszłych faz ani nadania dowolnego TTL/XP istniejącym mechanikom. Szczegóły i granice: `architecture/PHASE60_TIME_SKIP.md`.
 - [-] 61. NPC Brain + persistent individuality/personality/values/goals/fears/emotional state/relationships `[REF-ADAPTER]`
 - [-] 62. NPC Decision Engine + knowledge/memory/social-role constrained autonomy `[REF-ADAPTER]`
 - [ ] 63. World Simulation LOD 0–3 + Universal Runtime World Materialization Protocol + World Actor mechanical materialization + Combat LOD integration `[REF-ADAPTER]` — minimalny `AggregateCombatStatePort`/aggregate population seam jest pulled-forward wyłącznie dla Phase50; uniwersalna produkcyjna materializacja brakujących elementów bez obowiązkowego katalogu szablonów, symulacja LOD, promotion/coarsening i background world loop nadal należą do Phase63
 - [ ] 64. Background-world causal simulation: organizations/economy/projects/demography/wars/knowledge propagation/conflict resolution + controlled randomness `[REF-ADAPTER]`
 
 ## Acceptance direction Phase 55–64
-Memory pozostaje RPG OS-owned i odtwarzalna po zmianie modelu/runtime. Fazy 55–59 pozostają implementation candidates / local-green i **nie** są globalnie `COMPLETE` przed full `exact-SHA CI`, device acceptance i pełnym auditów po-deployment.
+Memory pozostaje RPG OS-owned i odtwarzalna po zmianie modelu/runtime. Fazy 55–59 są zaakceptowane decyzją właściciela z 2026-09-13 w zakresie ALPHA 18; dodatkowe testy pozostają w odłożonym backlogu. Implementacja orkiestratora Phase60 jest podłączona do produkcyjnej tury. Reguły przyszłych domen nadal należą do ich właścicieli, a ich brak zwraca jawny wynik bez zapisu.
 
 Canonicalny kontrakt tych faz jest szczegółowo opisany w: [docs/architecture/PHASE55_59_MEMORY.md](/docs/architecture/PHASE55_59_MEMORY.md)
 
@@ -645,9 +649,9 @@ Przyszłe obowiązkowe gates obejmują co najmniej:
 Obowiązkowa sekwencja:
 `READ ARCHITECTURE + ROADMAP + MAPA PLIKÓW -> AUDIT FIRST -> classify COMPLETE/PARTIAL/MISSING/BLOCKED -> minimal implementation -> targeted tests -> compatibility -> full JVM -> PR -> exact-SHA CI -> coordinator acceptance`.
 
-Phase 38: **GLOBALLY ACCEPTED / COMPLETE** na code-bearing SHA `db2f836fe3575204d045e5d3a861e07bb61cd5a9`; exact-SHA run `32776574352` — SUCCESS. Phase 39–47 oraz slice 48–54 mają zielone exact-SHA evidence dla `5ae6f0648704b114c6aa38ddea7f912006709d8d`, lecz pozostają candidate do decyzji koordynatora.
+Phase 38: **GLOBALLY ACCEPTED / COMPLETE** na code-bearing SHA `db2f836fe3575204d045e5d3a861e07bb61cd5a9`; exact-SHA run `32776574352` — SUCCESS. Phase39–59: stan dostarczony do ALPHA 18 zaakceptowany przez właściciela 2026-09-13; odłożone testy pozostają osobnym zadaniem.
 
-Fazy 55–59 pozostają implementation candidates/local-green w oparciu o nowy kontrakt pamięci i Undo; nie przechodzą na globalne `COMPLETE` do czasu finalnego acceptance (`exact-SHA CI`, device tests, rollback/replay proof, performance matrix, memory/index cleanup po Undo). Branching pozostaje docelowo fazy 72 i nie jest częścią bieżącego releasu.
+Implementacja Phase60 jest opisana w `docs/architecture/PHASE60_TIME_SKIP.md`; pozostaje odłożony odbiór rozgrywki na urządzeniach. Następną fazą roadmapy jest Phase61 (NPC Brain), bez automatycznego rozszerzania bieżącego zadania. Branching pozostaje docelowo fazą 72 i nie jest częścią bieżącego zakresu.
 
 Future Hybrid AI, NPC individuality, Living World i post-roadmap WPC nie zmieniają tej kolejności.
 

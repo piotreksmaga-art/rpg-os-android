@@ -91,6 +91,32 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         openGameplaySaveDb().use{TurnTransactionReceiptStore(it).committedTransaction(transactionUid)}
     internal fun infrastructureLastCommitOrder():Long =
         openGameplaySaveDb().use{TurnTransactionReceiptStore(it).lastValidCommit(activeCampaignRef().campaignId)?.commitOrder?:0L}
+    internal fun infrastructureTemporalRead():TemporalReadSnapshot {
+        val campaign = activeCampaignRef().campaignId
+        return CampaignRuntimeLifecycleLock.withTurn(campaign) {
+            openGameplaySaveDb().use { db ->
+                check(activeCampaignRef().campaignId == campaign) { "P60:CAMPAIGN_CHANGED" }
+                TemporalReadSnapshot(TemporalScope(campaign, HistoryGenerationStore(db,campaign).current().value,
+                    TurnTransactionReceiptStore(db).lastValidCommit(campaign)?.commitOrder ?: 0L, AuthoritativeStateDigest.compute(db)),
+                    Phase60TemporalStateStore(db,campaign).read())
+            }
+        }
+    }
+    internal fun infrastructureConditionExpiryApplications(entries:List<ScheduledConditionExpiry>):Map<String,Set<String>> =
+        openGameplaySaveDb().use { db -> entries.associate { entry -> entry.deadlineUid to db.rawQuery(
+            "SELECT active_effect_uid FROM active_combat_effects WHERE entity_uid=? AND effect_key=? AND status='active' ORDER BY active_effect_uid",
+            arrayOf(entry.subject.uid,"CONDITION:${entry.conditionUid}")).use { cursor->buildSet{while(cursor.moveToNext())add(cursor.getString(0))} }
+        } }
+    internal fun commitTemporalTurn(identity:TurnTransactionIdentity, proposal:CanonicalCampaignMutationProposal,
+                                   expected:TemporalScope?):TurnExecutionResult<TurnCommitAppliedResult> =
+        CampaignRuntimeLifecycleLock.withTurn(identity.campaignUid) {
+            check(activeCampaignRef().campaignId == identity.campaignUid) { "P60:CAMPAIGN_CHANGED" }
+            val retried = openGameplaySaveDb().use { TurnTransactionReceiptStore(it).committedCommand(identity.campaignUid,identity.commandUid) != null }
+            if (!retried && proposal.playerChangeSet.changes.any { it.payload is TemporalStateChange }) {
+                check(expected != null && infrastructureTemporalRead().scope == expected) { "P60:STALE_HISTORY" }
+            }
+            commitTurn(identity,proposal)
+        }
     internal fun infrastructureLastReceipt():TurnCommitReceipt? =
         openGameplaySaveDb().use{TurnTransactionReceiptStore(it).lastValidCommit(activeCampaignRef().campaignId)}
     internal fun infrastructureReplayPayload(transactionUid:String,committedOrder:Long):CommittedReplayPayload? =

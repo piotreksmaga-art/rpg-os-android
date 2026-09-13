@@ -376,6 +376,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                 ChatTurnUiStage.COMMITTED_NARRATION_PENDING,token.request.requestUid,
                 "Ostatnia tura jest zapisana. Narrację można bezpiecznie odzyskać.",canRetryNarration=true
             )}
+            if(pendingNarrationRecovery==null)discoverUncommittedAction()
             runCatching{refresh()}.onFailure{DiagnosticLogger.log(application,"BACKGROUND_REFRESH_FAILED",it)}
             buildStartupContext()
         }
@@ -1098,6 +1099,25 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
             ChatTurnUiStage.COMMITTED_NARRATION_PENDING,token.request.requestUid,
             "Ostatnia tura jest zapisana. Narrację można bezpiecznie odzyskać.",canRetryNarration=true
         )}?:ChatTurnUiState()
+        if(pendingNarrationRecovery==null)discoverUncommittedAction()
+    }
+
+    private fun discoverUncommittedAction(){
+        if(activeAiCancellation!=null)return
+        val input=runCatching{chatApplication.pendingUncommittedInput()}.getOrNull()?:return
+        _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.CLARIFICATION,
+            statusText="Poprzednia tura nie została zapisana. Możesz ją wznowić; Core ponownie sprawdzi decyzję.",canResumeAction=true)
+        _messages.value+=ChatMessage("system","Niedokończona decyzja: $input")
+    }
+
+    fun resumeUncommittedAction(){
+        if(activeAiCancellation!=null)return
+        viewModelScope.launch {
+            val input=withContext(Dispatchers.IO){runCatching{chatApplication.pendingUncommittedInput()}.getOrNull()}
+            if(input!=null)send(input) else {
+                _chatTurnUi.value=ChatTurnUiState(statusText="Nie ma już niedokończonej tury w tym zapisie.")
+            }
+        }
     }
 
     fun moveCampaignToTrash(dirName:String){
@@ -1284,7 +1304,10 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     is ChatApplicationOutcome.Clarification->{
                         _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.CLARIFICATION,requestUid,"Potrzebuję doprecyzowania decyzji.",reasonUid=outcome.reasonUids.joinToString("|"))
-                        _messages.value+=ChatMessage("system","Doprecyzuj proszę, co dokładnie chcesz zrobić.")
+                        val timeQuestion=outcome.reasonUids.any{it=="P60:DURATION_UNRESOLVED"||it=="P60:CONSEQUENTIAL_ESTIMATE"}
+                        _messages.value+=ChatMessage("system",if(timeQuestion)
+                            "Napisz czynność razem z czasem jej trwania, np. „ćwiczę przez 20 minut”. Nie upłynął jeszcze czas i nie zapisano skutków tej próby."
+                            else "Doprecyzuj proszę, co dokładnie chcesz zrobić.")
                     }
                     is ChatApplicationOutcome.Rejected->{
                         _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.FAILED,requestUid,"Ta decyzja wymaga bezpiecznego rozstrzygnięcia.",reasonUid=outcome.reasonUids.joinToString("|"))

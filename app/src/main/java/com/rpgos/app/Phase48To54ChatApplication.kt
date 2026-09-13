@@ -29,6 +29,7 @@ interface ChatApplicationPort {
     suspend fun play(input: String, cancellation: AiCancellationSignal = AiCancellationSignal.NONE): ChatApplicationOutcome
     suspend fun recover(token: ChatNarrationRecoveryToken, cancellation: AiCancellationSignal = AiCancellationSignal.NONE): NarrativeRecoveryResult
     fun pendingRecovery():ChatNarrationRecoveryToken?
+    fun pendingUncommittedInput():String?=null
 }
 
 fun interface ChatTurnRequestFactory {
@@ -38,11 +39,17 @@ fun interface ChatTurnRequestFactory {
 /** The only application adapter allowed to invoke the canonical Phase43-54 facade. */
 class CanonicalChatApplication(
     private val engine: AiChatEngineFacade,
-    private val requests: ChatTurnRequestFactory
+    private val requests: ChatTurnRequestFactory,
+    private val pendingActions:PendingChatActionPort=PendingChatActionPort.NONE
 ) : ChatApplicationPort {
     override suspend fun play(input: String, cancellation: AiCancellationSignal): ChatApplicationOutcome = withContext(Dispatchers.IO) {
         val request = requests.create(input)
-        when (val result = engine.play(request, cancellation)) {
+        pendingActions.begin(request)
+        val turnResult=engine.play(request,cancellation)
+        // A process death leaves the marker. Every returned outcome is definitive for this
+        // attempt; committed narrative recovery has its separate receipt-backed marker.
+        runCatching{pendingActions.finished(request)}
+        when (val result = turnResult) {
             is ChatTurnResult.Narrated -> ChatApplicationOutcome.Narrated(result)
             is ChatTurnResult.CommittedWithoutNarrative -> ChatApplicationOutcome.CommittedNarrationPending(
                 result,
@@ -51,6 +58,7 @@ class CanonicalChatApplication(
             is ChatTurnResult.Rejected -> {
                 val clarification = result.reasonUids.any { reason ->
                     reason.contains("CLARIFICATION", ignoreCase = true) ||
+                        reason == "P60:CONSEQUENTIAL_ESTIMATE" ||
                         reason.contains("AMBIGU", ignoreCase = true) ||
                         reason.contains("UNRESOLVED", ignoreCase = true)
                 }
@@ -65,6 +73,7 @@ class CanonicalChatApplication(
     override suspend fun recover(token: ChatNarrationRecoveryToken, cancellation: AiCancellationSignal): NarrativeRecoveryResult =
         withContext(Dispatchers.IO) { engine.recoverNarration(token.request, cancellation) }
     override fun pendingRecovery():ChatNarrationRecoveryToken?=engine.pendingNarrationRecovery(requests.create("RECOVERY_DISCOVERY").campaignUid)
+    override fun pendingUncommittedInput():String?=pendingActions.pendingInput()
 }
 
 /**

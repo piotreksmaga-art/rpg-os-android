@@ -430,7 +430,7 @@ internal class CommittedReplaySemanticProjector(
         is KnowledgeAcquisitionChange->DomainRef(
             payload.acquisition.holder.holderKindUid,payload.acquisition.holder.holderUid
         )
-        is AccessAuthorityChange->null
+        is AccessAuthorityChange,is TemporalStateChange->null
         is AssetChange,is CampaignTruthChange,is DevelopmentProjectChange,is FinancialChange,is OwnershipChange->null
     }
 

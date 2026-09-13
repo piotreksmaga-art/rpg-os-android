@@ -6,7 +6,7 @@ import java.util.UUID
 
 enum class SchemaFamilyUid {
     ENGINE, CAMPAIGN, WORLD_PACK, PLAYER, RECEIPT, EVENT, CAUSAL, SNAPSHOT, REPLAY,
-    CANON_DIVERGENCE, KNOWLEDGE, MEMORY, FINANCE, INVENTORY, OWNERSHIP, DEVELOPMENT_PROJECT, ACCESS_AUTHORITY
+    CANON_DIVERGENCE, KNOWLEDGE, MEMORY, FINANCE, INVENTORY, OWNERSHIP, DEVELOPMENT_PROJECT, ACCESS_AUTHORITY, ACTION_TIME
 }
 
 enum class MigrationMateriality { STRUCTURAL_ADDITIVE, MATERIAL_DATA_MUTATION }
@@ -114,6 +114,7 @@ internal object Phase36SchemaVersioning {
     const val PLAN_VERSION = 2
 
     val contracts = listOf(
+        SchemaFamilyContract(SchemaFamilyUid.ACTION_TIME, 1, 1, setOf(SchemaFamilyUid.CAMPAIGN, SchemaFamilyUid.REPLAY)),
         SchemaFamilyContract(SchemaFamilyUid.ENGINE, 1, 1),
         SchemaFamilyContract(SchemaFamilyUid.CAMPAIGN, 1, 1, setOf(SchemaFamilyUid.ENGINE)),
         SchemaFamilyContract(SchemaFamilyUid.WORLD_PACK, 1, 1, setOf(SchemaFamilyUid.ENGINE)),
@@ -191,6 +192,11 @@ internal object Phase36SchemaVersioning {
 
         // Phase35 repair semantics are preserved. Phase37 adds only structural epistemic tables; legacy rows are not rewritten.
         administrativeWrite(db, campaignUid) {
+            if (current(db, SchemaFamilyUid.ACTION_TIME) == null) {
+                Phase60TemporalSchema.ensureReady(db)
+            } else {
+                check(Phase60TemporalSchema.isReady(db)) { "RPGOS-SCHEMA:ACTION_TIME_PHYSICAL_SCHEMA_NOT_CURRENT" }
+            }
             Phase35CanonDivergenceSchema.ensureReady(db)
             Phase38AccessAuthoritySchema.ensureReady(db)
             if (current(db, SchemaFamilyUid.KNOWLEDGE) == null) {

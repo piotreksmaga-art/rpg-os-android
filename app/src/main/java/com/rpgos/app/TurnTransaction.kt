@@ -207,7 +207,7 @@ internal object CanonicalPlayerChangeApplier{
                 is AssetChange,is ConditionChange,is RuntimeChange,
                 is WoundChange,is SpatialChange,is EquipmentIntegrityChange,is StructureIntegrityChange,
                 is MechanicalTrackChange,is AggregatePopulationChange,
-                is DevelopmentProjectChange,is KnowledgeAcquisitionChange -> Unit
+                is DevelopmentProjectChange,is KnowledgeAcquisitionChange,is TemporalStateChange -> Unit
                 is AccessAuthorityChange -> AccessAuthorityChangeValidator.requireValid(change.payload)
                 else -> throw UnsupportedCanonicalChangeException(change.changeKindUid)
             }
@@ -244,6 +244,7 @@ internal object CanonicalPlayerChangeApplier{
                 is AggregatePopulationChange->MechanicalActorStateStore(db,identity.campaignUid).applyAggregate(identity,change.changeUid,payload,effectiveOrder(changeSet))
                 is KnowledgeAcquisitionChange->applyKnowledge(db,identity,changeSet,change.changeUid,payload)
                 is DevelopmentProjectChange->applyProject(db,identity,changeSet,change.changeUid,payload)
+                is TemporalStateChange->Phase60TemporalStateStore(db,identity.campaignUid).apply(identity,payload)
                 is AccessAuthorityChange->applyAccessAuthority(db,identity,changeSet,change.changeUid,payload)
                 else->throw UnsupportedCanonicalChangeException(change.changeKindUid)
             }

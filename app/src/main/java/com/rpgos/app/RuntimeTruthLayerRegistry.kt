@@ -48,6 +48,7 @@ object RuntimeTruthLayerRegistry {
         RuntimeStateFamily("LEGACY_MECHANICS_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("technique_definitions")),
 
         RuntimeStateFamily("CURRENT_WORLD_AUTHORITY",setOf(RuntimeTruthLayer.AUTHORITATIVE),BundledCampaignPersistentFamilies.CURRENT_WORLD_AUTHORITY),
+        RuntimeStateFamily("ACTION_TIME_AUTHORITY",setOf(RuntimeTruthLayer.AUTHORITATIVE),setOf(Phase60TemporalSchema.TABLE)),
         RuntimeStateFamily("HISTORICAL_WORLD_EVIDENCE",setOf(RuntimeTruthLayer.APPEND_ONLY_HISTORICAL_EVIDENCE),BundledCampaignPersistentFamilies.HISTORICAL_WORLD_EVIDENCE),
         RuntimeStateFamily("BUNDLED_MECHANICS_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),BundledCampaignPersistentFamilies.MECHANICS_DEFINITION_AUTHORITY),
         RuntimeStateFamily("DERIVED_SIMULATION_STATE",setOf(RuntimeTruthLayer.DERIVED),BundledCampaignPersistentFamilies.DERIVED_SIMULATION_STATE),

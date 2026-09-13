@@ -112,10 +112,11 @@ data class VerifiedMechanicsCommandEffect(
 
 data class ApplyVerifiedMechanicsCommandPayload(
     val planUid:String,
-    val effects:List<VerifiedMechanicsCommandEffect>
+    val effects:List<VerifiedMechanicsCommandEffect>,
+    val temporalState:TemporalStateChange?=null
 ):PlayerCommandPayload {
     init {
-        require(planUid.isNotBlank()&&effects.isNotEmpty())
+        require(planUid.isNotBlank()&&(effects.isNotEmpty()||temporalState!=null))
         require(effects.map{it.effectUid}.distinct().size==effects.size)
     }
 }

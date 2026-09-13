@@ -19,7 +19,8 @@ class ContextBuilder internal constructor(
         }
 
         val campaign = optionalPresentationOne(saveDb,"SELECT campaign_name,schema_version,current_chapter,current_tome FROM campaign_meta WHERE id=1")
-        val time = optionalPresentationOne(saveDb,"SELECT year_label,era_name,season,hour,minute,absolute_day FROM campaign_calendar WHERE id=1")
+        val time = Phase60ClockProjection.project(saveDb, campaignRef.campaignId,
+            optionalPresentationOne(saveDb,"SELECT year_label,era_name,season,hour,minute,absolute_day FROM campaign_calendar WHERE id=1"))
         val activePlayerRef = ActivePlayerStore(saveDb,campaignRef.campaignId).active()
         val playerUid = activePlayerRef?.playerUid
         val protectedReads = protectedReadsOverride ?: ProtectedCampaignReadRepository.borrowed(saveDb, campaignRef.campaignId) { activePlayerRef }

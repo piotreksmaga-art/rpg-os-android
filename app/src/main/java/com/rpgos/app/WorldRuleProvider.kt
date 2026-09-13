@@ -375,6 +375,7 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
         is AggregatePopulationChange -> "AGGREGATE_POPULATION_CHANGE"
         is DevelopmentProjectChange -> "DEVELOPMENT_PROJECT_CHANGE"
         is KnowledgeAcquisitionChange -> "KNOWLEDGE_ACQUISITION_CHANGE"
+        is TemporalStateChange -> "TEMPORAL_STATE_CHANGE"
         is AccessAuthorityChange -> "ACCESS_AUTHORITY_CHANGE"
     }
     record(payloadType) {
@@ -493,6 +494,16 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
                 longField("VALID_FROM_ORDER", payload.validFromOrder)
                 nullableLongField("VALID_UNTIL_ORDER", payload.validUntilOrder)
                 nullableField("DELEGATED_BY_PRINCIPAL_UID", payload.delegatedByPrincipalUid)
+            }
+            is TemporalStateChange -> {
+                field("CAMPAIGN_UID", payload.campaignUid)
+                longField("EXPECTED_VERSION", payload.expectedVersion)
+                longField("EXPECTED_TIME_MS", payload.expectedTime.milliseconds)
+                longField("PROPOSED_TIME_MS", payload.proposedTime.milliseconds)
+                field("PROCESS_STATES", payload.processStatesCanonical)
+                field("DEADLINES", payload.deadlinesCanonical)
+                payload.stopReason?.let { field("TEMPORAL_STOP_REASON",it) }
+                if(payload.actionExecutionsCanonical!="[]")field("ACTION_EXECUTIONS",payload.actionExecutionsCanonical)
             }
             is KnowledgeAcquisitionChange -> {
                 section("CLAIM") {

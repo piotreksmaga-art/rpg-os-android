@@ -397,7 +397,24 @@ Stan historyczny może posiadać `validFrom/validUntil` lub równoważny tempora
 
 Scheduler planuje evaluation points/deadlines, nie z góry outcome. Przyszły rezultat powstaje dopiero po ocenie aktualnego stanu i reguł.
 
-Time Skip orkiestruje upływ czasu przez odpowiednie subsystemy: scheduled evaluations, player/NPC progression, age/family, projects, economy, travel, organizations, wars/politics, world simulation, relationships, knowledge propagation, memory consolidation i snapshot/state update.
+Kontrakt Phase60 obejmuje czas każdej czynności w świecie gry, nie tylko jawny time-skip.
+Walka, trening, rozmowa, słuchanie, czytanie i dowolne inne działanie korzystają ze wspólnej
+osi czasu oraz planu zależności i przerwań. Czynności równoczesne nie naliczają czasu podwójnie.
+Core zatwierdza czas wraz z faktycznie wykonanymi skutkami; wiadomość na czacie nie jest
+stałą jednostką czasu, a oczekiwanie na AI nie przesuwa zegara świata. Szczegóły:
+`docs/architecture/PHASE60_TIME_SKIP.md` (implementacja produkcyjna; odbiór urządzeniowy odłożony).
+Zwykła tura i długie działanie używają `ProductionTemporalMutationAssembler` oraz
+porcjowanego procesora. Core przyjmuje rzeczywiście wykonane skutki, zegar, stan procesów
+i raport wykonania przed admission — nigdy nie dopisuje ich do zapieczętowanej propozycji.
+Jawna reguła walki przelicza różnice ticków faz na ms i zachowuje moment trafienia.
+Pozostałe działania używają reguły domeny lub kontrolowanego oszacowania; materialna
+niepewność wymaga doprecyzowania. Brak ownera nie udaje zakończonej symulacji.
+Zegar trafia do UI i kontekstu; przerwanie i wykonany odcinek są odczytywane z replay.
+Checkpointy są prywatnym cache, a wznowienie niedokończonej decyzji w UI wymaga ponownej
+walidacji Core. Po commicie istniejąca ścieżka odzyskuje wyłącznie narrację. Undo/restore
+unieważnia stare zadania i usuwa markery danej kampanii bez naruszania ręcznych backupów.
+
+Docelowo Time Skip orkiestruje upływ czasu przez odpowiednie subsystemy: scheduled evaluations, player/NPC progression, age/family, projects, economy, travel, organizations, wars/politics, world simulation, relationships, knowledge propagation, memory consolidation i snapshot/state update. Tych brakujących właścicieli domen nie uznaje się za wdrożonych przez samo dostarczenie orkiestratora Phase60.
 
 ## 12. Retrieval, Intent, Turn Planner i Context
 Canonical pipeline Phase 39–47 jest addytywnym następcą wcześniejszej ścieżki regułowej:

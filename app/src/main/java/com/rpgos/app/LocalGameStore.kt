@@ -361,6 +361,10 @@ internal class LocalGameStore(private val context: Context) {
         withAdministrativeMutationAuthority(db,campaignUid){replaceDerivedMemoryHistory(db,campaignUid,reasonUid)}
     }
     private fun invalidateSemanticSidecar(campaignUid:String){
+        runCatching{FilePendingChatActionStore.clearCampaign(File(context.noBackupFilesDir,"pending-actions"),campaignUid)}
+            .onFailure{DiagnosticLogger.log(context,"P60_PENDING_ACTION_INVALIDATION_FAILED",it)}
+        runCatching{FileTemporalCheckpointStore(File(context.noBackupFilesDir,"temporal-checkpoints")).clearCampaign(campaignUid)}
+            .onFailure{DiagnosticLogger.log(context,"P60_CHECKPOINT_INVALIDATION_FAILED",it)}
         runCatching{SemanticSidecarStorage.invalidateCampaign(context,campaignUid)}
             .onFailure{DiagnosticLogger.log(context,"BEKKO_HISTORY_INVALIDATION_FAILED",it)}
     }
@@ -436,11 +440,11 @@ internal class LocalGameStore(private val context: Context) {
             // from the cursor lambda, discards the loaded snapshot and made this method always
             // display the hard-coded fallback even though canonical time had changed.
             try {
-                db.rawQuery("SELECT year_label,era_name,season,hour,minute FROM campaign_calendar WHERE id=1",null).use{cursor->
-                    if(!cursor.moveToFirst())null else TimeSnapshot(
-                        label=cursor.getString(0)?:"—",era=cursor.getString(1)?:"—",season=cursor.getString(2)?:"—",
-                        hour="%02d:%02d".format(cursor.getInt(3),cursor.getInt(4))
-                    )
+                db.rawQuery("SELECT year_label,era_name,season,hour,minute,absolute_day FROM campaign_calendar WHERE id=1",null).use{cursor->
+                    if(!cursor.moveToFirst())null else Phase60ClockProjection.snapshot(Phase60ClockProjection.project(db,
+                        selection.activeCampaignRef().campaignId, mapOf(
+                            "year_label" to cursor.getString(0), "era_name" to cursor.getString(1), "season" to cursor.getString(2),
+                            "hour" to cursor.getInt(3), "minute" to cursor.getInt(4), "absolute_day" to cursor.getLong(5))))
                 }
             }catch(failure:Exception){
                 DiagnosticLogger.log(context,"CAMPAIGN_TIME_READ_FAILED",failure)

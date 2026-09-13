@@ -186,6 +186,11 @@ internal class ProductionVerifiedMechanicsComponent:PlayerResolutionComponent<Ap
                 is MechanicalEffectMaterializationResult.Materialized->{changes+=result.changes;events+=result.eventIntents}
             }
         }
+        command.payload.temporalState?.let { time ->
+            if(time.campaignUid!=command.campaignUid)return PlayerResolutionComponentOutcome.Rejected(
+                PlayerResolutionRejection.create(PlayerResolutionRejectionReason.DOMAIN_REJECTED,detailUid="P60:CROSS_CAMPAIGN_TIME"))
+            changes+=PlayerDomainChange.create("RPGOS-TIME-CHANGE:${command.commandUid}",PHASE60_TIME_CHANGE_KIND,time,sourceRuleUid="RPGOS-P60:ACCEPTED_ACTION_TIME")
+        }
         if(changes.isEmpty())return PlayerResolutionComponentOutcome.Rejected(
             PlayerResolutionRejection.create(PlayerResolutionRejectionReason.DOMAIN_REJECTED,detailUid="EMPTY_MECHANICS_MATERIALIZATION")
         )
@@ -208,6 +213,17 @@ class ProductionCanonicalMutationAssembler(
     @Volatile private var lastReasons:List<String> = emptyList()
     override fun lastAssemblyReasonUids()=lastReasons
     override fun assemble(request:ChatTurnRequest,plan:CanonicalTurnPlan,proposal:ResolvedGmProposal):CanonicalCampaignMutationProposal?{
+        return assembleTimed(request,plan,proposal,null)
+    }
+
+    /** Time is resolved before admission, never appended to an already sealed proposal. */
+    fun assembleTimed(request:ChatTurnRequest,plan:CanonicalTurnPlan,proposal:ResolvedGmProposal,time:TemporalStateChange?):CanonicalCampaignMutationProposal?{
+        val effects=prepareEffects(request,plan,proposal)?:return null
+        return admitEffects(request,plan.planUid,proposal.candidate.proposalUid,effects,time)
+    }
+
+    /** Keep node identities until temporal execution decides which effects actually happened. */
+    internal fun prepareEffects(request:ChatTurnRequest,plan:CanonicalTurnPlan,proposal:ResolvedGmProposal):List<VerifiedMechanicsCommandEffect>?{
         lastReasons=emptyList()
         if(request.campaignUid!=plan.campaignUid||request.campaignUid!=proposal.campaignUid)return null
         val nodeOrder=plan.steps.mapIndexed{index,step->step.nodeUid to index}.toMap()
@@ -293,14 +309,20 @@ class ProductionCanonicalMutationAssembler(
         // intent nodes, but the canonical mechanical track has one key per actor/action.  Fold
         // those verified deltas before PlayerChangeSet validation; otherwise two legal QUERY
         // nodes become duplicate mutations of ACTION:QUERY in a single atomic change set.
-        val effects=materializationEffects+narrativeEffects+coalesceInteractionEffects(providerEffects)
-        if(effects.isEmpty())return null
         if(!validateDependencies(plan,proposal))return null
+        return materializationEffects+narrativeEffects+providerEffects
+    }
+
+    internal fun admitEffects(request:ChatTurnRequest,planUid:String,proposalUid:String,
+                             effects:List<VerifiedMechanicsCommandEffect>,time:TemporalStateChange?):CanonicalCampaignMutationProposal?{
+        if(time!=null&&time.campaignUid!=request.campaignUid){lastReasons=listOf("P60:CROSS_CAMPAIGN_TIME");return null}
+        if(effects.isEmpty()&&time==null)return null
         val command=PlayerCommand(
             commandUid=request.commandUid,campaignUid=request.campaignUid,actor=request.actor,
             commandKindUid=PlayerCommandKinds.APPLY_VERIFIED_MECHANICS,
-            payload=ApplyVerifiedMechanicsCommandPayload(plan.planUid,effects),
-            provenance=CommandProvenance("RPGOS-PHASE54-CANONICAL-COMPOSER",proposal.candidate.proposalUid),
+            payload=ApplyVerifiedMechanicsCommandPayload(planUid,
+                if(time==null)coalesceInteractionEffects(effects) else phase60CoalesceEffects(effects),time),
+            provenance=CommandProvenance("RPGOS-PHASE54-CANONICAL-COMPOSER",proposalUid),
             causationUid=request.turnUid,correlationUid=request.requestUid,requestedEffectiveOrder=request.atOrder?:1L
         )
         var domainRejection:PlayerResolutionRejection?=null
@@ -323,7 +345,17 @@ class ProductionCanonicalMutationAssembler(
     private fun validateDependencies(plan:CanonicalTurnPlan,proposal:ResolvedGmProposal):Boolean{
         val outcomes=proposal.candidate.nodeProposals.associateBy{it.nodeUid}
         return plan.steps.all{step->
-            step.dependencyNodeUids.all{dependency->outcomes[dependency]?.outcomeState==GmNodeOutcomeState.PROPOSED_SUCCESS}&&
+            val outcome=outcomes[step.nodeUid]?.outcomeState
+            if(outcome==GmNodeOutcomeState.BLOCKED_BY_PREREQUISITE) return@all proposal.verifiedEffects.none{it.nodeUid==step.nodeUid} &&
+                proposal.candidate.proposedClaims.none{it.nodeUid==step.nodeUid && it.claimKind==ProposedClaimKind.NARRATIVE_COLOR}
+            val node=plan.intent.nodes.singleOrNull{it.nodeUid==step.nodeUid}?:return@all false
+            step.dependencyNodeUids.all{dependency->
+                val kind=node.dependencies.firstOrNull{it.predecessorNodeUid==dependency}?.kind
+                val prior=outcomes[dependency]?.outcomeState
+                if(kind in setOf(IntentDependencyKind.AFTER_ATTEMPT,IntentDependencyKind.AFTER_COMPLETION,IntentDependencyKind.DURING))
+                    prior in setOf(GmNodeOutcomeState.PROPOSED_SUCCESS,GmNodeOutcomeState.PROPOSED_FAILURE)
+                else prior==GmNodeOutcomeState.PROPOSED_SUCCESS
+            }&&
                 (outcomes[step.nodeUid]?.outcomeState!=GmNodeOutcomeState.PROPOSED_SUCCESS||step.matchState in setOf(CapabilityMatchState.EXACT,CapabilityMatchState.COMPOSED,CapabilityMatchState.GENERIC))
         }
     }

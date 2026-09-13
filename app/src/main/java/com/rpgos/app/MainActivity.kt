@@ -2016,6 +2016,7 @@ private fun GameScreen(vm:RpgOsViewModel){
                     Column(Modifier.weight(1f)){Text(turnUi.statusText,fontWeight=FontWeight.Bold);turnUi.reasonUid?.let{Text(it,style=MaterialTheme.typography.labelSmall)}}
                     if(turnUi.canCancel)TextButton(onClick=vm::cancelCurrentAiTurn){Text("Anuluj")}
                     if(turnUi.canRetryNarration)TextButton(onClick=vm::retryCommittedNarration){Text("Ponów narrację")}
+                    if(turnUi.canResumeAction)TextButton(onClick=vm::resumeUncommittedAction){Text("Wznów niedokończoną turę")}
                     if(turnUi.canConfirmCharacterCreation)TextButton(onClick=vm::confirmCharacterCreation){Text("Potwierdź postać")}
                 }
             }

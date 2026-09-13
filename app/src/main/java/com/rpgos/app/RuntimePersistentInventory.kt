@@ -45,6 +45,7 @@ object RuntimePersistentWriterRegistry {
         PersistentWriterContract(method, Collections.unmodifiableSet(families.toSet()), capability)
 
     val canonicalTurnTargetFamilies: Set<String> = setOf(
+        "ACTION_TIME_AUTHORITY",
         "BASE_STATS_RESOURCES",
         "SKILLS_TECHNIQUES",
         "INVENTORY",
