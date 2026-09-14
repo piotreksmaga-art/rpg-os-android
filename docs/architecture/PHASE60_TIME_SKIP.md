@@ -125,6 +125,11 @@ tworzy commitu. Limit to najwyżej 256 granic i 500 ms kooperacyjnej pracy w por
 całego zadania. Synchroniczny owner musi sam przestrzegać bounded work; nie jest przerywany
 w połowie wywołania. Anulowanie przed commitem nie zapisuje czasu ani skutków.
 
+Repozytorium publikuje punkty odtworzenia Undo dopiero po wyjściu z zewnętrznego
+`CampaignRuntimeLifecycleLock.withTurn`. Kontrola scope i canonical commit pozostają
+razem pod blokadą tury; późniejszy snapshot uzyskuje własny recovery lock. Wykonywanie
+administracyjnego odzyskiwania wewnątrz gameplay authority pozostaje zabronione.
+
 Checkpointy w prywatnym `noBackupFilesDir/temporal-checkpoints` są CACHE/REBUILDABLE:
 AtomicFile, checksum, format v2, limit 16 MiB, scope i fingerprint specyfikacji.
 Nie należą do backupów ani canonical hash. Przy ponownym wywołaniu executor odtwarza

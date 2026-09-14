@@ -108,15 +108,21 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
             arrayOf(entry.subject.uid,"CONDITION:${entry.conditionUid}")).use { cursor->buildSet{while(cursor.moveToNext())add(cursor.getString(0))} }
         } }
     internal fun commitTemporalTurn(identity:TurnTransactionIdentity, proposal:CanonicalCampaignMutationProposal,
-                                   expected:TemporalScope?):TurnExecutionResult<TurnCommitAppliedResult> =
-        CampaignRuntimeLifecycleLock.withTurn(identity.campaignUid) {
+                                   expected:TemporalScope?):TurnExecutionResult<TurnCommitAppliedResult> {
+        val result=CampaignRuntimeLifecycleLock.withTurn(identity.campaignUid) {
             check(activeCampaignRef().campaignId == identity.campaignUid) { "P60:CAMPAIGN_CHANGED" }
             val retried = openGameplaySaveDb().use { TurnTransactionReceiptStore(it).committedCommand(identity.campaignUid,identity.commandUid) != null }
             if (!retried && proposal.playerChangeSet.changes.any { it.payload is TemporalStateChange }) {
                 check(expected != null && infrastructureTemporalRead().scope == expected) { "P60:STALE_HISTORY" }
             }
-            commitTurn(identity,proposal)
+            commitTurnWithoutMaintenance(identity,proposal,TurnFailureInjector.NONE)
         }
+        // Snapshot publication is an administrative recovery operation, not gameplay authority.
+        // Leave the outer temporal scope before maintenance takes its own recovery lock.
+        // Otherwise withRecovery correctly rejects every post-turn Undo checkpoint.
+        finishTurnMaintenance(identity)
+        return result
+    }
     internal fun infrastructureLastReceipt():TurnCommitReceipt? =
         openGameplaySaveDb().use{TurnTransactionReceiptStore(it).lastValidCommit(activeCampaignRef().campaignId)}
     internal fun infrastructureReplayPayload(transactionUid:String,committedOrder:Long):CommittedReplayPayload? =
@@ -349,11 +355,20 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         proposal: CanonicalCampaignMutationProposal,
         failureInjector: TurnFailureInjector
     ): TurnExecutionResult<TurnCommitAppliedResult> {
-        val result=openGameplaySaveDb().use { db ->TurnTransactionBoundary.create(db, identity, proposal, failureInjector).commit()}
+        val result=commitTurnWithoutMaintenance(identity,proposal,failureInjector)
+        finishTurnMaintenance(identity)
+        return result
+    }
+
+    private fun commitTurnWithoutMaintenance(identity:TurnTransactionIdentity,
+                                            proposal:CanonicalCampaignMutationProposal,
+                                            failureInjector:TurnFailureInjector):TurnExecutionResult<TurnCommitAppliedResult> =
+        openGameplaySaveDb().use { db ->TurnTransactionBoundary.create(db, identity, proposal, failureInjector).commit()}
+
+    private fun finishTurnMaintenance(identity:TurnTransactionIdentity) {
         runCatching{store.ensureUndoCheckpointAfterCommit()}
             .onFailure{DiagnosticLogger.log(context,"UNDO_BASELINE_CHECKPOINT_FAILED",it)}
         scheduleMemoryConsolidation(identity.campaignUid)
-        return result
     }
 
     private fun scheduleMemoryConsolidation(campaignUid:String)=scheduleMemoryCatchUp(campaignUid,"PHASE58_POST_COMMIT_FAILED")

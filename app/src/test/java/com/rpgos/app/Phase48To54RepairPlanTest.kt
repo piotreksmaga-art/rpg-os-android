@@ -711,8 +711,9 @@ class Phase48NativePackageAndProductionWiringTest{
         assertEquals(initialTime+100_000L,reopened.infrastructureTemporalRead().state.time.milliseconds)
     }
 
-    @Test fun controlledProductionRootCommitsMultiActionThenCombatAndSurvivesRestart()=runBlocking{
+    @Test fun controlledTimedCombatUndo()=runBlocking{
         cleanup();val repository=UnifiedGameRepository(context);repository.bootstrap()
+        repository.createCampaign("P60")
         val active=createControlledPlayer(repository);val campaign=active.campaignId
         val location=repository.worldLocations().first()
         val npc=repository.infrastructureOpenWorldDb().use{CanonCharacterProjectionReader(it).list("").first()}
@@ -807,6 +808,15 @@ class Phase48NativePackageAndProductionWiringTest{
         assertEquals(active.playerUid,reopened.activePlayerRef()?.playerUid)
         assertTrue(reopened.infrastructureMechanicalActor(DomainRef("NPC",npc.uid))?.conditions?.any{it.conditionUid=="WOUND"&&it.intensity>0}==true)
         assertEquals(populationAfter,reopened.infrastructureAggregatePopulation(group.second))
+        val recoveryChecks=LocalGameStore(context).openGameplaySaveDb().use{db->
+            reopened.snapshots().map{snapshot->snapshot.snapshotUid to runCatching{
+                RecoverableSnapshotPolicy.requireRecoverable(db,campaign,snapshot.snapshotUid)
+            }.exceptionOrNull()?.message}
+        }
+        val undoPreview=reopened.previewUndoLastTurn()
+        assertTrue("preview=$undoPreview; snapshots=$recoveryChecks",undoPreview.canConfirm)
+        assertTrue(reopened.confirmUndoLastTurn(undoPreview.previewToken) is DestructiveUndoResult.Completed)
+        assertEquals(populationBefore,reopened.infrastructureAggregatePopulation(group.second))
     }
 
     private fun createControlledPlayer(repository:UnifiedGameRepository):ActivePlayerRef{

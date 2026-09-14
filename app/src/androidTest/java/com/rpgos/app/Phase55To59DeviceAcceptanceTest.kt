@@ -49,7 +49,7 @@ class Phase55To59DeviceAcceptanceTest {
 
             val generationBefore=repository.infrastructureHistoryGenerationUid()
             val preview=repository.previewUndoLastTurn()
-            assertTrue(preview.canConfirm)
+            assertTrue("Undo preview must be confirmable, got $preview",preview.canConfirm)
             assertEquals(secondOrder,preview.currentCommitOrder)
             assertEquals(firstOrder,preview.targetCommitOrder)
             val undoResult=repository.confirmUndoLastTurn(preview.previewToken)
