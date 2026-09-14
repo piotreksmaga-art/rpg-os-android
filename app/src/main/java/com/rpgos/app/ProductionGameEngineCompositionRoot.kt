@@ -41,7 +41,7 @@ internal class UniversalMechanicsWorldRuleProvider(binding:WorldPackRuleBinding)
         }
         if(request.stage==WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK&&request.effects?.changes?.any{change->
                 change.payload !is ResourceChange&&change.payload !is ConditionChange&&change.payload !is RuntimeChange&&change.payload !is AssetChange&&
-                    change.payload !is InventoryChange&&
+                    change.payload !is InventoryChange&&change.payload !is TemporalStateChange&&
                     change.payload !is WoundChange&&change.payload !is SpatialChange&&change.payload !is EquipmentIntegrityChange&&
                     change.payload !is StructureIntegrityChange&&change.payload !is MechanicalTrackChange&&change.payload !is AggregatePopulationChange&&
                     (change.payload !is CampaignTruthChange||when(change.payload.kind){
@@ -265,7 +265,8 @@ internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapsh
         }
         if(result.effects.isEmpty())return CanonicalEffectResolution.Rejected("COMBAT_RESOLUTION_EMPTY")
         val resolved=result.effects.singleOrNull{it.target==target}?:result.effects.first()
-        return CanonicalEffectResolution.Applied(resolved.payload+buildMap{
+        val timing=Phase60CombatTime.metadata(DeterministicCombatScheduler().schedule(coreRequest.intent,coreRequest.snapshot))
+        return CanonicalEffectResolution.Applied(resolved.payload+timing+buildMap{
             put("magnitude",resolved.magnitude.toString());put("target_kind_uid",resolved.target.kindUid);put("target_uid",resolved.target.uid)
             put("combat_proof_uid",result.evidence.proofUid);put("canonical_effect_kind_uid",resolved.kind.name)
             if(result.effects.size>1){
@@ -468,8 +469,12 @@ private class ProductionCommittedNarrationReadPort(private val repository:Unifie
     override fun read(identity:TurnTransactionIdentity,receipt:TurnCommitReceipt,audience:AudienceContext,purpose:PurposeContext):PostCommitPlayerVisibleReadback{
         val order=requireNotNull(receipt.commitOrder)
         val replay=requireNotNull(repository.infrastructureReplayPayload(identity.transactionUid,order)){"RPGOS-P54:COMMITTED_REPLAY_MISSING"}
-        val snapshot=mapOf("committed_order" to order.toString(),"committed_change_count" to replay.changeSet.changes.size.toString())
-        val facts=replay.changeSet.changes.map{change->
+        val playerUid=repository.activePlayerRef()?.playerUid
+        val visibleChanges=replay.changeSet.changes.filter { change->
+            !change.sourceRuleUid.orEmpty().startsWith("P60:PROCESS:") || subjectOf(change)?.let{it.kindUid=="PLAYER"&&it.uid==playerUid}==true
+        }
+        val snapshot=mapOf("committed_order" to order.toString(),"committed_change_count" to visibleChanges.size.toString())
+        val facts=visibleChanges.map{change->
             val truth=change.payload as? CampaignTruthChange
             CommittedNarrativeFact(
                 "FACT:${mechanicsHash(change.changeUid).take(24)}",
@@ -484,8 +489,9 @@ private class ProductionCommittedNarrationReadPort(private val repository:Unifie
             )
         }
         val consequences=buildList{
-            replay.changeSet.changes.mapNotNullTo(this){change->when(val payload=change.payload){
+            visibleChanges.mapNotNullTo(this){change->when(val payload=change.payload){
                 is ResourceChange->"Zasób ${payload.resourceUid} zmienił się o ${payload.delta.units}."
+                is TemporalStateChange->phase60PlayerExecutionSummary(payload)
                 is ConditionChange->if(payload.operation==ConditionOperation.ADD)"Pojawił się stan ${payload.conditionUid}." else "Stan ${payload.conditionUid} ustąpił."
                 is RuntimeChange->"Skutek działania został zastosowany."
                 is InventoryChange->if(payload.quantityDelta.units>0L)"Przedmiot trafia do twojego ekwipunku." else "Przedmiot opuszcza twój ekwipunek."
@@ -518,6 +524,7 @@ private class ProductionCommittedNarrationReadPort(private val repository:Unifie
         else->null
     }
     private fun valueOf(change:PlayerDomainChange)=when(val payload=change.payload){
+        is TemporalStateChange->phase60PlayerExecutionSummary(payload)
         is ResourceChange->payload.delta.units.toString();is ConditionChange->payload.operation.name;is RuntimeChange->payload.delta.units.toString()
         is InventoryChange->payload.itemInstanceUid
         is WoundChange->payload.severityDelta.units.toString();is SpatialChange->"${payload.deltaXMillimetres},${payload.deltaYMillimetres}"
@@ -708,10 +715,11 @@ class ProductionGameEngineCompositionRoot(
         val bindings=buildList{add(binding);semanticApplication?.let{add(it.structuredBinding())}}
         val contextPipeline=CanonicalIterativeRetrievalPipeline(StructuredSqlRetriever(bindings),SemanticContextBudgetManager(),TypedContextCompletionStrategy{_,_,_->emptyList()})
         val evaluator=GmProposalEvaluator(StructuredGmProposalValidator(),MechanicsResolutionEngine(mechanicsRegistry))
-        val assembler=ProductionCanonicalMutationAssembler(playerEngine,PlayerResolutionContextFactory{command->
+        val mechanicsAssembler=ProductionCanonicalMutationAssembler(playerEngine,PlayerResolutionContextFactory{command->
             val refs=linkedSetOf<CampaignScopedDomainRef>()
             fun add(ref:DomainRef){refs+=CampaignScopedDomainRef(command.campaignUid,ref)}
             add(DomainRef(command.actor.actorKindUid,command.actor.actorUid))
+            command.payload.temporalState?.let { add(DomainRef("CAMPAIGN",it.campaignUid)) }
             val heldItemInstanceUids=if(command.actor.actorKindUid=="PLAYER")
                 repository.infrastructureHeldItemInstanceUids(command.actor.actorUid)
             else emptySet()
@@ -728,6 +736,13 @@ class ProductionGameEngineCompositionRoot(
             }
             PlayerResolutionContext.create(command.campaignUid,command.actor,refs,dependencyVersions=mapOf("PHASE50" to "3"),worldRuleMode=worldRuleMode)
         })
+        val assembler=ProductionTemporalMutationAssembler(mechanicsAssembler,repository::infrastructureTemporalRead,
+            FileTemporalCheckpointStore(File(app.noBackupFilesDir,"temporal-checkpoints")),processOwners={state,effects->
+                val conditionState=state.state.processStates.singleOrNull{it.ownerUid==Phase60ScheduledConditions.OWNER}
+                if(conditionState!=null)listOf(Phase60ScheduledConditions.registered(state.scope.campaignUid,
+                    repository.infrastructureConditionExpiryApplications(Phase60ScheduledConditions.decode(conditionState.canonicalValue)),
+                    effects.map{it.target}.toSet()+listOfNotNull(repository.activePlayerRef()?.let{DomainRef("PLAYER",it.playerUid)}))) else emptyList()
+            })
         val route=DynamicProductionModelRoute(providerCenter,configuration,additionalProviders)
         val facade=AiChatEngineFacade(
             route,Phase43IntentValidator(),ProductionIntentResolver(repository,
@@ -738,8 +753,9 @@ class ProductionGameEngineCompositionRoot(
             LegacyRuleIntentFallback(),GraphTurnPlanner(capabilities),contextPipeline,
             ContextRuntimeProfile("ANDROID-PRODUCTION",8_192,256,768,1_024,256),BoundedProposalRepair(evaluator),assembler,
             AuthoritativeTurnCommitPort{identity,proposal->try{
-                repository.commitTurn(identity,proposal).also{result->
+                repository.commitTemporalTurn(identity,proposal,assembler.scopeFor(proposal)).also{result->
                     if(result is TurnExecutionResult.Committed||result is TurnExecutionResult.AlreadyCommitted){
+                        runCatching { assembler.committed(identity.campaignUid,identity.commandUid) }
                         semanticApplication?.onCanonicalCommit()
                         val receipt=when(result){
                             is TurnExecutionResult.Committed->result.receipt
@@ -782,7 +798,9 @@ class ProductionGameEngineCompositionRoot(
             val uid=UUID.randomUUID().toString()
             ChatTurnRequest("REQUEST:$uid",campaign,"TURN:$uid","COMMAND:$uid","TRANSACTION:$uid",CommandActorRef("PLAYER",player.playerUid),input,"pl-PL",
                 VisibilityAudienceFactory.player(campaign),PurposeContext(campaign,VisibilityPurposeKinds.GAMEPLAY_NARRATION),repository.infrastructureLastCommitOrder()+1)
-        })
+        },FilePendingChatActionStore(File(app.noBackupFilesDir,"pending-actions"),repository.activeCampaignRef().campaignId,
+            {repository.infrastructureTemporalRead().scope},{repository.infrastructureReceipt(it)!=null},
+            {FileTemporalCheckpointStore(File(app.noBackupFilesDir,"temporal-checkpoints")).remove(repository.activeCampaignRef().campaignId,it)}))
     }
 }
 
@@ -791,6 +809,7 @@ class DynamicCanonicalChatApplication(private val factory:()->CanonicalChatAppli
     override suspend fun play(input:String,cancellation:AiCancellationSignal)=factory().play(input,cancellation)
     override suspend fun recover(token:ChatNarrationRecoveryToken,cancellation:AiCancellationSignal)=factory().recover(token,cancellation)
     override fun pendingRecovery():ChatNarrationRecoveryToken?=factory().pendingRecovery()
+    override fun pendingUncommittedInput():String?=factory().pendingUncommittedInput()
 }
 
 private fun mechanicsHash(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString(""){"%02x".format(it)}

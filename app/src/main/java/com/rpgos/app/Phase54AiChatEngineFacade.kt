@@ -68,6 +68,10 @@ fun interface CanonicalMutationAssembler{
     fun assemble(request:ChatTurnRequest,plan:CanonicalTurnPlan,proposal:ResolvedGmProposal):CanonicalCampaignMutationProposal?
 }
 
+internal interface CancellableCanonicalMutationAssembler:CanonicalMutationAssembler {
+    fun assemble(request:ChatTurnRequest,plan:CanonicalTurnPlan,proposal:ResolvedGmProposal,cancelled:()->Boolean):CanonicalCampaignMutationProposal?
+}
+
 /** Read-only diagnostics for a rejected assembly; it never changes or retries domain admission. */
 interface CanonicalMutationAssemblyDiagnostics{
     fun lastAssemblyReasonUids():List<String>
@@ -235,7 +239,10 @@ class AiChatEngineFacade(
             })return ChatTurnResult.Rejected(AiTurnStage.VALIDATION_REPAIR,
             (listOf("NEEDS_PLAYER_CLARIFICATION")+executableOutcomes.flatMap{it.uncertaintyUids}).distinct().sorted())
         if(cancellation.isCancelled())return ChatTurnResult.Cancelled(AiTurnStage.ASSEMBLY,TurnMutationState.NOT_STARTED)
-        val canonical=assembler.assemble(request,plan,verified)?:return ChatTurnResult.Rejected(
+        val assembled=if(assembler is CancellableCanonicalMutationAssembler)assembler.assemble(request,plan,verified){cancellation.isCancelled()}
+            else assembler.assemble(request,plan,verified)
+        if(cancellation.isCancelled())return ChatTurnResult.Cancelled(AiTurnStage.ASSEMBLY,TurnMutationState.NOT_STARTED)
+        val canonical=assembled?:return ChatTurnResult.Rejected(
             AiTurnStage.ASSEMBLY,
             ((assembler as? CanonicalMutationAssemblyDiagnostics)?.lastAssemblyReasonUids().orEmpty()+"NO_CANONICAL_MUTATION_PROPOSAL").distinct().sorted()
         )

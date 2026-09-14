@@ -394,6 +394,11 @@ private class RpgOsLabRuntime(context: Context) {
         .put("last_commit", lastCommit())
         .put("canonical_fingerprint", canonicalFingerprint())
         .put("recovery", recoveryState())
+        .put("pending_uncommitted_input", chat.pendingUncommittedInput() ?: JSONObject.NULL)
+        .put("temporal", repository.infrastructureTemporalRead().let{snapshot->JSONObject()
+            .put("world_time_ms",snapshot.state.time.milliseconds).put("state_version",snapshot.state.version)
+            .put("history_generation",snapshot.scope.historyGenerationUid).put("process_count",snapshot.state.processStates.size)
+            .put("deadline_count",snapshot.state.deadlines.size)})
         .put("pending_character_draft", pendingCharacterDraft())
 
     private fun mechanicalState(arguments:JSONObject):JSONObject{

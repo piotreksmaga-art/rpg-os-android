@@ -59,6 +59,23 @@ class TypedPlayerChangeRegistry private constructor(
     internal fun codec(kindUid: String): TypedPlayerChangeCodec<out PlayerDomainChangePayload> =
         codecs[kindUid] ?: throw PlayerChangeSetStructuralException("UNKNOWN_CHANGE_KIND")
 
+    /** Rebuildable workers reuse the canonical payload codecs, never Java deserialization. */
+    internal fun encodeWorkerPayload(payload: PlayerDomainChangePayload): JsonObject {
+        val entry = codecs.entries.single { it.value.payloadType.isInstance(payload) }
+        require(entry.value.validateUntyped(payload).isEmpty()) { "INVALID_WORKER_PAYLOAD" }
+        return buildJsonObject { put("kind", JsonPrimitive(entry.key)); put("payload", entry.value.encodeUntyped(payload)) }
+    }
+
+    internal fun decodeWorkerPayload(value: JsonObject): PlayerDomainChangePayload {
+        require(value.keys == setOf("kind", "payload"))
+        val kind = value.getValue("kind").jsonPrimitive
+        require(kind.isString)
+        val codec = codec(kind.content)
+        return codec.decode(value.getValue("payload").jsonObject).also {
+            require(codec.validateUntyped(it).isEmpty()) { "INVALID_WORKER_PAYLOAD" }
+        }
+    }
+
     fun classificationFor(kindUid: String): ChangeIntentClassification = codec(kindUid).classification
 
     fun validateChange(change: PlayerDomainChange) {
@@ -74,7 +91,7 @@ class TypedPlayerChangeRegistry private constructor(
 
     companion object {
         fun core(): TypedPlayerChangeRegistry = TypedPlayerChangeRegistry(
-            coreChangeCodecs() + mapOf(PHASE37_KNOWLEDGE_CHANGE_KIND to phase37KnowledgeChangeCodec())
+            coreChangeCodecs() + mapOf(PHASE37_KNOWLEDGE_CHANGE_KIND to phase37KnowledgeChangeCodec(), PHASE60_TIME_CHANGE_KIND to phase60TimeChangeCodec())
         )
     }
 }

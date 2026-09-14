@@ -671,7 +671,8 @@ class Phase48NativePackageAndProductionWiringTest{
             intentFunction={request->
                 val reference=IntentReference("TARGET",IntentReferenceKind.DESCRIPTIVE,location.name,"TARGET",descriptorHints=mapOf("surface" to location.name))
                 IntentDocument(campaignUid=request.campaignUid,actor=request.actor,rawInput=request.rawInput,meaningState=MeaningState.UNDERSTOOD,
-                    nodes=listOf(IntentNode("MOVE",IntentForm.DIRECT_ACTION,SemanticAction(semanticFamilyUid="MOVE",rawPhrase=request.rawInput),participants=listOf(IntentParticipant("TARGET",referenceUid="TARGET")))),
+                    // The controlled provider supplies timing evidence just like the production intent codec.
+                    nodes=listOf(IntentNode("MOVE",IntentForm.DIRECT_ACTION,SemanticAction(semanticFamilyUid="MOVE",rawPhrase=request.rawInput,attributes=mapOf("time_min_ms" to "1000","time_max_ms" to "1000")),participants=listOf(IntentParticipant("TARGET",referenceUid="TARGET")))),
                     references=listOf(reference),provenance=IntentInterpretationProvenance(IntentInterpretationSource.AI_PROVIDER,selection.providerUid,"1",digest(request.rawInput)))
             },
             proposalFunction={request->
@@ -688,8 +689,9 @@ class Phase48NativePackageAndProductionWiringTest{
         fun application(repo:UnifiedGameRepository)=ProductionGameEngineCompositionRoot(
             context,repo,AndroidAiProviderCenterApplication(context),{configuration},{listOf(provider)}
         ).chatApplication()
+        val initialTime=repository.infrastructureTemporalRead().state.time.milliseconds
         val first=application(repository).play("Idę do ${location.name}.",AiCancellationSignal.NONE)
-        assertTrue(first is ChatApplicationOutcome.Narrated)
+        assertTrue("first=$first",first is ChatApplicationOutcome.Narrated)
         val firstOrder=(first as ChatApplicationOutcome.Narrated).result.receipt.commitOrder!!
         assertEquals(1_000L,(repository.infrastructureMechanicalPersistence(active.playerUid).position as CombatPosition.Exact).xMillimetres)
 
@@ -706,10 +708,12 @@ class Phase48NativePackageAndProductionWiringTest{
             assertTrue(order>previousOrder);previousOrder=order
         }
         assertEquals(100_000L,(reopened.infrastructureMechanicalPersistence(active.playerUid).position as CombatPosition.Exact).xMillimetres)
+        assertEquals(initialTime+100_000L,reopened.infrastructureTemporalRead().state.time.milliseconds)
     }
 
-    @Test fun controlledProductionRootCommitsMultiActionThenCombatAndSurvivesRestart()=runBlocking{
+    @Test fun controlledTimedCombatUndo()=runBlocking{
         cleanup();val repository=UnifiedGameRepository(context);repository.bootstrap()
+        repository.createCampaign("P60")
         val active=createControlledPlayer(repository);val campaign=active.campaignId
         val location=repository.worldLocations().first()
         val npc=repository.infrastructureOpenWorldDb().use{CanonCharacterProjectionReader(it).list("").first()}
@@ -741,7 +745,7 @@ class Phase48NativePackageAndProductionWiringTest{
                         IntentReference("COMBO-ATTACK-TARGET",IntentReferenceKind.DESCRIPTIVE,npc.name,"TARGET",descriptorHints=mapOf("surface" to npc.name))
                     )
                     val nodes=listOf(
-                        IntentNode("COMBO-MOVE",IntentForm.SEQUENCE_MEMBER,SemanticAction(semanticFamilyUid="MOVE",rawPhrase="zbliżam się"),participants=listOf(IntentParticipant("TARGET",referenceUid="COMBO-MOVE-TARGET"))),
+                        IntentNode("COMBO-MOVE",IntentForm.SEQUENCE_MEMBER,SemanticAction(semanticFamilyUid="MOVE",rawPhrase="zbliżam się",attributes=mapOf("time_min_ms" to "1000","time_max_ms" to "1000")),participants=listOf(IntentParticipant("TARGET",referenceUid="COMBO-MOVE-TARGET"))),
                         IntentNode("ATTACK-COMBO",IntentForm.SEQUENCE_MEMBER,SemanticAction("STRIKE","ATTACK","atakuję"),participants=listOf(IntentParticipant("TARGET",referenceUid="COMBO-ATTACK-TARGET")),dependencies=listOf(IntentDependency("COMBO-MOVE",IntentDependencyKind.BEFORE)))
                     )
                     IntentDocument(campaignUid=request.campaignUid,actor=request.actor,rawInput=request.rawInput,meaningState=MeaningState.UNDERSTOOD,nodes=nodes,references=refs,
@@ -757,8 +761,8 @@ class Phase48NativePackageAndProductionWiringTest{
                 }else{
                     val refs=listOf("R1","R2").map{uid->IntentReference(uid,IntentReferenceKind.DESCRIPTIVE,location.name,"TARGET",descriptorHints=mapOf("surface" to location.name))}
                     val nodes=listOf(
-                        IntentNode("MOVE-1",IntentForm.SEQUENCE_MEMBER,SemanticAction(semanticFamilyUid="MOVE",rawPhrase="pierwszy krok"),participants=listOf(IntentParticipant("TARGET",referenceUid="R1"))),
-                        IntentNode("MOVE-2",IntentForm.SEQUENCE_MEMBER,SemanticAction(semanticFamilyUid="MOVE",rawPhrase="drugi krok"),participants=listOf(IntentParticipant("TARGET",referenceUid="R2")),dependencies=listOf(IntentDependency("MOVE-1",IntentDependencyKind.BEFORE)))
+                        IntentNode("MOVE-1",IntentForm.SEQUENCE_MEMBER,SemanticAction(semanticFamilyUid="MOVE",rawPhrase="pierwszy krok",attributes=mapOf("time_min_ms" to "1000","time_max_ms" to "1000")),participants=listOf(IntentParticipant("TARGET",referenceUid="R1"))),
+                        IntentNode("MOVE-2",IntentForm.SEQUENCE_MEMBER,SemanticAction(semanticFamilyUid="MOVE",rawPhrase="drugi krok",attributes=mapOf("time_min_ms" to "1000","time_max_ms" to "1000")),participants=listOf(IntentParticipant("TARGET",referenceUid="R2")),dependencies=listOf(IntentDependency("MOVE-1",IntentDependencyKind.BEFORE)))
                     )
                     IntentDocument(campaignUid=request.campaignUid,actor=request.actor,rawInput=request.rawInput,meaningState=MeaningState.UNDERSTOOD,nodes=nodes,references=refs,
                         provenance=IntentInterpretationProvenance(IntentInterpretationSource.AI_PROVIDER,selection.providerUid,"1",digest(request.rawInput)))
@@ -804,6 +808,15 @@ class Phase48NativePackageAndProductionWiringTest{
         assertEquals(active.playerUid,reopened.activePlayerRef()?.playerUid)
         assertTrue(reopened.infrastructureMechanicalActor(DomainRef("NPC",npc.uid))?.conditions?.any{it.conditionUid=="WOUND"&&it.intensity>0}==true)
         assertEquals(populationAfter,reopened.infrastructureAggregatePopulation(group.second))
+        val recoveryChecks=LocalGameStore(context).openGameplaySaveDb().use{db->
+            reopened.snapshots().map{snapshot->snapshot.snapshotUid to runCatching{
+                RecoverableSnapshotPolicy.requireRecoverable(db,campaign,snapshot.snapshotUid)
+            }.exceptionOrNull()?.message}
+        }
+        val undoPreview=reopened.previewUndoLastTurn()
+        assertTrue("preview=$undoPreview; snapshots=$recoveryChecks",undoPreview.canConfirm)
+        assertTrue(reopened.confirmUndoLastTurn(undoPreview.previewToken) is DestructiveUndoResult.Completed)
+        assertEquals(populationBefore,reopened.infrastructureAggregatePopulation(group.second))
     }
 
     private fun createControlledPlayer(repository:UnifiedGameRepository):ActivePlayerRef{

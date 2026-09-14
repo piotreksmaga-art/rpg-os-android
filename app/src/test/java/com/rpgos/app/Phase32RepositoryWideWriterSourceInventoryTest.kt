@@ -32,6 +32,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "OwnershipReferenceRegistry.kt",
             "OwnershipStore.kt",
             "Phase50MechanicalStateStore.kt",
+            "Phase60TemporalState.kt",
             "Phase35CanonDivergence.kt",
             "Phase37WorldActorKnowledge.kt",
             "Phase38AccessAuthority.kt",
@@ -95,6 +96,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         put("GameplayMutationGate.kt", WriterClass.OPERATIONAL_GUARD)
         put("DiagnosticLogger.kt", WriterClass.OPERATIONAL_GUARD)
         put("SqliteCompatibility.kt", WriterClass.OPERATIONAL_GUARD)
+        put("Phase60PendingAction.kt", WriterClass.OPERATIONAL_GUARD)
         put("AppSettings.kt", WriterClass.UI_SETTINGS)
         put("RpgOsViewModel.kt", WriterClass.USER_AUTHORIZED_FILE_TRANSFER)
         put("OpenRouterAndroidInfrastructure.kt", WriterClass.EXTERNAL_AI_CONFIGURATION)
@@ -105,6 +107,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         put("CampaignWorldProjectionStore.kt", WriterClass.CACHE_REBUILDABLE)
         put("Phase55To58Memory.kt", WriterClass.CACHE_REBUILDABLE)
         put("Phase58MemoryConsolidation.kt", WriterClass.CACHE_REBUILDABLE)
+        put("Phase60CheckpointStore.kt", WriterClass.CACHE_REBUILDABLE)
     }
 
     private val durableWriteMarkers = listOf(
@@ -156,6 +159,9 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         val admin = classifiedWriterFiles.filterValues { it == WriterClass.ADMINISTRATIVE_MIGRATION_RECOVERY }.keys
 
         assertTrue(canonical.isNotEmpty())
+        assertEquals(WriterClass.CANONICAL_DOMAIN, classifiedWriterFiles["Phase60TemporalState.kt"])
+        assertEquals(WriterClass.OPERATIONAL_GUARD, classifiedWriterFiles["Phase60PendingAction.kt"])
+        assertEquals(WriterClass.CACHE_REBUILDABLE, classifiedWriterFiles["Phase60CheckpointStore.kt"])
         assertEquals(
             setOf("CampaignEventStore.kt", "CampaignCausalGraph.kt", "TurnTransactionReceiptStore.kt"),
             evidence

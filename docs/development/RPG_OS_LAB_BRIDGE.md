@@ -369,6 +369,23 @@ Na fizycznej Motoroli Edge 30 Neo wykonano pełną ścieżkę Stage 3 przez praw
 
 Test ujawnił i zamknął real-device finding: worker Bekko mógł wcześniej zakończyć proces aplikacji nieobsłużonym `SQLITE_SCHEMA` podczas zmiany kampanii. Koordynator jest per-campaign, kontroluje zmianę aktywnego UID i zamienia każdy błąd indeksu w typed fallback. Ten rekord potwierdza lokalne acceptance, ale publikacja nadal wymaga pełnego testu końcowego, inspekcji release APK oraz exact-SHA CI.
 
+### 10.2 Diagnostyka czasu Phase60
+
+`GET_TURN_STATE` zawiera dodatkowo `temporal`: czas świata w ms, wersję canonical state,
+history generation oraz liczbę procesów i terminów. Nie należy utożsamiać czasu świata
+z `committed_order` ani czasem działania hosta.
+
+`pending_uncommitted_input` wskazuje decyzję przerwaną przed commitem. Można ponowić jej
+tekst zwykłą komendą wysłania akcji; ponowienie przechodzi pełną, aktualną walidację Core.
+Nie podawać jako komendy zapisanego payloadu checkpointu ani poprzedniej odpowiedzi AI.
+Jeżeli istnieje receipt, stosować istniejące recovery narracji, bez ponownego wykonywania
+akcji. Po undo/restore marker starej generacji nie jest dostępny.
+
+Readback po turze uwzględnia wykonany czas i przerwanie. Zmiany ukrytych procesów nie
+stają się przez to publiczną wiedzą gracza. Szczegóły reguł i ograniczeń zawiera
+`docs/architecture/PHASE60_TIME_SKIP.md`. Weryfikacja 2026-09-14 obejmuje kompilację LAB
+oraz celowane testy JVM/Robolectric; nie jest nowym testem na Motoroli.
+
 ## 11. Relacja do pozostałych dokumentów
 
 Ten dokument jest nadrzędną instrukcją bieżącego Bridge'a Etapów 1–3. Raporty:

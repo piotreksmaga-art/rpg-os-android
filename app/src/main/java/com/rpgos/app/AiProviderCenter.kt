@@ -10,7 +10,7 @@ enum class ChatTurnUiStage { IDLE, INTERPRETING, PLANNING, BUILDING_CONTEXT, GEN
 data class ChatTurnUiState(
     val stage:ChatTurnUiStage=ChatTurnUiStage.IDLE,val requestUid:String?=null,val statusText:String="Gotowy",
     val canCancel:Boolean=false,val canRetryNarration:Boolean=false,val canConfirmCharacterCreation:Boolean=false,
-    val committedOrder:Long?=null,val reasonUid:String?=null
+    val committedOrder:Long?=null,val reasonUid:String?=null,val canResumeAction:Boolean=false
 )
 
 data class AiModelOptionUi(

@@ -21,6 +21,7 @@ enum class ReplayAuthorityCoverage { REPLAYABLE, BASELINE_DIGEST_GUARDED, NON_RE
 object CampaignReplayAuthorityMatrix {
     /** Authority families directly mutated by the currently accepted CanonicalPlayerChangeApplier payloads. */
     val replayableFamilyUids:Set<String> = setOf(
+        "ACTION_TIME_AUTHORITY",
         "CAMPAIGN_TRUTH","CANON_DIVERGENCE","BASE_STATS_RESOURCES","SKILLS_TECHNIQUES","INVENTORY","EQUIPMENT_LOADOUT",
         "OWNERSHIP_REFERENCE_STATE","OWNERSHIP_HISTORY","FINANCE_AUTHORITY","ASSET_LIABILITY_AUTHORITY",
         "MECHANICAL_ACTOR_AND_AGGREGATE_STATE","DEVELOPMENT_PROJECTS","NPC_KNOWLEDGE_STATE","ACCESS_AUTHORITY"
@@ -751,7 +752,11 @@ internal fun replaceDerivedMemoryHistory(db:SQLiteDatabase,campaignUid:String,re
 }
 
 internal object AuthoritativeStateDigest {
-    fun compute(db:SQLiteDatabase):String { val md=MessageDigest.getInstance("SHA-256");RuntimeTruthLayerRegistry.authoritativePersistentTables().filter{tableExists(db,it)}.sorted().forEach{t->
+    fun compute(db:SQLiteDatabase):String { val md=MessageDigest.getInstance("SHA-256");RuntimeTruthLayerRegistry.authoritativePersistentTables().filter{tableExists(db,it)}.filter { table ->
+        // An absent or empty additive Phase60 family is the same pre-Phase60 state. This
+        // preserves historical receipt digests across migration; populated rows are ALWAYS hashed.
+        table != Phase60TemporalSchema.TABLE || db.rawQuery("SELECT 1 FROM ${Phase60TemporalSchema.TABLE} LIMIT 1",null).use { it.moveToFirst() }
+    }.sorted().forEach{t->
         val columns=db.rawQuery("PRAGMA table_info(`$t`)",null).use{c->buildList{while(c.moveToNext())add(c.getString(1))}}
         md.update("T:$t:${columns.joinToString(",")}\n".toByteArray(Charsets.UTF_8));val order=columns.joinToString(","){"`$it`"}
         db.rawQuery("SELECT $order FROM `$t` ORDER BY $order",null).use{c->while(c.moveToNext()){for(i in columns.indices){md.update(when(c.getType(i)){android.database.Cursor.FIELD_TYPE_NULL->"N";android.database.Cursor.FIELD_TYPE_BLOB->"B"+c.getBlob(i).joinToString(""){"%02x".format(it)};else->"V"+c.getString(i)}.toByteArray(Charsets.UTF_8));md.update(0)}}}

@@ -13,6 +13,7 @@ class CanonicalAiJsonCodec:AiStructuredCodec{
         .put("registered_semantic_families",JSONArray(UniversalIntentFamilies.REGISTERED.sorted()))
         .put("requirements",JSONArray(listOf(
             "Preserve the exact request identity and raw input","Return semantic families, never canonical action IDs",
+            "For every attempted world activity (including speech, observation, reading and combat) set semantic_action.attributes.time_scope to WORLD and time_min_ms/time_max_ms to positive integer strings estimating the activity duration, not request latency. An explicitly stated duration has equal bounds. For uncertain duration give honest bounds or empty strings; do not invent precision. Core adjudicates the estimate. Use time_scope META only for out-of-world UI/rules questions, not talking to a character. Future intentions do not execute. Use DURING for simultaneous activity and AFTER_COMPLETION for consecutive activity; never count overlapping time twice",
             "semantic_family_uid must be from registered_semantic_families; for another player verb use OPEN_WORLD_ACTION and put its normalized uppercase token in attributes.provider_action",
             "Map localized verbs to the closest registered semantic family regardless of language; for example odkładam/upuszczam -> DROP and biorę/podnoszę -> TAKE. Use OPEN_WORLD_ACTION only when no registered family preserves the meaning",
             "References remain unresolved descriptors; never invent world IDs",
@@ -425,6 +426,8 @@ class LocalCompactAiJsonCodec(
             "Role z u trafiają do destination (dokąd), where (gdzie lub skąd), who (kto) i what (bezpośredni obiekt czynności); step może mieć kilka ról. "+
             "Dla 'biorę miecz ze stojaka' what to 'miecz', a where to 'stojaka'. "+
             "locality ma wartość L dla celu lokalnego, R dla odległego albo U przy braku danych. "+
+            "Podaj time_min_ms i time_max_ms jako dodatnie liczby milisekund trwania czynności; jawny czas ma równe granice. Przy niewiedzy pomiń czas. time_scope: WORLD dla działania w świecie, META tylko dla pytania poza światem gry. relation względem poprzedniego kroku: AFTER_COMPLETION dla kolejności, DURING dla równoczesności, AFTER_SUCCESS tylko dla warunku sukcesu. "+
+            "modality: ATTEMPT_NOW dla działania teraz, PLAN_FUTURE dla przyszłego zamiaru; polarity: NEGATED dla czynności zaprzeczonej, inaczej AFFIRMATIVE. "+
             "Słowa techniczne tej instrukcji nie są czynnościami gracza. Bez nowych celów, faktów świata i pustych pól.")
         .toString()
 
@@ -514,7 +517,11 @@ class LocalCompactAiJsonCodec(
                 participantRefs+=referenceUid
             }
             val dependencies=(node.array("d").strings()+node.array("after").strings()).mapNotNull{providerId->providerIds.indexOf(providerId).takeIf{it in 0 until nodeIndex}}
-                .distinct().map{IntentDependency("LOCAL-NODE:$it",IntentDependencyKind.AFTER_SUCCESS)}
+                .distinct().map{IntentDependency("LOCAL-NODE:$it", when(node.optString("time_relation")) {
+                    "DURING" -> IntentDependencyKind.DURING
+                    "AFTER_COMPLETION" -> IntentDependencyKind.AFTER_COMPLETION
+                    else -> IntentDependencyKind.AFTER_SUCCESS
+                })}
             val routeHint=when(safeToken(node.optString("r"))){
                 "M"->"MOVEMENT";"C"->"COMBAT";"T"->"TRAINING";"Q"->"QUERY";"D"->"COMMUNICATION";"A"->"ACTION"
                 else->safeToken(node.optString("r")).takeIf(String::isNotBlank)
@@ -524,7 +531,12 @@ class LocalCompactAiJsonCodec(
                 nodeUid="LOCAL-NODE:$nodeIndex",form=runCatching{IntentForm.valueOf(node.optString("f").ifBlank{"DIRECT_ACTION"}.uppercase())}.getOrDefault(IntentForm.DIRECT_ACTION),
                 semanticAction=SemanticAction(semanticFamilyUid=routedFamily,
                     rawPhrase=node.optString("p").trim().takeIf(String::isNotBlank)?:request.rawInput.take(160),
-                    attributes=if(routedFamily!=action)mapOf(UniversalIntentFamilies.PROVIDER_ACTION_ATTRIBUTE to action)else emptyMap()),
+                    attributes=buildMap{
+                        if(routedFamily!=action)put(UniversalIntentFamilies.PROVIDER_ACTION_ATTRIBUTE,action)
+                        listOf("time_scope","time_min_ms","time_max_ms").forEach{key->
+                            node.optString(key).takeIf{it.isNotBlank()&&it!="null"}?.let{put(key,it)}
+                        }
+                    }),
                 participants=participantRefs.map{IntentParticipant("TARGET",referenceUid=it)},dependencies=dependencies,
                 polarity=runCatching{IntentPolarity.valueOf(node.optString("pol").ifBlank{"AFFIRMATIVE"}.uppercase())}.getOrDefault(IntentPolarity.AFFIRMATIVE),
                 modality=runCatching{IntentModality.valueOf(node.optString("m").ifBlank{"ATTEMPT_NOW"}.uppercase())}.getOrDefault(IntentModality.ATTEMPT_NOW)
@@ -847,6 +859,10 @@ class LocalCompactAiJsonCodec(
             emittedEquivalentSteps[equivalentKey]=alreadyEmitted+1
             val nodeIndex=nodes.length()
             nodes.put(JSONObject().put("id",nodeIndex.toString()).put("a",action).put("r",route).put("t",references)
+                .put("time_scope",step.optString("time_scope")).put("time_min_ms",step.optString("time_min_ms"))
+                .put("time_max_ms",step.optString("time_max_ms")).put("time_relation",step.optString("relation"))
+                .put("m",step.optString("modality")).put("pol",step.optString("polarity"))
+                .put("f",if(route=="Q")"QUERY" else if(route=="D")"COMMUNICATION" else "DIRECT_ACTION")
                 .put("d",JSONArray().apply{if(nodeIndex>0)put((nodeIndex-1).toString())}))
         }
         require(nodes.length()>0){"LOCAL_INTENT_STEPS_REQUIRED"}

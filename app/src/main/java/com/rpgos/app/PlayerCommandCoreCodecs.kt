@@ -167,7 +167,7 @@ internal fun coreCommandCodecs(): Map<String, TypedCommandCodec<out PlayerComman
                     })
                 }
             }
-        ) },
+        ).let { base -> payload.temporalState?.let { JsonObject(base + ("temporalState" to phase60TimeChangeCodec().encode(it))) } ?: base } },
         { obj->ApplyVerifiedMechanicsCommandPayload(obj.reqString("planUid"),obj.reqArray("effects").map{element->
             val effect=element.jsonObject.requireOnlyKeys(setOf("effectUid","nodeUid","mechanicsOwnerUid","effectKindUid","target","magnitude","canonicalPayload","proofUid","deterministicInputFingerprint","deterministicOutputFingerprint"))
             VerifiedMechanicsCommandEffect(
@@ -178,10 +178,10 @@ internal fun coreCommandCodecs(): Map<String, TypedCommandCodec<out PlayerComman
                     primitive.content
                 },effect.reqString("proofUid"),effect.reqString("deterministicInputFingerprint"),effect.reqString("deterministicOutputFingerprint")
             )
-        }) },
+        },obj["temporalState"]?.let { phase60TimeChangeCodec().decode(it.jsonObject) }) },
         { payload->combine(
             nonblank(payload.planUid,"INVALID_PLAN_UID"),
-            errorIf(payload.effects.isEmpty(),"EMPTY_MECHANICS_EFFECTS"),
+            errorIf(payload.effects.isEmpty()&&payload.temporalState==null,"EMPTY_MECHANICS_EFFECTS"),
             errorIf(payload.effects.map{it.effectUid}.distinct().size!=payload.effects.size,"DUPLICATE_MECHANICS_EFFECT_UID"),
             errorIf(payload.effects.any{!validRef(it.target)},"INVALID_MECHANICS_TARGET"),
             errorIf(payload.effects.any{effect->listOf(effect.effectUid,effect.nodeUid,effect.mechanicsOwnerUid,effect.effectKindUid,effect.proofUid,effect.deterministicInputFingerprint,effect.deterministicOutputFingerprint).any{it.isBlank()}},"INVALID_MECHANICS_EFFECT")

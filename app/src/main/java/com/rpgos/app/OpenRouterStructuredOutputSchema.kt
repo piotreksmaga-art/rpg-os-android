@@ -40,7 +40,7 @@ object OpenRouterStructuredOutputSchema {
             "semantic_action" to obj(linkedMapOf(
                 "semantic_family_uid" to nullableText(),
                 "raw_phrase" to text(),
-                "attributes" to fixedStringMap("provider_action"),
+                "attributes" to fixedStringMap("provider_action", "time_scope", "time_min_ms", "time_max_ms"),
                 "confidence_uid" to nullableText()
             )),
             "participants" to array(obj(linkedMapOf(

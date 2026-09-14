@@ -314,7 +314,8 @@ class Phase55To59HundredTurnAcceptanceTest {
                     IntentNode(
                         "MOVE",
                         IntentForm.DIRECT_ACTION,
-                        SemanticAction(semanticFamilyUid = "MOVE", rawPhrase = request.rawInput),
+                        SemanticAction(semanticFamilyUid = "MOVE", rawPhrase = request.rawInput,
+                            attributes = mapOf("time_min_ms" to "1000", "time_max_ms" to "1000")),
                         participants = listOf(IntentParticipant("TARGET", referenceUid = "TARGET"))
                     )
                 ),
