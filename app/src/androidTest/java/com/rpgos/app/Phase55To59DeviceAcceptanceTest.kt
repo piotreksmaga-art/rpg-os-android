@@ -134,7 +134,8 @@ class Phase55To59DeviceAcceptanceTest {
                 campaignUid=request.campaignUid,actor=request.actor,rawInput=request.rawInput,
                 meaningState=MeaningState.UNDERSTOOD,
                 nodes=listOf(IntentNode(
-                    "MOVE",IntentForm.DIRECT_ACTION,SemanticAction(semanticFamilyUid="MOVE",rawPhrase=request.rawInput),
+                    "MOVE",IntentForm.DIRECT_ACTION,SemanticAction(semanticFamilyUid="MOVE",rawPhrase=request.rawInput,
+                        attributes=mapOf("time_min_ms" to "1000","time_max_ms" to "1000")),
                     participants=listOf(IntentParticipant("TARGET",referenceUid="TARGET"))
                 )),
                 references=listOf(reference),
