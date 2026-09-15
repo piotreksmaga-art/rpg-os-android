@@ -131,10 +131,12 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: gradle --no-daemon :app:connectedDebugAndroidTest -PrpgosEmulatorX86=true -Pandroid.testInstrumentationRunnerArguments.class=com.rpgos.app.Phase61To62ActivityContractDeviceSmokeTest --stacktrace
-      - name: Collect logcat
-        if: always()
-        run: adb logcat -d > "phase61-62-api-${{ matrix.api-level }}-logcat.txt" || true
+          script: |
+            set +e
+            gradle --no-daemon :app:connectedDebugAndroidTest -PrpgosEmulatorX86=true -Pandroid.testInstrumentationRunnerArguments.class=com.rpgos.app.Phase61To62ActivityContractDeviceSmokeTest --stacktrace
+            test_status=$?
+            timeout 30s adb logcat -d -t 20000 > "phase61-62-api-${{ matrix.api-level }}-logcat.txt" || true
+            exit "$test_status"
       - name: Upload Android evidence
         if: always()
         uses: actions/upload-artifact@v4
