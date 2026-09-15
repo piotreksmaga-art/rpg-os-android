@@ -114,6 +114,10 @@ object VisibilityConsumerInventory {
             VisibilityPurposeKinds.INTERNAL_SIMULATION),
         c("phase37-context-discovery", "app/src/main/java/com/rpgos/app/Phase37KnowledgeContextDiscovery.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
             VisibilityPurposeKinds.INTERNAL_SIMULATION),
+        // Rehydrates optional memory leaves for the already authorized NPC holder/roles;
+        // cache text never grants knowledge or permission to disclose it to another audience.
+        c("phase62-npc-historical-memory", "app/src/main/java/com/rpgos/app/Phase62NpcHistoricalMemory.kt", ProtectedConsumerCapability.PROJECTION_DATA_SOURCE,
+            VisibilityPurposeKinds.WORLD_ACTOR_REASONING),
         c("campaign-truth-authority", "app/src/main/java/com/rpgos/app/CampaignTruthStore.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
             VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("campaign-world-projection", "app/src/main/java/com/rpgos/app/CampaignWorldProjectionStore.kt", ProtectedConsumerCapability.PROJECTION_DATA_SOURCE,

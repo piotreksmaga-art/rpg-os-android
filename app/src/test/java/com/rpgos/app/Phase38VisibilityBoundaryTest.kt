@@ -217,6 +217,14 @@ class Phase38VisibilityBoundaryTest {
         assertEquals(ProtectedEntryPointClassification.FORBIDDEN_DIRECT_CONSUMER,VisibilityConsumerInventory.entryPointClassification("app/src/main/java/com/rpgos/app/NormalProjectedConsumer.kt",ordinaryDirect))
     }
 
+    @Test fun npcHistoricalMemoryAdapterIsRestrictedToWorldActorReasoning(){
+        val path="app/src/main/java/com/rpgos/app/Phase62NpcHistoricalMemory.kt"
+        val contract=VisibilityConsumerInventory.requireClassifiedIfProtected(path,source(path))!!
+        assertEquals(ProtectedConsumerCapability.PROJECTION_DATA_SOURCE,contract.capability)
+        assertEquals(setOf(VisibilityPurposeKinds.WORLD_ACTOR_REASONING),contract.allowedPurposeUids)
+        assertEquals(setOf(AudienceKinds.WORLD_ACTOR),contract.allowedAudienceKindUids)
+    }
+
     @Test fun universalCoreContainsNoWorldSpecificSemanticBranches(){
         val files=listOf("app/src/main/java/com/rpgos/app/Phase38Visibility.kt","app/src/main/java/com/rpgos/app/Phase38VisibilityConsumerInventory.kt","app/src/main/java/com/rpgos/app/VisualPromptBuilder.kt")
         val banned=listOf("if Naruto","if Witcher","if Bleach","if ninja","if shinobi","if wizard","if dragon","if sciFi","Naruto-inspired")

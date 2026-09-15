@@ -165,7 +165,12 @@ class Phase61NpcDynamicsTest {
         val actorState=MechanicalActorView("C1",actor,MechanicalActorKind.NPC,1,MechanicalStateMaterialization.FULL,emptyMap(),emptyList(),
             setOf("WAIT","ATTACK"),generationProvenanceUid="GEN")
         val options=NpcMechanicalAffordances(CombatAbilityContractPort.UNIVERSAL_FALLBACK).options(state,emptyList(),actorState)
-        assertEquals(setOf("WAIT","REST"),options.map{it.capabilityUid}.toSet())
+        // REST v2 recovers an existing STAMINA resource; intrinsic intent cannot create one.
+        assertEquals(setOf("WAIT"),options.map{it.capabilityUid}.toSet())
         assertTrue(options.all{it.target==actor})
+        val withStamina=actorState.copy(resources=listOf(MechanicalResource("STAMINA",9,10)))
+        val restOptions=NpcMechanicalAffordances(CombatAbilityContractPort.UNIVERSAL_FALLBACK).options(state,emptyList(),withStamina)
+        assertEquals(setOf("WAIT","REST"),restOptions.map{it.capabilityUid}.toSet())
+        assertTrue(restOptions.all{it.target==actor})
     }
 }
