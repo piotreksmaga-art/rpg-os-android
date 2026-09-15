@@ -305,6 +305,8 @@ sealed interface CombatEligibilityResult{
 class CombatEligibilityGate{
     fun evaluate(intent:CombatIntent,ability:CombatAbilityContract,snapshot:ImmutableCombatSnapshot):CombatEligibilityResult{
         val actor=snapshot.actors.singleOrNull{it.actor==intent.actor}?:return CombatEligibilityResult.Rejected("ACTOR_NOT_MATERIALIZED")
+        if(actor.kind==MechanicalActorKind.ACTIVE_PLAYER && intent.source!=VolitionalActionSource.VALIDATED_PLAYER_COMMAND)
+            return CombatEligibilityResult.Rejected("ACTIVE_PLAYER_VOLITION_REQUIRES_USER_COMMAND")
         if(actor.materialization==MechanicalStateMaterialization.SEED_ONLY)return CombatEligibilityResult.Rejected("ACTOR_MECHANICAL_STATE_INCOMPLETE")
         if(intent.abilityUid!=ability.abilityUid||intent.abilityUid !in actor.executableAbilityUids)return CombatEligibilityResult.Rejected("ABILITY_UNAVAILABLE")
         if(ability.targetKindUids.isNotEmpty()&&intent.target.kindUid !in ability.targetKindUids)return CombatEligibilityResult.Rejected("TARGET_INELIGIBLE")

@@ -99,7 +99,10 @@ class NarrativeValidator{
         val authorizedNonPlayerUtterances=context.legalFacts.filter{
             it.kind==CommittedNarrativeFactKind.NARRATIVE_COLOR&&it.predicateUid==GmNarrativePredicates.NPC_UTTERANCE
         }.map{it.valueCanonical}
-        if(narrative.assertsPlayerVolition||NarrativePlayerAgencySurfaceGuard.violates(narrative.text,playerInput,authorizedNonPlayerUtterances))
+        val authorizedPlayerUtterances=context.legalFacts.filter{
+            it.kind==CommittedNarrativeFactKind.NARRATIVE_COLOR&&it.predicateUid==NpcCommunicationMemory.PLAYER_UTTERANCE
+        }.map{it.valueCanonical}
+        if(narrative.assertsPlayerVolition||NarrativePlayerAgencySurfaceGuard.violates(narrative.text,playerInput,authorizedNonPlayerUtterances,authorizedPlayerUtterances))
             reasons+="NARRATIVE_INVENTED_PLAYER_VOLITION"
         val facts=context.legalFacts.associateBy{it.factUid}
         narrative.claims.forEach{claim->
@@ -147,9 +150,16 @@ private object NarrativePlayerAgencySurfaceGuard{
     private val sentenceStart=Regex("(?iu)(?:^|[.!?]\\s+)(\\p{L}+)")
     private val polishGerund=Regex("(?iu)\\b(\\p{L}{4,})ąc\\b")
     private val explicitFirstPersonDesire=Regex("(?iu)\\bchcę\\b|\\bja\\s+chce\\b")
+    private val quotation=Regex("„([^„”]*)”|“([^“”]*)”|\"([^\"]*)\"|«([^«»]*)»")
 
-    fun violates(text:String,playerInput:String?,authorizedNonPlayerUtterances:List<String> = emptyList()):Boolean{
+    fun violates(text:String,playerInput:String?,authorizedNonPlayerUtterances:List<String> = emptyList(),authorizedPlayerUtterances:List<String> = emptyList()):Boolean{
         var playerAgencySurface=text
+        // Only exact, quoted, already delivered speech may contain "mój", "chcę", etc.
+        // A raw input substring is not proof that the player said it (it can be a private thought).
+        val allowedQuotes=authorizedPlayerUtterances.map{it.trim()}.toSet()
+        playerAgencySurface=quotation.replace(playerAgencySurface){match->
+            if(match.groupValues.drop(1).any{it.isNotBlank() && it.trim() in allowedQuotes}) "" else match.value
+        }
         authorizedNonPlayerUtterances.sortedByDescending{it.length}.forEach{utterance->
             val plain=utterance.trim().trim('„','”','“','"')
             listOf(utterance,plain).filter{it.isNotBlank()}.distinct().forEach{authorized->

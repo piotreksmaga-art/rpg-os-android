@@ -18,6 +18,26 @@ class KnownGameEngineRegressionTest {
     private val audience=VisibilityAudienceFactory.player(campaign)
     private val purpose=PurposeContext(campaign,VisibilityPurposeKinds.PLAYER_UI)
 
+    @Test fun localNpcMessagePreservesTheQuestionWithoutSendingTheWholePrivateInput() {
+        val request=AiIntentRequest("REQ",campaign,actor,"Myślę o tajnym skarbie. Pytam strażnika: Gdzie jest brama?","pl")
+        val codec=LocalCompactAiJsonCodec()
+        val wire="""{"steps":[{"action":"pytam","kind":"QUERY","who":"strażnika","locality":"L","message":"Gdzie jest brama?"}]}"""
+        val document=codec.decodeIntent(wire,request)
+        assertEquals("Gdzie jest brama?",document.nodes.single().participants.single{it.roleUid=="MESSAGE"}.literalValue)
+        fun plan(doc:IntentDocument)=CanonicalTurnPlan(planUid="PLAN",campaignUid=campaign,intent=doc.copy(references=doc.references.map{
+            it.copy(state=IntentReferenceState.RESOLVED_PROJECTED,resolvedProjectedRef=DomainRef("NPC","GUARD"),resolutionEvidenceUid="CORE")
+        }),audience=audience,purpose=purpose,steps=emptyList(),atOrder=1)
+        fun effect(p:CanonicalTurnPlan)=NpcCommunicationMemory.annotate(VerifiedMechanicsCommandEffect("E",p.intent.nodes.single().nodeUid,
+            "CORE","NARRATIVE_EVENT",DomainRef("NPC","GUARD"),1,mapOf("predicate_uid" to GmNarrativePredicates.NPC_UTTERANCE,"narrative_text" to "Na wschodzie."),
+            "PROOF","INPUT","OUTPUT"),p,p.intent.nodes.single())
+        val result=effect(plan(document))
+        assertEquals("Gdzie jest brama?",result.canonicalPayload["communication_input_0"])
+        assertFalse(result.canonicalPayload.values.any{it.contains("skarbie")})
+        assertThrows(IllegalArgumentException::class.java){codec.decodeIntent(wire.replace("Gdzie jest brama?","Wymyślone słowa"),request)}
+        val missing=codec.decodeIntent(wire.replace(",\"message\":\"Gdzie jest brama?\"",""),request)
+        assertThrows(IllegalArgumentException::class.java){effect(plan(missing))}
+    }
+
     @Test
     fun naturalPolishMovementIsKeptAsAnUnresolvedDescriptorByTheEmergencyFallback(){
         val parsed=IntentParser().parse(campaign,actor,"Idę na poranne zajęcia w akademii.") as IntentParseResult.Parsed

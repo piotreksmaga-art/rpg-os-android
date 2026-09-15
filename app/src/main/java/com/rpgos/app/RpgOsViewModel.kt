@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -104,7 +105,20 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         ProductionGameEngineCompositionRoot(
             app,repository,providerCenterApplication,configuration=::effectiveAiConfiguration,
             additionalProviders=AiProviderExtensionRegistry::providers,semanticApplication=semanticApplication,
-            directorGuidance=AiProviderExtensionRegistry.directorGuidancePort()
+            directorGuidance=AiProviderExtensionRegistry.directorGuidancePort(),
+            npcProgress=NpcWorkProgressPort{campaign,workload->
+                val request=_chatTurnUi.value.requestUid
+                val cancellation=activeAiCancellation
+                val observing=NpcTurnProgressUi(campaign,request,cancellation)
+                fun label(text:String){
+                    if(observing.cancellation!=null && activeAiCancellation===observing.cancellation &&
+                        repository.activeCampaignRef().campaignId==observing.campaign)_chatTurnUi.update{state->
+                        if(state.requestUid==observing.request && state.canCancel)state.copy(statusText=text) else state
+                    }
+                }
+                label(if(workload==AiWorkload.NPC_DIALOGUE)"Rozmówca przygotowuje odpowiedź…" else "Postacie podejmują decyzje…")
+                AutoCloseable{label("Rozliczam działania postaci…")}
+            }
         )
     }
     private val chatApplication:ChatApplicationPort by lazy{
@@ -328,6 +342,7 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         providerCenterApplication.onOpenRouterCallback{connection->viewModelScope.launch{applyOpenRouterConnection(connection)}}
         beginStartup()
     }
+    private data class NpcTurnProgressUi(val campaign:String,val request:String?,val cancellation:MutableAiCancellationSignal?)
 
     fun retryStartup()=beginStartup()
 

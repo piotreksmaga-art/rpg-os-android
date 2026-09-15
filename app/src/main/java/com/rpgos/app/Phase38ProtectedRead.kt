@@ -48,7 +48,8 @@ object ProtectedSubjectAccessRegistry {
     fun modeFor(subjectKindUid:String):ProtectedSubjectAccessMode = when(subjectKindUid){
         in publicKinds -> ProtectedSubjectAccessMode.PUBLIC_OPEN
         VisibilitySubjectKinds.PLAYER_STATE -> ProtectedSubjectAccessMode.CONTROL_AUTHORITY
-        VisibilitySubjectKinds.PHASE37_HOLDER_KNOWLEDGE -> ProtectedSubjectAccessMode.COGNITION_AUTHORITY
+        VisibilitySubjectKinds.PHASE37_HOLDER_KNOWLEDGE,
+        VisibilitySubjectKinds.WORLD_ACTOR_PRIVATE_BRAIN -> ProtectedSubjectAccessMode.COGNITION_AUTHORITY
         VisibilitySubjectKinds.ACCESS_AUTHORITY_HISTORY -> ProtectedSubjectAccessMode.PRINCIPAL_AUTHORITY
         VisibilitySubjectKinds.CAUSAL_RELATION -> ProtectedSubjectAccessMode.POLICY_OR_PRIVILEGED_AUTHORITY
         in privilegedKinds -> ProtectedSubjectAccessMode.PRIVILEGED_AUTHORITY
@@ -207,6 +208,37 @@ class ProtectedCampaignReadRepository private constructor(
     }
 
     internal fun trustedPrincipal(audience:AudienceContext):TrustedPrincipalContext?=withSaveDb{db->resolver(db).resolve(audience)}
+
+    internal fun npcBrain(audience:AudienceContext,purpose:PurposeContext,actor:DomainRef,
+                          holder:KnowledgeHolderRef,initialization:NpcBrainState?=null):ProtectedReadResult<NpcBrainState> = withSaveDb { db ->
+        val request=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,
+            VisibilitySubjectKinds.WORLD_ACTOR_PRIVATE_BRAIN,actor.uid,holder=holder))
+        gateway(db).read(request) {
+            (NpcBrainStore(db,campaignUid).read(actor)?:initialization)?.also {
+                require(it.campaignUid==campaignUid && it.actor==actor)
+                require(it.knowledgeHolder==holder) { "P61:HOLDER_MISMATCH" }
+            }
+        }.withoutNullPayload()
+    }
+
+    internal fun npcKnowledge(audience:AudienceContext,purpose:PurposeContext,holder:KnowledgeHolderRef,
+                              atOrder:Long,limit:Int,preferredAcquisitionUids:Set<String> = emptySet()):ProtectedReadResult<List<NpcKnownRecord>> = withSaveDb { db ->
+        val request=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,
+            VisibilitySubjectKinds.PHASE37_HOLDER_KNOWLEDGE,holder.holderUid,holder=holder))
+        gateway(db).read(request) {
+            KnowledgeContextProjection(db,campaignUid).boundedForNpc(holder,atOrder,limit,
+                resolver(db).resolve(audience)?.roleUids.orEmpty(),preferredAcquisitionUids)
+        }
+    }
+
+    internal fun npcHistoricalMemory(audience:AudienceContext,purpose:PurposeContext,holder:KnowledgeHolderRef,
+                                     generation:HistoryGenerationUid,atOrder:Long):ProtectedReadResult<List<NpcKnownRecord>> = withSaveDb { db ->
+        val request=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,
+            VisibilitySubjectKinds.PHASE37_HOLDER_KNOWLEDGE,holder.holderUid,holder=holder))
+        gateway(db).read(request) {
+            NpcHistoricalMemoryProjection(db,campaignUid).read(holder,generation,atOrder,resolver(db).resolve(audience)?.roleUids.orEmpty())
+        }
+    }
 
     fun playerState(audience:AudienceContext,purpose:PurposeContext,playerUid:String):ProtectedReadResult<PlayerStateSnapshot> = withSaveDb{db->
         val request=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,VisibilitySubjectKinds.PLAYER_STATE,playerUid))

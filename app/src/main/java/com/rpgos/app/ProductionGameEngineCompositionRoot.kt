@@ -41,7 +41,7 @@ internal class UniversalMechanicsWorldRuleProvider(binding:WorldPackRuleBinding)
         }
         if(request.stage==WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK&&request.effects?.changes?.any{change->
                 change.payload !is ResourceChange&&change.payload !is ConditionChange&&change.payload !is RuntimeChange&&change.payload !is AssetChange&&
-                    change.payload !is InventoryChange&&change.payload !is TemporalStateChange&&
+                change.payload !is InventoryChange&&change.payload !is TemporalStateChange&&change.payload !is NpcBrainChange&&change.payload !is KnowledgeAcquisitionChange&&change.payload !is MechanicalActorGenesisChange&&
                     change.payload !is WoundChange&&change.payload !is SpatialChange&&change.payload !is EquipmentIntegrityChange&&
                     change.payload !is StructureIntegrityChange&&change.payload !is MechanicalTrackChange&&change.payload !is AggregatePopulationChange&&
                     (change.payload !is CampaignTruthChange||when(change.payload.kind){
@@ -79,7 +79,21 @@ data class CombatAbilityContractQuery(
 fun interface CombatAbilityContractPort{
     fun contractFor(query:CombatAbilityContractQuery):CombatAbilityContract?
 
+    /** A generic damage floor is not evidence that READ/HEAL/an arbitrary UID is an attack.
+     * Custom NPC abilities opt in through an explicitly registered mechanics contract. */
+    fun npcContractFor(query:CombatAbilityContractQuery):CombatAbilityContract? =
+        if(query.abilityUid in UniversalIntentFamilies.COMBAT)contractFor(query) else null
+
     companion object{
+        fun registered(contracts:List<CombatAbilityContract>,fallback:CombatAbilityContractPort=UNIVERSAL_FALLBACK):CombatAbilityContractPort {
+            require(contracts.map{it.abilityUid}.distinct().size==contracts.size)
+            val exact=contracts.associate{c->c.abilityUid to c.copy(requiredEquipmentKinds=c.requiredEquipmentKinds.toSet(),
+                targetKindUids=c.targetKindUids.toSet(),statusApplications=c.statusApplications.toList(),effectKinds=c.effectKinds.toList())}
+            return object:CombatAbilityContractPort {
+                override fun contractFor(query:CombatAbilityContractQuery)=exact[query.abilityUid]?:fallback.contractFor(query)
+                override fun npcContractFor(query:CombatAbilityContractQuery)=exact[query.abilityUid]?:fallback.npcContractFor(query)
+            }
+        }
         val UNIVERSAL_FALLBACK=CombatAbilityContractPort{query->
             val areaFamilies=setOf("AREA_ATTACK","AOE","BLAST","EXPLOSION","CONE_ATTACK","LINE_ATTACK","ZONE_ATTACK","SWEEP_ATTACK")
             val isArea=query.semanticFamilyUid in areaFamilies||query.abilityUid in areaFamilies
@@ -101,11 +115,41 @@ internal class ProductionCombatSnapshotAuthority(
     private val aggregateCombatState:AggregateCombatStatePort=AggregateCombatStatePort.NONE,
     private val abilityContracts:CombatAbilityContractPort=CombatAbilityContractPort.UNIVERSAL_FALLBACK
 ){
+    fun npcActivityActor(request:MechanicsEffectRequest,context:MechanicsResolutionContext):MechanicalActorView? {
+        val node=context.plan.intent.nodes.singleOrNull()?:return null
+        if(context.npcAuthorization==null || !authorizedActor(context,node,request))return null
+        val actor=repository.infrastructureMechanicalActor(context.npcAuthorization.scope.actor)?:return null
+        return applyStaged(actor,context.stagedEffects)
+    }
+    fun npcSpeechRecipient(request:MechanicsEffectRequest,context:MechanicsResolutionContext):MechanicalActorView? {
+        val auth=context.npcAuthorization?:return null
+        val target=request.targetProjectedRef?:return null
+        if(target.uid!=auth.scope.activePlayerUid)return null
+        return repository.infrastructureMechanicalActor(target)?.let{applyStaged(it,context.stagedEffects)}
+    }
+    fun npcSpeechReachable(speaker:DomainRef,recipient:DomainRef,staged:List<VerifiedMechanicsEffect>):Boolean {
+        // Never use pre-movement coordinates for an in-flight delivery. A future spatial owner
+        // may replace this conservative rejection with its own exact staged channel proof.
+        if(StagedMechanicalProjection.hasSpatialChange(setOf(speaker,recipient),staged))return false
+        val a=repository.infrastructureEntityLocationUid(speaker.uid)?:return false
+        val b=repository.infrastructureEntityLocationUid(recipient.uid)?:return false
+        val pa=repository.infrastructureMechanicalPersistence(speaker.uid).position as? CombatPosition.Exact?:return false
+        val pb=repository.infrastructureMechanicalPersistence(recipient.uid).position as? CombatPosition.Exact?:return false
+        return NpcSpeechMechanics.inReach(a,b,pa.xMillimetres,pa.yMillimetres,pb.xMillimetres,pb.yMillimetres,pa.zMillimetres,pb.zMillimetres)
+    }
     fun build(request:MechanicsEffectRequest,context:MechanicsResolutionContext,node:IntentNode,target:DomainRef):UniversalCombatRequest?{
         val active=repository.activePlayerRef()?:return null
         val actor=DomainRef(context.plan.intent.actor.actorKindUid,context.plan.intent.actor.actorUid)
-        if(active.campaignId!=context.campaignUid||active.playerUid!=actor.uid)return null
-        val ability=(node.semanticAction.canonicalActionUid?:node.semanticAction.semanticFamilyUid?:return null).uppercase()
+        if(active.campaignId!=context.campaignUid)return null
+        val ability=combatAbilityIdentity(node,context.npcAuthorization!=null)?:return null
+        val attackerPersistence=repository.infrastructureMechanicalPersistence(actor.uid)
+        val attacker=if(active.playerUid!=actor.uid) {
+            if(!authorizedActor(context,node,request))return null
+            val canonical=repository.infrastructureMechanicalActor(actor)?:return null
+            if(canonical.kind==MechanicalActorKind.ACTIVE_PLAYER || ability !in canonical.executableAbilityUids)return null
+            applyStaged(canonical,context.stagedEffects)
+        } else {
+        if(context.npcAuthorization!=null)return null
         val playerValues=linkedMapOf<String,Long>()
         val statKeys=repository.statDefinitions().associate{it.statUid to it.key.uppercase()}
         repository.infrastructurePlayerStats().filter{it.characterUid==active.playerUid}.forEach{
@@ -119,18 +163,18 @@ internal class ProductionCombatSnapshotAuthority(
         if(playerValues.isEmpty())return null
         val fallback=playerValues.values.sorted().let{it[it.size/2]}
         fun canonical(vararg hints:String)=playerValues.entries.firstOrNull{entry->hints.any{it in entry.key}}?.value?:fallback
-        val attackerPersistence=repository.infrastructureMechanicalPersistence(actor.uid)
         val committedMechanical=repository.infrastructureMechanicalActor(actor)
         val committedWound=committedMechanical?.conditions?.filter{it.conditionUid=="WOUND"}?.sumOf{it.intensity}?:0L
         val playerAttributes=playerValues+mapOf("POWER" to canonical("POWER","STRENGTH","ATTACK"),"SKILL" to canonical("SKILL","DEXTERITY","ACCURACY"),
             "DEFENCE" to (canonical("DEFENCE","DEFENSE","ARMOR")-committedWound).coerceAtLeast(0),"AGILITY" to canonical("AGILITY","SPEED","REFLEX"),
             "ARMOR" to (committedMechanical?.attributes?.get("ARMOR")?:canonical("ARMOR","DEFENCE","DEFENSE")))
-        val attacker=applyStaged(MechanicalActorView(
+        applyStaged(MechanicalActorView(
             context.campaignUid,actor,MechanicalActorKind.ACTIVE_PLAYER,maxOf(context.plan.atOrder?:0,attackerPersistence.stateVersion,committedMechanical?.stateVersion?:0),MechanicalStateMaterialization.FULL,
             playerAttributes,
             repository.infrastructurePlayerResources().filter{it.characterUid==active.playerUid}.map{MechanicalResource(it.resourceUid,it.currentValue.roundToLong().coerceAtLeast(0),it.currentValue.roundToLong().coerceAtLeast(0))},
             setOf(ability),conditions=(conditions(attackerPersistence)+committedMechanical?.conditions.orEmpty()).distinctBy{it.conditionUid},generationProvenanceUid="PLAYER-DOMAIN:${active.playerUid}"
         ),context.stagedEffects)
+        }
         val targetRefs=(projectedTargetRefs(context.plan.intent,node)+target).distinct()
         val targetPersistence=targetRefs.associateWith{repository.infrastructureMechanicalPersistence(it.uid)}
         val defenders=targetRefs.map{ref->
@@ -147,6 +191,9 @@ internal class ProductionCombatSnapshotAuthority(
             targetPersistence.forEach{(ref,persistence)->applyStagedPosition(ref,persistence.position,context.stagedEffects)?.let{put(ref,it)}}
         }
         val participantRefs=(listOf(actor)+targetRefs).distinct()
+        // The persisted scene paths predate these effects. They must not authorize an attack
+        // across locations after either participant has already left this scene in the turn.
+        if(StagedMechanicalProjection.hasSceneTransition(participantRefs.toSet(),context.stagedEffects))return null
         val scenePaths=participantRefs.associateWith{repository.infrastructureEntityScenePathUids(it.uid)}
         val sharedScene=nearestCombatSceneAnchor(scenePaths)
         val positions=normalizeCombatPositionsForSharedLocation(
@@ -154,14 +201,15 @@ internal class ProductionCombatSnapshotAuthority(
             participantRefs.associateWith{ref->sharedScene?:scenePaths[ref]?.firstOrNull()}
         )
         val fingerprint=mechanicsHash(listOf(context.context.canonicalPayload(),attacker,defenders,positions,context.plan.atOrder,context.stagedEffects).joinToString("|"))
-        val intent=CombatIntent("P50:${request.effectUid}",context.campaignUid,actor,target,ability,VolitionalActionSource.VALIDATED_PLAYER_COMMAND,
-            node.intendedResult?.semanticTypeUid?:"DISABLE",context.plan.atOrder?:0)
+        val intent=CombatIntent("P50:${request.effectUid}",context.campaignUid,actor,target,ability,
+            if(actor.uid==active.playerUid)VolitionalActionSource.VALIDATED_PLAYER_COMMAND else VolitionalActionSource.NPC_DECISION_ENGINE,
+            node.intendedResult?.semanticTypeUid?:"DISABLE",context.plan.atOrder?:0,context.npcAuthorization)
         val hasAggregate=defenders.any{it.aggregatePopulation!=null}
         val semanticFamily=(node.semanticAction.semanticFamilyUid?:ability).uppercase()
-        val abilityContract=abilityContracts.contractFor(CombatAbilityContractQuery(
-            context.campaignUid,ability,semanticFamily,targetRefs.size,hasAggregate
-        ))?:return null
+        val query=CombatAbilityContractQuery(context.campaignUid,ability,semanticFamily,targetRefs.size,hasAggregate)
+        val abilityContract=(if(context.npcAuthorization==null)abilityContracts.contractFor(query) else abilityContracts.npcContractFor(query))?:return null
         if(abilityContract.abilityUid!=ability)return null
+        if(context.npcAuthorization!=null && request.parameters["npc_ability_contract"]!=npcCombatContractFingerprint(abilityContract))return null
         val safeAbilityContract=if(nonDamagingCombatRequested(context.plan.intent,node))
             abilityContract.copy(
                 statusApplications=emptyList(),
@@ -174,63 +222,28 @@ internal class ProductionCombatSnapshotAuthority(
         ),safeAbilityContract,CombatSpatialState(positions))
     }
 
+    internal fun authorizedActor(context:MechanicsResolutionContext,node:IntentNode,request:MechanicsEffectRequest):Boolean {
+        val active=repository.activePlayerRef()?:return false
+        if(active.campaignId!=context.campaignUid)return false
+        if(context.plan.intent.actor.actorUid==active.playerUid)return context.npcAuthorization==null
+        val authorization=context.npcAuthorization?:return false
+        return authorization.scope.activePlayerUid==active.playerUid &&
+            authorization.authorizesMechanics(repository.infrastructureTemporalRead().scope,context.plan,node,request)
+    }
+
     private fun conditions(state:InfrastructureMechanicalPersistence)=state.activeEffects.filter{it.first.startsWith("CONDITION:")}
         .map{MechanicalCondition(it.first.substringAfter("CONDITION:"),it.second.coerceAtLeast(1))}
 
     /** Projects already verified earlier nodes into later-node snapshots without committing them. */
-    private fun applyStaged(base:MechanicalActorView,effects:List<VerifiedMechanicsEffect>):MechanicalActorView{
-        var attributes=base.attributes.toMutableMap();var resources=base.resources
-        var conditions=base.conditions;var population=base.aggregatePopulation;var version=base.stateVersion
-        effects.flatMap(::stagedImpacts).filter{it.first==base.actor}.forEach{(_,kind,magnitude,payload)->
-            version++
-            when(kind){
-                "WOUND"->attributes["DEFENCE"]=(attributes["DEFENCE"]?:0L).minus(magnitude.coerceAtLeast(0)).coerceAtLeast(0)
-                "RESOURCE_DELTA","RESOURCE","HEALTH_DELTA","DAMAGE_HP","HEALING","RESTORATION"->{
-                    val uid=payload["resource_uid"]?:"HEALTH"
-                    resources=resources.map{if(it.resourceUid==uid)it.copy(current=(it.current+magnitude).coerceIn(0,it.maximum))else it}
-                }
-                "CONDITION","BUFF","DEBUFF","CONTROL","RESTRICTION"->{
-                    val uid=payload["condition_uid"]
-                    if(uid!=null){
-                        conditions=if(payload["operation"]?.uppercase() in setOf("REMOVE","CLEAR"))conditions.filterNot{it.conditionUid==uid}
-                        else if(conditions.none{it.conditionUid==uid})conditions+MechanicalCondition(uid,1) else conditions
-                    }
-                }
-                "EQUIPMENT","EQUIPMENT_DAMAGE"->attributes["ARMOR"]=(attributes["ARMOR"]?:0L).minus(magnitude.coerceAtLeast(0)).coerceAtLeast(0)
-                "MORALE","COHESION","FORMATION"->attributes[kind]=Math.addExact(attributes[kind]?:10_000L,magnitude).coerceAtLeast(0)
-                "AGGREGATE_ELIMINATION"->population=population?.let{p->val amount=magnitude.coerceIn(0,p.activeCount);p.copy(activeCount=p.activeCount-amount,eliminatedCount=p.eliminatedCount+amount)}
-                "AGGREGATE_INJURY"->population=population?.let{p->val amount=magnitude.coerceIn(0,p.activeCount);p.copy(activeCount=p.activeCount-amount,woundedCount=p.woundedCount+amount)}
-                "AGGREGATE_CONDITION"->{val uid=payload["condition_uid"];if(uid!=null)population=population?.let{p->p.copy(conditionCounts=p.conditionCounts+(uid to ((p.conditionCounts[uid]?:0L)+magnitude).coerceAtMost(p.totalCount)))} }
-            }
-        }
-        return base.copy(stateVersion=version,attributes=attributes,resources=resources,conditions=conditions,aggregatePopulation=population)
-    }
+    private fun applyStaged(base:MechanicalActorView,effects:List<VerifiedMechanicsEffect>):MechanicalActorView=
+        StagedMechanicalProjection.actor(base,effects)
 
-    private fun applyStagedPosition(ref:DomainRef,base:CombatPosition?,effects:List<VerifiedMechanicsEffect>):CombatPosition?{
-        var position=base
-        effects.flatMap(::stagedImpacts).filter{it.first==ref&&it.kind in setOf("MOVEMENT","DISPLACEMENT")}.forEach{impact->
-            position=when(val current=position){
-                is CombatPosition.Exact->current.copy(xMillimetres=Math.addExact(current.xMillimetres,impact.magnitude))
-                else->CombatPosition.Exact(impact.magnitude,0)
-            }
-        }
-        return position
-    }
-
-    private fun stagedImpacts(effect:VerifiedMechanicsEffect):List<StagedImpact>{
-        val out=mutableListOf<StagedImpact>()
-        fun add(kind:String,targetKind:String?,targetUid:String?,magnitude:String?,payload:Map<String,String>){
-            val amount=magnitude?.toLongOrNull()?:return;if(targetKind!=null&&targetUid!=null)out+=StagedImpact(DomainRef(targetKind,targetUid),kind.substringAfterLast(':').uppercase(),amount,payload)
-        }
-        add(effect.effectKindUid,effect.canonicalPayload["target_kind_uid"],effect.canonicalPayload["target_uid"],effect.canonicalPayload["magnitude"],effect.canonicalPayload)
-        val count=effect.canonicalPayload["area_target_count"]?.toIntOrNull()?:0
-        repeat(count){index->add(effect.canonicalPayload["area_target_${index}_effect_kind_uid"]?:return@repeat,effect.canonicalPayload["area_target_${index}_kind_uid"],effect.canonicalPayload["area_target_${index}_uid"],effect.canonicalPayload["area_target_${index}_magnitude"],effect.canonicalPayload)}
-        return out
-    }
-    private data class StagedImpact(val first:DomainRef,val kind:String,val magnitude:Long,val payload:Map<String,String>)
+    private fun applyStagedPosition(ref:DomainRef,base:CombatPosition?,effects:List<VerifiedMechanicsEffect>):CombatPosition?=
+        StagedMechanicalProjection.position(ref,base,effects)
 }
 
-internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapshots:ProductionCombatSnapshotAuthority):MechanicsRuleResolver{
+internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapshots:ProductionCombatSnapshotAuthority,
+    private val npcActivities:NpcActivityContractPort=NpcActivityContractPort.STANDARD):MechanicsRuleResolver{
     private sealed interface CanonicalEffectResolution{
         data class Applied(val payload:Map<String,String>):CanonicalEffectResolution
         data class Rejected(val reasonUid:String):CanonicalEffectResolution
@@ -240,9 +253,21 @@ internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapsh
         val node=context.plan.intent.nodes.singleOrNull{it.nodeUid==request.nodeUid}
             ?:return MechanicsEffectResolution.Rejected("INTENT_NODE_NOT_FOUND")
         val target=request.targetProjectedRef?:return MechanicsEffectResolution.Rejected("TARGET_REQUIRED")
+        if(!combatSnapshots.authorizedActor(context,node,request))return MechanicsEffectResolution.Rejected("ACTOR_ACTION_NOT_AUTHORIZED")
         val owner=context.plan.steps.singleOrNull{it.nodeUid==request.nodeUid}?.mechanicsOwnerUid
             ?:return MechanicsEffectResolution.Rejected("MECHANICS_OWNER_MISSING")
         if(owner!=request.mechanicsOwnerUid)return MechanicsEffectResolution.Rejected("MECHANICS_OWNER_MISMATCH")
+        if(owner==NpcActivityMechanics.OWNER) {
+            val actor=combatSnapshots.npcActivityActor(request,context)?:return MechanicsEffectResolution.Rejected("P62:ACTIVITY_ACTOR_UNAVAILABLE")
+            val contract=npcActivities.contract(context.campaignUid,node.semanticAction.canonicalActionUid.orEmpty())
+                ?:return MechanicsEffectResolution.Rejected("P62:ACTIVITY_CONTRACT_MISSING")
+            return NpcActivityMechanics.resolve(request,context,actor,contract)
+        }
+        if(owner==NpcSpeechMechanics.OWNER) {
+            val actor=combatSnapshots.npcActivityActor(request,context)?:return MechanicsEffectResolution.Rejected("P62:SPEECH_ACTOR_UNAVAILABLE")
+            val recipient=combatSnapshots.npcSpeechRecipient(request,context)?:return MechanicsEffectResolution.Rejected("P62:SPEECH_RECIPIENT_UNAVAILABLE")
+            return NpcSpeechMechanics.resolve(request,context,actor,recipient,combatSnapshots.npcSpeechReachable(actor.actor,recipient.actor,context.stagedEffects))
+        }
         val resolved=if(owner=="UNIVERSAL_COMBAT")resolveCombat(request,context,node,target)
         else resolveUniversal(request,context,node,target)?.let(CanonicalEffectResolution::Applied)
             ?:CanonicalEffectResolution.Rejected("UNSUPPORTED_OR_UNVERIFIABLE_EFFECT")
@@ -389,7 +414,8 @@ private class ProductionIntentResolver(
                 phrase.lowercase() in setOf("ja","mnie","mi","sobie","self","me")&&player!=null->DomainRef("PLAYER",player.playerUid)
                 else->resolveCommittedTurnResultReference(reference,repository.infrastructureLastReceipt())
             }
-            val candidates=if(direct!=null)listOf(direct) else buildList{
+            // Discourse must not be redirected to a semantically similar World Pack entry.
+            val candidates=if(direct!=null)listOf(direct) else if(reference.kind==IntentReferenceKind.DISCOURSE)emptyList() else buildList{
                 runCatching{repository.npcsProjection(phrase,audience(),purpose()).value.orEmpty()}.getOrDefault(emptyList()).filter{nameMatch(it.name,phrase)}.forEach{add(DomainRef("NPC",it.uid))}
                 repository.infrastructureAggregateTargets(phrase).forEach{add(it.second)}
                 runCatching{repository.worldLocations(phrase)}.getOrDefault(emptyList()).filter{nameMatch(it.name,phrase)}.forEach{add(DomainRef("LOCATION",it.uid))}
@@ -402,7 +428,8 @@ private class ProductionIntentResolver(
                     val packElements=runCatching{repository.worldLocations(phrase)}.getOrDefault(emptyList()).map{
                         CampaignWorldElement(DomainRef("LOCATION",it.uid),it.name,"WORLD_PACK_LOCATION",null,emptySet(),"WORLD_PACK",WorldEvidenceClassification.SOURCE_CANON)
                     }
-                    when(val decision=universal.resolve(candidate.campaignUid,reference,consumers,currentAnchor,dynamic+packElements,null)){
+                    val recent=if(reference.kind==IntentReferenceKind.DISCOURSE)repository.infrastructureRecentInterlocutors() else emptySet()
+                    when(val decision=universal.resolve(candidate.campaignUid,reference,consumers,currentAnchor,dynamic+packElements,null,recent)){
                         is UniversalWorldReferenceResolution.Existing->reference.copy(state=IntentReferenceState.RESOLVED_PROJECTED,resolvedProjectedRef=decision.element.element,candidateProjectedRefs=emptyList(),resolutionEvidenceUid=decision.evidenceUid)
                         is UniversalWorldReferenceResolution.Latent->LatentWorldReferenceCodec.attach(reference,decision.draft,decision.feasibility)
                         is UniversalWorldReferenceResolution.Rejected->reference.copy(state=IntentReferenceState.INVALID,descriptorHints=reference.descriptorHints+("world_resolution_reason" to decision.reasonUid))
@@ -471,7 +498,8 @@ private class ProductionCommittedNarrationReadPort(private val repository:Unifie
         val replay=requireNotNull(repository.infrastructureReplayPayload(identity.transactionUid,order)){"RPGOS-P54:COMMITTED_REPLAY_MISSING"}
         val playerUid=repository.activePlayerRef()?.playerUid
         val visibleChanges=replay.changeSet.changes.filter { change->
-            !change.sourceRuleUid.orEmpty().startsWith("P60:PROCESS:") || subjectOf(change)?.let{it.kindUid=="PLAYER"&&it.uid==playerUid}==true
+            change.payload !is NpcBrainChange && change.payload !is KnowledgeAcquisitionChange && change.payload !is MechanicalActorGenesisChange &&
+                (!change.sourceRuleUid.orEmpty().startsWith("P60:PROCESS:") || subjectOf(change)?.let{it.kindUid=="PLAYER"&&it.uid==playerUid}==true)
         }
         val snapshot=mapOf("committed_order" to order.toString(),"committed_change_count" to visibleChanges.size.toString())
         val facts=visibleChanges.map{change->
@@ -488,10 +516,19 @@ private class ProductionCommittedNarrationReadPort(private val repository:Unifie
                 truth?.objectValue?:truth?.narrativeText?:valueOf(change),order
             )
         }
+        val playerSpeech=playerUid?.let{NpcCommunicationMemory.deliveredPlayerUtterances(identity.campaignUid,it,replay.changeSet.changes)}.orEmpty()
+            .map{message->CommittedNarrativeFact("FACT:${mechanicsHash("P62:PLAYER-SPEECH|${identity.transactionUid}|$message").take(24)}",
+                CommittedNarrativeFactKind.NARRATIVE_COLOR,playerUid,NpcCommunicationMemory.PLAYER_UTTERANCE,message,order)}
+        val heardSpeech=playerUid?.let{NpcCommunicationMemory.heardNpcUtterances(identity.campaignUid,it,replay.changeSet.changes)}.orEmpty()
+            .filterNot{heard->facts.any{it.kind==CommittedNarrativeFactKind.NARRATIVE_COLOR &&
+                it.subjectProjectedUid==heard.speaker.uid && it.predicateUid==GmNarrativePredicates.NPC_UTTERANCE && it.valueCanonical==heard.text}}
+            .map{heard->CommittedNarrativeFact("FACT:${mechanicsHash("P62:HEARD-SPEECH|${identity.transactionUid}|${heard.speaker}|${heard.text}").take(24)}",
+                CommittedNarrativeFactKind.NARRATIVE_COLOR,heard.speaker.uid,GmNarrativePredicates.NPC_UTTERANCE,heard.text,order)}
         val consequences=buildList{
             visibleChanges.mapNotNullTo(this){change->when(val payload=change.payload){
                 is ResourceChange->"Zasób ${payload.resourceUid} zmienił się o ${payload.delta.units}."
                 is TemporalStateChange->phase60PlayerExecutionSummary(payload)
+                is NpcBrainChange->null
                 is ConditionChange->if(payload.operation==ConditionOperation.ADD)"Pojawił się stan ${payload.conditionUid}." else "Stan ${payload.conditionUid} ustąpił."
                 is RuntimeChange->"Skutek działania został zastosowany."
                 is InventoryChange->if(payload.quantityDelta.units>0L)"Przedmiot trafia do twojego ekwipunku." else "Przedmiot opuszcza twój ekwipunek."
@@ -513,7 +550,7 @@ private class ProductionCommittedNarrationReadPort(private val repository:Unifie
         val forbidden=replay.changeSet.changes.flatMap{listOf(it.changeUid,it.sourceRuleUid)}.filterNotNull().toSet()
         return PostCommitPlayerVisibleReadback(
             identity.campaignUid,identity.turnUid,identity.commandUid,identity.transactionUid,order,
-            "PHASE38:${mechanicsHash("${identity.transactionUid}|$order|$snapshot")}",snapshot,facts,consequences,forbidden,emptySet(),"PLAYER_DECISION_POINT"
+            "PHASE38:${mechanicsHash("${identity.transactionUid}|$order|$snapshot")}",snapshot,facts+playerSpeech+heardSpeech,consequences,forbidden,emptySet(),"PLAYER_DECISION_POINT"
         )
     }
     private fun subjectOf(change:PlayerDomainChange):DomainRef?=when(val payload=change.payload){
@@ -525,6 +562,8 @@ private class ProductionCommittedNarrationReadPort(private val repository:Unifie
     }
     private fun valueOf(change:PlayerDomainChange)=when(val payload=change.payload){
         is TemporalStateChange->phase60PlayerExecutionSummary(payload)
+        is NpcBrainChange->error("P61:PRIVATE_BRAIN_NOT_NARRATION")
+        is KnowledgeAcquisitionChange->error("P37:KNOWLEDGE_REQUIRES_HOLDER_PROJECTION")
         is ResourceChange->payload.delta.units.toString();is ConditionChange->payload.operation.name;is RuntimeChange->payload.delta.units.toString()
         is InventoryChange->payload.itemInstanceUid
         is WoundChange->payload.severityDelta.units.toString();is SpatialChange->"${payload.deltaXMillimetres},${payload.deltaYMillimetres}"
@@ -663,7 +702,9 @@ class ProductionGameEngineCompositionRoot(
     private val aggregateCombatState:AggregateCombatStatePort=AggregateCombatStatePort.NONE,
     private val combatAbilityContracts:CombatAbilityContractPort=CombatAbilityContractPort.UNIVERSAL_FALLBACK,
     private val semanticApplication:BekkoSemanticApplication?=null,
-    private val directorGuidance:DirectorGuidancePort=DirectorGuidancePort.NONE
+    private val directorGuidance:DirectorGuidancePort=DirectorGuidancePort.NONE,
+    private val npcActivities:NpcActivityContractPort=NpcActivityContractPort.STANDARD,
+    private val npcProgress:NpcWorkProgressPort=NpcWorkProgressPort.NONE
 ){
     private val app=context.applicationContext
     init{
@@ -675,6 +716,14 @@ class ProductionGameEngineCompositionRoot(
         DynamicProductionModelRoute(providerCenter,configuration,additionalProviders),repository,
         semanticApplication?.characterCreationCatalogProjection()?:CharacterCreationCatalogProjectionPort.LEXICAL
     )
+    internal fun npcDecisionApplication(actor:DomainRef,at:WorldTimeTick,observationOrdinal:Int)=NpcDecisionApplication(
+        DynamicProductionModelRoute(providerCenter,configuration,additionalProviders),
+        {repository.infrastructureNpcDecisionScope(actor,at,observationOrdinal)},progress=npcProgress
+    )
+    internal fun npcDecisionContext(scope:NpcDecisionScope,trigger:NpcTrigger,
+                                    affordances:(NpcBrainState,List<NpcKnownRecord>)->List<NpcActionOption>)=
+        repository.projectNpcDecision(scope,trigger,NpcContextProfiles.MOBILE,
+            affordances,semanticApplication?.npcRecall()?:NpcRecallPort.NONE)
     fun directorEngine(
         jobs:DirectorJobStore,
         candidates:DirectorCandidateStore,
@@ -691,7 +740,7 @@ class ProductionGameEngineCompositionRoot(
         val worldAuthority=authority?.let{WorldPackAuthoritySnapshot.single(it.campaignUid,it.binding)}?:WorldPackAuthoritySnapshot.empty()
         val worldRuleMode:WorldRuleMode=authority?.let{WorldRuleMode.Bound(it.binding)}?:UnboundGenericWorldRuleMode
         val playerEngine=productionMechanicsPlayerDomainEngine(worldRules,worldAuthority)
-        val mechanics=ProductionUniversalMechanicsRuleResolver(ProductionCombatSnapshotAuthority(repository,aggregateCombatState,combatAbilityContracts))
+        val mechanics=ProductionUniversalMechanicsRuleResolver(ProductionCombatSnapshotAuthority(repository,aggregateCombatState,combatAbilityContracts),npcActivities)
         val mechanicsRegistry=MechanicsResolverRegistry.fromCompositionRoot(mapOf(
             "UNIVERSAL_COMBAT" to mechanics,"UNIVERSAL_ACTION" to mechanics,"UNIVERSAL_MOVEMENT" to mechanics
         ))
@@ -720,12 +769,21 @@ class ProductionGameEngineCompositionRoot(
             fun add(ref:DomainRef){refs+=CampaignScopedDomainRef(command.campaignUid,ref)}
             add(DomainRef(command.actor.actorKindUid,command.actor.actorUid))
             command.payload.temporalState?.let { add(DomainRef("CAMPAIGN",it.campaignUid)) }
+            command.payload.npcBrains.forEach { brain->
+                add(brain.actor)
+                val holder=NpcBrainCodec.decode(brain.stateCanonical).knowledgeHolder
+                add(DomainRef(holder.holderKindUid,holder.holderUid))
+            }
             val heldItemInstanceUids=if(command.actor.actorKindUid=="PLAYER")
                 repository.infrastructureHeldItemInstanceUids(command.actor.actorUid)
             else emptySet()
             canonicalHeldInventoryReferences(command,heldItemInstanceUids).forEach(::add)
             command.payload.effects.forEach{effect->
                 add(effect.target)
+                NpcCommunicationMemory.participants(command.campaignUid,effect).forEach{participant->
+                    add(participant);add(DomainRef(KnowledgeHolderKinds.CHARACTER,participant.uid))
+                }
+                NpcConsequenceObservation.recipient(command.campaignUid,effect)?.let{add(DomainRef(KnowledgeHolderKinds.CHARACTER,it.uid))}
                 when(effect.effectKindUid.substringAfterLast(':').uppercase()){
                     "RESOURCE_DELTA","RESOURCE","HEALTH_DELTA","DAMAGE_HP","HEALING","RESTORATION"->add(DomainRef("RESOURCE",effect.canonicalPayload["resource_uid"]?:"HEALTH"))
                     "CONDITION","BUFF","DEBUFF","CONTROL","RESTRICTION"->effect.canonicalPayload["condition_uid"]?.let{add(DomainRef("CONDITION",it))}
@@ -736,14 +794,65 @@ class ProductionGameEngineCompositionRoot(
             }
             PlayerResolutionContext.create(command.campaignUid,command.actor,refs,dependencyVersions=mapOf("PHASE50" to "3"),worldRuleMode=worldRuleMode)
         })
+        val route=DynamicProductionModelRoute(providerCenter,configuration,additionalProviders)
         val assembler=ProductionTemporalMutationAssembler(mechanicsAssembler,repository::infrastructureTemporalRead,
             FileTemporalCheckpointStore(File(app.noBackupFilesDir,"temporal-checkpoints")),processOwners={state,effects->
                 val conditionState=state.state.processStates.singleOrNull{it.ownerUid==Phase60ScheduledConditions.OWNER}
                 if(conditionState!=null)listOf(Phase60ScheduledConditions.registered(state.scope.campaignUid,
                     repository.infrastructureConditionExpiryApplications(Phase60ScheduledConditions.decode(conditionState.canonicalValue)),
                     effects.map{it.target}.toSet()+listOfNotNull(repository.activePlayerRef()?.let{DomainRef("PLAYER",it.playerUid)}))) else emptyList()
-            })
-        val route=DynamicProductionModelRoute(providerCenter,configuration,additionalProviders)
+            },npcBrainPreparation={scope,effects,plan->repository.prepareNpcBrainInitializations(scope,effects,
+                plan.intent.references.mapNotNull{it.resolvedProjectedRef},plan.intent.references.mapNotNull{LatentWorldReferenceCodec.decode(plan.campaignUid,it)})},additionalProcesses={snapshot,turnPlan,prepared,timing,turnRequest->
+                // Only actors already participating through projected references, not a population sweep.
+                val stimuli=turnPlan.intent.references.mapNotNull{it.resolvedProjectedRef}.distinct()
+                    .filter{it.uid!=turnPlan.intent.actor.actorUid}.take(32)
+                    .mapNotNull{repository.npcCognitionStimulus(snapshot.scope,it)}
+                val cognition=if(stimuli.isEmpty() && snapshot.state.processStates.none{it.ownerUid==NpcCognitionProcess.OWNER})TemporalProcessExtension.NONE
+                else NpcCognitionProcess(snapshot.scope,snapshot.state.time,stimuli) { stimulus,cancelled ->
+                    val active=repository.activePlayerRef()?:error("P62:ACTIVE_PLAYER_REQUIRED")
+                    val scope=NpcDecisionScope(snapshot.scope,stimulus.actor,stimulus.brainRevision,snapshot.state.time,0,active.playerUid)
+                    val trigger=NpcTrigger("P62:ACQ:${phase60Hash(stimulus.acquisitionUid).take(32)}",stimulus.triggerKind,
+                        snapshot.state.time,stimulus.cause)
+                    when(val projected=npcDecisionContext(scope,trigger){_,_->emptyList()}) {
+                        is NpcContextResult.Unavailable->NpcDecisionResult.Unavailable(projected.reasonUid)
+                        is NpcContextResult.Ready->NpcDecisionApplication(route,{repository.infrastructureNpcDecisionScope(stimulus.actor,snapshot.state.time,0)},progress=npcProgress)
+                            .decide(NpcDecisionRequest("P62:COGNITION:${projected.context.contextFingerprint}",projected.context),AiCancellationSignal(cancelled))
+                    }
+                }.extension()
+                val participants=stimuli.map{it.actor}
+                val active=repository.activePlayerRef()?:error("P62:ACTIVE_PLAYER_REQUIRED")
+                val actionContexts=NpcPhysicalContextPort { actor,input,pending->
+                    val canonical=repository.infrastructureNpcBrainDiagnostics(actor)
+                    if(canonical==null)NpcContextResult.Unavailable("P62:BRAIN_NOT_INITIALIZED") else {
+                        val staged=input.stagedChanges.filterIsInstance<NpcBrainChange>()
+                        val brain=applyNpcBrainOverlay(canonical,input.scope,staged)
+                        val trigger=if(pending==null)repository.npcCognitionStimulus(input.scope,actor)?.let{stimulus->
+                            NpcTrigger("P62:ACTIVITY:${phase60Hash(stimulus.acquisitionUid).take(32)}",stimulus.triggerKind,input.through,stimulus.cause)
+                        } else brain.plans.singleOrNull{it.uid==pending.planUid}?.let{plan->
+                            NpcTrigger("P62:PLAN:${phase60Hash(plan.uid).take(32)}",NpcTriggerKind.PLAN_BOUNDARY,input.through,plan.cause)
+                        }
+                        if(trigger==null)NpcContextResult.Unavailable("P62:TRIGGER_NOT_PERCEIVED") else {
+                            val scope=NpcDecisionScope(input.scope,actor,brain.revision,input.through,if(pending==null)1 else 2,active.playerUid)
+                            val mechanical=repository.infrastructureMechanicalActor(actor)
+                            repository.projectNpcDecision(scope,trigger,NpcContextProfiles.MOBILE,
+                                {b,records->NpcMechanicalAffordances(combatAbilityContracts,npcActivities).options(b,records,mechanical,DomainRef("PLAYER",active.playerUid))},
+                                semanticApplication?.npcRecall()?:NpcRecallPort.NONE,staged)
+                        }
+                    }
+                }
+                val foregroundSubjects=turnPlan.intent.references.mapNotNull{it.resolvedProjectedRef}.toSet()+DomainRef("PLAYER",active.playerUid)
+                val actions=if(participants.isEmpty() && snapshot.state.processStates.none{it.ownerUid==NpcActionProcess.OWNER})TemporalProcessExtension.NONE else
+                    NpcActionProcess(snapshot.scope,snapshot.state.time,active.playerUid,participants,
+                        NpcTimedActionApplication(turnRequest.commandUid,actionContexts,route,{repository.infrastructureTemporalRead().scope},
+                            NpcMechanicalActionApplication(mechanics,{repository.infrastructureTemporalRead().scope}),
+                            foregroundAt={input->prepared.filter { effect->timing.schedule.singleOrNull{it.action.uid==effect.nodeUid}?.let{interval->
+                                input.through>=interval.start+ActionDuration(Phase60DomainTiming.effectOffset(effect,interval.action.timing.duration))
+                            }==true }},interruptsForeground={effects->npcRequiresForegroundDecision(effects,foregroundSubjects)},progress=npcProgress,
+                            initiatedSpeech=NpcInitiatedSpeechApplication(route,{repository.infrastructureTemporalRead().scope},npcProgress))).extension()
+                cognition.plus(actions)
+            },conversations=NpcConversationApplication(route,{repository.infrastructureTemporalRead().scope},npcProgress,{snapshot,actor,plan->
+                repository.npcConversationContext(snapshot,actor,plan,semanticApplication?.npcRecall()?:NpcRecallPort.NONE)
+            }),observations=repository::prepareNpcConsequenceObservations)
         val facade=AiChatEngineFacade(
             route,Phase43IntentValidator(),ProductionIntentResolver(repository,
                 {VisibilityAudienceFactory.player(repository.activeCampaignRef().campaignId)},

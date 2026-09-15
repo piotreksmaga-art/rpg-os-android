@@ -102,6 +102,159 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
             }
         }
     }
+    /** Composition-root entry for a selected NPC. No database/lock escapes into an AI call. */
+    internal fun projectNpcDecision(scope:NpcDecisionScope,trigger:NpcTrigger,profile:ContextRuntimeProfile,
+                                    affordances:(NpcBrainState,List<NpcKnownRecord>)->List<NpcActionOption>,
+                                    recall:NpcRecallPort=NpcRecallPort.NONE,stagedBrains:List<NpcBrainChange> = emptyList(),initialization:NpcBrainState?=null):NpcContextResult {
+        val campaign=activeCampaignRef().campaignId
+        val snapshot=CampaignRuntimeLifecycleLock.withTurn(campaign) {
+            if(scope.temporal.campaignUid!=campaign || activePlayerRef()?.playerUid!=scope.activePlayerUid ||
+                infrastructureTemporalRead().scope!=scope.temporal)return@withTurn null
+            openGameplaySaveDb().use { db ->
+                val brain=NpcBrainStore(db,campaign).read(scope.actor) ?: initialization?.also {
+                    require(it.actor==scope.actor && it.campaignUid==campaign)
+                    NpcBrainOwner.validateTransition(null,it,NpcBrainRules.GENESIS,listOf(NpcCauseRef(NpcCauseKind.GENESIS,"P61:GENESIS:${it.seedFingerprint}")))
+                } ?: return@use null
+                val audience=AudienceContext(campaign,AudienceKinds.WORLD_ACTOR,VisibilityPrincipalRef(scope.actor.kindUid,scope.actor.uid))
+                val purpose=PurposeContext(campaign,VisibilityPurposeKinds.WORLD_ACTOR_REASONING)
+                val base=if(Phase38AccessAuthoritySchema.isReady(db))UniversalAccessAuthority(AccessAuthorityStore(db,campaign)).trustedContext(audience)
+                    else Phase38RuntimeAuthority.application(audience)
+                // Only this canonical brain's holder, never caller-supplied knowledgeHolders or
+                // somebody else's institutional/private cognition mappings.
+                val trusted=TrustedPrincipalContext(campaign,audience.principal!!,AudienceKinds.WORLD_ACTOR,
+                    roleUids=base?.roleUids.orEmpty(),organizationUids=base?.organizationUids.orEmpty(),
+                    clearanceUids=base?.clearanceUids.orEmpty(),cognitionHolders=setOf(brain.knowledgeHolder))
+                val reads=ProtectedCampaignReadRepository.borrowedTrusted(db,campaign,::activePlayerRef,trusted)
+                val canonicalRead=reads.npcBrain(audience,purpose,scope.actor,brain.knowledgeHolder,initialization)
+                val protectedBrain=if(canonicalRead is ProtectedReadResult.Allow) canonicalRead.copy(
+                    value=applyNpcBrainOverlay(canonicalRead.value,scope.temporal,stagedBrains)) else canonicalRead
+                val decisionBrain=(protectedBrain as? ProtectedReadResult.Allow)?.value?:brain
+                val preferred=(listOfNotNull(trigger.cause.takeIf{it.kind==NpcCauseKind.KNOWLEDGE_ACQUISITION}?.uid)+
+                    decisionBrain.goals.filter{it.lifecycle==NpcGoalLifecycle.ACTIVE}.sortedWith(compareByDescending<NpcGoal>{it.priority.basisPoints}.thenBy{it.uid})
+                        .mapNotNull{it.cause.takeIf{c->c.kind==NpcCauseKind.KNOWLEDGE_ACQUISITION}?.uid}).distinct().take(32).toSet()
+                val protectedKnowledge=reads.npcKnowledge(audience,purpose,brain.knowledgeHolder,scope.temporal.baseCommitOrder,64,preferred)
+                val protectedHistory=runCatching{reads.npcHistoricalMemory(audience,purpose,brain.knowledgeHolder,
+                    HistoryGenerationUid(scope.temporal.historyGenerationUid),scope.temporal.baseCommitOrder)}.getOrElse{ProtectedReadResult.NoData}
+                val immutableReads=object:NpcProjectionReadPort {
+                    override fun currentRoles(a:AudienceContext,p:PurposeContext):Set<String> =
+                        if(a==audience && p==purpose)trusted.roleUids else emptySet()
+                    override fun brain(a:AudienceContext,p:PurposeContext,actor:DomainRef,holder:KnowledgeHolderRef):ProtectedReadResult<NpcBrainState> =
+                        if(a==audience && p==purpose && actor==scope.actor && holder==brain.knowledgeHolder)protectedBrain else ProtectedReadResult.NoData
+                    override fun knowledge(a:AudienceContext,p:PurposeContext,holder:KnowledgeHolderRef,order:Long,limit:Int):ProtectedReadResult<List<NpcKnownRecord>> =
+                        if(a==audience && p==purpose && holder==brain.knowledgeHolder && order==scope.temporal.baseCommitOrder && limit==64)protectedKnowledge else ProtectedReadResult.NoData
+                    override fun historical(a:AudienceContext,p:PurposeContext,holder:KnowledgeHolderRef,generation:HistoryGenerationUid,order:Long):ProtectedReadResult<List<NpcKnownRecord>> =
+                        if(a==audience && p==purpose && holder==brain.knowledgeHolder && generation.value==scope.temporal.historyGenerationUid && order==scope.temporal.baseCommitOrder)protectedHistory else ProtectedReadResult.NoData
+                }
+                brain.knowledgeHolder to immutableReads
+            }
+        } ?: return NpcContextResult.Unavailable("P62:STALE_SCOPE_OR_MISSING_BRAIN")
+        // The model and optional embedding worker run with no live SQL handle or lifecycle lock.
+        val projected=NpcDecisionContextProjector(snapshot.second,recall).project(scope,trigger,snapshot.first,profile,affordances)
+        if(activeCampaignRef().campaignId!=campaign || infrastructureTemporalRead().scope!=scope.temporal)
+            return NpcContextResult.Unavailable("P62:STALE_SCOPE")
+        return projected
+    }
+    /** A first conversation can use a deterministic genesis projection without a read-side write.
+     * Only an existing canonical actor or the exact Core-resolved latent actor may get one. */
+    internal fun npcConversationContext(snapshot:TemporalReadSnapshot,actor:DomainRef,plan:CanonicalTurnPlan,
+                                        recall:NpcRecallPort=NpcRecallPort.NONE):NpcContextResult {
+        if(plan.campaignUid!=snapshot.scope.campaignUid || activeCampaignRef().campaignId!=plan.campaignUid ||
+            activePlayerRef()?.playerUid!=plan.intent.actor.actorUid || actor.uid==plan.intent.actor.actorUid)
+            return NpcContextResult.Unavailable("P62:DIALOGUE_SCOPE")
+        val stored=infrastructureNpcBrainDiagnostics(actor)
+        val genesis=if(stored!=null)null else prepareNpcBrainInitializations(snapshot.scope,emptyList(),listOf(actor))
+            .singleOrNull()?.let{NpcBrainCodec.decode(it.stateCanonical)} ?: plan.intent.references
+            .mapNotNull{LatentWorldReferenceCodec.decode(plan.campaignUid,it)}
+            .singleOrNull{it.element==actor && it.baseKind==WorldElementBaseKind.ACTOR}
+            ?.let{NpcBrainOwner.initialize(plan.campaignUid,actor,"P61:CANONICAL_ACTOR:1")}
+        val brain=stored?:genesis?:return NpcContextResult.Unavailable("P62:DIALOGUE_ACTOR_NOT_CANONICAL")
+        val scope=NpcDecisionScope(snapshot.scope,actor,brain.revision,snapshot.state.time,0,plan.intent.actor.actorUid)
+        val cause=brain.motivations.firstOrNull()?.uid?:return NpcContextResult.Unavailable("P62:DIALOGUE_BRAIN_INVALID")
+        val trigger=NpcTrigger("P62:CONVERSATION:${phase60Hash(plan.planUid+actor)}",NpcTriggerKind.SELF_REFLECTION,snapshot.state.time,
+            NpcCauseRef(NpcCauseKind.INTRINSIC_MOTIVATION,cause))
+        return projectNpcDecision(scope,trigger,ContextRuntimeProfile("ANDROID-NPC-DIALOGUE",2048,128,512,128,128),
+            {_,_->emptyList()},recall,initialization=genesis)
+    }
+    internal fun infrastructureNpcDecisionScope(actor:DomainRef,at:WorldTimeTick,ordinal:Int):NpcDecisionScope {
+        val campaign=activeCampaignRef().campaignId
+        return CampaignRuntimeLifecycleLock.withTurn(campaign) {
+            val active=activePlayerRef() ?: error("P62:ACTIVE_PLAYER_REQUIRED")
+            val brain=openGameplaySaveDb().use{NpcBrainStore(it,campaign).read(actor)} ?: error("P62:BRAIN_NOT_INITIALIZED")
+            NpcDecisionScope(infrastructureTemporalRead().scope,actor,brain.revision,at,ordinal,active.playerUid)
+        }
+    }
+    /** Infrastructure selects a participant's legal stimulus; it does not grant another holder's knowledge. */
+    internal fun npcCognitionStimulus(expected:TemporalScope,actor:DomainRef):NpcCognitionStimulus? {
+        val campaign=activeCampaignRef().campaignId
+        return CampaignRuntimeLifecycleLock.withTurn(campaign) {
+            if(expected!=infrastructureTemporalRead().scope || actor.uid==activePlayerRef()?.playerUid)return@withTurn null
+            openGameplaySaveDb().use { db ->
+                val brain=NpcBrainStore(db,campaign).read(actor)?:return@use null
+                val audience=AudienceContext(campaign,AudienceKinds.WORLD_ACTOR,VisibilityPrincipalRef(actor.kindUid,actor.uid))
+                val base=if(Phase38AccessAuthoritySchema.isReady(db))UniversalAccessAuthority(AccessAuthorityStore(db,campaign)).trustedContext(audience) else null
+                val trusted=TrustedPrincipalContext(campaign,audience.principal!!,AudienceKinds.WORLD_ACTOR,
+                    roleUids=base?.roleUids.orEmpty(),organizationUids=base?.organizationUids.orEmpty(),clearanceUids=base?.clearanceUids.orEmpty(),
+                    cognitionHolders=setOf(brain.knowledgeHolder))
+                val reads=ProtectedCampaignReadRepository.borrowedTrusted(db,campaign,::activePlayerRef,trusted)
+                val projected=reads.npcKnowledge(audience,PurposeContext(campaign,VisibilityPurposeKinds.WORLD_ACTOR_REASONING),brain.knowledgeHolder,expected.baseCommitOrder,64)
+                val allowed=(projected as? ProtectedReadResult.Allow)?.value?:return@use null
+                val record=allowed.maxWithOrNull(compareBy<NpcKnownRecord>{it.sourceCommittedOrder}.thenBy{it.uid})
+                if(record==null) {
+                    val motivation=brain.motivations.sortedWith(compareByDescending<NpcMotivation>{it.strength.basisPoints}.thenBy{it.uid}).firstOrNull()?:return@use null
+                    return@use NpcCognitionStimulus(actor,brain.revision,motivation.uid,0,NpcCauseKind.INTRINSIC_MOTIVATION)
+                }
+                NpcCognitionStimulus(actor,brain.revision,record.acquisitionUid,record.sourceCommittedOrder)
+            }
+        }
+    }
+    internal fun infrastructureNpcBrainDiagnostics(actor:DomainRef):NpcBrainState? {
+        val campaign=activeCampaignRef().campaignId
+        return CampaignRuntimeLifecycleLock.withTurn(campaign) { openGameplaySaveDb().use{NpcBrainStore(it,campaign).read(actor)} }
+    }
+    /** Lazy initialization is a proposal for the current transaction, never an on-read write. */
+    internal fun prepareNpcBrainInitializations(expected:TemporalScope,effects:List<VerifiedMechanicsCommandEffect>,participants:List<DomainRef> = emptyList(),drafts:List<WorldElementDraft> = emptyList()):List<NpcBrainChange> {
+        val campaign=activeCampaignRef().campaignId
+        require(expected.campaignUid==campaign)
+        return CampaignRuntimeLifecycleLock.withTurn(campaign) {
+            require(infrastructureTemporalRead().scope==expected) { "P61:STALE_INITIALIZATION" }
+            val active=activePlayerRef()?.playerUid
+            openGameplaySaveDb().use { db ->
+                val brains=NpcBrainStore(db,campaign);val actors=MechanicalActorStateStore(db,campaign)
+                val candidates=(effects.map{it.target}+participants).distinct().sortedWith(compareBy<DomainRef>{it.kindUid}.thenBy{it.uid})
+                    .filter{it.uid!=active}.take(32)
+                if(candidates.isEmpty())return@use emptyList<NpcBrainChange>()
+                val canonicalActors=infrastructureCanonicalWorldElementsAt(candidates.mapTo(linkedSetOf()){it.uid},expected.baseCommitOrder)
+                    .filter{it.presentationFacts[CampaignWorldFacts.KIND]==WorldElementBaseKind.ACTOR.name}.mapTo(linkedSetOf()){it.subjectUid}
+                val materializedActors=NpcBrainOwner.admittedMaterializations(campaign,effects,drafts)
+                store.openWorldDb().use { worldDb -> candidates.mapNotNull { actor ->
+                        if(brains.read(actor)!=null)return@mapNotNull null
+                        val canonical=actors.actor(actor)
+                        if(canonical!=null && canonical.kind !in setOf(MechanicalActorKind.NPC,MechanicalActorKind.MONSTER,
+                                MechanicalActorKind.SUMMON,MechanicalActorKind.FORMER_PLAYER))return@mapNotNull null
+                        val packActor=actor.kindUid in setOf("NPC","CHARACTER") &&
+                            runCatching{CanonCharacterProjectionReader(worldDb).profileRow(actor.uid).isNotEmpty()}.getOrDefault(false)
+                        val campaignActor=actor.kindUid in setOf("ACTOR","NPC","CHARACTER","WORLD_ACTOR") && actor.uid in canonicalActors
+                        if(canonical==null && !packActor && !campaignActor && actor !in materializedActors)return@mapNotNull null
+                        val initialized=NpcBrainOwner.initialize(campaign,actor,canonical?.generationProvenanceUid?:"P61:CANONICAL_ACTOR:1")
+                        NpcBrainChange(campaign,actor,expected.historyGenerationUid,0,null,NpcBrainCodec.encode(initialized),
+                            NpcBrainRules.GENESIS.uid,NpcBrainRules.GENESIS.version,
+                            listOf(NpcCauseRef(NpcCauseKind.GENESIS,"P61:GENESIS:${initialized.seedFingerprint}")))
+                    } }
+            }
+        }
+    }
+    internal fun prepareNpcConsequenceObservations(expected:TemporalScope,effects:List<VerifiedMechanicsCommandEffect>):List<VerifiedMechanicsCommandEffect> {
+        val campaign=activeCampaignRef().campaignId
+        require(expected.campaignUid==campaign)
+        return CampaignRuntimeLifecycleLock.withTurn(campaign) {
+            require(infrastructureTemporalRead().scope==expected) { "P62:STALE_OBSERVATION" }
+            val active=activePlayerRef()?.playerUid
+            openGameplaySaveDb().use { db ->
+                val actors=MechanicalActorStateStore(db,campaign)
+                NpcConsequenceObservation.annotate(expected,effects){actor->if(actor.uid==active)null else actors.actor(actor)}
+            }
+        }
+    }
     internal fun infrastructureConditionExpiryApplications(entries:List<ScheduledConditionExpiry>):Map<String,Set<String>> =
         openGameplaySaveDb().use { db -> entries.associate { entry -> entry.deadlineUid to db.rawQuery(
             "SELECT active_effect_uid FROM active_combat_effects WHERE entity_uid=? AND effect_key=? AND status='active' ORDER BY active_effect_uid",
@@ -341,9 +494,26 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     internal fun infrastructureWorldElements(reference:IntentReference,consumers:List<IntentNode>):List<CampaignWorldElement> =
         openGameplaySaveDb().use{db->
             val phrase=(reference.rawPhrase?:reference.descriptorHints["surface"]).orEmpty().trim()
+            val shape=WorldReferenceShapeClassifier.classify(reference,consumers)
             if(phrase.isBlank())emptyList() else CampaignWorldProjectionStore(db,activeCampaignRef().campaignId)
-                .searchPlayerVisible(phrase,WorldReferenceShapeClassifier.classify(reference,consumers))
+                .searchPlayerVisible(phrase,shape,requireAffordances=reference.kind !in setOf(IntentReferenceKind.DISCOURSE,IntentReferenceKind.DEICTIC) && shape.kind!=WorldReferenceShapeKind.ROLE)
         }
+
+    /** Only the latest committed exchange heard by the current PC supplies this identity anchor.
+     * No host memory, global narrative search, hidden holder or previous history generation. */
+    internal fun infrastructureRecentInterlocutors():Set<DomainRef> {
+        val campaign=activeCampaignRef().campaignId
+        return CampaignRuntimeLifecycleLock.withTurn(campaign) {
+            val player=activePlayerRef()?.playerUid?:return@withTurn emptySet()
+            openGameplaySaveDb().use { db ->
+                val receipt=TurnTransactionReceiptStore(db).lastValidCommit(campaign)?:return@use emptySet()
+                val order=receipt.commitOrder?:return@use emptySet()
+                val replay=CommittedReplayPayloadStore(db).atOrders(campaign,setOf(order)).singleOrNull()
+                    ?.takeIf{it.identity.transactionUid==receipt.transactionUid}?:return@use emptySet()
+                NpcCommunicationMemory.heardInterlocutors(campaign,player,replay.changeSet.changes)
+            }
+        }
+    }
 
     private fun requireActiveVisibility(audience:AudienceContext,purpose:PurposeContext) {
         val campaign=activeCampaignRef().campaignId

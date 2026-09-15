@@ -105,7 +105,10 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_COMMIT_EVIDENCE_REQUIRED'); END"
      * ThreadLocal canonical turn capability. API 28-29 installs a default-deny divergence trigger;
      * that trigger is suspended only while a sealed canonical turn owns the outer transaction.
      */
-    private fun installRuntimeTurnAuthorityGuards(db: SQLiteDatabase) {
+    /** SQLite functions belong to the open connection pool, not the database file. Rebind them
+     * after every open, before acquiring the transaction connection. This does not grant a turn
+     * or a Phase37 token and performs no DDL or persistent write. */
+    internal fun configureConnection(db: SQLiteDatabase) {
         if (Build.VERSION.SDK_INT >= 30) {
             db.setCustomScalarFunction(RUNTIME_TURN_FUNCTION, UnaryOperator { campaignUid ->
                 if (isCanonicalGameplayMutationActive(db, campaignUid)) "1" else "0"
@@ -114,6 +117,10 @@ BEGIN SELECT RAISE(ABORT,'RPGOS-SNAPSHOT:REPLAY_COMMIT_EVIDENCE_REQUIRED'); END"
                 if (KnowledgeRecordedWriteAuthority.isAuthorized(db, token)) "1" else "0"
             })
         }
+    }
+
+    private fun installRuntimeTurnAuthorityGuards(db: SQLiteDatabase) {
+        configureConnection(db)
         installRuntimeTurnAuthorityTrigger(
             db,
             CANON_DIVERGENCE_RUNTIME_TURN_GUARD,
@@ -387,11 +394,15 @@ internal fun <T> withCanonicalGameplayMutationForTurn(
         KnowledgeTurnBuffer.flush(db, campaignUid)
         result
     } finally {
-        if (runtimeAuthorityEntered) GameplayMutationDatabaseGuards.leaveRuntimeTurnAuthority(db)
-        if (knowledgeBufferStarted) KnowledgeTurnBuffer.clear()
-        if (bufferStarted) CanonDivergenceTurnBuffer.clear()
-        activeGameplayMutation.set(previous)
-        GameplayMutationDatabaseGuards.leaveTurn(db, campaignUid)
+        try {
+            if (runtimeAuthorityEntered) GameplayMutationDatabaseGuards.leaveRuntimeTurnAuthority(db)
+        } finally {
+            // A failed legacy-trigger restore must never leave a thread holding authority.
+            if (knowledgeBufferStarted) KnowledgeTurnBuffer.clear()
+            if (bufferStarted) CanonDivergenceTurnBuffer.clear()
+            activeGameplayMutation.set(previous)
+            GameplayMutationDatabaseGuards.leaveTurn(db, campaignUid)
+        }
     }
 }
 

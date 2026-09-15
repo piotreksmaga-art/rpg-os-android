@@ -356,7 +356,13 @@ internal class CommittedReplaySemanticProjector(
             return visibility.project(request,trusted){true}.value==true
         }
         val records=mutableListOf<ProjectedRecord>()
+        val privateChanges=replay.changeSet.changes.filter{
+            it.payload is NpcBrainChange || it.payload is MechanicalActorGenesisChange || it.payload is KnowledgeAcquisitionChange || it.payload is AccessAuthorityChange
+        }.mapTo(hashSetOf()){it.changeUid}
         replay.changeSet.eventIntents.forEach{event->
+            // These are private cognition/authority events, not publicly observed world facts.
+            // Holder knowledge is projected separately through its current Phase37 owner.
+            if(event.causalChangeUids.any{it in privateChanges})return@forEach
             val owned=controlledPlayer!=null&&event.actorRef?.uid==controlledPlayer&&
                 event.actorRef.kindUid in PLAYER_OWNED_DOMAIN_KINDS
             val visibilityKind=if(owned)VisibilitySubjectKinds.PLAYER_STATE else VisibilitySubjectKinds.WORLD_EVENT_GM_DETAIL
@@ -375,7 +381,7 @@ internal class CommittedReplaySemanticProjector(
             val payload=change.payload
             // Phase38 access/binding records are authority metadata. They must never be
             // re-labelled as player state or serialized into semantic gameplay documents.
-            if(payload is AccessAuthorityChange)return@forEach
+            if(payload is AccessAuthorityChange || payload is NpcBrainChange || payload is MechanicalActorGenesisChange || payload is KnowledgeAcquisitionChange)return@forEach
             if(payload is CampaignTruthChange&&payload.subjectUid!=null&&payload.predicate in CampaignWorldFacts.ALL)return@forEach
             val subject=subject(payload)
             val owned=controlledPlayer!=null&&subject?.uid==controlledPlayer&&subject.kindUid in PLAYER_OWNED_DOMAIN_KINDS
@@ -430,7 +436,7 @@ internal class CommittedReplaySemanticProjector(
         is KnowledgeAcquisitionChange->DomainRef(
             payload.acquisition.holder.holderKindUid,payload.acquisition.holder.holderUid
         )
-        is AccessAuthorityChange,is TemporalStateChange->null
+        is AccessAuthorityChange,is TemporalStateChange,is NpcBrainChange,is MechanicalActorGenesisChange->null
         is AssetChange,is CampaignTruthChange,is DevelopmentProjectChange,is FinancialChange,is OwnershipChange->null
     }
 

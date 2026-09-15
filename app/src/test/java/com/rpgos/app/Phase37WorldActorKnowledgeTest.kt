@@ -45,6 +45,286 @@ class Phase37WorldActorKnowledgeTest {
         assertTrue(KnowledgeStore(db, "C1").states(holder("B")).isEmpty())
     }
 
+    @Test fun npcKnowledgeCommitAfterReopenBindsRuntimeFunctionsWithoutSchemaRepair() {
+        withDb { db -> init(db) }
+        withDb { db ->
+            val digest=AuthoritativeStateDigest.compute(db)
+            val schema=db.rawQuery("SELECT name,sql FROM sqlite_master ORDER BY name",null).use{c->buildList{
+                while(c.moveToNext())add(c.getString(0) to c.getString(1))
+            }}
+            GameplayMutationDatabaseGuards.configureConnection(db)
+            fun denied(function:String,token:String)=db.rawQuery("SELECT $function(?)",arrayOf(token)).use{c->c.moveToFirst();c.getString(0)}
+            assertEquals("0",denied(GameplayMutationDatabaseGuards.RUNTIME_TURN_FUNCTION,"C1"))
+            assertEquals("0",denied(GameplayMutationDatabaseGuards.P37_RECORDED_WRITE_FUNCTION,"fabricated"))
+            GameplayRuntimeBootstrap.requireReady(db,"C1")
+            assertEquals(digest,AuthoritativeStateDigest.compute(db))
+            assertEquals(schema,db.rawQuery("SELECT name,sql FROM sqlite_master ORDER BY name",null).use{c->buildList{
+                while(c.moveToNext())add(c.getString(0) to c.getString(1))
+            }})
+            commit(db,"NPC-REOPEN",change("NPC-REOPEN",holder("N1"),claim("NPC-REOPEN-CLAIM","Usłyszana wypowiedź")))
+            assertEquals(1,KnowledgeStore(db,"C1").states(holder("N1")).size)
+            assertEquals("0",denied(GameplayMutationDatabaseGuards.RUNTIME_TURN_FUNCTION,"C1"))
+            assertEquals("0",denied(GameplayMutationDatabaseGuards.P37_RECORDED_WRITE_FUNCTION,"fabricated"))
+        }
+        // Boundary construction must also configure a fresh raw handle, without initialize().
+        withDb { db ->
+            commit(db,"NPC-REOPEN-2",change("NPC-REOPEN-2",holder("N1"),claim("NPC-REOPEN-CLAIM-2","Kolejna wypowiedź")))
+            assertEquals(2,KnowledgeStore(db,"C1").states(holder("N1")).size)
+        }
+    }
+
+    @Test fun npcProjectionUsesRecordedHolderScopeRoleAndAsOfBeforeReturningText() = withDb { db ->
+        init(db)
+        commit(db,"NPC-PRIVATE",change("NPC-PRIVATE",holder("N1"),claim("NPC-CLAIM","Osobista informacja"),state=KnowledgeEpistemicState.BELIEVED))
+        commit(db,"NPC-ROLE",change("NPC-ROLE",holder("N1"),claim("ROLE-CLAIM","Dyżur straży"),scope=KnowledgeScope.ROLE_ACCESSIBLE,roleUid="GUARD"))
+        commit(db,"NPC-OTHER",change("NPC-OTHER",holder("N2"),claim("OTHER-CLAIM","Ukryta informacja")))
+        val projection=KnowledgeContextProjection(db,"C1")
+        val own=projection.boundedForNpc(holder("N1"),Long.MAX_VALUE,64,emptySet())
+        assertEquals(1,own.size)
+        assertEquals(KnowledgeEpistemicState.BELIEVED,own.single().epistemicState)
+        assertEquals(setOf(DomainRef("TARGET","X")),own.single().subjectRefs)
+        assertEquals(2,projection.boundedForNpc(holder("N1"),Long.MAX_VALUE,64,setOf("GUARD")).size)
+        assertEquals(1,projection.boundedForNpc(holder("N1"),Long.MAX_VALUE,1,setOf("GUARD")).size)
+        assertEquals("ACQ-NPC-ROLE",projection.boundedForNpc(holder("N1"),Long.MAX_VALUE,1,setOf("GUARD"),setOf("ACQ-NPC-ROLE")).single().acquisitionUid)
+        assertEquals("ACQ-NPC-PRIVATE",projection.boundedForNpc(holder("N1"),Long.MAX_VALUE,1,emptySet(),setOf("ACQ-NPC-ROLE","ACQ-NPC-OTHER")).single().acquisitionUid)
+        assertTrue(projection.boundedForNpc(holder("N1"),0,64,setOf("GUARD")).isEmpty())
+        assertTrue(own.none{it.projectedText.contains("Ukryta")})
+        assertTrue(runCatching{projection.boundedForNpc(KnowledgeHolderRef(KnowledgeHolderKinds.CHARACTER,"N1","OTHER"),10,64,emptySet())}.isFailure)
+    }
+
+    @Test fun npcHistoricalRecallRehydratesLeavesIgnoresSummaryAndNeverGrantsHiddenKnowledge() = withDb { db ->
+        init(db)
+        commit(db,"NPC-MEM",change("NPC-MEM",holder("N1"),claim("NPC-MEM-CLAIM","Most jest zamknięty"),state=KnowledgeEpistemicState.BELIEVED),order=1)
+        commit(db,"NPC-SECRET",change("NPC-SECRET",holder("N2"),claim("NPC-SECRET-CLAIM","Ukryty tunel")),order=2)
+        npcConsolidateFixture(db,2)
+        val digest=AuthoritativeStateDigest.compute(db)
+        // An untrusted cache payload cannot add NPC knowledge, even under an existing revision UID.
+        db.execSQL("UPDATE ${Phase55To58MemorySchema.ARTIFACTS} SET payload_json=? WHERE campaign_uid=?",
+            arrayOf("{\"summary\":\"SECRET SECRET SECRET\",\"holder_uid\":\"N1\"}","C1"))
+        val records=NpcHistoricalMemoryProjection(db,"C1").read(holder("N1"),HistoryGenerationStore(db,"C1").current(),2,emptySet())
+        assertEquals(2,records.size)
+        assertTrue(records.none{it.projectedText.contains("SECRET") || it.projectedText.contains("tunel")})
+        assertEquals(KnowledgeEpistemicState.BELIEVED,records.single{it.memoryKind==NpcMemoryRecordKind.SEMANTIC_ASSERTION}.epistemicState)
+        val memory=records.single{it.memoryKind==NpcMemoryRecordKind.HISTORICAL_ACQUISITION}
+        assertEquals(KnowledgeEpistemicState.OUTDATED,memory.epistemicState)
+        assertTrue(memory.subjectRefs.isEmpty())
+        assertEquals(digest,AuthoritativeStateDigest.compute(db))
+    }
+
+    @Test fun npcHistoricalRecallRejectsStaleStateRoleGenerationAndCorruptLeaves() = withDb { db ->
+        init(db)
+        val c=claim("NPC-OLD-CLAIM","Most jest otwarty")
+        commit(db,"NPC-OLD",change("NPC-OLD",holder("N1"),c),order=1)
+        commit(db,"NPC-ROLEMEM",change("NPC-ROLEMEM",holder("N1"),claim("NPC-RM","Hasło wartownika"),scope=KnowledgeScope.ROLE_ACCESSIBLE,roleUid="GUARD"),order=2)
+        npcConsolidateFixture(db,2)
+        val reader=NpcHistoricalMemoryProjection(db,"C1");val generation=HistoryGenerationStore(db,"C1").current()
+        assertEquals(4,reader.read(holder("N1"),generation,2,setOf("GUARD")).size)
+        // One mixed-scope episode cannot smuggle its role-only leaf through a personal leaf.
+        assertTrue(reader.read(holder("N1"),generation,2,emptySet()).none{it.projectedText.contains("Hasło")})
+        assertTrue(reader.read(holder("N1"),generation,0,setOf("GUARD")).isEmpty())
+        assertTrue(reader.read(holder("N1"),HistoryGenerationUid("OTHER"),2,setOf("GUARD")).isEmpty())
+        assertTrue(runCatching{reader.read(holder("N1","OTHER"),generation,2,setOf("GUARD"))}.isFailure)
+        commit(db,"NPC-CORRECT",change("NPC-CORRECT",holder("N1"),c,state=KnowledgeEpistemicState.DISBELIEVED),order=3)
+        val corrected=reader.read(holder("N1"),generation,3,setOf("GUARD"))
+        assertTrue(corrected.none{it.acquisitionUid=="ACQ-NPC-OLD" && it.memoryKind==NpcMemoryRecordKind.SEMANTIC_ASSERTION})
+        assertTrue(corrected.any{it.acquisitionUid=="ACQ-NPC-OLD" && it.memoryKind==NpcMemoryRecordKind.HISTORICAL_ACQUISITION})
+        db.execSQL("UPDATE ${Phase55To58MemorySchema.LEAVES} SET source_fingerprint='CORRUPT' WHERE campaign_uid='C1'")
+        assertTrue(reader.read(holder("N1"),generation,3,setOf("GUARD")).isEmpty())
+    }
+
+    @Test fun npcHistoryPassesProtectedReadAndCacheDeletionDoesNotRemoveCanonicalKnowledge() = withDb { db ->
+        init(db)
+        commit(db,"NPC-HISTORY",change("NPC-HISTORY",holder("N1"),claim("NPC-HISTORY-C","Otrzymany raport")),order=1)
+        npcConsolidateFixture(db,1)
+        val generation=HistoryGenerationStore(db,"C1").current()
+        val principal=VisibilityPrincipalRef("NPC","N1")
+        val audience=AudienceContext("C1",AudienceKinds.WORLD_ACTOR,principal)
+        val purpose=PurposeContext("C1",VisibilityPurposeKinds.WORLD_ACTOR_REASONING)
+        val trusted=TrustedPrincipalContext("C1",principal,AudienceKinds.WORLD_ACTOR,cognitionHolders=setOf(holder("N1")))
+        val reads=ProtectedCampaignReadRepository.borrowedTrusted(db,"C1",{null},trusted)
+        assertTrue(reads.npcHistoricalMemory(audience,purpose,holder("N1"),generation,1) is ProtectedReadResult.Allow)
+        assertFalse(reads.npcHistoricalMemory(audience,purpose,holder("N2"),generation,1) is ProtectedReadResult.Allow)
+        val digest=AuthoritativeStateDigest.compute(db)
+        db.execSQL("DELETE FROM ${Phase55To58MemorySchema.ARTIFACTS} WHERE campaign_uid='C1'")
+        assertTrue(NpcHistoricalMemoryProjection(db,"C1").read(holder("N1"),generation,1,emptySet()).isEmpty())
+        assertEquals(1,KnowledgeContextProjection(db,"C1").boundedForNpc(holder("N1"),1,64,emptySet()).size)
+        assertEquals(digest,AuthoritativeStateDigest.compute(db))
+    }
+
+    private fun npcConsolidateFixture(db:SQLiteDatabase,order:Long) {
+        val events=KnowledgeStore(db,"C1").acquisitions().map{requireNotNull(it.createdEventUid)}
+        val leaves=events.map{MemorySourceLeafRef("EVENT",it,1,order,phase60Hash(it))}
+        val fingerprint=memoryLeafFingerprint(leaves)
+        val identity=MemoryArtifactIdentity("C1",HistoryGenerationStore(db,"C1").current(),"EPISODE", "EPISODE-REV-$fingerprint",
+            MemoryArtifactKind.EPISODE_MANIFEST,leaves,fingerprint,"RPGOS-P56-PRIMARY-EPISODE",1,order,1,order)
+        Phase37EpisodeMemoryProjector(db,"C1").persist(EpisodeManifest(identity,events,1,order,emptyList(),emptyList(),"RPGOS-P56-PRIMARY-EPISODE",1))
+    }
+
+    @Test fun npcDeliveredConversationCommitsAndReplaysWithHolderMemoryExactlyOnce() = withDb { db ->
+        init(db)
+        CampaignSnapshotManager(db,"C1",snapshots).create()
+        val npc=DomainRef("NPC","N1");val player=CommandActorRef("PLAYER","P1")
+        val reference=IntentReference("R",IntentReferenceKind.DESCRIPTIVE,"strażnik","TARGET",state=IntentReferenceState.RESOLVED_PROJECTED,resolvedProjectedRef=npc)
+        val node=IntentNode("N",IntentForm.COMMUNICATION,SemanticAction(semanticFamilyUid="TALK",rawPhrase="Mówię: jestem królem."),
+            participants=listOf(IntentParticipant("TARGET",referenceUid="R")))
+        val intent=IntentDocument(campaignUid="C1",actor=player,rawInput="Mówię: jestem królem.",meaningState=MeaningState.UNDERSTOOD,nodes=listOf(node),references=listOf(reference),
+            provenance=IntentInterpretationProvenance(IntentInterpretationSource.TRUSTED_REFERENCE_RESOLUTION,"CORE","1","HASH"))
+        val plan=CanonicalTurnPlan(planUid="PLAN",campaignUid="C1",intent=intent,audience=AudienceContext("C1",AudienceKinds.PLAYER),
+            purpose=PurposeContext("C1",VisibilityPurposeKinds.GAMEPLAY_NARRATION),steps=emptyList(),atOrder=0)
+        val effect=NpcCommunicationMemory.annotate(VerifiedMechanicsCommandEffect("E","N","RPGOS-CORE:NARRATIVE-MATERIALIZER","NARRATIVE_EVENT",npc,1,
+            mapOf("predicate_uid" to GmNarrativePredicates.NPC_UTTERANCE,"narrative_text" to "Nie mam na to dowodu."),"CORE_PROOF","INPUT","OUTPUT"),plan,node)
+        val command=PlayerCommand(commandUid="DIALOGUE",campaignUid="C1",actor=player,commandKindUid=PlayerCommandKinds.APPLY_VERIFIED_MECHANICS,
+            payload=ApplyVerifiedMechanicsCommandPayload("PLAN",listOf(effect)),provenance=CommandProvenance("NPC-TEST"),requestedEffectiveOrder=1)
+        val refs=setOf(npc,DomainRef("CHARACTER","N1"),DomainRef("PLAYER","P1"),DomainRef("CHARACTER","P1")).map{CampaignScopedDomainRef("C1",it)}.toSet()
+        val proposal=(CampaignMutationBoundary.resolveAndAdmit("C1",productionMechanicsPlayerDomainEngine(),command,
+            PlayerResolutionContext.createUnboundGeneric("C1",player,refs)) as CampaignMutationAdmission.Accepted).proposal
+        val identity=TurnTransactionIdentity("C1","TURN-DIALOGUE","DIALOGUE","TX-DIALOGUE")
+        val before=AuthoritativeStateDigest.compute(db)
+        val failure=TurnFailureInjector{if(it==TurnFailurePoint.AFTER_EVENT_APPEND)error("INJECTED_COMMUNICATION_ROLLBACK")}
+        assertEquals("INJECTED_COMMUNICATION_ROLLBACK",runCatching{TurnTransactionBoundary.create(db,identity,proposal,failure).commit()}.exceptionOrNull()?.message)
+        assertEquals(before,AuthoritativeStateDigest.compute(db))
+        assertTrue(KnowledgeStore(db,"C1").acquisitions().isEmpty())
+        assertTrue(TurnTransactionBoundary.create(db,identity,proposal).commit() is TurnExecutionResult.Committed)
+        assertEquals(2,KnowledgeStore(db,"C1").acquisitions(holder("N1")).size)
+        assertEquals(2,KnowledgeStore(db,"C1").acquisitions(holder("P1")).size)
+        assertTrue(KnowledgeStore(db,"C1").acquisitions(holder("N2")).isEmpty())
+        assertEquals(TruthKind.NARRATIVE,CampaignTruthStore(db,"C1").active().single().kind)
+        val digest=AuthoritativeStateDigest.compute(db)
+        assertTrue(TurnTransactionBoundary.create(db,identity,proposal).commit() is TurnExecutionResult.AlreadyCommitted)
+        assertEquals(4,KnowledgeStore(db,"C1").acquisitions().size)
+        val staged=CampaignSnapshotManager(db,"C1",snapshots).reconstructToVerifiedStaging()
+        SQLiteDatabase.openDatabase(staged.absolutePath,null,SQLiteDatabase.OPEN_READONLY).use{restored->
+            assertEquals(digest,AuthoritativeStateDigest.compute(restored))
+            assertEquals(KnowledgeStore(db,"C1").acquisitions(holder("N1")),KnowledgeStore(restored,"C1").acquisitions(holder("N1")))
+        }
+    }
+
+    @Test fun npcWoundAndOwnSensationAreAtomicPrivateAndReplayable() = withDb { db ->
+        init(db)
+        val npc=DomainRef("NPC","N1");val player=CommandActorRef("PLAYER","P1")
+        withAdministrativeMutationAuthority(db,"C1") {
+            MechanicalActorStateStore(db,"C1").materializeIfMissing(MechanicalActorSeed(npc,MechanicalActorKind.NPC,
+                "TEST","N1","TEST",mapOf("POWER" to 5),emptyList(),setOf("WAIT")))
+        }
+        CampaignSnapshotManager(db,"C1",snapshots).create()
+        val before=AuthoritativeStateDigest.compute(db)
+        val scope=TemporalScope("C1",HistoryGenerationStore(db,"C1").current().value,0,before)
+        val effect=VerifiedMechanicsCommandEffect("WOUND","N","UNIVERSAL_COMBAT","WOUND",npc,2,emptyMap(),"PROOF","INPUT","OUTPUT")
+        val observed=NpcConsequenceObservation.annotate(scope,listOf(effect)){MechanicalActorStateStore(db,"C1").actor(it)}
+        val command=PlayerCommand(commandUid="WOUND",campaignUid="C1",actor=player,commandKindUid=PlayerCommandKinds.APPLY_VERIFIED_MECHANICS,
+            payload=ApplyVerifiedMechanicsCommandPayload("PLAN",observed),provenance=CommandProvenance("NPC-TEST"),requestedEffectiveOrder=1)
+        val refs=setOf(npc,DomainRef("CHARACTER","N1"),DomainRef("PLAYER","P1")).map{CampaignScopedDomainRef("C1",it)}.toSet()
+        val proposal=(CampaignMutationBoundary.resolveAndAdmit("C1",productionMechanicsPlayerDomainEngine(),command,
+            PlayerResolutionContext.createUnboundGeneric("C1",player,refs)) as CampaignMutationAdmission.Accepted).proposal
+        val identity=TurnTransactionIdentity("C1","TURN-WOUND","WOUND","TX-WOUND")
+        val failure=TurnFailureInjector{if(it==TurnFailurePoint.AFTER_EVENT_APPEND)error("SENSATION_ROLLBACK")}
+        assertEquals("SENSATION_ROLLBACK",runCatching{TurnTransactionBoundary.create(db,identity,proposal,failure).commit()}.exceptionOrNull()?.message)
+        assertEquals(before,AuthoritativeStateDigest.compute(db));assertTrue(KnowledgeStore(db,"C1").acquisitions().isEmpty())
+        assertTrue(TurnTransactionBoundary.create(db,identity,proposal).commit() is TurnExecutionResult.Committed)
+        assertEquals(1,KnowledgeStore(db,"C1").acquisitions(holder("N1")).size)
+        assertTrue(KnowledgeStore(db,"C1").acquisitions(holder("N2")).isEmpty())
+        assertTrue(KnowledgeStore(db,"C1").acquisitions(holder("P1")).isEmpty())
+        assertTrue(TurnTransactionBoundary.create(db,identity,proposal).commit() is TurnExecutionResult.AlreadyCommitted)
+        val digest=AuthoritativeStateDigest.compute(db)
+        val rebuilt=CampaignSnapshotManager(db,"C1",snapshots).reconstructToVerifiedStaging()
+        SQLiteDatabase.openDatabase(rebuilt.absolutePath,null,SQLiteDatabase.OPEN_READONLY).use{restored->
+            assertEquals(digest,AuthoritativeStateDigest.compute(restored))
+            assertEquals(KnowledgeStore(db,"C1").acquisitions(holder("N1")),KnowledgeStore(restored,"C1").acquisitions(holder("N1")))
+        }
+    }
+
+    @Test fun npcReflectionCommitsThroughRealKnowledgeProjectionBrainOwnerAndOrdinaryTurn() = withDb { db ->
+        db.execSQL("CREATE TABLE campaign_calendar(id INTEGER PRIMARY KEY,absolute_day INTEGER,hour INTEGER,minute INTEGER)")
+        db.execSQL("INSERT INTO campaign_calendar VALUES(1,0,0,0)")
+        init(db)
+        withAdministrativeMutationAuthority(db,"C1") {
+            MechanicalActorStateStore(db,"C1").materializeIfMissing(MechanicalActorSeed(DomainRef("NPC","N1"),MechanicalActorKind.NPC,
+                "TEST","N1","TEST",mapOf("POWER" to 5),emptyList(),setOf("OBSERVE")))
+        }
+        CampaignSnapshotManager(db,"C1",snapshots).create()
+        commit(db,"NPC-EVIDENCE",change("NPC-EVIDENCE",holder("N1"),claim("NPC-RISK","Most jest niebezpieczny"),state=KnowledgeEpistemicState.BELIEVED),order=1)
+        val npc=DomainRef("NPC","N1");val player=CommandActorRef("PLAYER","P1")
+        val brain=NpcBrainOwner.initialize("C1",npc,"SEED")
+        val generation=HistoryGenerationStore(db,"C1").current().value
+        fun brainProposal(uid:String,order:Long,changes:List<NpcBrainChange>,time:TemporalStateChange?=null,
+                          effects:List<VerifiedMechanicsCommandEffect> = emptyList()):CanonicalCampaignMutationProposal {
+            val command=PlayerCommand(commandUid=uid,campaignUid="C1",actor=player,commandKindUid=PlayerCommandKinds.APPLY_VERIFIED_MECHANICS,
+                payload=ApplyVerifiedMechanicsCommandPayload("PLAN",effects,time,changes),provenance=CommandProvenance("NPC-TEST"),requestedEffectiveOrder=order)
+            return (CampaignMutationBoundary.resolveAndAdmit("C1",productionMechanicsPlayerDomainEngine(),command,
+                PlayerResolutionContext.createUnboundGeneric("C1",player,setOf(npc,DomainRef("CHARACTER","N1"),DomainRef("PLAYER","P1"),DomainRef("CAMPAIGN","C1")).map{CampaignScopedDomainRef("C1",it)}.toSet()))
+                as CampaignMutationAdmission.Accepted).proposal
+        }
+        val genesis=NpcBrainChange("C1",npc,generation,0,null,NpcBrainCodec.encode(brain),NpcBrainRules.GENESIS.uid,1,
+            listOf(NpcCauseRef(NpcCauseKind.GENESIS,"P61:GENESIS:${brain.seedFingerprint}")))
+        TurnTransactionBoundary.create(db,TurnTransactionIdentity("C1","TURN-GENESIS","GENESIS","TX-GENESIS"),brainProposal("GENESIS",2,listOf(genesis))).commit()
+        val principal=VisibilityPrincipalRef("NPC","N1")
+        val trusted=TrustedPrincipalContext("C1",principal,AudienceKinds.WORLD_ACTOR,cognitionHolders=setOf(holder("N1")))
+        val reads=ProtectedCampaignReadRepository.borrowedTrusted(db,"C1",{null},trusted)
+        val scope=NpcDecisionScope(TemporalScope("C1",generation,2,AuthoritativeStateDigest.compute(db)),npc,1,WorldTimeTick(0),0,"P1")
+        val trigger=NpcTrigger("T",NpcTriggerKind.KNOWLEDGE_CHANGED,WorldTimeTick(0),NpcCauseRef(NpcCauseKind.KNOWLEDGE_ACQUISITION,"ACQ-NPC-EVIDENCE"))
+        val projected=NpcDecisionContextProjector(RepositoryNpcProjection(reads)).project(scope,trigger,holder("N1"),
+            ContextRuntimeProfile("TEST",8192,0,0,0)){_,_->emptyList()} as NpcContextResult.Ready
+        val record=projected.context.records.single()
+        val candidate=NpcDecisionProposal("REQ",projected.context.contextFingerprint,emptyList(),
+            listOf(NpcAppraisalCandidate(NpcAppraisalMeaning.THREAT,record.uid)),
+            listOf(NpcGoalCandidate("CHECK-BRIDGE",brain.motivations.first().uid,"Sprawdzić doniesienie o moście",setOf(record.uid))))
+        val result=NpcDecisionEngine().select(projected.context,candidate,scope) as NpcDecisionResult.Reflected
+        assertEquals(2,result.brainChanges.size)
+        val proposal=brainProposal("REFLECT",3,result.brainChanges)
+        val identity=TurnTransactionIdentity("C1","TURN-REFLECT","REFLECT","TX-REFLECT")
+        assertTrue(TurnTransactionBoundary.create(db,identity,proposal).commit() is TurnExecutionResult.Committed)
+        val stored=NpcBrainStore(db,"C1").read(npc)!!
+        assertEquals(3L,stored.revision);assertEquals("CHECK-BRIDGE",stored.goals.single().uid)
+        assertEquals(1L,stored.lastAppraisedAcquisitionOrder)
+        assertEquals(KnowledgeEpistemicState.BELIEVED,KnowledgeContextProjection(db,"C1").boundedForNpc(holder("N1"),3,64,emptySet()).single().epistemicState)
+        val digest=AuthoritativeStateDigest.compute(db)
+        assertTrue(TurnTransactionBoundary.create(db,identity,proposal).commit() is TurnExecutionResult.AlreadyCommitted)
+        assertEquals(digest,AuthoritativeStateDigest.compute(db))
+
+        val action=NpcActionOption("OBSERVE","OBSERVE",npc,AcceptedActionTiming(ActionDuration(1000),"OBSERVATION_RULE",1),"CHECK-BRIDGE",
+            emptyList(),setOf(record.uid),mechanicsOwnerUid="UNIVERSAL_ACTION",mechanicalEffectKindUid="INTERACTION")
+        val actionScope=scope.copy(temporal=scope.temporal.copy(baseCommitOrder=3,authoritativeFingerprint=digest),brainRevision=3)
+        val actionContext=NpcDecisionContextProjector(RepositoryNpcProjection(reads)).project(actionScope,trigger,holder("N1"),
+            ContextRuntimeProfile("TEST",8192,0,0,0)){_,_->listOf(action)} as NpcContextResult.Ready
+        val selected=NpcDecisionEngine().select(actionContext.context,NpcDecisionProposal("ACT",actionContext.context.contextFingerprint,
+            listOf(NpcDecisionCandidate(action.uid))),actionScope) as NpcDecisionResult.Selected
+        val begin=NpcBrainDynamics.beginPlan(actionContext.context,selected,"START")
+        val pending=NpcPendingAction(npc,selected.authorization.decisionUid,action.uid,WorldTimeTick(0),WorldTimeTick(1000),"OBSERVATION_RULE",1)
+        val time1=TemporalStateChange("C1",0,WorldTimeTick(0),WorldTimeTick(500),
+            Phase60ProcessStateCodec.encode(listOf(TemporalOwnerState(NpcActionProcess.OWNER,1,NpcActionProcess.encode(listOf(pending))))),
+            Phase60DeadlineCodec.encode(listOf(WorldProcessDeadline(pending.deadlineUid,NpcActionProcess.OWNER,pending.due))))
+        assertTrue(TurnTransactionBoundary.create(db,TurnTransactionIdentity("C1","TURN-START","START","TX-START"),
+            brainProposal("START",4,listOf(begin),time1)).commit() is TurnExecutionResult.Committed)
+        val finishingScope=actionScope.copy(temporal=actionScope.temporal.copy(baseCommitOrder=4,authoritativeFingerprint=AuthoritativeStateDigest.compute(db)),
+            brainRevision=4,atTime=WorldTimeTick(1000))
+        val boundaryTrigger=NpcTrigger("PLAN-DUE",NpcTriggerKind.PLAN_BOUNDARY,WorldTimeTick(1000),NpcCauseRef(NpcCauseKind.ACCEPTED_ACTION,"START"))
+        val finishContext=NpcDecisionContextProjector(RepositoryNpcProjection(reads)).project(finishingScope,boundaryTrigger,holder("N1"),
+            ContextRuntimeProfile("TEST",8192,0,0,0)){_,_->listOf(action)} as NpcContextResult.Ready
+        val finish=NpcBrainDynamics.finishPlan(finishContext.context,pending.planUid,"FINISH",true)
+        val physical=VerifiedMechanicsCommandEffect("NPC-OBSERVED","OBSERVE","UNIVERSAL_ACTION","INTERACTION",npc,1,
+            mapOf("track_uid" to "ACTION:OBSERVE","source_actor_kind_uid" to "NPC","source_actor_uid" to "N1"),"PROOF","INPUT","OUTPUT")
+        val time2=TemporalStateChange("C1",1,WorldTimeTick(500),WorldTimeTick(1000),"[]")
+        val finishedProposal=brainProposal("FINISH",5,listOf(finish),time2,listOf(physical))
+        val finishedIdentity=TurnTransactionIdentity("C1","TURN-FINISH","FINISH","TX-FINISH")
+        val beforeFailure=AuthoritativeStateDigest.compute(db)
+        assertTrue(runCatching{TurnTransactionBoundary.create(db,finishedIdentity,finishedProposal,
+            TurnFailureInjector{if(it==TurnFailurePoint.BEFORE_COMMIT)error("injected")}).commit()}.isFailure)
+        assertEquals(beforeFailure,AuthoritativeStateDigest.compute(db))
+        assertEquals(WorldTimeTick(500),Phase60TemporalStateStore(db,"C1").read().time)
+        assertTrue(TurnTransactionBoundary.create(db,finishedIdentity,finishedProposal).commit() is TurnExecutionResult.Committed)
+        assertEquals(NpcPlanLifecycle.COMPLETED,NpcBrainStore(db,"C1").read(npc)!!.plans.single().lifecycle)
+        val ownMemory=KnowledgeContextProjection(db,"C1").boundedForNpc(holder("N1"),5,64,emptySet()).single{it.acquisitionUid.startsWith("P62:ACQ:")}
+        assertEquals(KnowledgeEpistemicState.KNOWN,ownMemory.epistemicState)
+        assertTrue(ownMemory.projectedText.contains("P62:ATTEMPTED_GOAL_ACTION"))
+        assertTrue(KnowledgeContextProjection(db,"C1").boundedForNpc(holder("N2"),5,64,emptySet()).isEmpty())
+        val rebuilt=CampaignSnapshotManager(db,"C1",snapshots).reconstructToVerifiedStaging()
+        SQLiteDatabase.openDatabase(rebuilt.absolutePath,null,SQLiteDatabase.OPEN_READONLY).use{restored->
+            assertEquals(AuthoritativeStateDigest.compute(db),AuthoritativeStateDigest.compute(restored))
+            assertEquals(NpcBrainStore(db,"C1").read(npc),NpcBrainStore(restored,"C1").read(npc))
+            assertEquals(WorldTimeTick(1000),Phase60TemporalStateStore(restored,"C1").read().time)
+        }
+    }
+
     @Test fun directObservationBindsExactCommittedEventProvenance() = withDb { db ->
         init(db)
         commit(db, "OBS", change("OBS", holder("SCOUT"), claim("CLAIM-OBS", "ENEMY_PRESENT"), method = KnowledgeAcquisitionMethods.DIRECT_OBSERVATION))
@@ -784,9 +1064,10 @@ class Phase37WorldActorKnowledgeTest {
         db: SQLiteDatabase,
         command: String,
         change: KnowledgeAcquisitionChange,
-        campaign: String = "C1"
+        campaign: String = "C1",
+        order:Long?=null
     ): TurnExecutionResult<TurnCommitAppliedResult> {
-        val p = proposal(command, change, campaign)
+        val p = proposal(command, change, campaign,order)
         return TurnTransactionBoundary.create(
             db, TurnTransactionIdentity(campaign, "TURN-$command", command, "TX-$command"), p
         ).commit()
@@ -795,7 +1076,8 @@ class Phase37WorldActorKnowledgeTest {
     private fun proposal(
         command: String,
         change: KnowledgeAcquisitionChange,
-        campaign: String = "C1"
+        campaign: String = "C1",
+        order:Long?=null
     ): CanonicalCampaignMutationProposal {
         knowledgeByCommand[command] = change
         val actor = CommandActorRef("PLAYER", "P1")
@@ -806,7 +1088,7 @@ class Phase37WorldActorKnowledgeTest {
             commandKindUid = PlayerCommandKinds.TRANSFER_FUNDS,
             payload = TransferFundsCommandPayload("A", "B", 1, "CUR"),
             provenance = CommandProvenance("P37-TEST"),
-            requestedEffectiveOrder = command.hashCode().toLong().let { if (it == Long.MIN_VALUE) 1L else kotlin.math.abs(it) + 1L }
+            requestedEffectiveOrder = order ?: command.hashCode().toLong().let { if (it == Long.MIN_VALUE) 1L else kotlin.math.abs(it) + 1L }
         )
         val refs = LinkedHashSet<CampaignScopedDomainRef>()
         refs += CampaignScopedDomainRef(campaign, DomainRef("PLAYER", "P1"))

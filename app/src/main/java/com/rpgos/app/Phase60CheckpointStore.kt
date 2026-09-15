@@ -9,7 +9,7 @@ import kotlinx.serialization.json.*
 internal object Phase60CheckpointCodec {
     private val registry get() = TypedPlayerChangeRegistry.core()
     fun encode(work: TemporalExecutionCheckpoint): String = buildJsonObject {
-        put("version", 2)
+        put("version", 3)
         put("executionFingerprint", work.executionFingerprint?.let(::JsonPrimitive) ?: JsonNull)
         put("campaign", work.scope.campaignUid); put("generation", work.scope.historyGenerationUid)
         put("commit", work.scope.baseCommitOrder); put("digest", work.scope.authoritativeFingerprint)
@@ -30,13 +30,15 @@ internal object Phase60CheckpointCodec {
         put("initialOwners", Json.parseToJsonElement(Phase60ProcessStateCodec.encode(work.initialOwnerStates.values.toList())))
         put("evaluated", strings(work.evaluatedDeadlineUids))
         put("changes", JsonArray(work.candidateChanges.map(registry::encodeWorkerPayload)))
+        put("effects",TemporalMechanicsCodec.encode(work.candidateEffects))
     }.toString()
 
     fun decode(text: String): TemporalExecutionCheckpoint {
         val obj = Json.parseToJsonElement(text).jsonObject
         val version = number(obj,"version")
-        require(version in 1L..2L)
-        require(obj.keys == setOf("version", "campaign", "generation", "commit", "digest", "command", "start", "reached", "boundaries", "terminal", "schedule", "deadlines", "initialDeadlines", "owners", "initialOwners", "evaluated", "changes") + if(version==2L)setOf("executionFingerprint") else emptySet())
+        require(version in 1L..3L)
+        val extra= (if(version>=2L)setOf("executionFingerprint") else emptySet()) + (if(version>=3L)setOf("effects") else emptySet())
+        require(obj.keys == setOf("version", "campaign", "generation", "commit", "digest", "command", "start", "reached", "boundaries", "terminal", "schedule", "deadlines", "initialDeadlines", "owners", "initialOwners", "evaluated", "changes") + extra)
         val scope = TemporalScope(string(obj, "campaign"), string(obj, "generation"), number(obj, "commit"), string(obj, "digest"))
         val rows = obj.getValue("schedule").jsonArray
         require(rows.size in 1..1024)
@@ -71,7 +73,8 @@ internal object Phase60CheckpointCodec {
             Phase60ProcessStateCodec.decode(obj.getValue("owners").toString()).associateBy { it.ownerUid },
             changes.map { registry.decodeWorkerPayload(it.jsonObject) }, boundaries, evaluated, terminal, initialDeadlines,
             Phase60ProcessStateCodec.decode(obj.getValue("initialOwners").toString()).associateBy { it.ownerUid },
-            obj["executionFingerprint"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.let { require(it.isString && it.content.length==64); it.content })
+            obj["executionFingerprint"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.let { require(it.isString && it.content.length==64); it.content },
+            obj["effects"]?.let(TemporalMechanicsCodec::decode)?:emptyList())
     }
     private fun strings(values: Set<String>) = JsonArray(values.sorted().map(::JsonPrimitive))
     private fun stringSet(value: JsonElement): Set<String> {

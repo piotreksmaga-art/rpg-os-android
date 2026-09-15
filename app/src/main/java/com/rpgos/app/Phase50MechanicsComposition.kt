@@ -96,15 +96,16 @@ object MechanicalEffectMaterializer{
             }
             else->return rejected(effect,"UNSUPPORTED_EFFECT_KIND:$kind")
         }
-        val event=PlayerEventIntent.create(
-            eventIntentUid="RPGOS-MECHANICS-EVENT:${safeUid(effect.effectUid)}",
+        val sources=mechanicSourceActors(effect)
+        val events=sources.map{source->PlayerEventIntent.create(
+            eventIntentUid="RPGOS-MECHANICS-EVENT:${safeUid(if(sources.size==1)effect.effectUid else "${effect.effectUid}|$source")}",
             eventKindUid=PlayerEventIntentKinds.DOMAIN_EFFECT,
-            actorRef=null,
+            actorRef=source,
             targetRefs=listOf(effect.target),
             causalChangeUids=listOf(change.changeUid),
             payload=DomainEffectEventIntentPayload(effect.target,effect.effectKindUid)
-        )
-        return MechanicalEffectMaterializationResult.Materialized(listOf(change),listOf(event))
+        )}
+        return MechanicalEffectMaterializationResult.Materialized(listOf(change),events)
     }
 
     private fun materializeWorldElement(effect:VerifiedMechanicsCommandEffect):MechanicalEffectMaterializationResult{
@@ -135,11 +136,15 @@ object MechanicalEffectMaterializer{
                 sourceRuleUid=effect.proofUid
             )
         }
+        val genesis=MechanicalActorGenesis.from(effect)?.let { body->PlayerDomainChange.create(
+            changeUid="RPGOS-WORLD-BODY:${safeUid(effect.effectUid)}",changeKindUid=MECHANICAL_ACTOR_GENESIS_KIND,
+            payload=body,sourceRuleUid=effect.proofUid) }
+        val allChanges=changes+listOfNotNull(genesis)
         val event=PlayerEventIntent.create(
             eventIntentUid="RPGOS-WORLD-EVENT:${safeUid(effect.effectUid)}",eventKindUid=PlayerEventIntentKinds.DOMAIN_EFFECT,
-            actorRef=null,targetRefs=listOf(effect.target),causalChangeUids=changes.map{it.changeUid},payload=DomainEffectEventIntentPayload(effect.target,effect.effectKindUid)
+            actorRef=null,targetRefs=listOf(effect.target),causalChangeUids=allChanges.map{it.changeUid},payload=DomainEffectEventIntentPayload(effect.target,effect.effectKindUid)
         )
-        return MechanicalEffectMaterializationResult.Materialized(changes,listOf(event))
+        return MechanicalEffectMaterializationResult.Materialized(allChanges,listOf(event))
     }
 
     private fun materializeNarrativeEvent(effect:VerifiedMechanicsCommandEffect):MechanicalEffectMaterializationResult{
@@ -191,6 +196,23 @@ internal class ProductionVerifiedMechanicsComponent:PlayerResolutionComponent<Ap
                 PlayerResolutionRejection.create(PlayerResolutionRejectionReason.DOMAIN_REJECTED,detailUid="P60:CROSS_CAMPAIGN_TIME"))
             changes+=PlayerDomainChange.create("RPGOS-TIME-CHANGE:${command.commandUid}",PHASE60_TIME_CHANGE_KIND,time,sourceRuleUid="RPGOS-P60:ACCEPTED_ACTION_TIME")
         }
+        command.payload.npcBrains.forEach { brain ->
+            if(brain.campaignUid!=command.campaignUid || brain.actor.uid==command.actor.actorUid)
+                return PlayerResolutionComponentOutcome.Rejected(PlayerResolutionRejection.create(
+                    PlayerResolutionRejectionReason.DOMAIN_REJECTED,detailUid="P61:INVALID_BRAIN_SUBJECT"))
+            val uid="RPGOS-NPC-BRAIN:${command.commandUid}:${sha256(brain.actor.toString()).take(24)}:${brain.expectedVersion}"
+            changes+=PlayerDomainChange.create(uid,NPC_BRAIN_CHANGE_KIND,brain,sourceRuleUid=brain.ruleUid)
+            events+=PlayerEventIntent.create(eventIntentUid="EVENT:$uid",eventKindUid=PlayerEventIntentKinds.DOMAIN_EFFECT,
+                actorRef=brain.actor,targetRefs=listOf(brain.actor),causalChangeUids=listOf(uid),
+                payload=DomainEffectEventIntentPayload(brain.actor,NPC_BRAIN_CHANGE_KIND))
+        }
+        val memory=NpcActionMemory.materialize(command.campaignUid,command.commandUid,command.requestedEffectiveOrder,
+            command.payload.effects,command.payload.npcBrains)
+        changes+=memory.changes;events+=memory.events
+        val communication=NpcCommunicationMemory.materialize(command.campaignUid,command.commandUid,command.requestedEffectiveOrder,command.payload.effects)
+        changes+=communication.changes;events+=communication.events
+        val sensations=NpcConsequenceObservation.materialize(command.campaignUid,command.commandUid,command.requestedEffectiveOrder,command.payload.effects)
+        changes+=sensations.changes;events+=sensations.events
         if(changes.isEmpty())return PlayerResolutionComponentOutcome.Rejected(
             PlayerResolutionRejection.create(PlayerResolutionRejectionReason.DOMAIN_REJECTED,detailUid="EMPTY_MECHANICS_MATERIALIZATION")
         )
@@ -232,29 +254,7 @@ class ProductionCanonicalMutationAssembler(
         val providerEffects=proposal.verifiedEffects.sortedWith(compareBy<VerifiedMechanicsEffect>{nodeOrder[it.nodeUid]?:Int.MAX_VALUE}.thenBy{it.effectUid}).flatMap{verified->
             val source=requested[verified.effectUid]?:return null
             val proposedTarget=source.targetProjectedRef?:return null
-            val targetKind=verified.canonicalPayload["target_kind_uid"]
-            val targetUid=verified.canonicalPayload["target_uid"]
-            if((targetKind==null)!=(targetUid==null))return null
-            val target=if(targetKind!=null)DomainRef(targetKind,targetUid!!) else proposedTarget
-            val magnitude=verified.canonicalPayload["magnitude"]?.toLongOrNull()?:return null
-            val areaCount=verified.canonicalPayload["area_target_count"]?.toIntOrNull()?:0
-            if(areaCount !in 0..256)return null
-            val specifications=if(areaCount==0)listOf(Triple(target,magnitude,verified.effectKindUid)) else (0 until areaCount).map{index->
-                val kind=verified.canonicalPayload["area_target_${index}_kind_uid"]?:return null
-                val uid=verified.canonicalPayload["area_target_${index}_uid"]?:return null
-                val areaMagnitude=verified.canonicalPayload["area_target_${index}_magnitude"]?.toLongOrNull()?:return null
-                val effectKind=verified.canonicalPayload["area_target_${index}_effect_kind_uid"]?:return null
-                Triple(DomainRef(kind,uid),areaMagnitude,effectKind)
-            }
-            val commonPayload=verified.canonicalPayload.filterKeys{!it.startsWith("area_target_")}
-            specifications.mapIndexed{index,(canonicalTarget,canonicalMagnitude,canonicalKind)->
-                val suffix=if(areaCount==0)"" else ":AREA:$index"
-                VerifiedMechanicsCommandEffect(
-                    verified.effectUid+suffix,verified.nodeUid,verified.mechanicsOwnerUid,canonicalKind,canonicalTarget,canonicalMagnitude,
-                    commonPayload+mapOf("target_kind_uid" to canonicalTarget.kindUid,"target_uid" to canonicalTarget.uid,"magnitude" to canonicalMagnitude.toString()),
-                    verified.proofUid+suffix,mechanicsFingerprint(verified.deterministicInputFingerprint+suffix),mechanicsFingerprint(verified.deterministicOutputFingerprint+"|$canonicalTarget|$canonicalMagnitude")
-                )
-            }
+            canonicalMechanicsCommandEffects(verified,proposedTarget)?:return null
         }
         val successfulNodes=proposal.candidate.nodeProposals.filter{it.outcomeState==GmNodeOutcomeState.PROPOSED_SUCCESS}.map{it.nodeUid}.toSet()
         val narrativeSubjectUids=proposal.candidate.proposedClaims.asSequence()
@@ -274,14 +274,7 @@ class ProductionCanonicalMutationAssembler(
             VerifiedMechanicsCommandEffect(
                 effectUid="RPGOS-WORLD-MATERIALIZE:${draft.element.uid}",nodeUid=consumer.nodeUid,mechanicsOwnerUid="RPGOS-CORE:WORLD-MATERIALIZER",
                 effectKindUid="WORLD_ELEMENT_MATERIALIZE",target=draft.element,magnitude=1,
-                canonicalPayload=buildMap{
-                    put("world_base_kind",draft.baseKind.name);put("display_name",draft.displayName);put("category_uid",draft.categoryUid)
-                    draft.parentAnchorUid?.let{put("parent_anchor_uid",it)};put("affordance_uids",draft.affordanceUids.sorted().joinToString(","))
-                    put("topology_class_uid",draft.topologyClassUid);put("source_classification",draft.sourceClassification.name)
-                    draft.sourceUri?.let{put("source_uri",it)};draft.sourceRevision?.let{put("source_revision",it)};draft.sourceHash?.let{put("source_hash",it)}
-                    put("materialization_level_uid",draft.materializationLevelUid);put("draft_fingerprint",fingerprint)
-                    put("target_kind_uid",draft.element.kindUid);put("target_uid",draft.element.uid);put("magnitude","1")
-                },proofUid="RPGOS-CORE:WORLD-MATERIALIZATION:$fingerprint",
+                canonicalPayload=draft.materializationPayload(),proofUid="RPGOS-CORE:WORLD-MATERIALIZATION:$fingerprint",
                 deterministicInputFingerprint=mechanicsFingerprint("${plan.intent.canonicalFingerprint()}|${reference.referenceUid}|$fingerprint"),
                 deterministicOutputFingerprint=mechanicsFingerprint("${draft.element}|$fingerprint")
             )
@@ -293,7 +286,7 @@ class ProductionCanonicalMutationAssembler(
         val narrativeEffects=proposal.candidate.proposedClaims.filter{it.claimKind==ProposedClaimKind.NARRATIVE_COLOR}.map{claim->
             val target=claim.subjectProjectedUid?.let(projectedByUid::get)?:return null
             val fingerprint=mechanicsFingerprint("${plan.intent.canonicalFingerprint()}|${claim.claimUid}|${claim.predicateUid}|${claim.valueCanonical}")
-            VerifiedMechanicsCommandEffect(
+            val effect=VerifiedMechanicsCommandEffect(
                 // Claim UIDs such as CLAIM:N1:NPC_UTTERANCE are commonly reused by providers in
                 // later turns.  Bind the canonical narrative event to this intent as well, so an
                 // NPC repeating the same words is still a distinct historical utterance.
@@ -304,6 +297,11 @@ class ProductionCanonicalMutationAssembler(
                 proofUid="RPGOS-CORE:NARRATIVE-MATERIALIZATION:$fingerprint",
                 deterministicInputFingerprint=fingerprint,deterministicOutputFingerprint=mechanicsFingerprint("$target|${claim.valueCanonical}")
             )
+            val node=plan.intent.nodes.single{it.nodeUid==claim.nodeUid}
+            if(claim.predicateUid==GmNarrativePredicates.NPC_UTTERANCE && isConversationNode(node) &&
+                claim.nodeUid in successfulNodes)NpcCommunicationMemory.annotate(effect,plan,node,plan.intent.nodes.filter{
+                    it.nodeUid in successfulNodes && isConversationNode(it) && target in projectedTargetRefs(plan.intent,it)
+                }) else effect
         }
         // Multiple natural-language questions to the same actor may be represented as separate
         // intent nodes, but the canonical mechanical track has one key per actor/action.  Fold
@@ -314,14 +312,15 @@ class ProductionCanonicalMutationAssembler(
     }
 
     internal fun admitEffects(request:ChatTurnRequest,planUid:String,proposalUid:String,
-                             effects:List<VerifiedMechanicsCommandEffect>,time:TemporalStateChange?):CanonicalCampaignMutationProposal?{
+                             effects:List<VerifiedMechanicsCommandEffect>,time:TemporalStateChange?,
+                             npcBrains:List<NpcBrainChange> = emptyList()):CanonicalCampaignMutationProposal?{
         if(time!=null&&time.campaignUid!=request.campaignUid){lastReasons=listOf("P60:CROSS_CAMPAIGN_TIME");return null}
-        if(effects.isEmpty()&&time==null)return null
+        if(effects.isEmpty()&&time==null&&npcBrains.isEmpty())return null
         val command=PlayerCommand(
             commandUid=request.commandUid,campaignUid=request.campaignUid,actor=request.actor,
             commandKindUid=PlayerCommandKinds.APPLY_VERIFIED_MECHANICS,
             payload=ApplyVerifiedMechanicsCommandPayload(planUid,
-                if(time==null)coalesceInteractionEffects(effects) else phase60CoalesceEffects(effects),time),
+                if(time==null)coalesceInteractionEffects(effects) else phase60CoalesceEffects(effects),time,npcBrains),
             provenance=CommandProvenance("RPGOS-PHASE54-CANONICAL-COMPOSER",proposalUid),
             causationUid=request.turnUid,correlationUid=request.requestUid,requestedEffectiveOrder=request.atOrder?:1L
         )
@@ -358,6 +357,32 @@ class ProductionCanonicalMutationAssembler(
             }&&
                 (outcomes[step.nodeUid]?.outcomeState!=GmNodeOutcomeState.PROPOSED_SUCCESS||step.matchState in setOf(CapabilityMatchState.EXACT,CapabilityMatchState.COMPOSED,CapabilityMatchState.GENERIC))
         }
+    }
+}
+
+/** One conversion for player and NPC owners, including aggregate/area impacts. No second physics. */
+internal fun canonicalMechanicsCommandEffects(verified:VerifiedMechanicsEffect,proposedTarget:DomainRef):List<VerifiedMechanicsCommandEffect>? {
+    val targetKind=verified.canonicalPayload["target_kind_uid"]
+    val targetUid=verified.canonicalPayload["target_uid"]
+    if((targetKind==null)!=(targetUid==null))return null
+    val target=if(targetKind!=null)DomainRef(targetKind,targetUid!!) else proposedTarget
+    val magnitude=verified.canonicalPayload["magnitude"]?.toLongOrNull()?:return null
+    val areaCount=if("area_target_count" in verified.canonicalPayload)
+        verified.canonicalPayload.getValue("area_target_count").toIntOrNull()?:return null else 0
+    if(areaCount !in 0..256)return null
+    val specifications=if(areaCount==0)listOf(Triple(target,magnitude,verified.effectKindUid)) else (0 until areaCount).map{index->
+        val kind=verified.canonicalPayload["area_target_${index}_kind_uid"]?:return null
+        val uid=verified.canonicalPayload["area_target_${index}_uid"]?:return null
+        val areaMagnitude=verified.canonicalPayload["area_target_${index}_magnitude"]?.toLongOrNull()?:return null
+        val effectKind=verified.canonicalPayload["area_target_${index}_effect_kind_uid"]?:return null
+        Triple(DomainRef(kind,uid),areaMagnitude,effectKind)
+    }
+    val commonPayload=verified.canonicalPayload.filterKeys{!it.startsWith("area_target_")}
+    return specifications.mapIndexed{index,(canonicalTarget,canonicalMagnitude,canonicalKind)->
+        val suffix=if(areaCount==0)"" else ":AREA:$index"
+        VerifiedMechanicsCommandEffect(verified.effectUid+suffix,verified.nodeUid,verified.mechanicsOwnerUid,canonicalKind,canonicalTarget,canonicalMagnitude,
+            commonPayload+mapOf("target_kind_uid" to canonicalTarget.kindUid,"target_uid" to canonicalTarget.uid,"magnitude" to canonicalMagnitude.toString()),
+            verified.proofUid+suffix,phase60Hash(verified.deterministicInputFingerprint+suffix),phase60Hash(verified.deterministicOutputFingerprint+"|$canonicalTarget|$canonicalMagnitude"))
     }
 }
 

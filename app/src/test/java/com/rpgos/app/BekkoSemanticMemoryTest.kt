@@ -425,6 +425,22 @@ class BekkoSemanticMemoryTest {
         assertFalse(contract.isAuthoritative)
     }
 
+    @Test fun npcPrivateBrainAndAcquisitionsDoNotEnterGenericSemanticReplay() {
+        val brain=NpcBrainOwner.initialize("C1",DomainRef("NPC","N1"),"seed")
+        val brainChange=NpcBrainChange("C1",brain.actor,"G",0,null,NpcBrainCodec.encode(brain),NpcBrainRules.GENESIS.uid,1,
+            listOf(NpcCauseRef(NpcCauseKind.GENESIS,"P61:GENESIS:${brain.seedFingerprint}")))
+        val acquisition=KnowledgeAcquisitionChange(KnowledgeClaim("CLAIM", "NPC","N1","PRIVATE","sekret",domainUid=KnowledgeDomains.WORLD_SPECIFIC),
+            KnowledgeAcquisitionSpec("ACQ",brain.knowledgeHolder,KnowledgeAcquisitionMethods.DIRECT_OBSERVATION,KnowledgeScope.PERSONAL,
+                KnowledgeEpistemicState.BELIEVED,KnowledgeQuality(0.5,1.0,1.0,1.0,1,1)),emptyList())
+        val replay=worldReplay(listOf(PlayerDomainChange.create("B",NPC_BRAIN_CHANGE_KIND,brainChange),
+            PlayerDomainChange.create("K",PHASE37_KNOWLEDGE_CHANGE_KIND,acquisition)),listOf(PlayerEventIntent.create(
+                "PRIVATE_EVENT",PlayerEventIntentKinds.DOMAIN_EFFECT,brain.actor,listOf(brain.actor),listOf("K"),
+                DomainEffectEventIntentPayload(brain.actor,"PRIVATE_COGNITION"))))
+        val projector=CommittedReplaySemanticProjector(activePlayerUid={"P1"})
+        val gm=AudienceContext("C1",AudienceKinds.GM_RUNTIME,VisibilityPrincipalRef(AudienceKinds.GM_RUNTIME,"LOCAL_GM"))
+        assertTrue(projector.project(replay,gm,PurposeContext("C1",VisibilityPurposeKinds.INTERNAL_SIMULATION)).isEmpty())
+    }
+
     @Test fun rollbackRetryHundredTurnsAndReopenCatchUpRemainIdempotent(){
         val testContext=isolatedContext()
         cleanupCampaign(testContext)
@@ -693,10 +709,10 @@ class BekkoSemanticMemoryTest {
         )
     )
 
-    private fun worldReplay(changes:List<PlayerDomainChange>):CommittedReplayPayload{
+    private fun worldReplay(changes:List<PlayerDomainChange>,events:List<PlayerEventIntent> = emptyList()):CommittedReplayPayload{
         val changeSet=PlayerChangeSet.create(
             changeSetUid="CS-WORLD",campaignUid="C1",sourceCommandUid="CMD-WORLD",
-            actor=CommandActorRef("PLAYER","P1"),changes=changes,
+            actor=CommandActorRef("PLAYER","P1"),changes=changes,eventIntents=events,
             provenance=ChangeSetProvenance("CMD-WORLD","TEST","1")
         )
         return CommittedReplayPayload(

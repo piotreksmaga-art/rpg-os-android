@@ -370,7 +370,16 @@ internal class LocalGameStore(private val context: Context) {
     }
     fun finalizeChapter(chapter: Int, title: String): Pair<String, String> { openGameplaySaveDb().use { save -> val hash = ChapterSaveManager(save).finalizeChapter(chapter, title); CampaignSnapshotManager(save,selection.activeCampaignRef().campaignId,File(saveDir,"snapshots")).create(SnapshotKind.AUTOMATIC);val backup = BackupManager(context).createBackup("chapter_$chapter"); return hash to backup.absolutePath } }
     internal fun applyPatch(patch: StatePatch): PatchResult { openGameplaySaveDb().use { save -> openCoreDb().use { core -> return StatePatchEngine(save, SourceOfTruthRegistry(core)).apply(patch) } } }
-    private fun openSave(): SQLiteDatabase = SQLiteDatabase.openDatabase(File(saveDir, "campaign.db").absolutePath, null, SQLiteDatabase.OPEN_READWRITE)
+    private fun openSave(): SQLiteDatabase {
+        val db=SQLiteDatabase.openDatabase(File(saveDir,"campaign.db").absolutePath,null,SQLiteDatabase.OPEN_READWRITE)
+        return try {
+            GameplayMutationDatabaseGuards.configureConnection(db)
+            db
+        } catch(failure:Throwable) {
+            db.close()
+            throw failure
+        }
+    }
     private fun ensureCurrentSchema(saveDb: SQLiteDatabase) { CurrentSchema.ensure(saveDb, selection.activeCampaignRef().campaignId) }
 
     /**

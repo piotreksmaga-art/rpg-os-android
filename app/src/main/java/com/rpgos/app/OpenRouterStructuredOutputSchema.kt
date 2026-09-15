@@ -25,6 +25,19 @@ object OpenRouterStructuredOutputSchema {
         AiWorkload.CHARACTER_CREATION->characterCreation()
         AiWorkload.DIRECTOR_STRATEGY->director()
         AiWorkload.MEMORY_ENRICHMENT->memoryEnrichment()
+        AiWorkload.NPC_DIALOGUE->obj(linkedMapOf("request_uid" to text(),"context_fingerprint" to text(),
+            "text" to text().put("minLength",1).put("maxLength",512),"supporting_record_uids" to array(text()).put("maxItems",8)))
+        AiWorkload.NPC_DECISION->obj(linkedMapOf("request_uid" to text(),"context_fingerprint" to text(),
+            "candidates" to array(obj(linkedMapOf("option_uid" to text(),"continuation_option_uids" to array(text()).put("maxItems",3),
+                "on_unavailable_option_uid" to JSONObject().put("anyOf",JSONArray().put(text()).put(JSONObject().put("type","null")))))).put("maxItems",8),
+            "appraisals" to array(obj(linkedMapOf(
+                "meaning" to enumText(*NpcAppraisalMeaning.entries.map{it.name}.toTypedArray()),"supporting_record_uid" to text(),
+                "subject" to JSONObject().put("anyOf",JSONArray().put(obj(linkedMapOf("kind" to text(),"uid" to text()))).put(JSONObject().put("type","null")))
+            ))).put("maxItems",8),
+            "goals" to array(obj(linkedMapOf("uid" to text(),"motivation_uid" to text(),"objective" to text().put("maxLength",512),
+                "operation" to enumText(*NpcGoalOperation.entries.map{it.name}.toTypedArray()),
+                "execution_option_uid" to JSONObject().put("anyOf",JSONArray().put(text()).put(JSONObject().put("type","null"))),
+                "supporting_record_uids" to array(text()).put("maxItems",8)))).put("maxItems",8)))
     }
 
     private fun intent():JSONObject = obj(linkedMapOf(

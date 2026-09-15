@@ -103,12 +103,14 @@ sealed interface GmProposalValidationResult{
     data class Rejected(val reasonUids:List<String>):GmProposalValidationResult{init{require(reasonUids.isNotEmpty())}}
 }
 
+/** Shared by proposal validation and holder-scoped NPC dialogue; intent form alone is not the action. */
+internal fun isConversationNode(node:IntentNode?):Boolean{
+    if(node==null)return false
+    val action=(node.semanticAction.canonicalActionUid?:node.semanticAction.semanticFamilyUid).orEmpty().uppercase()
+    return node.form in setOf(IntentForm.QUERY,IntentForm.COMMUNICATION)||action in setOf("TALK","QUERY")
+}
+
 class StructuredGmProposalValidator{
-    private fun isConversationNode(node:IntentNode?):Boolean{
-        if(node==null)return false
-        val action=(node.semanticAction.canonicalActionUid?:node.semanticAction.semanticFamilyUid).orEmpty().uppercase()
-        return node.form in setOf(IntentForm.QUERY,IntentForm.COMMUNICATION)||action in setOf("TALK","QUERY")
-    }
 
     fun validate(candidate:GmProposalCandidate,plan:CanonicalTurnPlan):GmProposalValidationResult{
         val reasons=linkedSetOf<String>()
@@ -187,7 +189,8 @@ data class MechanicsResolutionContext(
     val campaignUid:String,
     val plan:CanonicalTurnPlan,
     val context:BudgetedCanonicalContext,
-    val stagedEffects:List<VerifiedMechanicsEffect> = emptyList()
+    val stagedEffects:List<VerifiedMechanicsEffect> = emptyList(),
+    val npcAuthorization:NpcActionAuthorization? = null
 ){init{require(campaignUid==plan.campaignUid&&context.candidate.plan.planUid==plan.planUid&&context.safeForAi)}}
 
 data class VerifiedMechanicsEffect(

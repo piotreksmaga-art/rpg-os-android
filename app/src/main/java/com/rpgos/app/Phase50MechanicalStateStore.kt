@@ -355,7 +355,9 @@ internal object WorldActorMechanicalBootstrap{
         }}
     }
 
-    private fun seed(ref:DomainRef,kind:MechanicalActorKind,name:String,population:Long?):MechanicalActorSeed{
+    // Persisted actor-genesis profile v1 uses this exact GENERIC-COMBATANT-V2 rule.
+    // A different generation algorithm needs a new version; never reinterpret old replay.
+    internal fun seed(ref:DomainRef,kind:MechanicalActorKind,name:String,population:Long?):MechanicalActorSeed{
         val seed="RPGOS-P50:${ref.kindUid}:${ref.uid}"
         fun value(uid:String,min:Long,max:Long)=min+(stable(seed,uid)%(max-min+1))
         return MechanicalActorSeed(ref,kind,"RPGOS-GENERIC-COMBATANT-V2",seed,"RPGOS-P50-MATERIALIZED:$seed",

@@ -105,7 +105,10 @@ data class TemporalOwnerInput(
     val through: WorldTimeTick,
     val actions: List<ScheduledActionInterval>,
     val deadlines: List<WorldProcessDeadline>,
-    val previous: TemporalOwnerState?
+    val previous: TemporalOwnerState?,
+    /** Core-only speculative prefix; never a model-readable knowledge projection. */
+    val stagedChanges: List<PlayerDomainChangePayload> = emptyList(),
+    val stagedEffects: List<VerifiedMechanicsCommandEffect> = emptyList()
 ) {
     /** A newly starting concurrent action must not receive work for an earlier interval. */
     fun elapsedFor(action: ScheduledActionInterval): ActionDuration {
@@ -121,9 +124,15 @@ sealed interface TemporalOwnerResult {
         val state: TemporalOwnerState,
         val changes: List<PlayerDomainChangePayload> = emptyList(),
         val nextDeadlines: List<WorldProcessDeadline> = emptyList(),
-        val playerDecisionRequired: Boolean = false
+        val playerDecisionRequired: Boolean = false,
+        /** Original owner proofs are retained; do not reconstruct spatial/combat effects from text. */
+        val mechanicalEffects: List<VerifiedMechanicsCommandEffect> = emptyList()
     ) : TemporalOwnerResult
     data class Unsupported(val reasonUid: String) : TemporalOwnerResult
+    /** Internal suspension, not a player choice and never permission to commit a partial turn. */
+    data class EvaluationRequired(val reasonUid:String):TemporalOwnerResult {
+        init { require(reasonUid.isNotBlank() && reasonUid.length<=160) }
+    }
 }
 
 /** Implementations must be deterministic, pure and evaluate only the supplied time interval. */
@@ -146,15 +155,17 @@ data class TemporalExecutionCheckpoint(
     val terminalReason: TemporalStopReason? = null,
     val initialDeadlines: List<WorldProcessDeadline> = deadlines.toList(),
     val initialOwnerStates: Map<String, TemporalOwnerState> = ownerStates.toMap(),
-    val executionFingerprint: String? = null
+    val executionFingerprint: String? = null,
+    val candidateEffects: List<VerifiedMechanicsCommandEffect> = emptyList()
 )
 
-enum class TemporalStopReason { COMPLETED, PLAYER_DECISION, YIELDED, CANCELLED, STALE_HISTORY, UNSUPPORTED_OWNER, OWNER_FAILED, INVALID_OWNER_RESULT, BUDGET_EXCEEDED }
+enum class TemporalStopReason { COMPLETED, PLAYER_DECISION, YIELDED, CANCELLED, STALE_HISTORY, UNSUPPORTED_OWNER, OWNER_FAILED, INVALID_OWNER_RESULT, BUDGET_EXCEEDED, OWNER_EVALUATION_REQUIRED }
 
 data class TemporalExecutionResult(
     val checkpoint: TemporalExecutionCheckpoint,
     val reason: TemporalStopReason,
-    val diagnostic: String? = null
+    val diagnostic: String? = null,
+    val pendingEvaluation:TemporalEvaluationRequest? = null
 ) {
     /** Only complete or deliberately interrupted in-world actions may reach canonical admission. */
     val readyForAdmission: Boolean get() = reason == TemporalStopReason.COMPLETED || reason == TemporalStopReason.PLAYER_DECISION
@@ -185,7 +196,8 @@ class Phase60TimeProcessor(
         currentScope: TemporalScope,
         cancelled: () -> Boolean = { false },
         maxBoundaries: Int = 256,
-        maxWallMillis: Long = 500
+        maxWallMillis: Long = 500,
+        evaluations:Map<String,TemporalOwnerResult.Evaluated> = emptyMap()
     ): TemporalExecutionResult {
         require(maxBoundaries in 1..256 && maxWallMillis in 1..500)
         if (checkpoint.scope != currentScope) return TemporalExecutionResult(checkpoint, TemporalStopReason.STALE_HISTORY)
@@ -214,18 +226,27 @@ class Phase60TimeProcessor(
             val requiredOwners = (ownersByUid.keys + work.ownerStates.keys + active.map { it.action.ownerUid } + due.map { it.ownerUid }).distinct().sorted()
             val states = work.ownerStates.toMutableMap()
             val changes = mutableListOf<PlayerDomainChangePayload>()
+            val effects = mutableListOf<VerifiedMechanicsCommandEffect>()
             val next = mutableListOf<WorldProcessDeadline>()
             var decision = false
             for (uid in requiredOwners) {
                 val owner = ownersByUid[uid] ?: return TemporalExecutionResult(work, TemporalStopReason.UNSUPPORTED_OWNER, uid)
-                val output = try {
-                    owner.evaluate(TemporalOwnerInput(work.scope, work.reached, boundary, active.filter { it.action.ownerUid == uid }, due.filter { it.ownerUid == uid }, work.ownerStates[uid]))
+                val input=TemporalOwnerInput(work.scope, work.reached, boundary, active.filter { it.action.ownerUid == uid }, due.filter { it.ownerUid == uid }, work.ownerStates[uid],
+                    work.candidateChanges+changes,work.candidateEffects+effects)
+                var output = try {
+                    owner.evaluate(input)
                 } catch (cancel: java.util.concurrent.CancellationException) {
                     throw cancel
                 } catch (_: Exception) {
                     return TemporalExecutionResult(work, TemporalStopReason.OWNER_FAILED, uid)
                 }
+                if(output is TemporalOwnerResult.EvaluationRequired) {
+                    val pending=TemporalEvaluationRequest(uid,input,output.reasonUid)
+                    output=evaluations[pending.fingerprint] ?: return TemporalExecutionResult(work,
+                        TemporalStopReason.OWNER_EVALUATION_REQUIRED,output.reasonUid,pending)
+                }
                 when (output) {
+                    is TemporalOwnerResult.EvaluationRequired -> error("P60:UNRESOLVED_EVALUATION")
                     is TemporalOwnerResult.Unsupported -> return TemporalExecutionResult(work, TemporalStopReason.UNSUPPORTED_OWNER, output.reasonUid)
                     is TemporalOwnerResult.Evaluated -> {
                         if (output.state.ownerUid != uid || output.nextDeadlines.any { it.ownerUid != uid || it.due <= boundary } ||
@@ -233,6 +254,7 @@ class Phase60TimeProcessor(
                             return TemporalExecutionResult(work, TemporalStopReason.INVALID_OWNER_RESULT, uid)
                         states[uid] = output.state
                         changes += output.changes
+                        effects += output.mechanicalEffects
                         next += output.nextDeadlines
                         decision = decision || output.playerDecisionRequired
                     }
@@ -240,12 +262,14 @@ class Phase60TimeProcessor(
             }
             val evaluated = work.evaluatedDeadlineUids + due.map { it.uid }
             val remaining = (work.deadlines.filter { it.due != boundary } + next).sortedWith(compareBy<WorldProcessDeadline> { it.due }.thenBy { it.uid })
-            if (remaining.size > 100_000 || changes.size > 100_000 - work.candidateChanges.size)
+            if (remaining.size > 100_000 || changes.size > 100_000 - work.candidateChanges.size || effects.size>4096-work.candidateEffects.size)
                 return TemporalExecutionResult(work, TemporalStopReason.BUDGET_EXCEEDED)
+            if((work.candidateEffects+effects).map{it.effectUid}.distinct().size!=work.candidateEffects.size+effects.size)
+                return TemporalExecutionResult(work,TemporalStopReason.INVALID_OWNER_RESULT,"P62:DUPLICATE_PROCESS_EFFECT")
             if (remaining.map { it.uid }.distinct().size != remaining.size || remaining.any { it.uid in evaluated })
                 return TemporalExecutionResult(work, TemporalStopReason.INVALID_OWNER_RESULT, "P60:REUSED_DEADLINE")
             work = work.copy(reached = boundary, deadlines = remaining, ownerStates = states.toMap(), candidateChanges = work.candidateChanges + changes,
-                evaluatedBoundaries = work.evaluatedBoundaries + 1, evaluatedDeadlineUids = evaluated)
+                evaluatedBoundaries = work.evaluatedBoundaries + 1, evaluatedDeadlineUids = evaluated,candidateEffects=work.candidateEffects+effects)
             if (decision) return TemporalExecutionResult(work.copy(terminalReason = TemporalStopReason.PLAYER_DECISION), TemporalStopReason.PLAYER_DECISION)
         }
         val reason = if (work.reached == target && work.deadlines.none { it.due <= target }) TemporalStopReason.COMPLETED else TemporalStopReason.YIELDED

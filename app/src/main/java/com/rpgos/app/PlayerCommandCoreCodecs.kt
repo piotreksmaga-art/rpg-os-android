@@ -2,6 +2,8 @@ package com.rpgos.app
 
 import kotlin.reflect.KClass
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -167,7 +169,8 @@ internal fun coreCommandCodecs(): Map<String, TypedCommandCodec<out PlayerComman
                     })
                 }
             }
-        ).let { base -> payload.temporalState?.let { JsonObject(base + ("temporalState" to phase60TimeChangeCodec().encode(it))) } ?: base } },
+        ).let { base -> payload.temporalState?.let { JsonObject(base + ("temporalState" to phase60TimeChangeCodec().encode(it))) } ?: base }
+            .let { base -> if(payload.npcBrains.isEmpty())base else JsonObject(base+("npcBrains" to JsonArray(payload.npcBrains.map{npcBrainChangeCodec().encode(it)}))) } },
         { obj->ApplyVerifiedMechanicsCommandPayload(obj.reqString("planUid"),obj.reqArray("effects").map{element->
             val effect=element.jsonObject.requireOnlyKeys(setOf("effectUid","nodeUid","mechanicsOwnerUid","effectKindUid","target","magnitude","canonicalPayload","proofUid","deterministicInputFingerprint","deterministicOutputFingerprint"))
             VerifiedMechanicsCommandEffect(
@@ -178,10 +181,11 @@ internal fun coreCommandCodecs(): Map<String, TypedCommandCodec<out PlayerComman
                     primitive.content
                 },effect.reqString("proofUid"),effect.reqString("deterministicInputFingerprint"),effect.reqString("deterministicOutputFingerprint")
             )
-        },obj["temporalState"]?.let { phase60TimeChangeCodec().decode(it.jsonObject) }) },
+        },obj["temporalState"]?.let { phase60TimeChangeCodec().decode(it.jsonObject) },
+            obj["npcBrains"]?.jsonArray?.also{require(it.size<=128)}?.map{npcBrainChangeCodec().decode(it.jsonObject)}?:emptyList()) },
         { payload->combine(
             nonblank(payload.planUid,"INVALID_PLAN_UID"),
-            errorIf(payload.effects.isEmpty()&&payload.temporalState==null,"EMPTY_MECHANICS_EFFECTS"),
+            errorIf(payload.effects.isEmpty()&&payload.temporalState==null&&payload.npcBrains.isEmpty(),"EMPTY_MECHANICS_EFFECTS"),
             errorIf(payload.effects.map{it.effectUid}.distinct().size!=payload.effects.size,"DUPLICATE_MECHANICS_EFFECT_UID"),
             errorIf(payload.effects.any{!validRef(it.target)},"INVALID_MECHANICS_TARGET"),
             errorIf(payload.effects.any{effect->listOf(effect.effectUid,effect.nodeUid,effect.mechanicsOwnerUid,effect.effectKindUid,effect.proofUid,effect.deterministicInputFingerprint,effect.deterministicOutputFingerprint).any{it.isBlank()}},"INVALID_MECHANICS_EFFECT")

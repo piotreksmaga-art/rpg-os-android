@@ -91,7 +91,8 @@ class TypedPlayerChangeRegistry private constructor(
 
     companion object {
         fun core(): TypedPlayerChangeRegistry = TypedPlayerChangeRegistry(
-            coreChangeCodecs() + mapOf(PHASE37_KNOWLEDGE_CHANGE_KIND to phase37KnowledgeChangeCodec(), PHASE60_TIME_CHANGE_KIND to phase60TimeChangeCodec())
+            coreChangeCodecs() + mapOf(PHASE37_KNOWLEDGE_CHANGE_KIND to phase37KnowledgeChangeCodec(), PHASE60_TIME_CHANGE_KIND to phase60TimeChangeCodec(),
+                NPC_BRAIN_CHANGE_KIND to npcBrainChangeCodec(),MECHANICAL_ACTOR_GENESIS_KIND to mechanicalActorGenesisCodec())
         )
     }
 }
@@ -124,6 +125,8 @@ object PlayerChangeSetValidator {
                 if (!semanticTargets.add(key)) fail("CONFLICTING_CHANGE_TARGET")
             }
         }
+        val npcBrains=changeSet.changes.mapNotNull{it.payload as? NpcBrainChange}
+        if(npcBrains.any{it.campaignUid!=changeSet.campaignUid} || !validNpcBrainChains(npcBrains))fail("P61:NON_SEQUENTIAL_BRAIN_CHAIN")
 
         changeSet.preconditions.forEach { precondition ->
             when (precondition) {

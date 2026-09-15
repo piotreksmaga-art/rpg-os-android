@@ -98,7 +98,7 @@ internal class CampaignWorldProjectionStore(
         }
     }
 
-    fun searchPlayerVisible(phrase:String,shape:WorldReferenceShape,limit:Int=128):List<CampaignWorldElement>{
+    fun searchPlayerVisible(phrase:String,shape:WorldReferenceShape,limit:Int=128,requireAffordances:Boolean=true):List<CampaignWorldElement>{
         check(CampaignWorldProjectionSchema.isReady(db))
         val normalized=normalizedWorldText(phrase)
         val firstWord=normalized.substringBefore(' ')
@@ -132,7 +132,7 @@ internal class CampaignWorldProjectionStore(
                     if(!exactIdentity&&!compatibleCategory)continue
                     // A stable player-visible name is stronger identity evidence than a provider's
                     // non-authoritative affordance wording. Affordances only narrow category matches.
-                    if(!exactIdentity&&!affordances.containsAll(shape.affordanceUids))continue
+                    if(requireAffordances&&!exactIdentity&&!affordances.containsAll(shape.affordanceUids))continue
                     val classification=runCatching{WorldEvidenceClassification.valueOf(cursor.getString(7))}.getOrDefault(WorldEvidenceClassification.CAMPAIGN_FACT)
                     add(CampaignWorldElement(
                         DomainRef(cursor.getString(0),cursor.getString(1)),cursor.getString(2),cursor.getString(3),

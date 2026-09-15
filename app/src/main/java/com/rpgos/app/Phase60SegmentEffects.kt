@@ -76,7 +76,7 @@ internal fun phase60CoalesceEffects(effects:List<VerifiedMechanicsCommandEffect>
         val fingerprint=phase60Hash(group.joinToString("|"){"${it.effectUid}:${it.proofUid}:${it.magnitude}"})
         val prefix=if(group.any{it.proofUid.startsWith("P60:PROCESS:")})"P60:PROCESS:" else "P60:SETTLEMENT:"
         first.copy(effectUid="P60:SUM:$fingerprint",magnitude=magnitude,
-            canonicalPayload=first.canonicalPayload+("magnitude" to magnitude.toString()),
+            canonicalPayload=first.canonicalPayload+("magnitude" to magnitude.toString())+mergedMechanicSourcePayload(group),
             proofUid=prefix+fingerprint,deterministicInputFingerprint=fingerprint,
             deterministicOutputFingerprint=phase60Hash("$fingerprint|$magnitude"))
     }

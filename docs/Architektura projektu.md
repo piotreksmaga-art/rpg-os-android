@@ -640,6 +640,29 @@ Reputacja jest holder-scoped belief acquired legalnie, nie omniscient globalnym 
 
 LOD może stosować crowd/minor/persistent/major tiers. Materializacja szczegółu nie fabrykuje nieistniejącej historii.
 
+### 14.1 Wdrożenie Phase61–62 — stan częściowy
+
+Aktualna implementacja i pozostałe bramki są opisane w [PHASE61_62_NPC_IMPLEMENTATION.md](architecture/PHASE61_62_NPC_IMPLEMENTATION.md).
+Trwały Brain przechodzi zwykły canonical commit/replay/undo. Prywatny kontekst decyzji korzysta z Phase37/38 → Phase41/44/45 oraz osobnego holder-scoped rankingu Bekko, bez kopiowania ukrytej wiedzy MG.
+
+Phase60 uruchamia dwa ograniczone procesy uczestniczących aktorów: `P62:NPC_COGNITION` (oceny i cele) oraz `P62:NPC_EXECUTION` (rozpoczęte próby działań i ich terminy). Przyszły wynik nie jest zapisywany w planie; przy wykonaniu Core ponownie sprawdza mechanikę. Efekty wszystkich aktorów oraz czas mają wspólną transakcję i receipt. Zakończenie działania nie oznacza automatycznego osiągnięcia celu.
+
+Aktywacja fizyczna obejmuje zarejestrowane zdolności bojowe i kontrakty czynności rozliczające czas/wysiłek. `NpcActivityResourceRecovery` może dodatkowo odnowić własny, istniejący zasób przez Phase50. Domyślny REST v2 to sześć minut oraz najwyżej 1 STAMINA, bez przekroczenia maksimum; HEALTH wymaga osobno zarejestrowanej i materializowanej capability. Efekt jest wyznaczany ponownie dopiero na granicy ukończenia Phase60 i zapisywany razem z wysiłkiem. Nie powstaje przy samym przygotowaniu lub anulowaniu. Nie oznacza to leczenia ran/innych osób, nadania umiejętności ani sukcesu celu. Aktualne role pochodzą z Phase38. Dawne acquisition i assertions Phase56–58 są ponownie odczytywane ze źródeł canonical; cache nie przekazuje tekstu podsumowania ani pominiętych wydarzeń.
+
+`NPC_DIALOGUE` przygotowuje wypowiedź w osobnym wywołaniu z wiedzą danego NPC, bez kontekstu wszechwiedzącego MG. Odpowiedź pozostaje NARRATIVE. Dopiero dostarczona, zatwierdzona rozmowa tworzy Phase37 acquisition „X powiedział Y” u dokładnych uczestników; treść Y nie staje się przez to prawdą świata. Awaria tej ścieżki nie jest maskowana wypowiedzią MG.
+
+Krótka sekwencja obejmuje do czterech już autoryzowanych opcji tego samego celu; każda przechodzi ponowną projekcję i mechanikę przy swojej granicy czasu. Własne odczucie rany może tworzyć osobne acquisition przez `NpcConsequenceObservation`, wyłącznie z zatwierdzonego skutku oraz reguły percepcji przytomnego aktora. Nie ujawnia sprawcy ani ukrytej przyczyny. Nowe Brain mają deterministyczne wartości osobiste; istniejące zapisy pozostają bez przelosowania.
+
+Plan może wskazać jedną alternatywę na utratę wykonalności pierwszego kroku. Opcjonalny `NpcExecutionObjective` oznacza tylko jednorazowe wykonanie powiązanej czynności; sukces potwierdza Core po mechanice, nigdy sam tekst modelu. Nie zastępuje to kryterium wygrania walki lub wyleczenia. Osobiste lęki powstają i zmieniają się tylko po nowym, legalnym appraisal; nie ustanawiają prawdy o innej postaci.
+
+Pełny, przytomny NPC może rozpocząć krótką wypowiedź do znanego PC w tym samym miejscu i w potwierdzonym zasięgu. Czas, mechanika, wypowiedź i pamięć uczestników przechodzą wspólną transakcję. Do narracji gracza trafia tylko faktycznie dostarczona wypowiedź, bez prywatnego Brain ani sztucznej odpowiedzi PC. Brak fizycznej materializacji nie jest uzupełniany podczas odczytu NPC.
+
+Nowy ACTOR może otrzymać `MechanicalActorGenesisChange` w tej samej transakcji co faktyczna materializacja świata. Wersjonowana reguła używa istniejącego generycznego profilu Phase50, bez danych o sile PC i bez modelowego wyboru statystyk. Parent anchor nie ustanawia dokładnych współrzędnych. Odtwarzanie starych zapisów nie dopisuje genesis, którego nie było w ich replay. To nie jest pełna materializacja wszystkich historycznych lub populacyjnych aktorów Phase63.
+
+Wewnątrz tury `StagedMechanicalProjection` rozwija zatwierdzone efekty według tej samej reguły co commit, bez podwójnego trafienia głównego celu AOE. Zmiana lokacji wyklucza użycie starego zasięgu rozmowy i starych scene paths do autoryzacji walki. Przesunięcie z nieznanej pozycji nie ustanawia dokładnych współrzędnych. Projekcja nie zapisuje stanu ani wiedzy NPC i nie zastępuje właściciela trasy/czasu podróży.
+
+Phase61–62 pozostają częściowe do domknięcia integracji właścicieli skutków, złożonych planów, dodatkowych źródeł percepcji i odbioru rozgrywki. Nie jest to realizacja populacyjnego Living World Phase63–64.
+
 ## 15. Living World / Autonomous World Simulation — CANONICAL TARGET
 `THE WORLD DOES NOT WAIT FOR THE PLAYER.`
 
