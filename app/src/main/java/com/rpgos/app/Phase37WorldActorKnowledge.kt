@@ -387,12 +387,12 @@ internal object KnowledgeRecordedWriteAuthority {
         requireCanonicalGameplayMutation(db, campaignUid)
         check(local.get() == null) { "RPGOS-KNOWLEDGE:NESTED_RECORDED_WRITE_AUTHORITY" }
         local.set(Active(db, campaignUid, Phase37KnowledgeWriteTokens.forPending(pending)))
-        GameplayMutationDatabaseGuards.suspendLegacyPhase37RecordedWriteGuards(db)
         return try {
+            GameplayMutationDatabaseGuards.suspendLegacyPhase37RecordedWriteGuards(db)
             block()
         } finally {
-            GameplayMutationDatabaseGuards.restoreLegacyPhase37RecordedWriteGuards(db)
-            local.remove()
+            try { GameplayMutationDatabaseGuards.restoreLegacyPhase37RecordedWriteGuards(db) }
+            finally { local.remove() }
         }
     }
 }
@@ -676,6 +676,42 @@ class LegacyKnowledgeCompatibilityAdapter(private val db: SQLiteDatabase, privat
 
 /** Holder-scoped read projection. Phase 38 visibility policy is deliberately not implemented here. */
 class KnowledgeContextProjection(private val db: SQLiteDatabase, private val campaignUid: String) {
+    /** Bounded Phase37 projection, not a world dump. Old as-of requests never read a newer state.
+     * Role knowledge requires current trusted access; PERSONAL records never inherit a role grant.
+     * Incomplete/oversized claims stay absent (unknown), never become a negative assertion. */
+    internal fun boundedForNpc(holder:KnowledgeHolderRef,atOrder:Long,limit:Int,
+                               authorizedRoleUids:Set<String>,preferredAcquisitionUids:Set<String> = emptySet()):List<NpcKnownRecord> {
+        require(holder.campaignUid==campaignUid && atOrder>=0 && limit in 1..64)
+        Phase37KnowledgeSchema.requireProjectionReadable(db)
+        if(!Phase37KnowledgeSchema.isReady(db))return emptyList()
+        require(authorizedRoleUids.size<=128)
+        require(preferredAcquisitionUids.size<=32 && preferredAcquisitionUids.none{it.isBlank()})
+        val roles=authorizedRoleUids.sorted()
+        val preferred=preferredAcquisitionUids.sorted()
+        val preferredOrder=if(preferred.isEmpty())"" else "CASE WHEN s.latest_acquisition_uid IN (${preferred.joinToString{ "?" }}) THEN 0 ELSE 1 END,"
+        val roleClause=if(roles.isEmpty())"0" else "s.scope_uid='ROLE_ACCESSIBLE' AND s.role_uid IN (${roles.joinToString{ "?" }})"
+        val args=listOf(campaignUid,holder.holderKindUid,holder.holderUid,atOrder.toString(),atOrder.toString())+roles+preferred+limit.toString()
+        return db.rawQuery("""SELECT s.state_uid,s.epistemic_state_uid,c.subject_uid,c.predicate_uid,c.value_canonical,
+                s.latest_acquisition_uid,s.state_version,c.subject_kind_uid,c.object_kind_uid,c.object_uid,s.updated_order
+            FROM ${Phase37KnowledgeSchema.STATES} s JOIN ${Phase37KnowledgeSchema.CLAIMS} c
+              ON c.campaign_uid=s.campaign_uid AND c.claim_uid=s.claim_uid
+            JOIN ${Phase37KnowledgeSchema.ACQUISITIONS} a ON a.campaign_uid=s.campaign_uid
+              AND a.acquisition_uid=s.latest_acquisition_uid AND a.claim_uid=s.claim_uid
+              AND a.holder_kind_uid=s.holder_kind_uid AND a.holder_uid=s.holder_uid
+              AND a.scope_uid=s.scope_uid AND COALESCE(a.role_uid,'')=s.role_uid
+            WHERE s.campaign_uid=? AND s.holder_kind_uid=? AND s.holder_uid=?
+              AND s.updated_order<=? AND a.created_order<=? AND a.provenance_status='RECORDED'
+              AND ((s.scope_uid='PERSONAL' AND s.role_uid='') OR ($roleClause))
+              AND length(c.subject_uid)+length(c.predicate_uid)+length(c.value_canonical)<=500
+            ORDER BY $preferredOrder s.updated_order DESC,s.state_uid LIMIT ?""",args.toTypedArray()).use { c -> buildList {
+                while(c.moveToNext())add(NpcKnownRecord(c.getString(0),KnowledgeEpistemicState.valueOf(c.getString(1)),
+                    "${c.getString(2)}: ${c.getString(3)} = ${c.getString(4)}",c.getString(5),c.getLong(6),buildSet {
+                        add(DomainRef(c.getString(7),c.getString(2)))
+                        if(!c.isNull(8) && !c.isNull(9))add(DomainRef(c.getString(8),c.getString(9)))
+                    },c.getLong(10)))
+            } }
+    }
+
     fun forHolders(holders: Collection<KnowledgeHolderRef>, includeLegacy: Boolean = true): List<Map<String,Any?>> {
         Phase37KnowledgeSchema.requireProjectionReadable(db)
         if (Phase37KnowledgeSchema.isReady(db)) Phase37KnowledgeLineageIntegrity.requireCampaign(db, campaignUid)

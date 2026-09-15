@@ -17,6 +17,7 @@ class CanonicalAiJsonCodec:AiStructuredCodec{
             "semantic_family_uid must be from registered_semantic_families; for another player verb use OPEN_WORLD_ACTION and put its normalized uppercase token in attributes.provider_action",
             "Map localized verbs to the closest registered semantic family regardless of language; for example odkładam/upuszczam -> DROP and biorę/podnoszę -> TAKE. Use OPEN_WORLD_ACTION only when no registered family preserves the meaning",
             "References remain unresolved descriptors; never invent world IDs",
+            "For TALK/COMMUNICATION or a question addressed to a character, add a MESSAGE participant with literal_value copied exactly from the words addressed to that character in raw_input. Do not include private thoughts, narration, or speech to another recipient. Preserve the complete question, not just the verb. Use semantic_action.raw_phrase for this node's clause only, never a copy of the whole multi-action input",
             "For every world reference provide descriptor_hints.shape as NAMED_INSTANCE/CATEGORY/QUANTITY/ROLE/AFFORDANCE/UNKNOWN, world_base_kind as PLACE/ACTOR/OBJECT/GROUP/ORGANIZATION/EVENT/PROCESS/CONCEPT, a normalized category, comma-separated affordances and topology as SETTLEMENT_FACILITY/SERVICE_VENUE/INTERIOR/LOCAL_SITE/NATURAL_FEATURE/REGION/OCEAN/SEA/CONTINENT/REMOTE_LANDMARK when known",
             "Use TARGET for the world element an action operates on. A route question such as 'how do I reach X' targets X; do not create a separate TARGET reference for the words 'how to get there'",
             "When one action applies to several inseparable aspects joined by and, such as practicing footwork and posture, keep one intent node; CATEGORY targets may remain separate because Core can select each category deterministically. Do not report ambiguity merely because the action has several compatible category targets",
@@ -423,6 +424,7 @@ class LocalCompactAiJsonCodec(
         .put("segments",JSONArray(localIntentSegments(request.rawInput)))
         .put("reply","JSON steps opisuje wszystkie czynności wyłącznie z u. segments to niewiążące fragmenty pomocnicze; każdy może zawierać osobną czynność. "+
             "Każdy step ma action będące prostym czasownikiem znaczeniowo obecnym w u i kind: MOVE, COMBAT, TRAIN, QUERY, TALK albo ACTION. "+
+            "Dla TALK/QUERY skierowanego do postaci dodaj message: dokładny fragment u zawierający pełne słowa/pytanie do tej postaci, bez prywatnych myśli, innych czynności i wypowiedzi do innych osób. Nie streszczaj i nie zastępuj pytania samym czasownikiem. "+
             "Role z u trafiają do destination (dokąd), where (gdzie lub skąd), who (kto) i what (bezpośredni obiekt czynności); step może mieć kilka ról. "+
             "Dla 'biorę miecz ze stojaka' what to 'miecz', a where to 'stojaka'. "+
             "locality ma wartość L dla celu lokalnego, R dla odległego albo U przy braku danych. "+
@@ -527,6 +529,8 @@ class LocalCompactAiJsonCodec(
                 else->safeToken(node.optString("r")).takeIf(String::isNotBlank)
             }
             val routedFamily=UniversalIntentFamilies.routedFamily(action,routeHint)
+            val spoken=node.optString("message").trim().takeIf{it.isNotBlank() && it!="null"}
+            if(spoken!=null)require(spoken.length<=2048 && request.rawInput.contains(spoken)){"LOCAL_INTENT_MESSAGE_NOT_GROUNDED"}
             IntentNode(
                 nodeUid="LOCAL-NODE:$nodeIndex",form=runCatching{IntentForm.valueOf(node.optString("f").ifBlank{"DIRECT_ACTION"}.uppercase())}.getOrDefault(IntentForm.DIRECT_ACTION),
                 semanticAction=SemanticAction(semanticFamilyUid=routedFamily,
@@ -537,16 +541,17 @@ class LocalCompactAiJsonCodec(
                             node.optString(key).takeIf{it.isNotBlank()&&it!="null"}?.let{put(key,it)}
                         }
                     }),
-                participants=participantRefs.map{IntentParticipant("TARGET",referenceUid=it)},dependencies=dependencies,
+                participants=participantRefs.map{IntentParticipant("TARGET",referenceUid=it)}+
+                    listOfNotNull(spoken?.let{IntentParticipant("MESSAGE",literalValue=it)}),dependencies=dependencies,
                 polarity=runCatching{IntentPolarity.valueOf(node.optString("pol").ifBlank{"AFFIRMATIVE"}.uppercase())}.getOrDefault(IntentPolarity.AFFIRMATIVE),
                 modality=runCatching{IntentModality.valueOf(node.optString("m").ifBlank{"ATTEMPT_NOW"}.uppercase())}.getOrDefault(IntentModality.ATTEMPT_NOW)
             )
         }
         val nodes=parsedNodes.map{node->
-            if(node.participants.isNotEmpty())node
+            if(node.participants.any{it.referenceUid!=null})node
             else node.dependencies.firstOrNull{it.kind==IntentDependencyKind.AFTER_SUCCESS}?.let{dependency->
-                parsedNodes.firstOrNull{it.nodeUid==dependency.predecessorNodeUid}?.participants?.takeIf(List<IntentParticipant>::isNotEmpty)
-            }?.let{node.copy(participants=it)}?:node
+                parsedNodes.firstOrNull{it.nodeUid==dependency.predecessorNodeUid}?.participants?.filter{it.referenceUid!=null}?.takeIf(List<IntentParticipant>::isNotEmpty)
+            }?.let{node.copy(participants=node.participants+it)}?:node
         }
         return IntentDocument(
             campaignUid=request.campaignUid,actor=request.actor,rawInput=request.rawInput,meaningState=meaning,nodes=nodes,references=references,
@@ -859,6 +864,7 @@ class LocalCompactAiJsonCodec(
             emittedEquivalentSteps[equivalentKey]=alreadyEmitted+1
             val nodeIndex=nodes.length()
             nodes.put(JSONObject().put("id",nodeIndex.toString()).put("a",action).put("r",route).put("t",references)
+                .put("message",step.optString("message"))
                 .put("time_scope",step.optString("time_scope")).put("time_min_ms",step.optString("time_min_ms"))
                 .put("time_max_ms",step.optString("time_max_ms")).put("time_relation",step.optString("relation"))
                 .put("m",step.optString("modality")).put("pol",step.optString("polarity"))

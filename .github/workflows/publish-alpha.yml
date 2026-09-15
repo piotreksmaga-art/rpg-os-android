@@ -122,6 +122,19 @@ jobs:
       - name: Build signed ALPHA APK
         run: gradle --no-daemon :app:assembleRelease --stacktrace
 
+      - name: Verify public manifest excludes laboratory components
+        shell: bash
+        run: |
+          MANIFEST=app/build/intermediates/merged_manifests/release/processReleaseManifest/AndroidManifest.xml
+          if [ ! -f "$MANIFEST" ]; then
+            echo "::error::Release manifest is missing."
+            exit 1
+          fi
+          if grep -E 'LabDiagnosticsActivity|RpgOsLabBridge|LabCodex|lab_bridge' "$MANIFEST"; then
+            echo "::error::Laboratory component found in public manifest."
+            exit 1
+          fi
+
       - name: Prepare publication files
         shell: bash
         run: |
@@ -156,10 +169,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          NOTES="docs/releases/${{ steps.version.outputs.name }}.md"
+          if [ -f "$NOTES" ]; then
+            cp "$NOTES" "$RUNNER_TEMP/release-notes.md"
+          else
+            printf 'CHAT-6 accepted application release.\n' > "$RUNNER_TEMP/release-notes.md"
+          fi
+          printf '\nPublished runtime: %s\nVersionCode: %s\n' \
+            "${{ inputs.accepted_sha }}" "${{ steps.version.outputs.code }}" >> "$RUNNER_TEMP/release-notes.md"
           gh release create "${{ steps.version.outputs.tag }}" \
             "${{ steps.version.outputs.apk }}" \
             "${{ steps.version.outputs.apk }}.sha256" \
             update.json \
             --target "${{ inputs.accepted_sha }}" \
             --title "RPG OS ALPHA ${{ steps.version.outputs.name }}" \
-            --notes "CHAT-6 cumulative accepted application release.\n\nAccepted runtime: ${{ inputs.accepted_sha }}\nVersion: ${{ steps.version.outputs.name }}\nVersionCode: ${{ steps.version.outputs.code }}"
+            --notes-file "$RUNNER_TEMP/release-notes.md"

@@ -166,6 +166,16 @@ data class CampaignWorldElement(
     val sourceVersion:Long=0
 )
 
+/** One contract for both world materialization and same-commit NPC genesis. */
+internal fun WorldElementDraft.materializationPayload():Map<String,String> = buildMap {
+    put("world_base_kind",baseKind.name);put("display_name",displayName);put("category_uid",categoryUid)
+    parentAnchorUid?.let{put("parent_anchor_uid",it)};put("affordance_uids",affordanceUids.sorted().joinToString(","))
+    put("topology_class_uid",topologyClassUid);put("source_classification",sourceClassification.name)
+    sourceUri?.let{put("source_uri",it)};sourceRevision?.let{put("source_revision",it)};sourceHash?.let{put("source_hash",it)}
+    put("materialization_level_uid",materializationLevelUid);put("draft_fingerprint",fingerprint())
+    put("target_kind_uid",element.kindUid);put("target_uid",element.uid);put("magnitude","1")
+}
+
 object CampaignWorldAudience{const val PLAYER_VISIBLE="PLAYER_VISIBLE"}
 
 object CampaignWorldFacts{
@@ -343,19 +353,37 @@ class UniversalWorldMaterializationResolver(
         consumerNodes:List<IntentNode>,
         currentAnchorUid:String?,
         existing:List<CampaignWorldElement>,
-        worldContextHint:String?
+        worldContextHint:String?,
+        recentDiscourseRefs:Set<DomainRef> = emptySet()
     ):UniversalWorldReferenceResolution{
         val phrase=(reference.rawPhrase?:reference.descriptorHints["surface"]).orEmpty().trim()
         if(phrase.isBlank())return UniversalWorldReferenceResolution.Unresolved("EMPTY_WORLD_REFERENCE")
         val shape=WorldReferenceShapeClassifier.classify(reference,consumerNodes)
-        val exact=existing.filter{it.element.kindUid==shape.baseKind.name||(shape.baseKind==WorldElementBaseKind.PLACE&&it.element.kindUid=="LOCATION")}.filter{element->
+        val discourse=reference.kind==IntentReferenceKind.DISCOURSE
+        val definite=discourse || reference.kind==IntentReferenceKind.DEICTIC
+        val visible=existing.filter{it.audienceScopeUid==CampaignWorldAudience.PLAYER_VISIBLE}
+            .filter{it.element.kindUid==shape.baseKind.name||(shape.baseKind==WorldElementBaseKind.PLACE&&it.element.kindUid=="LOCATION")}
+        // A conversational anchor selects identity, not the truth of what was said. It is
+        // intersected with the current player-visible world projection and current location.
+        val anchored=if(discourse)visible.filter{it.element in recentDiscourseRefs &&
+            currentAnchorUid!=null && it.parentAnchorUid==currentAnchorUid}.distinctBy{it.element} else emptyList()
+        if(anchored.size>1)return UniversalWorldReferenceResolution.Rejected("REFERENCE_AMBIGUOUS")
+        anchored.singleOrNull()?.let{return UniversalWorldReferenceResolution.Existing(it,"COMMITTED-DISCOURSE:${it.element.uid}")}
+        val exact=visible.filter{element->
             worldNamesEquivalent(element.displayName,phrase)||
+                (!discourse && (shape.kind==WorldReferenceShapeKind.ROLE || definite) &&
+                    currentAnchorUid!=null && element.parentAnchorUid==currentAnchorUid &&
+                    shape.categoryUid!=null && !shape.categoryUid.startsWith("GENERIC_") && element.categoryUid==shape.categoryUid)||
                 (shape.kind==WorldReferenceShapeKind.CATEGORY&&shape.categoryUid!=null&&!shape.categoryUid.startsWith("GENERIC_")&&element.categoryUid==shape.categoryUid&&
-                    element.affordanceUids.containsAll(shape.affordanceUids))
-        }.sortedWith(compareByDescending<CampaignWorldElement>{it.parentAnchorUid==currentAnchorUid}.thenBy{it.element.uid})
-        if(shape.kind==WorldReferenceShapeKind.NAMED_INSTANCE&&exact.size>1)return UniversalWorldReferenceResolution.Rejected("REFERENCE_AMBIGUOUS")
+                    !definite && element.affordanceUids.containsAll(shape.affordanceUids))
+        }.distinctBy{it.element}.sortedWith(compareByDescending<CampaignWorldElement>{it.parentAnchorUid==currentAnchorUid}.thenBy{it.element.uid})
+        if((definite || shape.kind in setOf(WorldReferenceShapeKind.NAMED_INSTANCE,WorldReferenceShapeKind.ROLE))&&exact.size>1)
+            return UniversalWorldReferenceResolution.Rejected("REFERENCE_AMBIGUOUS")
         val selectedExisting=if(shape.ordinal!=null)exact.getOrNull(shape.ordinal-1) else exact.firstOrNull()
         if(selectedExisting!=null)return UniversalWorldReferenceResolution.Existing(selectedExisting,"CAMPAIGN-WORLD-MODEL:${selectedExisting.element.uid}")
+        // "The same one" and "this one" cannot be satisfied by inventing a new instance,
+        // including via external evidence. Unknown identity requires clarification.
+        if(definite)return UniversalWorldReferenceResolution.Unresolved("EXISTING_DISCOURSE_REFERENT_REQUIRED")
         val evidence=if(shape.topologyClassUid in setOf("SETTLEMENT_FACILITY","SERVICE_VENUE","INTERIOR","LOCAL_SITE")&&shape.kind==WorldReferenceShapeKind.CATEGORY)emptyList()
             else runCatching{evidenceProvider.candidates(WorldEvidenceRequest(campaignUid,phrase,shape,worldContextHint))}.getOrDefault(emptyList())
         val feasibility=WorldFeasibilityAndTopologyGate.evaluate(shape,currentAnchorUid,evidence)

@@ -30,6 +30,7 @@ object VisibilitySubjectKinds {
     const val WORLD_ACTOR_PRIVATE_BELIEF = "WORLD_ACTOR_PRIVATE_BELIEF"
     const val WORLD_ACTOR_PRIVATE_SCHEDULE = "WORLD_ACTOR_PRIVATE_SCHEDULE"
     const val WORLD_ACTOR_PRIVATE_DECISION = "WORLD_ACTOR_PRIVATE_DECISION"
+    const val WORLD_ACTOR_PRIVATE_BRAIN = "WORLD_ACTOR_PRIVATE_BRAIN"
     const val PUBLIC_WAR_SUMMARY = "PUBLIC_WAR_SUMMARY"
     const val RELATIONSHIP_DATA = "RELATIONSHIP_DATA"
     const val ECONOMY_DATA = "ECONOMY_DATA"
@@ -217,8 +218,11 @@ class VisibilityAuthorityService {
             return if (p in setOf(VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.CHARACTER_VISUALIZATION)) full("CONTROLLED_PLAYER_STATE") else deny("PURPOSE_NOT_NECESSARY")
         }
 
-        if (s == VisibilitySubjectKinds.PHASE37_HOLDER_KNOWLEDGE) {
+        if (s == VisibilitySubjectKinds.PHASE37_HOLDER_KNOWLEDGE || s == VisibilitySubjectKinds.WORLD_ACTOR_PRIVATE_BRAIN) {
             val holder = request.subject.holder ?: return deny("HOLDER_REQUIRED")
+            if (s == VisibilitySubjectKinds.WORLD_ACTOR_PRIVATE_BRAIN &&
+                (a != AudienceKinds.WORLD_ACTOR || request.audience.principal?.uid != holder.holderUid ||
+                    request.subject.subjectUid != holder.holderUid)) return deny("BRAIN_SELF_ONLY")
             val explicitlyMapped = trusted?.cognitionHolders?.any {
                 it.campaignUid == request.audience.campaignUid &&
                     it.holderKindUid == holder.holderKindUid && it.holderUid == holder.holderUid

@@ -190,7 +190,16 @@ class BekkoSemanticApplication(
     @Volatile private var progressListener:(()->Unit)?=null
     private val closed=AtomicBoolean(false)
     private val closeStarted=AtomicBoolean(false)
-    private val semanticCancellationListener:()->Unit={runtime?.coordinator?.requestCancellation()}
+    private val npcRecallEmbeddings=java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val npcRecallPending=java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val npcRecallWorker=java.util.concurrent.ThreadPoolExecutor(1,1,0L,TimeUnit.MILLISECONDS,
+        java.util.concurrent.ArrayBlockingQueue<Runnable>(8),java.util.concurrent.ThreadFactory { task ->
+            Thread(task,"rpgos-npc-memory-index").apply{isDaemon=true}
+        })
+    private val semanticCancellationListener:()->Unit={
+        runtime?.coordinator?.requestCancellation()
+        npcRecallEmbeddings.forEach{uid->runCatching{runtime?.provider?.cancel(uid)}}
+    }
     private val campaignTransitionListener:()->Unit={synchronized(this){
         // Settings are process-wide. Every UI/Bridge/Director composition reloads them before
         // releasing its lease, so a CPU<->Vulkan switch cannot leave a second native model alive.
@@ -286,6 +295,28 @@ class BekkoSemanticApplication(
 
     fun directorScout():DirectorContextScoutPort=DirectorContextScoutPort{trigger,context->
         enrichDirector(trigger,context)
+    }
+
+    /** Missing NPC cache uses structured recall now and warms only that legal projection off-turn. */
+    internal fun npcRecall():NpcRecallPort=NpcRecallPort { request ->
+        try{withSemanticLease {
+            if(closed.get() || !settings.enabled)return@withSemanticLease NpcRecallResult.Fallback("P62:BEKKO_DISABLED")
+            val active=runtime()
+            if(active.provider.availability().state!=EmbeddingAvailabilityState.READY)
+                return@withSemanticLease NpcRecallResult.Fallback("P62:BEKKO_UNAVAILABLE")
+            fun ranker()=BekkoNpcRecall(active.provider,active.index,{repository.infrastructureTemporalRead().scope},
+                {npcRecallEmbeddings.add(it)},{npcRecallEmbeddings.remove(it)})
+            val result=ranker().rank(request)
+            if(result==NpcRecallResult.Fallback("P62:RECALL_INDEX_NOT_READY") && npcRecallPending.add(request.fingerprint)) {
+                try{npcRecallWorker.execute {
+                    try{withSemanticLease {
+                        if(!closed.get() && runtime===active && settings.enabled)ranker().prepare(request)
+                    }}catch(_:Exception){/* Rebuildable cache. Next authorized recall may retry. */}
+                    finally{npcRecallPending.remove(request.fingerprint)}
+                }}catch(_:java.util.concurrent.RejectedExecutionException){npcRecallPending.remove(request.fingerprint)}
+            }
+            result
+        }}catch(_:Exception){NpcRecallResult.Fallback("P62:BEKKO_RECALL_FAILED")}
     }
 
     fun futureCandidatePorts():SemanticFutureCandidatePorts=SemanticFutureCandidatePorts.candidateOnly{request->
@@ -529,6 +560,7 @@ class BekkoSemanticApplication(
      * continue on a worker thread without leaving a window in which retained callbacks reopen it. */
     fun beginClose(){
         closed.set(true)
+        npcRecallWorker.shutdownNow()
         semanticCancellationListener()
     }
     @Synchronized private fun closeRuntime(){runtime?.close();runtime=null}

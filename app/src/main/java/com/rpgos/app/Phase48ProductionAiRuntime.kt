@@ -153,7 +153,7 @@ object BielikLocalModelProfiles{
         chatTemplateUid="BIELIK_CHAT_V3",
         supportedWorkloads=setOf(
             AiWorkload.INTENT_INTERPRETATION,AiWorkload.GM_PROPOSAL,AiWorkload.PROPOSAL_REPAIR,AiWorkload.CHARACTER_CREATION,
-            AiWorkload.NARRATIVE_RENDER,AiWorkload.NARRATIVE_REPAIR,AiWorkload.DIRECTOR_STRATEGY
+            AiWorkload.NARRATIVE_RENDER,AiWorkload.NARRATIVE_REPAIR,AiWorkload.DIRECTOR_STRATEGY,AiWorkload.NPC_DECISION,AiWorkload.NPC_DIALOGUE
         ),
         recommendedContextUnits=2_048,
         maximumContextUnits=2_048,
@@ -178,7 +178,7 @@ object BielikLocalModelProfiles{
         chatTemplateUid="BIELIK_CHAT_V3",
         supportedWorkloads=setOf(
             AiWorkload.INTENT_INTERPRETATION,AiWorkload.GM_PROPOSAL,AiWorkload.PROPOSAL_REPAIR,AiWorkload.CHARACTER_CREATION,
-            AiWorkload.NARRATIVE_RENDER,AiWorkload.NARRATIVE_REPAIR,AiWorkload.DIRECTOR_STRATEGY
+            AiWorkload.NARRATIVE_RENDER,AiWorkload.NARRATIVE_REPAIR,AiWorkload.DIRECTOR_STRATEGY,AiWorkload.NPC_DECISION,AiWorkload.NPC_DIALOGUE
         ),
         recommendedContextUnits=8_192,
         maximumContextUnits=32_768,

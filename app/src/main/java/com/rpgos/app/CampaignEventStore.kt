@@ -347,6 +347,8 @@ internal class CampaignEventStore(private val db: SQLiteDatabase, private val ca
             is DevelopmentProjectChange -> PlayerChangeKinds.DEVELOPMENT_PROJECT
             is KnowledgeAcquisitionChange -> PHASE37_KNOWLEDGE_CHANGE_KIND
             is TemporalStateChange -> PHASE60_TIME_CHANGE_KIND
+            is NpcBrainChange -> NPC_BRAIN_CHANGE_KIND
+            is MechanicalActorGenesisChange -> MECHANICAL_ACTOR_GENESIS_KIND
             is AccessAuthorityChange -> PlayerChangeKinds.ACCESS_AUTHORITY
         }
         if (change.changeKindUid != expectedKind) throw EventStoreIntegrityException("CHANGE_KIND_PAYLOAD_MISMATCH")
@@ -388,6 +390,8 @@ internal class CampaignEventStore(private val db: SQLiteDatabase, private val ca
         is DevelopmentProjectChange -> DomainRef(PlayerResolutionReferenceKinds.PROJECT, payload.projectUid)
         is KnowledgeAcquisitionChange -> DomainRef(payload.acquisition.holder.holderKindUid, payload.acquisition.holder.holderUid)
         is TemporalStateChange -> DomainRef("CAMPAIGN", payload.campaignUid)
+        is NpcBrainChange -> payload.actor
+        is MechanicalActorGenesisChange -> payload.actor
         is AccessAuthorityChange -> DomainRef(payload.principalKindUid, payload.principalUid)
     }
 

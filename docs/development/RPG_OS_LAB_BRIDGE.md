@@ -386,6 +386,19 @@ stają się przez to publiczną wiedzą gracza. Szczegóły reguł i ograniczeń
 `docs/architecture/PHASE60_TIME_SKIP.md`. Weryfikacja 2026-09-14 obejmuje kompilację LAB
 oraz celowane testy JVM/Robolectric; nie jest nowym testem na Motoroli.
 
+### 10.3 Diagnostyka NPC Phase61–62
+
+W wariancie `labDebug` dostępne są dwa odczyty z argumentami `actor_uid` i opcjonalnym `actor_kind_uid` (domyślnie `NPC`):
+
+- `GET_NPC_STATE` — canonical Brain, proces refleksji oraz rozpoczęte plany. Odpowiedź jest oznaczona `LAB_DIAGNOSTIC_PRIVATE`; nie wolno kopiować jej do kontekstu gracza/MG. `mechanical_autonomy_scope` precyzuje zakres podłączonych akcji.
+- `GET_NPC_CONTEXT` — rzeczywisty, legalny kontekst poznawczy NPC i fingerprint pamięci roboczej. Nie wykonuje decyzji ani commitu. Bez acquisition istniejący Brain może użyć `SELF_REFLECTION` (zamiar bez nowej wiedzy); brak Brain/bodźca zwraca `P62:NO_LEGAL_STIMULUS`.
+
+Komendy nie inicjalizują postaci przy odczycie i nie przyjmują patchy Brain. Test wykonania działania odbywa się zwykłą turą aplikacji; prywatna diagnostyka nie jest alternatywną ścieżką mechaniki. Ten dodatek nie zmienia `bridge_stage=3` ani nie włącza Bridge'a do release.
+
+Wywołania `NPC_DECISION` oraz `NPC_DIALOGUE` widać przez `GET_LAST_AI_EXCHANGE` / `GET_AI_TRACE` z filtrem `workload`. Oba korzystają z routingu MG i zgód chmury. Ślad `NPC_DIALOGUE` zawiera kontekst konkretnego holdera, nie kontekst MG; należy traktować go jako prywatny materiał diagnostyczny. Test komunikacji wymaga zwykłego `SUBMIT_PLAYER_ACTION`, a następnie sprawdzenia commitu i Phase37 memory. Sam odczyt trace nie dowodzi dostarczenia ani zapamiętania odpowiedzi.
+
+Panel LAB pokazuje też podsumowania `npc_decision`/`npc_dialogue` (model, korelacja, użycie i błędy), bez promptów. `GET_NPC_STATE` raportuje limit czterech kroków sekwencji i obowiązek ponownej kontroli każdego kroku. `next_actions` w Brain oznacza zamiar, nie wykonany efekt; `previous_plan` łączy rzeczywiście rozpoczęte kroki. Brak kontynuacji po utracie możliwości lub granicy decyzji gracza jest zamierzony.
+
 ## 11. Relacja do pozostałych dokumentów
 
 Ten dokument jest nadrzędną instrukcją bieżącego Bridge'a Etapów 1–3. Raporty:

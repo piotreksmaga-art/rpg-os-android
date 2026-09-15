@@ -44,7 +44,7 @@ internal object RpgOsLabBridgeContract {
         "GET_LAST_AI_EXCHANGE", "GET_LAST_TURN", "GET_LAST_SCENARIO", "GET_LAST_FAILURE",
         "EXPORT_FAILURE_BUNDLE", "EXPORT_LAB_FIXTURE", "GET_PENDING_CHARACTER_DRAFT",
         "GET_CODEX_PROVIDER_STATE", "GET_DIRECTOR_JOBS", "GET_DIRECTOR_CANDIDATES", "GET_DIRECTOR_GUIDANCE",
-        "PREVIEW_UNDO_LAST_TURN"
+        "PREVIEW_UNDO_LAST_TURN", "GET_NPC_STATE", "GET_NPC_CONTEXT"
     )
     val labAdminCommands = setOf(
         "SET_ACTIVE_CAMPAIGN", "CREATE_CAMPAIGN", "LOAD_LAB_FIXTURE", "IMPORT_LOCAL_GGUF",
@@ -174,6 +174,8 @@ private class RpgOsLabRuntime(context: Context) {
                 "GET_CONTEXT_BUNDLE" -> contextBundle(arguments)
                 "GET_TURN_STATE" -> turnState()
                 "GET_MECHANICAL_STATE" -> mechanicalState(arguments)
+                "GET_NPC_STATE" -> npcState(arguments)
+                "GET_NPC_CONTEXT" -> npcContext(arguments)
                 "GET_PIPELINE_SNAPSHOT" -> pipelineSnapshot(arguments)
                 "GET_LAST_COMMIT" -> lastCommit()
                 "GET_CANONICAL_FINGERPRINT" -> canonicalFingerprint()
@@ -400,6 +402,40 @@ private class RpgOsLabRuntime(context: Context) {
             .put("history_generation",snapshot.scope.historyGenerationUid).put("process_count",snapshot.state.processStates.size)
             .put("deadline_count",snapshot.state.deadlines.size)})
         .put("pending_character_draft", pendingCharacterDraft())
+
+    private fun npcActor(arguments:JSONObject):DomainRef {
+        val uid=arguments.getString("actor_uid");val kind=arguments.optString("actor_kind_uid","NPC")
+        npcUid(uid);npcUid(kind);return DomainRef(kind,uid)
+    }
+    /** Private individuality is diagnostic-only, not a player-facing knowledge projection. */
+    private fun npcState(arguments:JSONObject):JSONObject {
+        val state=repository.infrastructureNpcBrainDiagnostics(npcActor(arguments))
+        val processes=repository.infrastructureTemporalRead().state.processStates
+        val process=processes.singleOrNull{it.ownerUid==NpcCognitionProcess.OWNER}
+        return JSONObject().put("available",state!=null).put("visibility","LAB_DIAGNOSTIC_PRIVATE")
+            .put("brain",state?.let{JSONObject(NpcBrainCodec.encode(it))}?:JSONObject.NULL)
+            .put("cognition_process",process?.let{JSONObject(it.canonicalValue)}?:JSONObject.NULL)
+            .put("mechanical_autonomy_connected",true)
+            .put("mechanical_autonomy_scope","REGISTERED_COMBAT_AND_ACTIVITY_CONTRACTS")
+            .put("maximum_sequence_steps",4)
+            .put("continuation_policy","FRESH_CORE_PREFLIGHT_EACH_STEP_STOP_AT_PLAYER_DECISION")
+            .put("activity_effects","EFFORT_ONLY_NO_AUTOMATIC_HEALING_KNOWLEDGE_OR_GOAL_SUCCESS")
+            .put("pending_actions",JSONArray(NpcActionProcess.encode(NpcActionProcess.decode(processes.singleOrNull{it.ownerUid==NpcActionProcess.OWNER})
+                .filter{it.actor==state?.actor})))
+    }
+    private fun npcContext(arguments:JSONObject):JSONObject {
+        val actor=npcActor(arguments);val snapshot=repository.infrastructureTemporalRead()
+        val stimulus=repository.npcCognitionStimulus(snapshot.scope,actor)
+            ?:return JSONObject().put("available",false).put("reason_uid","P62:NO_LEGAL_STIMULUS")
+        val scope=repository.infrastructureNpcDecisionScope(actor,snapshot.state.time,0)
+        val trigger=NpcTrigger("LAB:NPC:${actor.uid}",stimulus.triggerKind,snapshot.state.time,stimulus.cause)
+        return when(val result=composition.npcDecisionContext(scope,trigger){_,_->emptyList()}) {
+            is NpcContextResult.Unavailable->JSONObject().put("available",false).put("reason_uid",result.reasonUid)
+            is NpcContextResult.Ready->JSONObject().put("available",true).put("cognition_only",true)
+                .put("model_input",JSONObject(NpcDecisionCodec.encodeRequest("LAB:NPC:PREVIEW",result.context)))
+                .put("working_memory_fingerprint",result.workingMemory.sourceFingerprint)
+        }
+    }
 
     private fun mechanicalState(arguments:JSONObject):JSONObject{
         val requested=arguments.optJSONArray("refs")?:JSONArray()

@@ -9,7 +9,12 @@ package com.rpgos.app
 internal object Phase60EffectSettlement {
     fun validate(result: TemporalExecutionResult, admitted: List<PlayerDomainChangePayload>): String? {
         if (!result.readyForAdmission) return "P60:RESULT_NOT_ADMISSIBLE"
-        val expected = result.checkpoint.candidateChanges
+        val domainEffects=result.checkpoint.candidateEffects.flatMap { effect->
+            val material=MechanicalEffectMaterializer.materialize(effect) as? MechanicalEffectMaterializationResult.Materialized
+                ?:return "P62:PROCESS_EFFECT_NOT_MATERIALIZED"
+            material.changes.map{it.payload}
+        }
+        val expected = result.checkpoint.candidateChanges+domainEffects
         if (expected.any { it is TemporalStateChange }) return "P60:DOMAIN_OWNER_CANNOT_WRITE_CLOCK"
         val actual = admitted.filterNot { it is TemporalStateChange }.groupingBy { it }.eachCount().toMutableMap()
         // Keep multiplicity: two identical deltas are two effects, not one set member.

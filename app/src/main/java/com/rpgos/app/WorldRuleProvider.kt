@@ -376,6 +376,8 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
         is DevelopmentProjectChange -> "DEVELOPMENT_PROJECT_CHANGE"
         is KnowledgeAcquisitionChange -> "KNOWLEDGE_ACQUISITION_CHANGE"
         is TemporalStateChange -> "TEMPORAL_STATE_CHANGE"
+        is NpcBrainChange -> "NPC_BRAIN_CHANGE"
+        is MechanicalActorGenesisChange -> "MECHANICAL_ACTOR_GENESIS"
         is AccessAuthorityChange -> "ACCESS_AUTHORITY_CHANGE"
     }
     record(payloadType) {
@@ -505,6 +507,8 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
                 payload.stopReason?.let { field("TEMPORAL_STOP_REASON",it) }
                 if(payload.actionExecutionsCanonical!="[]")field("ACTION_EXECUTIONS",payload.actionExecutionsCanonical)
             }
+            is NpcBrainChange -> field("NPC_BRAIN_CANONICAL_CHANGE", npcBrainChangeCodec().encode(payload).toString())
+            is MechanicalActorGenesisChange -> field("MECHANICAL_ACTOR_GENESIS",mechanicalActorGenesisCodec().encode(payload).toString())
             is KnowledgeAcquisitionChange -> {
                 section("CLAIM") {
                     field("UID", payload.claim.claimUid); field("SUBJECT_KIND", payload.claim.subjectKindUid)

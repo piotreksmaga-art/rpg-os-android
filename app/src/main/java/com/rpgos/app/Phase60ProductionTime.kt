@@ -71,7 +71,12 @@ internal class ProductionTemporalMutationAssembler(
     private val read: () -> TemporalReadSnapshot,
     private val checkpoints:TemporalCheckpointPort,
     private val processOwners:(TemporalReadSnapshot,List<VerifiedMechanicsCommandEffect>)->List<RegisteredTemporalOwner> = {_,_->emptyList()},
-    private val effectPolicy:TemporalEffectPolicyPort = TemporalEffectPolicyPort.COMPLETION_ONLY
+    private val effectPolicy:TemporalEffectPolicyPort = TemporalEffectPolicyPort.COMPLETION_ONLY,
+    private val externalEvaluation:TemporalExternalEvaluationPort? = null,
+    private val npcBrainPreparation:(TemporalScope,List<VerifiedMechanicsCommandEffect>,CanonicalTurnPlan)->List<NpcBrainChange> = {_,_,_->emptyList()},
+    private val additionalProcesses:(TemporalReadSnapshot,CanonicalTurnPlan,List<VerifiedMechanicsCommandEffect>,ProductionTimeResult.Ready,ChatTurnRequest)->TemporalProcessExtension = {_,_,_,_,_->TemporalProcessExtension.NONE},
+    private val conversations:NpcConversationPreparationPort=NpcConversationPreparationPort.NONE,
+    private val observations:(TemporalScope,List<VerifiedMechanicsCommandEffect>)->List<VerifiedMechanicsCommandEffect> = {_,effects->effects}
 ) : CancellableCanonicalMutationAssembler, CanonicalMutationAssemblyDiagnostics {
     @Volatile private var reasons: List<String> = emptyList()
     private val scopes = java.util.Collections.synchronizedMap(java.util.WeakHashMap<CanonicalCampaignMutationProposal, TemporalScope>())
@@ -97,24 +102,41 @@ internal class ProductionTemporalMutationAssembler(
         if(request.atOrder!=null && request.atOrder!=Math.addExact(snapshot.scope.baseCommitOrder,1L)){
             reasons=listOf("P60:STALE_TURN_CONTEXT");return null
         }
-        val prepared=delegate.prepareEffects(request,plan,proposal)?:run {reasons=delegate.lastAssemblyReasonUids();return null}
+        val proposed=delegate.prepareEffects(request,plan,proposal)?:run {reasons=delegate.lastAssemblyReasonUids();return null}
+        val prepared=when(val spoken=conversations.prepare(request,plan,snapshot,proposed,cancelled)) {
+            is NpcConversationPreparation.Ready->spoken.effects
+            is NpcConversationPreparation.Unavailable->{reasons=listOf(spoken.reasonUid);return null}
+        }
+        if(read().scope!=snapshot.scope){reasons=listOf("P62:STALE_DIALOGUE");return null}
         return when (val time = Phase60ProductionTime.prepare(request, plan, snapshot,authoritative=Phase60DomainTiming.accepted(prepared),processExecutionAvailable=true,
             outcomes=proposal.candidate.nodeProposals.associate{it.nodeUid to it.outcomeState})) {
             is ProductionTimeResult.Rejected -> { reasons = listOf(time.reasonUid); null }
             is ProductionTimeResult.Ready -> {
-                if(time.schedule.isEmpty()) return delegate.admitEffects(request,plan.planUid,proposal.candidate.proposalUid,prepared,null).also {
+                if(time.schedule.isEmpty()) return delegate.admitEffects(request,plan.planUid,proposal.candidate.proposalUid,observations(snapshot.scope,prepared),null,
+                    if(prepared.isEmpty())emptyList() else npcBrainPreparation(snapshot.scope,prepared,plan)).also {
                     if(it!=null)scopes[it]=snapshot.scope else reasons=delegate.lastAssemblyReasonUids()
                 }
-                val execution=Phase60ProductionExecution(checkpoints,{read().scope},processOwners(snapshot,prepared),effectPolicy)
+                val extension=additionalProcesses(snapshot,plan,prepared,time,request)
+                val evaluation=if(extension.evaluation==null)externalEvaluation else TemporalExternalEvaluationPort { pending,cancellation ->
+                    if(extension.owners.any{it.owner.ownerUid==pending.ownerUid})extension.evaluation.evaluate(pending,cancellation)
+                    else externalEvaluation?.evaluate(pending,cancellation)?:TemporalEvaluationResponse.Unavailable("P62:EVALUATION_OWNER_MISSING")
+                }
+                val execution=Phase60ProductionExecution(checkpoints,{read().scope},processOwners(snapshot,prepared)+extension.owners,effectPolicy,evaluation)
                     .execute(request,time,snapshot,prepared,cancelled)
                 when(execution) {
                     is ProductionTemporalExecutionResult.Rejected->{reasons=listOf(execution.reasonUid);null}
                     is ProductionTemporalExecutionResult.Completed-> {
-                        val canonical=delegate.admitEffects(request,plan.planUid,proposal.candidate.proposalUid,execution.effects,execution.change)
+                        val brains=npcBrainPreparation(snapshot.scope,execution.effects,plan)+execution.npcBrains
+                        val observed=observations(snapshot.scope,execution.effects)
+                        val canonical=delegate.admitEffects(request,plan.planUid,proposal.candidate.proposalUid,observed,execution.change,brains)
                         if(canonical==null){reasons=delegate.lastAssemblyReasonUids();return null}
                         val foregroundPayloads=execution.effects.flatMap { (MechanicalEffectMaterializer.materialize(it) as MechanicalEffectMaterializationResult.Materialized).changes.map{change->change.payload} }
                         // Includes only elapsed foreground effects plus evaluated process deltas.
-                        val settled=execution.work.copy(checkpoint=execution.work.checkpoint.copy(candidateChanges=phase60CoalesceChanges(foregroundPayloads)))
+                        val memory=NpcActionMemory.materialize(request.campaignUid,request.commandUid,request.atOrder?:1L,execution.effects,brains)
+                        val communication=NpcCommunicationMemory.materialize(request.campaignUid,request.commandUid,request.atOrder?:1L,execution.effects)
+                        val sensations=NpcConsequenceObservation.materialize(request.campaignUid,request.commandUid,request.atOrder?:1L,observed)
+                        val settled=execution.work.copy(checkpoint=execution.work.checkpoint.copy(candidateChanges=phase60CoalesceChanges(foregroundPayloads)+brains+
+                            memory.changes.map{it.payload}+communication.changes.map{it.payload}+sensations.changes.map{it.payload},candidateEffects=emptyList()))
                         val failure=Phase60EffectSettlement.validate(settled,phase60CoalesceChanges(canonical.playerChangeSet.changes.map{it.payload}))
                         if(failure!=null){reasons=listOf(failure);return null}
                         scopes[canonical]=snapshot.scope

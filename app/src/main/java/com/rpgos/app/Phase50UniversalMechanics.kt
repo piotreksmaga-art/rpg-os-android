@@ -92,10 +92,14 @@ class WorldActorMechanicalGenerator{
 enum class VolitionalActionSource { VALIDATED_PLAYER_COMMAND, NPC_DECISION_ENGINE, WORLD_PROCESS, MECHANICAL_CONSEQUENCE }
 data class CombatIntent(
     val intentUid:String,val campaignUid:String,val actor:DomainRef,val target:DomainRef,val abilityUid:String,
-    val source:VolitionalActionSource,val objectiveUid:String,val declaredAtOrder:Long
+    val source:VolitionalActionSource,val objectiveUid:String,val declaredAtOrder:Long,
+    val npcControlAuthorization:NpcActionAuthorization?=null
 ){init{
     require(intentUid.isNotBlank()&&campaignUid.isNotBlank()&&abilityUid.isNotBlank()&&objectiveUid.isNotBlank()&&declaredAtOrder>=0)
-    if(actor.kindUid=="PLAYER")require(source==VolitionalActionSource.VALIDATED_PLAYER_COMMAND){"RPGOS-P50:ACTIVE_PLAYER_VOLITION_REQUIRES_USER_COMMAND"}
+    if(actor.kindUid=="PLAYER")require(source==VolitionalActionSource.VALIDATED_PLAYER_COMMAND ||
+        (source==VolitionalActionSource.NPC_DECISION_ENGINE && npcControlAuthorization?.scope?.let{
+            it.actor==actor && it.temporal.campaignUid==campaignUid && it.activePlayerUid!=actor.uid
+        }==true)){"RPGOS-P50:ACTIVE_PLAYER_VOLITION_REQUIRES_USER_COMMAND"}
 }}
 
 data class CombatPerceptionEvidence(

@@ -57,7 +57,7 @@ internal object RecoverableSnapshotPolicy {
             while (c.moveToNext()) {
                 val uid = c.getString(0)
                 val candidate = runCatching { requireRecoverable(db, campaignUid, uid) }.getOrNull()
-                if (candidate != null) return@use candidate
+                if (candidate != null && belongsToActiveHistory(db,campaignUid,candidate)) return@use candidate
             }
             null
         }
@@ -73,9 +73,22 @@ internal object RecoverableSnapshotPolicy {
         ).use{c->
             while(c.moveToNext()){
                 val candidate=runCatching{requireRecoverable(db,campaignUid,c.getString(0))}.getOrNull()
-                if(candidate!=null)return@use candidate
+                if(candidate!=null && belongsToActiveHistory(db,campaignUid,candidate))return@use candidate
             }
             null
+        }
+    }
+
+    /** Manual backups survive undo, but must never become an automatic baseline for an
+     * alternative turn merely because that turn reused the same committed order. */
+    private fun belongsToActiveHistory(db:SQLiteDatabase,campaignUid:String,snapshot:CampaignSnapshotDescriptor):Boolean {
+        if(snapshot.anchorCommitOrder==0L)return snapshot.anchorTransactionUid==null
+        val transaction=snapshot.anchorTransactionUid ?: return false
+        val receipt=TurnTransactionReceiptStore(db).committedTransaction(transaction) ?: return false
+        if(receipt.campaignUid!=campaignUid || receipt.commitOrder!=snapshot.anchorCommitOrder || receipt.turnUid!=snapshot.anchorTurnUid)return false
+        return db.rawQuery("SELECT post_authoritative_digest FROM ${CampaignSnapshotSchema.REPLAY} WHERE campaign_uid=? AND transaction_uid=? AND commit_order=?",
+            arrayOf(campaignUid,transaction,snapshot.anchorCommitOrder.toString())).use { c ->
+            c.moveToFirst() && (snapshot.anchorAuthoritativeDigest==null || (!c.isNull(0) && c.getString(0)==snapshot.anchorAuthoritativeDigest))
         }
     }
 

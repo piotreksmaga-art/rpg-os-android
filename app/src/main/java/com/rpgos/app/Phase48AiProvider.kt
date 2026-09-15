@@ -8,7 +8,9 @@ enum class AiWorkload {
     NARRATIVE_REPAIR,
     CHARACTER_CREATION,
     DIRECTOR_STRATEGY,
-    MEMORY_ENRICHMENT
+    MEMORY_ENRICHMENT,
+    NPC_DECISION,
+    NPC_DIALOGUE
 }
 enum class AiProviderKind { LOCAL, CLOUD, CONTROLLED_TEST }
 enum class AiProviderFailureKind { CANCELLED, UNAVAILABLE, TIMEOUT, INVALID_STRUCTURED_OUTPUT, CAPABILITY_MISMATCH, INTERNAL_FAILURE }
@@ -132,6 +134,10 @@ interface AiProvider{
         AiProviderResult.Failure(AiProviderFailureKind.CAPABILITY_MISMATCH,"DIRECTOR_STRATEGY_UNSUPPORTED")
     fun enrichMemory(request:MemoryEnrichmentRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<MemoryEnrichmentResult.Success> =
         AiProviderResult.Failure(AiProviderFailureKind.CAPABILITY_MISMATCH,"MEMORY_ENRICHMENT_UNSUPPORTED")
+    fun decideNpc(request:NpcDecisionRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<NpcDecisionProposal> =
+        AiProviderResult.Failure(AiProviderFailureKind.CAPABILITY_MISMATCH,"NPC_DECISION_UNSUPPORTED")
+    fun speakNpc(request:NpcDialogueRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<NpcDialogueCandidate> =
+        AiProviderResult.Failure(AiProviderFailureKind.CAPABILITY_MISMATCH,"NPC_DIALOGUE_UNSUPPORTED")
     fun cancel(requestUid:String)
 }
 
@@ -192,6 +198,9 @@ interface AiStructuredCodec{
     fun decodeDirector(payload:String,request:AiDirectorRequest):DirectorBundle=decodeDirector(payload)
     fun encodeMemoryEnrichment(request:MemoryEnrichmentRequest):String=encodeMemoryEnrichmentRequest(request)
     fun decodeMemoryEnrichment(payload:String):MemoryEnrichmentResult.Success=decodeMemoryEnrichmentPresentation(payload)
+    fun encodeNpcDecision(request:NpcDecisionRequest):String=NpcDecisionCodec.encodeRequest(request.requestUid,request.context)
+    fun decodeNpcDecision(payload:String,request:NpcDecisionRequest):NpcDecisionProposal=
+        NpcDecisionCodec.decodeProposal(payload,request.requestUid,request.context.contextFingerprint)
 }
 
 /** Production-ready adapter seam: adding a model requires transport + codec + registration, not Core changes. */
@@ -238,6 +247,15 @@ class TransportAiProviderAdapter(
     )
     override fun cancel(requestUid:String){require(requestUid.isNotBlank());cancellationHook(requestUid)}
 
+    override fun decideNpc(request:NpcDecisionRequest,cancellation:AiCancellationSignal)=call(
+        request.requestUid,AiWorkload.NPC_DECISION,1,codec.encodeNpcDecision(request),cancellation,
+        {payload->codec.decodeNpcDecision(payload,request)}
+    )
+    override fun speakNpc(request:NpcDialogueRequest,cancellation:AiCancellationSignal)=call(
+        request.requestUid,AiWorkload.NPC_DIALOGUE,1,NpcDialogueCodec.encode(request),cancellation,
+        {payload->NpcDialogueCodec.decode(payload,request)}
+    )
+
     private fun <T> call(requestUid:String,workload:AiWorkload,schema:Int,payload:String,cancellation:AiCancellationSignal,decode:(String)->T):AiProviderResult<T>{
         if(workload !in capabilities.supportedWorkloads)return AiProviderResult.Failure(AiProviderFailureKind.CAPABILITY_MISMATCH,"WORKLOAD_UNSUPPORTED")
         if(cancellation.isCancelled())return AiProviderResult.Failure(AiProviderFailureKind.CANCELLED,"CANCELLED_BEFORE_TRANSPORT")
@@ -265,7 +283,9 @@ class DeterministicAiProvider(
     private val narrativeRepairFunction:(AiNarrativeRepairRequest)->RenderedNarrative={narrativeFunction(it.original)},
     private val directorFunction:(AiDirectorRequest)->DirectorBundle={throw IllegalArgumentException("DIRECTOR_NOT_CONFIGURED")},
     private val characterCreationFunction:(AiCharacterCreationRequest)->CharacterCreationGmCandidate={throw IllegalArgumentException("CHARACTER_CREATION_NOT_CONFIGURED")},
-    private val memoryEnrichmentFunction:(MemoryEnrichmentRequest)->MemoryEnrichmentResult.Success={throw IllegalArgumentException("MEMORY_ENRICHMENT_NOT_CONFIGURED")}
+    private val memoryEnrichmentFunction:(MemoryEnrichmentRequest)->MemoryEnrichmentResult.Success={throw IllegalArgumentException("MEMORY_ENRICHMENT_NOT_CONFIGURED")},
+    private val npcDecisionFunction:(NpcDecisionRequest)->NpcDecisionProposal={throw IllegalArgumentException("NPC_DECISION_NOT_CONFIGURED")},
+    private val npcDialogueFunction:(NpcDialogueRequest)->NpcDialogueCandidate={throw IllegalArgumentException("NPC_DIALOGUE_NOT_CONFIGURED")}
 ):AiProvider{
     override fun interpret(request:AiIntentRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){intentFunction(request)}
     override fun propose(request:AiGmProposalRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){proposalFunction(request)}
@@ -275,6 +295,8 @@ class DeterministicAiProvider(
     override fun guideCharacterCreation(request:AiCharacterCreationRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){characterCreationFunction(request)}
     override fun generateDirector(request:AiDirectorRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){directorFunction(request)}
     override fun enrichMemory(request:MemoryEnrichmentRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){memoryEnrichmentFunction(request)}
+    override fun decideNpc(request:NpcDecisionRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){npcDecisionFunction(request)}
+    override fun speakNpc(request:NpcDialogueRequest,cancellation:AiCancellationSignal)=invoke(request.requestUid,cancellation){npcDialogueFunction(request)}
     override fun cancel(requestUid:String)=Unit
     private fun <T> invoke(requestUid:String,cancellation:AiCancellationSignal,block:()->T):AiProviderResult<T>{
         if(cancellation.isCancelled())return AiProviderResult.Failure(AiProviderFailureKind.CANCELLED,"CANCELLED")

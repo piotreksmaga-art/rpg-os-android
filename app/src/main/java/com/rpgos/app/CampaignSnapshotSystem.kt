@@ -22,6 +22,7 @@ object CampaignReplayAuthorityMatrix {
     /** Authority families directly mutated by the currently accepted CanonicalPlayerChangeApplier payloads. */
     val replayableFamilyUids:Set<String> = setOf(
         "ACTION_TIME_AUTHORITY",
+        "NPC_BRAIN_AUTHORITY",
         "CAMPAIGN_TRUTH","CANON_DIVERGENCE","BASE_STATS_RESOURCES","SKILLS_TECHNIQUES","INVENTORY","EQUIPMENT_LOADOUT",
         "OWNERSHIP_REFERENCE_STATE","OWNERSHIP_HISTORY","FINANCE_AUTHORITY","ASSET_LIABILITY_AUTHORITY",
         "MECHANICAL_ACTOR_AND_AGGREGATE_STATE","DEVELOPMENT_PROJECTS","NPC_KNOWLEDGE_STATE","ACCESS_AUTHORITY"
@@ -568,7 +569,11 @@ class CampaignSnapshotManager(private val db:SQLiteDatabase,private val campaign
         val expectedOrders=if(targetCommitOrder==snapshot.anchorCommitOrder)emptyList() else (snapshot.anchorCommitOrder+1..targetCommitOrder).toList()
         require(payloads.map{it.commitOrder}==expectedOrders){"RPGOS-UNDO:REPLAY_COVERAGE_INCOMPLETE"}
         require(payloads.all{it.replaySchemaVersion==2&&it.postAuthoritativeDigest!=null}){"RPGOS-UNDO:REPLAY_V2_REQUIRED"}
-        val expectedDigest=payloads.lastOrNull()?.postAuthoritativeDigest?:snapshot.anchorAuthoritativeDigest
+        // The target proof must belong to the live retained history, not only to the selected
+        // snapshot. Preserved manual backups may describe a deleted alternative at this order.
+        val expectedDigest=if(targetCommitOrder==0L)snapshot.anchorAuthoritativeDigest else
+            CommittedReplayPayloadStore(db).between(campaignUid,targetCommitOrder-1,targetCommitOrder).singleOrNull()?.postAuthoritativeDigest
+                ?:error("RPGOS-UNDO:TARGET_DIGEST_MISSING")
         val staging=File(snapshotDir,".u-${shortCampaignToken()}-$targetCommitOrder-${UUID.randomUUID().toString().take(8)}.db")
         if(staging.exists())staging.delete()
         File(snapshot.payloadPath).copyTo(staging)
@@ -755,7 +760,8 @@ internal object AuthoritativeStateDigest {
     fun compute(db:SQLiteDatabase):String { val md=MessageDigest.getInstance("SHA-256");RuntimeTruthLayerRegistry.authoritativePersistentTables().filter{tableExists(db,it)}.filter { table ->
         // An absent or empty additive Phase60 family is the same pre-Phase60 state. This
         // preserves historical receipt digests across migration; populated rows are ALWAYS hashed.
-        table != Phase60TemporalSchema.TABLE || db.rawQuery("SELECT 1 FROM ${Phase60TemporalSchema.TABLE} LIMIT 1",null).use { it.moveToFirst() }
+        (table != Phase60TemporalSchema.TABLE && table !in Phase61NpcSchema.authoritativeTables) ||
+            db.rawQuery("SELECT 1 FROM `$table` LIMIT 1",null).use { it.moveToFirst() }
     }.sorted().forEach{t->
         val columns=db.rawQuery("PRAGMA table_info(`$t`)",null).use{c->buildList{while(c.moveToNext())add(c.getString(1))}}
         md.update("T:$t:${columns.joinToString(",")}\n".toByteArray(Charsets.UTF_8));val order=columns.joinToString(","){"`$it`"}

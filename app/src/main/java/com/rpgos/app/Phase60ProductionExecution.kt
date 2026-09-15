@@ -6,7 +6,7 @@ internal data class RegisteredTemporalOwner(val versionUid:String,val owner:Worl
 
 internal sealed interface ProductionTemporalExecutionResult {
     data class Completed(val work:TemporalExecutionResult,val change:TemporalStateChange,
-                         val effects:List<VerifiedMechanicsCommandEffect>):ProductionTemporalExecutionResult
+                         val effects:List<VerifiedMechanicsCommandEffect>,val npcBrains:List<NpcBrainChange> = emptyList()):ProductionTemporalExecutionResult
     data class Rejected(val reasonUid:String):ProductionTemporalExecutionResult
 }
 
@@ -15,7 +15,8 @@ internal class Phase60ProductionExecution(
     private val checkpoints:TemporalCheckpointPort,
     private val currentScope:()->TemporalScope,
     private val owners:List<RegisteredTemporalOwner> = emptyList(),
-    private val effectPolicy:TemporalEffectPolicyPort = TemporalEffectPolicyPort.COMPLETION_ONLY
+    private val effectPolicy:TemporalEffectPolicyPort = TemporalEffectPolicyPort.COMPLETION_ONLY,
+    private val externalEvaluation:TemporalExternalEvaluationPort? = null
 ) {
     fun execute(request:ChatTurnRequest, timing:ProductionTimeResult.Ready, snapshot:TemporalReadSnapshot,
                 effects:List<VerifiedMechanicsCommandEffect>, cancelled:()->Boolean):ProductionTemporalExecutionResult {
@@ -44,11 +45,28 @@ internal class Phase60ProductionExecution(
             return reject("P60:CHECKPOINT_SPECIFICATION_CHANGED")
         // CACHE is not authority. On restart deterministically replay the speculative prefix
         // from canonical input/rules; never turn cached deltas or cached owner text into truth.
+        val answers=linkedMapOf<String,TemporalOwnerResult.Evaluated>()
         var result=processor.advance(initial,currentScope(),cancelled)
-        while(result.reason==TemporalStopReason.YIELDED) {
+        while(result.reason in setOf(TemporalStopReason.YIELDED,TemporalStopReason.OWNER_EVALUATION_REQUIRED)) {
+            if(result.reason==TemporalStopReason.OWNER_EVALUATION_REQUIRED) {
+                if(answers.size>=32)return reject("P62:EVALUATION_BUDGET")
+                val pending=result.pendingEvaluation ?: return reject("P62:EVALUATION_REQUEST_MISSING")
+                val evaluator=externalEvaluation ?: return reject("P62:EVALUATION_OWNER_MISSING")
+                if(cancelled())return reject("P60:CANCELLED")
+                val answer=evaluator.evaluate(pending,cancelled)
+                if(cancelled())return reject("P60:CANCELLED")
+                if(currentScope()!=initial.scope)return reject("P60:STALE_HISTORY")
+                when(answer) {
+                    is TemporalEvaluationResponse.Unavailable -> return reject(answer.reasonUid)
+                    is TemporalEvaluationResponse.Accepted -> {
+                        if(answer.requestFingerprint!=pending.fingerprint)return reject("P62:EVALUATION_CORRELATION")
+                        answers[pending.fingerprint]=answer.result
+                    }
+                }
+            }
             checkpoints.save(result.checkpoint)
             Thread.yield()
-            result=processor.advance(result.checkpoint,currentScope(),cancelled)
+            result=processor.advance(result.checkpoint,currentScope(),cancelled,evaluations=answers)
         }
         if(!result.readyForAdmission) return reject("P60:${result.reason.name}")
         if(cancelled()) return reject("P60:CANCELLED")
@@ -60,9 +78,10 @@ internal class Phase60ProductionExecution(
             Phase60ExecutionReport.encode(Phase60ExecutionReport.from(work)))
         val selected=try { Phase60SegmentEffects.select(effects,work,policies) }
             catch(_:IllegalArgumentException){return reject("P60:EFFECT_TIMING_RULE_REJECTED")}
-        val background=try { Phase60SegmentEffects.background(phase60CoalesceChanges(work.candidateChanges),work) }
+        val npcBrains=work.candidateChanges.filterIsInstance<NpcBrainChange>()
+        val background=try { Phase60SegmentEffects.background(phase60CoalesceChanges(work.candidateChanges.filterNot{it is NpcBrainChange}),work) }
             catch(_:IllegalStateException){return reject("P60:PROCESS_EFFECT_ADAPTER_REQUIRED")}
-        return ProductionTemporalExecutionResult.Completed(result,change,selected+background)
+        return ProductionTemporalExecutionResult.Completed(result,change,selected+background+work.candidateEffects,npcBrains)
     }
 }
 

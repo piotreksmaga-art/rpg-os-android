@@ -16,15 +16,17 @@ internal object Phase60CombatTime {
 
 /** Only resolved mechanics payloads enter this adapter, never model request parameters. */
 internal object Phase60DomainTiming {
+    private val rules=setOf(Phase60CombatTime.RULE,NpcActivityMechanics.TIMING_RULE,NpcSpeechMechanics.TIMING_RULE)
     fun accepted(effects:List<VerifiedMechanicsCommandEffect>):Map<String,AcceptedActionTiming> = effects
-        .filter{it.canonicalPayload["p60_core_timing_rule"]==Phase60CombatTime.RULE}
+        .filter{it.canonicalPayload["p60_core_timing_rule"] in rules}
         .groupBy{it.nodeUid}.mapValues { (_,rows)->
             val durations=rows.map{it.canonicalPayload.getValue("p60_core_duration_ms").toLong()}.distinct()
-            require(durations.size==1 && durations.single()>0){"P60:DOMAIN_TIMING_CONFLICT"}
-            AcceptedActionTiming(ActionDuration(durations.single()),Phase60CombatTime.RULE,1)
+            val identities=rows.map{it.canonicalPayload.getValue("p60_core_timing_rule") to (it.canonicalPayload["p60_core_timing_version"]?.toInt()?:1)}.distinct()
+            require(durations.size==1 && durations.single()>0 && identities.size==1){"P60:DOMAIN_TIMING_CONFLICT"}
+            AcceptedActionTiming(ActionDuration(durations.single()),identities.single().first,identities.single().second)
         }
     fun effectOffset(effect:VerifiedMechanicsCommandEffect, duration:ActionDuration):Long {
-        if(effect.canonicalPayload["p60_core_timing_rule"]!=Phase60CombatTime.RULE)return duration.milliseconds
+        if(effect.canonicalPayload["p60_core_timing_rule"] !in rules)return duration.milliseconds
         val offset=effect.canonicalPayload.getValue("p60_core_effect_at_ms").toLong()
         require(effect.canonicalPayload.getValue("p60_core_duration_ms").toLong()==duration.milliseconds && offset in 0..duration.milliseconds)
         return offset

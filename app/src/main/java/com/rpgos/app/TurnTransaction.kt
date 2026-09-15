@@ -66,6 +66,13 @@ class TurnTransaction internal constructor(
                 return TurnExecutionResult.AlreadyCommitted(existing)
             }
 
+            // Live async proposals must match this generation. Verified replay intentionally
+            // retains historical generation IDs across destructive undo/recovery boundaries.
+            val npcChanges=proposal.playerChangeSet.changes.mapNotNull{it.payload as? NpcBrainChange}
+            if(npcChanges.isNotEmpty()) {
+                val generation=HistoryGenerationStore(db,identity.campaignUid).current().value
+                require(npcChanges.all{it.historyGenerationUid==generation}) { "P61:STALE_HISTORY" }
+            }
             val commitOrder=receiptStore.reserveNextCommitOrder(identity.campaignUid)
             val applied=withCanonicalGameplayMutationForTurn(db,identity.campaignUid,seal){
                 val result=CanonicalPlayerChangeApplier.applyAll(db,identity,proposal.playerChangeSet,failureInjector)
@@ -207,8 +214,9 @@ internal object CanonicalPlayerChangeApplier{
                 is AssetChange,is ConditionChange,is RuntimeChange,
                 is WoundChange,is SpatialChange,is EquipmentIntegrityChange,is StructureIntegrityChange,
                 is MechanicalTrackChange,is AggregatePopulationChange,
-                is DevelopmentProjectChange,is KnowledgeAcquisitionChange,is TemporalStateChange -> Unit
+                is DevelopmentProjectChange,is KnowledgeAcquisitionChange,is TemporalStateChange,is NpcBrainChange -> Unit
                 is AccessAuthorityChange -> AccessAuthorityChangeValidator.requireValid(change.payload)
+                is MechanicalActorGenesisChange -> MechanicalActorGenesis.validate(change.payload,changeSet)
                 else -> throw UnsupportedCanonicalChangeException(change.changeKindUid)
             }
         }
@@ -245,6 +253,8 @@ internal object CanonicalPlayerChangeApplier{
                 is KnowledgeAcquisitionChange->applyKnowledge(db,identity,changeSet,change.changeUid,payload)
                 is DevelopmentProjectChange->applyProject(db,identity,changeSet,change.changeUid,payload)
                 is TemporalStateChange->Phase60TemporalStateStore(db,identity.campaignUid).apply(identity,payload)
+                is NpcBrainChange->NpcBrainStore(db,identity.campaignUid).apply(identity,change.changeUid,payload)
+                is MechanicalActorGenesisChange->MechanicalActorGenesis.apply(db,identity,changeSet,payload,effectiveOrder(changeSet))
                 is AccessAuthorityChange->applyAccessAuthority(db,identity,changeSet,change.changeUid,payload)
                 else->throw UnsupportedCanonicalChangeException(change.changeKindUid)
             }
@@ -504,6 +514,9 @@ object TurnTransactionBoundary{
         // cannot escape as SQLITE_BUSY before idempotency is evaluated.
         CampaignRuntimeLifecycleLock.withTurn(identity.campaignUid) {
             GameplayRuntimeBootstrap.requireReady(db,identity.campaignUid)
+            // Also cover trusted callers supplying a reopened handle outside LocalGameStore.
+            // Must happen before execute() starts its SQLite transaction, not during flush.
+            GameplayMutationDatabaseGuards.configureConnection(db)
         }
 
         val normalizedProposal = when {
