@@ -1,0 +1,194 @@
+name: Phase61-62 NPC Validation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [ "master" ]
+  push:
+    branches:
+      - "chat/phase61-62-*"
+
+permissions:
+  contents: read
+
+jobs:
+  npc-targeted-jvm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.5.0"
+      - name: Verify exact source SHA
+        run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Run Phase61-62 R0 and existing NPC boundary tests
+        run: |
+          gradle --no-daemon :app:testDebugUnitTest \
+            --tests 'com.rpgos.app.Phase62NpcActivityLifecycleContractTest' \
+            --tests 'com.rpgos.app.Phase62NpcActivityContractsTest' \
+            --tests 'com.rpgos.app.Phase62NpcMechanicsTest' \
+            --tests 'com.rpgos.app.Phase62NpcRecoveryTest' \
+            --tests 'com.rpgos.app.Phase62NpcRecoveryPersistenceTest' \
+            --tests 'com.rpgos.app.Phase62NpcActionProcessTest' \
+            --tests 'com.rpgos.app.Phase61NpcDynamicsTest' \
+            --stacktrace
+      - name: Compile Android acceptance tests
+        run: gradle --no-daemon :app:compileDebugAndroidTestKotlin --stacktrace
+      - name: Upload targeted test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase61-62-r0-targeted-${{ github.sha }}
+          path: |
+            app/build/test-results/testDebugUnitTest/**
+            app/build/reports/tests/testDebugUnitTest/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  full-jvm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.5.0"
+      - name: Verify exact source SHA
+        run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Run complete JVM regression
+        run: gradle --no-daemon :app:testDebugUnitTest :app:testLabDebugUnitTest --stacktrace
+      - name: Upload complete JVM evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase61-62-r0-full-jvm-${{ github.sha }}
+          path: |
+            app/build/test-results/**
+            app/build/reports/tests/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  android-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [28, 36]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.5.0"
+      - name: Verify exact source SHA
+        run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Install native Android build dependencies
+        run: sudo apt-get update && sudo apt-get install -y glslc spirv-headers ninja-build
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run Phase61-62 contract smoke on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: gradle --no-daemon :app:connectedDebugAndroidTest -PrpgosEmulatorX86=true -Pandroid.testInstrumentationRunnerArguments.class=com.rpgos.app.Phase61To62ActivityContractDeviceSmokeTest --stacktrace
+      - name: Upload Android evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase61-62-r0-android-api-${{ matrix.api-level }}-${{ github.sha }}
+          path: |
+            app/build/outputs/androidTest-results/connected/**
+            app/build/reports/androidTests/connected/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  release-isolation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.5.0"
+      - name: Verify exact source SHA
+        run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Verify development and publication workflow separation
+        run: python3 tools/validate_release_workflows.py
+      - name: Create ephemeral signing key
+        shell: bash
+        run: |
+          keytool -genkeypair -v -keystore "$RUNNER_TEMP/rpgos-r0-isolation.jks" \
+            -storepass rpgos-ci-only -keypass rpgos-ci-only -alias rpgos \
+            -keyalg RSA -keysize 2048 -validity 1 -dname "CN=RPG OS R0 CI"
+          echo "RPGOS_KEYSTORE_PATH=$RUNNER_TEMP/rpgos-r0-isolation.jks" >> "$GITHUB_ENV"
+          echo "RPGOS_KEYSTORE_PASSWORD=rpgos-ci-only" >> "$GITHUB_ENV"
+          echo "RPGOS_KEY_PASSWORD=rpgos-ci-only" >> "$GITHUB_ENV"
+      - name: Install native Android build dependencies
+        run: sudo apt-get update && sudo apt-get install -y glslc spirv-headers ninja-build
+      - name: Build release variant for isolation inspection only
+        run: gradle --no-daemon :app:assembleRelease --stacktrace
+      - name: Verify LAB components are absent from release
+        shell: bash
+        run: |
+          apk="$(find app/build/outputs/apk/release -name '*.apk' -type f | head -n 1)"
+          test -n "$apk"
+          manifest="$(apkanalyzer manifest print "$apk")"
+          packaged_names="$(unzip -Z1 "$apk")"
+          dex_strings="$(unzip -p "$apk" 'classes*.dex' | strings)"
+          for forbidden in RpgOsLabBridgeInitializer LabDiagnosticsActivity LabCodexProvider LAB_CODEX RPGOS_LAB_V1; do
+            ! grep -Fq "$forbidden" <<<"$manifest"
+            ! grep -Fq "$forbidden" <<<"$packaged_names"
+            ! grep -Fq "$forbidden" <<<"$dex_strings"
+          done
