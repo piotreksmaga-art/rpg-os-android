@@ -704,6 +704,7 @@ class ProductionGameEngineCompositionRoot(
     private val semanticApplication:BekkoSemanticApplication?=null,
     private val directorGuidance:DirectorGuidancePort=DirectorGuidancePort.NONE,
     private val npcActivities:NpcActivityContractPort=NpcActivityContractPort.STANDARD,
+    private val npcTravelRoutes:NpcTravelRoutePort=NpcTravelRoutePort.NONE,
     private val npcProgress:NpcWorkProgressPort=NpcWorkProgressPort.NONE
 ){
     private val app=context.applicationContext
@@ -835,7 +836,7 @@ class ProductionGameEngineCompositionRoot(
                             val scope=NpcDecisionScope(input.scope,actor,brain.revision,input.through,if(pending==null)1 else 2,active.playerUid)
                             val mechanical=repository.infrastructureMechanicalActor(actor)
                             repository.projectNpcDecision(scope,trigger,NpcContextProfiles.MOBILE,
-                                {b,records->NpcMechanicalAffordances(combatAbilityContracts,npcActivities).options(b,records,mechanical,DomainRef("PLAYER",active.playerUid))},
+                                {b,records->NpcMechanicalAffordances(combatAbilityContracts,npcActivities,npcTravelRoutes).options(b,records,mechanical,DomainRef("PLAYER",active.playerUid))},
                                 semanticApplication?.npcRecall()?:NpcRecallPort.NONE,staged)
                         }
                     }
