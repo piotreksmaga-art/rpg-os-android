@@ -10,7 +10,8 @@ internal fun npcCombatContractFingerprint(contract:CombatAbilityContract):String
 /** Only capabilities already materialized on the actor are offered. The shared domain contract
  * supplies costs/effect kinds; the model cannot manufacture an ability or an unperceived target. */
 internal class NpcMechanicalAffordances(private val contracts:CombatAbilityContractPort,
-                                      private val activities:NpcActivityContractPort=NpcActivityContractPort.STANDARD) {
+                                      private val activities:NpcActivityContractPort=NpcActivityContractPort.STANDARD,
+                                      private val travelRoutes:NpcTravelRoutePort=NpcTravelRoutePort.NONE) {
     fun options(brain:NpcBrainState,records:List<NpcKnownRecord>,actor:MechanicalActorView?,communicationTarget:DomainRef?=null):List<NpcActionOption> {
         if(actor==null || actor.actor!=brain.actor || actor.campaignUid!=brain.campaignUid ||
             actor.kind !in setOf(MechanicalActorKind.NPC,MechanicalActorKind.MONSTER,MechanicalActorKind.SUMMON,MechanicalActorKind.FORMER_PLAYER))return emptyList()
@@ -24,6 +25,10 @@ internal class NpcMechanicalAffordances(private val contracts:CombatAbilityContr
         // changes no canonical capability list and offers no unregistered action or effect.
         val capabilities=(actor.executableAbilityUids+inherent).sortedWith(compareBy<String>{it !in inherent}.thenBy{it})
         return buildList {
+            // Travel is projected from canonical current location plus holder-authorized destination knowledge.
+            // It does not mutate location and does not prove arrival.
+            addAll(NpcTravelAffordances.options(brain,records,actor,travelRoutes).take(2))
+            if(size>=8)return@buildList
             for(goal in goals) {
                 val evidence=records.singleOrNull{it.acquisitionUid==goal.cause.uid}
                 if(evidence==null && goal.cause.kind!=NpcCauseKind.INTRINSIC_MOTIVATION)continue
