@@ -9,7 +9,7 @@ data class NpcExecutionObjective(val capabilityUid:String,val mechanicsOwnerUid:
 }
 internal data class LocationReachedCriterion(val actor:DomainRef,val destination:DomainRef) {
     init { require(destination.kindUid in setOf("PLACE","LOCATION")){"P61:LOCATION_CRITERION_KIND"} }
-    fun provenBy(result:NpcMechanicalResult.Resolved):Boolean = result.changes.filterIsInstance<SpatialChange>().any {
+    fun provenBy(changes:List<PlayerDomainChangePayload>):Boolean = changes.filterIsInstance<SpatialChange>().any {
         it.subject==actor && it.destinationLocation==destination
     }
 }
@@ -36,7 +36,7 @@ internal object NpcExecutionGoals {
             !selected.authorization.matches(context.scope,context.contextFingerprint,selected.option) || result.effects.isEmpty() ||
             result.effects.any{it.mechanicsOwnerUid!=objective.mechanicsOwnerUid})return null
         if(objective.effectKindUid.substringAfterLast(':').uppercase()==NpcTravelAffordances.EFFECT_KIND &&
-            !LocationReachedCriterion(context.brain.actor,objective.target).provenBy(result))return null
+            !LocationReachedCriterion(context.brain.actor,objective.target).provenBy(result.changes))return null
         return NpcExecutionFulfillment.issue(context,plan,goal)
     }
 }
