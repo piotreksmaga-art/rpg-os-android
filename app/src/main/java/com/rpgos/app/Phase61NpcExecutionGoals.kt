@@ -7,6 +7,13 @@ data class NpcExecutionObjective(val capabilityUid:String,val mechanicsOwnerUid:
     init { npcUid(capabilityUid);npcUid(mechanicsOwnerUid);npcUid(effectKindUid);npcUid(target.kindUid);npcUid(target.uid)
         require(version==1 && actionBinding.matches(Regex("[0-9a-f]{64}"))) }
 }
+internal data class LocationReachedCriterion(val actor:DomainRef,val destination:DomainRef) {
+    init { require(destination.kindUid in setOf("PLACE","LOCATION")){"P61:LOCATION_CRITERION_KIND"} }
+    fun provenBy(result:NpcMechanicalResult.Resolved):Boolean = result.changes.filterIsInstance<SpatialChange>().any {
+        it.subject==actor && it.destinationLocation==destination
+    }
+}
+
 internal object NpcExecutionGoals {
     private fun binding(actor:DomainRef,option:NpcActionOption)=phase60Hash("P61:EXECUTION_OBJECTIVE:1|"+listOf(actor,
         option.capabilityUid,option.mechanicsOwnerUid,option.mechanicalEffectKindUid,option.target?:actor,
@@ -28,6 +35,8 @@ internal object NpcExecutionGoals {
             selected.option.goalUid!=goal.uid || selected.option.uid!=plan.actionUid || result.authorization!=selected.authorization ||
             !selected.authorization.matches(context.scope,context.contextFingerprint,selected.option) || result.effects.isEmpty() ||
             result.effects.any{it.mechanicsOwnerUid!=objective.mechanicsOwnerUid})return null
+        if(objective.effectKindUid.substringAfterLast(':').uppercase()==NpcTravelAffordances.EFFECT_KIND &&
+            !LocationReachedCriterion(context.brain.actor,objective.target).provenBy(result))return null
         return NpcExecutionFulfillment.issue(context,plan,goal)
     }
 }
