@@ -7,6 +7,7 @@ class Phase62NpcTravelContractTest {
     private val origin=DomainRef("PLACE","VILLAGE-A")
     private val destination=DomainRef("PLACE","VILLAGE-B")
     private val route=NpcTravelRouteContract(
+        campaignUid="C1",
         routeUid="ROUTE-A-B",
         version=1,
         origin=origin,
@@ -23,6 +24,7 @@ class Phase62NpcTravelContractTest {
         val port=NpcTravelRoutePort.registered(listOf(reverse,route))
         assertEquals(listOf(route),port.routes("C1",origin))
         assertEquals(listOf(reverse),port.routes("C1",destination))
+        assertTrue(port.routes("C2",origin).isEmpty())
     }
 
     @Test fun routeCannotPretendOriginEqualsDestinationOrHaveZeroDuration() {
