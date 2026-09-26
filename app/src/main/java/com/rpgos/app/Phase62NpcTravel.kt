@@ -1,9 +1,10 @@
 package com.rpgos.app
 
-/**
- * R1 travel contract. It describes a route the canonical world has made available to an NPC.
- * It is not proof that travel started or that the actor arrived.
- */
+import java.util.Collections
+import kotlinx.serialization.json.*
+
+/** A versioned, campaign-owned route, not a record of departure or arrival.
+ * COMPLETION_ONLY_V1 settles costs with arrival; partial/incremental travel is not implied. */
 data class NpcTravelRouteContract(
     val campaignUid:String,
     val routeUid:String,
@@ -14,10 +15,11 @@ data class NpcTravelRouteContract(
     val timingRuleUid:String,
     val mechanicsOwnerUid:String="UNIVERSAL_MOVEMENT",
     val capabilityUid:String="TRAVEL",
-    val resourceCosts:Map<String,Long> = emptyMap()
+    val resourceCosts:Map<String,Long> = emptyMap(),
+    val eligibility:NpcActivityEligibility=NpcActivityEligibility.MATERIALIZED_CAPABILITY
 ) {
     init {
-        npcUid(campaignUid);npcUid(routeUid);npcUid(timingRuleUid);npcUid(mechanicsOwnerUid);npcUid(capabilityUid)
+        listOf(campaignUid,routeUid,timingRuleUid,mechanicsOwnerUid,capabilityUid,origin.uid,destination.uid).forEach(::npcUid)
         require(version>0){"P62:TRAVEL_ROUTE_VERSION"}
         require(origin.kindUid in setOf("PLACE","LOCATION") && destination.kindUid in setOf("PLACE","LOCATION")){"P62:TRAVEL_ROUTE_LOCATION_KIND"}
         require(origin!=destination){"P62:TRAVEL_ROUTE_SAME_LOCATION"}
@@ -25,11 +27,13 @@ data class NpcTravelRouteContract(
         require(resourceCosts.size<=16 && resourceCosts.values.all{it>=0}){"P62:TRAVEL_ROUTE_COST"}
         resourceCosts.keys.forEach(::npcUid)
     }
-    val fingerprint:String get()=phase60Hash("P62:TRAVEL_ROUTE:1|"+listOf(
-        campaignUid,routeUid,version.toString(),origin.kindUid,origin.uid,destination.kindUid,destination.uid,
-        duration.milliseconds.toString(),timingRuleUid,mechanicsOwnerUid,capabilityUid,
-        resourceCosts.toSortedMap().entries.joinToString(","){"${it.key}=${it.value}"}
-    ).joinToString("|"))
+    val fingerprint:String get()=phase60Hash(buildJsonObject {
+        put("contract", "P62:TRAVEL_ROUTE:2");put("campaign",campaignUid);put("route",routeUid);put("version",version)
+        put("origin",NpcBrainCodec.ref(origin));put("destination",NpcBrainCodec.ref(destination))
+        put("duration_ms",duration.milliseconds);put("rule",timingRuleUid);put("owner",mechanicsOwnerUid)
+        put("capability",capabilityUid);put("eligibility",eligibility.name);put("settlement","COMPLETION_ONLY_V1")
+        put("costs",buildJsonObject{resourceCosts.toSortedMap().forEach{(uid,cost)->put(uid,cost)}})
+    }.toString())
 }
 
 fun interface NpcTravelRoutePort {
@@ -37,11 +41,10 @@ fun interface NpcTravelRoutePort {
 
     companion object {
         val NONE=NpcTravelRoutePort{_,_->emptyList()}
-
         fun registered(routes:List<NpcTravelRouteContract>):NpcTravelRoutePort {
             require(routes.size<=1024){"P62:TRAVEL_ROUTE_BUDGET"}
             require(routes.map{Triple(it.campaignUid,it.routeUid,it.version)}.distinct().size==routes.size){"P62:DUPLICATE_TRAVEL_ROUTE"}
-            val snapshot=routes.map{it.copy(resourceCosts=it.resourceCosts.toMap())}
+            val snapshot=routes.map{it.copy(resourceCosts=Collections.unmodifiableMap(LinkedHashMap(it.resourceCosts)))}
             return NpcTravelRoutePort { campaignUid,origin ->
                 npcUid(campaignUid)
                 snapshot.filter{it.campaignUid==campaignUid && it.origin==origin}.sortedWith(compareBy<NpcTravelRouteContract>{it.routeUid}.thenBy{it.version})
@@ -50,10 +53,8 @@ fun interface NpcTravelRoutePort {
     }
 }
 
-/**
- * Projects only routes that start at the actor's current canonical location and whose destination
- * is present in holder-authorized knowledge. The option is still only an intention candidate.
- */
+/** Only current origin, executable travel and holder-authorized destination knowledge create
+ * an option. Route existence alone grants neither capability nor knowledge of its destination. */
 internal object NpcTravelAffordances {
     const val EFFECT_KIND="LOCATION_TRANSITION"
 
@@ -62,52 +63,37 @@ internal object NpcTravelAffordances {
         records:List<NpcKnownRecord>,
         actor:MechanicalActorView?,
         routes:NpcTravelRoutePort,
-        goal:NpcGoal?=brain.goals.firstOrNull{it.lifecycle==NpcGoalLifecycle.ACTIVE}
+        goal:NpcGoal?=brain.goals.filter{it.lifecycle==NpcGoalLifecycle.ACTIVE}
+            .sortedWith(compareByDescending<NpcGoal>{it.priority.basisPoints}.thenBy{it.uid}).firstOrNull()
     ):List<NpcActionOption> {
-        if(actor==null || actor.campaignUid!=brain.campaignUid || actor.actor!=brain.actor)return emptyList()
+        if(actor==null || actor.campaignUid!=brain.campaignUid || actor.actor!=brain.actor ||
+            goal==null || goal !in brain.goals || goal.lifecycle!=NpcGoalLifecycle.ACTIVE)return emptyList()
         val origin=actor.locationRef?:return emptyList()
+        val candidates=routes.routes(brain.campaignUid,origin)
+        require(candidates.size<=1024){"P62:TRAVEL_ROUTE_BUDGET"}
         val knownBySubject=records.flatMap{record->record.subjectRefs.map{it to record.uid}}.groupBy({it.first},{it.second})
-        return routes.routes(brain.campaignUid,origin).mapNotNull { route ->
-            if(route.campaignUid!=brain.campaignUid || route.origin!=origin)return@mapNotNull null
-            val evidence=knownBySubject[route.destination].orEmpty().toSet()
+        return candidates.asSequence().mapNotNull { route ->
+            if(!NpcTravelMechanics.available(actor,route))return@mapNotNull null
+            val evidence=knownBySubject[route.destination].orEmpty().distinct().sorted().take(32).toSet()
             if(evidence.isEmpty())return@mapNotNull null
             NpcActionOption(
-                uid="P62:TRAVEL_OPTION:${phase60Hash("${brain.actor}|${route.fingerprint}").take(32)}",
-                capabilityUid=route.capabilityUid,
-                target=route.destination,
-                timing=AcceptedActionTiming(route.duration,route.timingRuleUid,route.version),
-                goalUid=goal?.uid,
-                traitPreferences=emptyList(),
-                supportingRecordUids=evidence,
-                resourceCosts=route.resourceCosts,
-                parameters=mapOf(
-                    "route_uid" to route.routeUid,
-                    "route_version" to route.version.toString(),
-                    "route_fingerprint" to route.fingerprint,
-                    "destination_kind_uid" to route.destination.kindUid,
-                    "destination_uid" to route.destination.uid
-                ),
-                mechanicsOwnerUid=route.mechanicsOwnerUid,
-                mechanicalEffectKindUid=EFFECT_KIND
+                uid="P62:TRAVEL_OPTION:${phase60Hash("${brain.actor}|${goal.uid}|${route.fingerprint}").take(32)}",
+                capabilityUid=route.capabilityUid,target=route.destination,timing=NpcTravelMechanics.timing(route),goalUid=goal.uid,
+                traitPreferences=emptyList(),supportingRecordUids=evidence,
+                resourceCosts=route.resourceCosts.toMap(),parameters=NpcTravelMechanics.parameters(route),
+                mechanicsOwnerUid=route.mechanicsOwnerUid,mechanicalEffectKindUid=EFFECT_KIND
             )
-        }.take(8)
+        }.take(8).toList()
     }
 
-    /** The ordinary Phase50 materializer remains the owner of the actual location mutation. */
+    /** Payload shape only: a caller must still obtain fresh mechanics and a successful commit. */
     fun arrivalPayload(actor:DomainRef,route:NpcTravelRouteContract)=SpatialChange(
-        subject=actor,
-        deltaXMillimetres=0,
-        deltaYMillimetres=0,
-        destinationLocation=route.destination
+        subject=actor,deltaXMillimetres=0,deltaYMillimetres=0,destinationLocation=route.destination
     )
 
     fun ownerContract(route:NpcTravelRouteContract)=NpcActivityOwnerContract(
-        contractUid="P62:TRAVEL_RESULT:${route.routeUid}",
-        version=route.version,
-        lifecycleOwnerUid=NpcActionProcess.OWNER,
-        resultOwnerUid="RPGOS-P50:SPATIAL",
-        evidenceKindUid="P62:TRAVEL_ARRIVAL_RECEIPT",
-        resultPolicy=NpcActivityResultPolicy.DOMAIN_RESULT_EVIDENCE,
-        allowedCanonicalChangeKindUids=setOf(PlayerChangeKinds.SPATIAL)
+        contractUid="P62:TRAVEL_RESULT:${route.routeUid}",version=route.version,lifecycleOwnerUid=NpcActionProcess.OWNER,
+        resultOwnerUid="RPGOS-P50:SPATIAL",evidenceKindUid="P62:TRAVEL_ARRIVAL_RECEIPT",
+        resultPolicy=NpcActivityResultPolicy.DOMAIN_RESULT_EVIDENCE,allowedCanonicalChangeKindUids=setOf(PlayerChangeKinds.SPATIAL)
     )
 }

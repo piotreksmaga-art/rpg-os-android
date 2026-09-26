@@ -37,7 +37,7 @@ jobs:
         run: |
           gradle --no-daemon :app:testDebugUnitTest \
             --tests 'com.rpgos.app.Phase62NpcActivityLifecycleContractTest' \
-            --tests 'com.rpgos.app.Phase62NpcTravelContractTest' \
+            --tests 'com.rpgos.app.Phase62NpcTravel*Test' \
             --tests 'com.rpgos.app.Phase62NpcActivityContractsTest' \
             --tests 'com.rpgos.app.Phase62NpcMechanicsTest' \
             --tests 'com.rpgos.app.Phase62NpcRecoveryTest' \
