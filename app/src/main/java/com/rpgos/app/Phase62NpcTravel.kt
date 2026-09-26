@@ -5,6 +5,7 @@ package com.rpgos.app
  * It is not proof that travel started or that the actor arrived.
  */
 data class NpcTravelRouteContract(
+    val campaignUid:String,
     val routeUid:String,
     val version:Int,
     val origin:DomainRef,
@@ -16,7 +17,7 @@ data class NpcTravelRouteContract(
     val resourceCosts:Map<String,Long> = emptyMap()
 ) {
     init {
-        npcUid(routeUid);npcUid(timingRuleUid);npcUid(mechanicsOwnerUid);npcUid(capabilityUid)
+        npcUid(campaignUid);npcUid(routeUid);npcUid(timingRuleUid);npcUid(mechanicsOwnerUid);npcUid(capabilityUid)
         require(version>0){"P62:TRAVEL_ROUTE_VERSION"}
         require(origin.kindUid in setOf("PLACE","LOCATION") && destination.kindUid in setOf("PLACE","LOCATION")){"P62:TRAVEL_ROUTE_LOCATION_KIND"}
         require(origin!=destination){"P62:TRAVEL_ROUTE_SAME_LOCATION"}
@@ -25,7 +26,7 @@ data class NpcTravelRouteContract(
         resourceCosts.keys.forEach(::npcUid)
     }
     val fingerprint:String get()=phase60Hash("P62:TRAVEL_ROUTE:1|"+listOf(
-        routeUid,version.toString(),origin.kindUid,origin.uid,destination.kindUid,destination.uid,
+        campaignUid,routeUid,version.toString(),origin.kindUid,origin.uid,destination.kindUid,destination.uid,
         duration.milliseconds.toString(),timingRuleUid,mechanicsOwnerUid,capabilityUid,
         resourceCosts.toSortedMap().entries.joinToString(","){"${it.key}=${it.value}"}
     ).joinToString("|"))
@@ -39,11 +40,11 @@ fun interface NpcTravelRoutePort {
 
         fun registered(routes:List<NpcTravelRouteContract>):NpcTravelRoutePort {
             require(routes.size<=1024){"P62:TRAVEL_ROUTE_BUDGET"}
-            require(routes.map{it.routeUid to it.version}.distinct().size==routes.size){"P62:DUPLICATE_TRAVEL_ROUTE"}
+            require(routes.map{Triple(it.campaignUid,it.routeUid,it.version)}.distinct().size==routes.size){"P62:DUPLICATE_TRAVEL_ROUTE"}
             val snapshot=routes.map{it.copy(resourceCosts=it.resourceCosts.toMap())}
             return NpcTravelRoutePort { campaignUid,origin ->
                 npcUid(campaignUid)
-                snapshot.filter{it.origin==origin}.sortedWith(compareBy<NpcTravelRouteContract>{it.routeUid}.thenBy{it.version})
+                snapshot.filter{it.campaignUid==campaignUid && it.origin==origin}.sortedWith(compareBy<NpcTravelRouteContract>{it.routeUid}.thenBy{it.version})
             }
         }
     }
@@ -67,7 +68,7 @@ internal object NpcTravelAffordances {
         val origin=actor.locationRef?:return emptyList()
         val knownBySubject=records.flatMap{record->record.subjectRefs.map{it to record.uid}}.groupBy({it.first},{it.second})
         return routes.routes(brain.campaignUid,origin).mapNotNull { route ->
-            if(route.origin!=origin)return@mapNotNull null
+            if(route.campaignUid!=brain.campaignUid || route.origin!=origin)return@mapNotNull null
             val evidence=knownBySubject[route.destination].orEmpty().toSet()
             if(evidence.isEmpty())return@mapNotNull null
             NpcActionOption(
