@@ -173,7 +173,7 @@ jobs:
           keytool -genkeypair -v -keystore "$RUNNER_TEMP/rpgos-r1-isolation.jks" \
             -storepass rpgos-ci-only -keypass rpgos-ci-only -alias rpgos \
             -keyalg RSA -keysize 2048 -validity 1 -dname "CN=RPG OS R1 CI"
-          echo "RPGOS_KEYSTORE_PATH=$RUNNER_TEMP/rpgos-r0-isolation.jks" >> "$GITHUB_ENV"
+          echo "RPGOS_KEYSTORE_PATH=$RUNNER_TEMP/rpgos-r1-isolation.jks" >> "$GITHUB_ENV"
           echo "RPGOS_KEYSTORE_PASSWORD=rpgos-ci-only" >> "$GITHUB_ENV"
           echo "RPGOS_KEY_PASSWORD=rpgos-ci-only" >> "$GITHUB_ENV"
       - name: Install native Android build dependencies
