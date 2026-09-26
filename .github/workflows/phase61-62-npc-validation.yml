@@ -33,10 +33,11 @@ jobs:
           gradle-version: "9.5.0"
       - name: Verify exact source SHA
         run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
-      - name: Run Phase61-62 R0 and existing NPC boundary tests
+      - name: Run Phase61-62 R0/R1 and existing NPC boundary tests
         run: |
           gradle --no-daemon :app:testDebugUnitTest \
             --tests 'com.rpgos.app.Phase62NpcActivityLifecycleContractTest' \
+            --tests 'com.rpgos.app.Phase62NpcTravelContractTest' \
             --tests 'com.rpgos.app.Phase62NpcActivityContractsTest' \
             --tests 'com.rpgos.app.Phase62NpcMechanicsTest' \
             --tests 'com.rpgos.app.Phase62NpcRecoveryTest' \
@@ -50,7 +51,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase61-62-r0-targeted-${{ github.sha }}
+          name: phase61-62-r1-targeted-${{ github.sha }}
           path: |
             app/build/test-results/testDebugUnitTest/**
             app/build/reports/tests/testDebugUnitTest/**
@@ -84,7 +85,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase61-62-r0-full-jvm-${{ github.sha }}
+          name: phase61-62-r1-full-jvm-${{ github.sha }}
           path: |
             app/build/test-results/**
             app/build/reports/tests/**
@@ -136,7 +137,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase61-62-r0-android-api-${{ matrix.api-level }}-${{ github.sha }}
+          name: phase61-62-r1-android-api-${{ matrix.api-level }}-${{ github.sha }}
           path: |
             app/build/outputs/androidTest-results/connected/**
             app/build/reports/androidTests/connected/**
@@ -169,9 +170,9 @@ jobs:
       - name: Create ephemeral signing key
         shell: bash
         run: |
-          keytool -genkeypair -v -keystore "$RUNNER_TEMP/rpgos-r0-isolation.jks" \
+          keytool -genkeypair -v -keystore "$RUNNER_TEMP/rpgos-r1-isolation.jks" \
             -storepass rpgos-ci-only -keypass rpgos-ci-only -alias rpgos \
-            -keyalg RSA -keysize 2048 -validity 1 -dname "CN=RPG OS R0 CI"
+            -keyalg RSA -keysize 2048 -validity 1 -dname "CN=RPG OS R1 CI"
           echo "RPGOS_KEYSTORE_PATH=$RUNNER_TEMP/rpgos-r0-isolation.jks" >> "$GITHUB_ENV"
           echo "RPGOS_KEYSTORE_PASSWORD=rpgos-ci-only" >> "$GITHUB_ENV"
           echo "RPGOS_KEY_PASSWORD=rpgos-ci-only" >> "$GITHUB_ENV"
