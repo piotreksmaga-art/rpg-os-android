@@ -69,4 +69,23 @@ class Phase62NpcTravelContractTest {
         assertTrue(LocationReachedCriterion(actor,destination).provenBy(reached))
         assertFalse(LocationReachedCriterion(actor,destination).provenBy(localMove))
     }
+
+    @Test fun travelAffordanceRequiresCurrentOriginAndAuthorizedDestinationKnowledge() {
+        val actorRef=DomainRef("NPC","NPC-1")
+        val base=NpcBrainOwner.initialize("C1",actorRef,"seed")
+        val brain=base.copy(goals=listOf(NpcGoal("G",base.motivations.first().uid,"Dotrzeć do celu",NpcWeight(5000),
+            NpcGoalLifecycle.ACTIVE,NpcCauseRef(NpcCauseKind.INTRINSIC_MOTIVATION,base.motivations.first().uid))))
+        val known=NpcKnownRecord("DEST-KNOWLEDGE",KnowledgeEpistemicState.KNOWN,"Znam drogę do celu.","ACQ",1,setOf(destination))
+        val mechanical=MechanicalActorView("C1",actorRef,MechanicalActorKind.NPC,1,MechanicalStateMaterialization.FULL,
+            emptyMap(),emptyList(),emptySet(),locationRef=origin,generationProvenanceUid="GEN")
+        val port=NpcTravelRoutePort.registered(listOf(route))
+
+        val offered=NpcTravelAffordances.options(brain,listOf(known),mechanical,port)
+        assertEquals(1,offered.size)
+        assertEquals(destination,offered.single().target)
+        assertEquals(NpcTravelAffordances.EFFECT_KIND,offered.single().mechanicalEffectKindUid)
+        assertTrue(NpcTravelAffordances.options(brain,emptyList(),mechanical,port).isEmpty())
+        assertTrue(NpcTravelAffordances.options(brain,listOf(known),mechanical.copy(locationRef=destination),port).isEmpty())
+        assertTrue(NpcTravelAffordances.options(brain,listOf(known),mechanical.copy(campaignUid="C2"),port).isEmpty())
+    }
 }
