@@ -62,17 +62,8 @@ class Phase62NpcTravelContractTest {
 
     @Test fun locationCriterionRequiresTypedSpatialDestinationChange() {
         val actor=DomainRef("NPC","NPC-1")
-        val authorization = NpcActionAuthorization(
-            NpcDecisionScope(TemporalScope("C1","G1",0,"A".repeat(64)),actor,1,WorldTimeTick(0),0,"P1"),
-            "CTX","OPTION","DECISION","B".repeat(64)
-        )
-        val reached=NpcMechanicalResult.Resolved(
-            effects=emptyList(),
-            changes=listOf(SpatialChange(actor,0,0,destination)),
-            timing=AcceptedActionTiming(route.duration,route.timingRuleUid,route.version),
-            authorization=authorization
-        )
-        val localMove=reached.copy(changes=listOf(SpatialChange(actor,100,0,null)))
+        val reached=listOf<PlayerDomainChangePayload>(SpatialChange(actor,0,0,destination))
+        val localMove=listOf<PlayerDomainChangePayload>(SpatialChange(actor,100,0,null))
         assertTrue(LocationReachedCriterion(actor,destination).provenBy(reached))
         assertFalse(LocationReachedCriterion(actor,destination).provenBy(localMove))
     }
