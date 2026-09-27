@@ -834,7 +834,12 @@ class ProductionGameEngineCompositionRoot(
                         }
                         if(trigger==null)NpcContextResult.Unavailable("P62:TRIGGER_NOT_PERCEIVED") else {
                             val scope=NpcDecisionScope(input.scope,actor,brain.revision,input.through,if(pending==null)1 else 2,active.playerUid)
-                            val mechanical=repository.infrastructureMechanicalActor(actor)
+                            val mechanical=repository.infrastructureMechanicalActor(actor)?.let{body->
+                                repository.infrastructureEntityLocationUid(actor.uid)?.let{uid->
+                                    val kind=uid.substringBefore(':',"").takeIf{it in setOf("PLACE","LOCATION")}?:"LOCATION"
+                                    body.copy(locationRef=DomainRef(kind,uid))
+                                }?:body.copy(locationRef=null)
+                            }
                             repository.projectNpcDecision(scope,trigger,NpcContextProfiles.MOBILE,
                                 {b,records->NpcMechanicalAffordances(combatAbilityContracts,npcActivities,npcTravelRoutes).options(b,records,mechanical,DomainRef("PLAYER",active.playerUid))},
                                 semanticApplication?.npcRecall()?:NpcRecallPort.NONE,staged)
