@@ -33,6 +33,19 @@ jobs:
           gradle-version: "9.5.0"
       - name: Verify exact source SHA
         run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - name: Inspect bundled travel profile schema (R1 audit)
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/rpgos-campaign-audit" && mkdir -p "$RUNNER_TEMP/rpgos-campaign-audit"
+          unzip -q app/src/main/assets/Naruto_Default.campaign.zip -d "$RUNNER_TEMP/rpgos-campaign-audit"
+          find "$RUNNER_TEMP/rpgos-campaign-audit" -type f -print
+          db="$(find "$RUNNER_TEMP/rpgos-campaign-audit" -type f \( -name '*.db' -o -name '*.sqlite' \) | head -n 1)"
+          if [ -n "$db" ]; then
+            echo '--- travel_profiles ---'
+            sqlite3 "$db" ".schema travel_profiles" || true
+            echo '--- trade_routes_v2 ---'
+            sqlite3 "$db" ".schema trade_routes_v2" || true
+          fi
       - name: Run Phase61-62 R0/R1 and existing NPC boundary tests
         run: |
           gradle --no-daemon :app:testDebugUnitTest \
