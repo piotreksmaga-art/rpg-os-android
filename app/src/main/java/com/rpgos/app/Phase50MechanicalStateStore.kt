@@ -160,10 +160,21 @@ internal class MechanicalActorStateStore(private val db:SQLiteDatabase,private v
         if(tableExists("active_combat_effects"))db.rawQuery("SELECT effect_key,magnitude FROM active_combat_effects WHERE entity_uid=? AND status='active' AND effect_key LIKE 'CONDITION:%' ORDER BY effect_key",arrayOf(ref.uid)).use{c->while(c.moveToNext())conditions+=MechanicalCondition(c.getString(0).substringAfter("CONDITION:"),c.getDouble(1).toLong().coerceAtLeast(1))}
         if(wound>0)conditions+=MechanicalCondition("WOUND",wound)
         val position=position(ref.uid)
+        // entity_positions.location_uid is the canonical place anchor. Exact coordinates are a
+        // separate spatial projection; never substitute POSITION:<entity> for the location.
+        val location=db.rawQuery("SELECT location_uid FROM entity_positions WHERE entity_uid=? LIMIT 1",arrayOf(ref.uid)).use{cursor->
+            if(!cursor.moveToFirst()||cursor.isNull(0))null else cursor.getString(0)?.takeIf(String::isNotBlank)?.let{uid->
+                val explicitKind=uid.substringBefore(':',"")
+                when(explicitKind){
+                    "PLACE","LOCATION"->DomainRef(explicitKind,uid)
+                    else->DomainRef("LOCATION",uid)
+                }
+            }
+        }
         return MechanicalActorView(
             campaignUid,ref,MechanicalActorKind.valueOf(header[0] as String),header[3] as Long,
             MechanicalStateMaterialization.valueOf(header[1] as String),effectiveAttributes,resources,abilities,traits,resistances,
-            allComponents.filter{it.kind=="EQUIPMENT"}.map{DomainRef("MECHANICAL_COMPONENT",it.uid)},conditions,position?.let{DomainRef("POSITION",ref.uid)},header[2] as String,population(ref)
+            allComponents.filter{it.kind=="EQUIPMENT"}.map{DomainRef("MECHANICAL_COMPONENT",it.uid)},conditions,location,header[2] as String,population(ref)
         )
     }
 
