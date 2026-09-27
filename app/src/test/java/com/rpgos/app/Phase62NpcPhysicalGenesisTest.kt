@@ -51,6 +51,7 @@ class Phase62NpcPhysicalGenesisTest {
         val body=requireNotNull(store.actor(DomainRef("ACTOR","N")))
         assertEquals(MechanicalStateMaterialization.FULL,body.materialization)
         assertEquals(MechanicalActorKind.NPC,body.kind)
+        assertEquals(DomainRef("PLACE","PLACE:VILLAGE"),body.locationRef)
         assertTrue(NpcActivityMechanics.available(body,requireNotNull(NpcActivityContractPort.STANDARD.contract("C1","REST"))))
         assertNotEquals(before,AuthoritativeStateDigest.compute(db))
         db.rawQuery("SELECT location_uid,x_coord,y_coord FROM entity_positions WHERE entity_uid='N'",null).use {
