@@ -1,6 +1,7 @@
 package com.rpgos.app
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabase
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
@@ -64,5 +65,35 @@ class Phase61To62ActivityContractDeviceSmokeTest {
 
         assertEquals(NpcActivityLifecycleStage.COMPLETED, completed.stage)
         assertTrue(completed.provesFullDomainSuccess())
+    }
+
+    @Test
+    fun travelLocationProjectionChangesOnlyWhenSpatialOwnerAppliesArrival() {
+        SQLiteDatabase.create(null).use { db ->
+            db.execSQL("CREATE TABLE rpgos_schema_migrations(migration_id TEXT PRIMARY KEY,applied_at INTEGER,notes TEXT)")
+            db.execSQL("CREATE TABLE entity_positions(entity_uid TEXT PRIMARY KEY,location_uid TEXT,x_coord REAL,y_coord REAL,last_updated_day INTEGER,updated_chapter INTEGER)")
+            Phase50MechanicalSchema.ensureReady(db)
+            val actor=DomainRef("NPC","DEVICE-TRAVEL-NPC")
+            withAdministrativeMutationAuthority(db,"DEVICE-CAMPAIGN") {
+                MechanicalActorStateStore(db,"DEVICE-CAMPAIGN").materializeIfMissing(MechanicalActorSeed(
+                    actor,MechanicalActorKind.NPC,"DEVICE-TEMPLATE","DEVICE-SEED","DEVICE-PROVENANCE",
+                    mapOf("POWER" to 10),listOf(MechanicalResource("HEALTH",100,100)),setOf("WORLD:WALK")
+                ))
+            }
+            db.execSQL("INSERT INTO entity_positions VALUES(?,?,?,?,0,0)",arrayOf<Any?>(actor.uid,"ORIGIN",12.0,34.0))
+            val store=MechanicalActorStateStore(db,"DEVICE-CAMPAIGN")
+            assertEquals(DomainRef("LOCATION","ORIGIN"),store.actor(actor)!!.locationRef)
+
+            db.beginTransaction()
+            try {
+                store.applySpatial(
+                    TurnTransactionIdentity("DEVICE-CAMPAIGN","TURN:DEVICE","CMD:DEVICE","TX:DEVICE"),
+                    "DEVICE-ARRIVAL",SpatialChange(actor,0,0,DomainRef("LOCATION","DESTINATION")),1
+                )
+                db.setTransactionSuccessful()
+            } finally { db.endTransaction() }
+
+            assertEquals(DomainRef("LOCATION","DESTINATION"),store.actor(actor)!!.locationRef)
+        }
     }
 }
