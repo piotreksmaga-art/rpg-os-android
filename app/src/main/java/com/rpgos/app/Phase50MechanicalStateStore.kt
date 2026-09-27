@@ -281,6 +281,9 @@ internal class MechanicalActorStateStore(private val db:SQLiteDatabase,private v
         "INSERT INTO mechanical_actor_tracks(campaign_id,entity_kind_uid,entity_uid,track_uid,current_value,state_version) VALUES(?,?,?,?,?,1)",arrayOf<Any?>(campaignUid,ref.kindUid,ref.uid,uid,value))
     private fun longMap(table:String,key:String,value:String,ref:DomainRef):Map<String,Long>{val out=linkedMapOf<String,Long>();db.rawQuery("SELECT $key,$value FROM $table WHERE campaign_id=? AND entity_kind_uid=? AND entity_uid=? ORDER BY $key",arrayOf(campaignUid,ref.kindUid,ref.uid)).use{c->while(c.moveToNext())out[c.getString(0)]=c.getLong(1)};return out}
     private fun stringSet(table:String,column:String,ref:DomainRef):Set<String>{val out=linkedSetOf<String>();db.rawQuery("SELECT $column FROM $table WHERE campaign_id=? AND entity_kind_uid=? AND entity_uid=? ORDER BY $column",arrayOf(campaignUid,ref.kindUid,ref.uid)).use{c->while(c.moveToNext())out+=c.getString(0)};return out}
+    private fun locationRef(entityUid:String):DomainRef?=if(!tableExists("entity_positions"))null else db.rawQuery("SELECT location_uid FROM entity_positions WHERE entity_uid=? LIMIT 1",arrayOf(entityUid)).use{c->
+        if(!c.moveToFirst()||c.isNull(0))null else c.getString(0)?.takeIf{it.isNotBlank()}?.let{DomainRef("LOCATION",it)}
+    }
     private fun position(entityUid:String):CombatPosition?=if(!tableExists("entity_positions"))null else db.rawQuery("SELECT location_uid,x_coord,y_coord FROM entity_positions WHERE entity_uid=? LIMIT 1",arrayOf(entityUid)).use{c->if(!c.moveToFirst())null else when{!c.isNull(1)&&!c.isNull(2)->CombatPosition.Exact(c.getDouble(1).toLong(),c.getDouble(2).toLong());!c.isNull(0)->CombatPosition.Zone(c.getString(0));else->null}}
     private fun tableExists(name:String)=db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",arrayOf(name)).use{it.moveToFirst()}
 }
