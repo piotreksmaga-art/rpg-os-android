@@ -45,10 +45,12 @@ class Phase62NpcTravelPersistenceTest {
     private fun location(db:SQLiteDatabase)=db.rawQuery("SELECT location_uid FROM entity_positions WHERE entity_uid='N'",null).use{assertTrue(it.moveToFirst());it.getString(0)}
     private fun resource(db:SQLiteDatabase,uid:String)=MechanicalActorStateStore(db,"C1").actor(npc)!!.resources.single{it.resourceUid==uid}.current
     private fun assertOrigin(db:SQLiteDatabase) {
-        assertEquals("A",location(db));assertEquals(98L,resource(db,"STAMINA"));assertEquals(10L,resource(db,"SUPPLIES"))
+        assertEquals("A",location(db));assertEquals(DomainRef("LOCATION","A"),MechanicalActorStateStore(db,"C1").actor(npc)!!.locationRef)
+        assertEquals(98L,resource(db,"STAMINA"));assertEquals(10L,resource(db,"SUPPLIES"))
     }
     private fun assertArrival(db:SQLiteDatabase) {
-        assertEquals("B",location(db));assertEquals(95L,resource(db,"STAMINA"));assertEquals(8L,resource(db,"SUPPLIES"))
+        assertEquals("B",location(db));assertEquals(DomainRef("LOCATION","B"),MechanicalActorStateStore(db,"C1").actor(npc)!!.locationRef)
+        assertEquals(95L,resource(db,"STAMINA"));assertEquals(8L,resource(db,"SUPPLIES"))
         assertEquals(80L,resource(db,"HEALTH"))
     }
 
