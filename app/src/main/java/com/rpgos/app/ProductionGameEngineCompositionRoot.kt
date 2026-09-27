@@ -850,7 +850,11 @@ class ProductionGameEngineCompositionRoot(
                 val actions=if(participants.isEmpty() && snapshot.state.processStates.none{it.ownerUid==NpcActionProcess.OWNER})TemporalProcessExtension.NONE else
                     NpcActionProcess(snapshot.scope,snapshot.state.time,active.playerUid,participants,
                         NpcTimedActionApplication(turnRequest.commandUid,actionContexts,route,{repository.infrastructureTemporalRead().scope},
-                            NpcMechanicalActionApplication(mechanics,{repository.infrastructureTemporalRead().scope}),
+                            NpcMechanicalActionApplication(mechanics,{repository.infrastructureTemporalRead().scope},npcTravelRoutes,
+                                NpcTravelActorReadPort { requestedScope,actor ->
+                                    val current=repository.infrastructureTemporalRead().scope
+                                    if(current!=requestedScope)null else repository.infrastructureMechanicalActor(actor)
+                                }),
                             foregroundAt={input->prepared.filter { effect->timing.schedule.singleOrNull{it.action.uid==effect.nodeUid}?.let{interval->
                                 input.through>=interval.start+ActionDuration(Phase60DomainTiming.effectOffset(effect,interval.action.timing.duration))
                             }==true }},interruptsForeground={effects->npcRequiresForegroundDecision(effects,foregroundSubjects)},progress=npcProgress,
