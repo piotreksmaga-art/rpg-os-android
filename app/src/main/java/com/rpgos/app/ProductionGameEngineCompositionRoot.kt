@@ -853,7 +853,12 @@ class ProductionGameEngineCompositionRoot(
                             NpcMechanicalActionApplication(mechanics,{repository.infrastructureTemporalRead().scope},npcTravelRoutes,
                                 NpcTravelActorReadPort { requestedScope,actor ->
                                     val current=repository.infrastructureTemporalRead().scope
-                                    if(current!=requestedScope)null else repository.infrastructureMechanicalActor(actor)
+                                    if(current!=requestedScope)null else repository.infrastructureMechanicalActor(actor)?.let{body->
+                                        repository.infrastructureEntityLocationUid(actor.uid)?.let{uid->
+                                            val kind=uid.substringBefore(':',"").takeIf{it in setOf("PLACE","LOCATION")}?: "LOCATION"
+                                            body.copy(locationRef=DomainRef(kind,uid))
+                                        }?:body.copy(locationRef=null)
+                                    }
                                 }),
                             foregroundAt={input->prepared.filter { effect->timing.schedule.singleOrNull{it.action.uid==effect.nodeUid}?.let{interval->
                                 input.through>=interval.start+ActionDuration(Phase60DomainTiming.effectOffset(effect,interval.action.timing.duration))
