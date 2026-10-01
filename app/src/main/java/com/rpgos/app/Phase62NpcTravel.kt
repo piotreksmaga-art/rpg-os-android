@@ -37,16 +37,18 @@ data class NpcTravelRouteContract(
 }
 
 fun interface NpcTravelRoutePort {
-    fun routes(campaignUid:String,origin:DomainRef):List<NpcTravelRouteContract>
+    /** Catalog read is actor-scoped so production route authority can apply current access rules
+     * without leaking a global route list into the decision layer. */
+    fun routes(campaignUid:String,actor:DomainRef,origin:DomainRef):List<NpcTravelRouteContract>
 
     companion object {
-        val NONE=NpcTravelRoutePort{_,_->emptyList()}
+        val NONE=NpcTravelRoutePort{_,_,_->emptyList()}
         fun registered(routes:List<NpcTravelRouteContract>):NpcTravelRoutePort {
             require(routes.size<=1024){"P62:TRAVEL_ROUTE_BUDGET"}
             require(routes.map{Triple(it.campaignUid,it.routeUid,it.version)}.distinct().size==routes.size){"P62:DUPLICATE_TRAVEL_ROUTE"}
             val snapshot=routes.map{it.copy(resourceCosts=Collections.unmodifiableMap(LinkedHashMap(it.resourceCosts)))}
-            return NpcTravelRoutePort { campaignUid,origin ->
-                npcUid(campaignUid)
+            return NpcTravelRoutePort { campaignUid,actor,origin ->
+                npcUid(campaignUid);npcUid(actor.kindUid);npcUid(actor.uid)
                 snapshot.filter{it.campaignUid==campaignUid && it.origin==origin}.sortedWith(compareBy<NpcTravelRouteContract>{it.routeUid}.thenBy{it.version})
             }
         }
@@ -69,7 +71,7 @@ internal object NpcTravelAffordances {
         if(actor==null || actor.campaignUid!=brain.campaignUid || actor.actor!=brain.actor ||
             goal==null || goal !in brain.goals || goal.lifecycle!=NpcGoalLifecycle.ACTIVE)return emptyList()
         val origin=actor.locationRef?:return emptyList()
-        val candidates=routes.routes(brain.campaignUid,origin)
+        val candidates=routes.routes(brain.campaignUid,brain.actor,origin)
         require(candidates.size<=1024){"P62:TRAVEL_ROUTE_BUDGET"}
         val knownBySubject=records.flatMap{record->record.subjectRefs.map{it to record.uid}}.groupBy({it.first},{it.second})
         return candidates.asSequence().mapNotNull { route ->
