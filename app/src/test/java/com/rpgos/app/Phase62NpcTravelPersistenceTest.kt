@@ -54,9 +54,27 @@ class Phase62NpcTravelPersistenceTest {
         assertEquals(80L,resource(db,"HEALTH"))
     }
 
+    private fun route()=NpcTravelRouteContract("C1","ROAD",1,DomainRef("PLACE","A"),DomainRef("PLACE","B"),
+        ActionDuration(120000),"WORLD:ROAD",capabilityUid="WORLD:WALK",resourceCosts=mapOf("STAMINA" to 3L,"SUPPLIES" to 2L))
+
+    private fun committedArrivalEvidence(db:SQLiteDatabase,receipt:TurnCommitReceipt):NpcActivityResolutionEvidence? {
+        val route=route();val owner=NpcTravelAffordances.ownerContract(route)
+        val attempt=NpcActivityAttemptIdentity(
+            campaignUid="C1",historyGenerationUid="H",actor=npc,planUid="PLAN:TRAVEL",optionUid="OPTION:TRAVEL",
+            capabilityUid=route.capabilityUid,authorizedAt=WorldTimeTick(0),dueAt=WorldTimeTick(120000),
+            authorizationFingerprint=phase60Hash("TRAVEL-AUTH"),ownerContractFingerprint=owner.fingerprint
+        )
+        val replay=CommittedReplayPayloadStore(db).after("C1",0).singleOrNull{it.identity.transactionUid==receipt.transactionUid}?:return null
+        return NpcTravelArrivalEvidence.fromCommitted(attempt,route,receipt,replay)
+    }
+
     @Test fun costsAndArrivalCommitTogetherAndRetryDoesNotChargeAgain()=SQLiteDatabase.create(null).use{db->
         setup(db);assertOrigin(db)
-        assertTrue(commit(db,"TRAVEL") is TurnExecutionResult.Committed);assertArrival(db)
+        val committed=commit(db,"TRAVEL") as TurnExecutionResult.Committed
+        assertArrival(db)
+        val evidence=requireNotNull(committedArrivalEvidence(db,committed.receipt))
+        assertEquals(NpcActivityResolutionKind.SUCCEEDED,evidence.resolutionKind)
+        assertEquals(listOf(PlayerChangeKinds.SPATIAL),evidence.canonicalEvidence.map{it.changeKindUid})
         val digest=AuthoritativeStateDigest.compute(db)
         assertTrue(commit(db,"TRAVEL") is TurnExecutionResult.AlreadyCommitted)
         assertEquals(digest,AuthoritativeStateDigest.compute(db));assertArrival(db)
