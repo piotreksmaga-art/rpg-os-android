@@ -159,4 +159,63 @@ class Phase62NpcTravelLifecycleTest {
         assertEquals("P62:STALE_SCOPE",(app().complete(started.pending,oldInput){false} as NpcActionCompletion.Unavailable).reasonUid)
         assertEquals(origin,body.locationRef);assertEquals(1,modelCalls)
     }
+
+    @Test fun unavailablePrimaryRouteUsesPreauthorizedAlternativeWithoutSecondAiCall() {
+        val alternateDestination=DomainRef("PLACE","C")
+        val alternate=route.copy(routeUid="ROAD-ALT",destination=alternateDestination,resourceCosts=mapOf("STAMINA" to 1L))
+        var primaryOpen=true
+        val alternateRecord=NpcKnownRecord("R-ALT",KnowledgeEpistemicState.KNOWN,"Znam alternatywne miejsce.","ACQ-ALT",1,setOf(alternateDestination))
+        val routePort=NpcTravelRoutePort { campaign,actor,at ->
+            if(campaign!="C1" || actor!=npc || at!=origin)emptyList()
+            else buildList { if(primaryOpen)add(route);add(alternate) }
+        }
+        var calls=0
+        val decisionProvider=DeterministicAiProvider(
+            AiCapabilityContract("ALT","ALT","ALT",setOf(AiWorkload.NPC_DECISION),maximumContextUnits=8192),
+            intentFunction={error("unused")},proposalFunction={error("unused")},narrativeFunction={error("unused")},
+            npcDecisionFunction={request->
+                calls++
+                val primary=request.context.options.single{it.target==destination}
+                val fallback=request.context.options.single{it.target==alternateDestination}
+                NpcDecisionProposal(request.requestUid,request.context.contextFingerprint,
+                    listOf(NpcDecisionCandidate(primary.uid,onUnavailableOptionUid=fallback.uid)))
+            }
+        )
+        fun projected(i:TemporalOwnerInput,pending:NpcPendingAction?):NpcContextResult.Ready {
+            val state=applyNpcBrainOverlay(brain,scope,i.stagedChanges.filterIsInstance<NpcBrainChange>())
+            val reads=object:NpcProjectionReadPort {
+                override fun brain(a:AudienceContext,p:PurposeContext,actor:DomainRef,h:KnowledgeHolderRef)=
+                    ProtectedReadResult.Allow(state,DisclosureLevel.DISCLOSE_FULL,"SELF")
+                override fun knowledge(a:AudienceContext,p:PurposeContext,h:KnowledgeHolderRef,order:Long,limit:Int)=
+                    ProtectedReadResult.Allow(listOf(record,alternateRecord),DisclosureLevel.DISCLOSE_FULL,"ACQUIRED")
+            }
+            val cause=pending?.let{row->state.plans.single{it.uid==row.planUid}.cause}
+                ?:NpcCauseRef(NpcCauseKind.KNOWLEDGE_ACQUISITION,"ACQ")
+            val trigger=NpcTrigger("T-ALT",if(pending==null)NpcTriggerKind.KNOWLEDGE_CHANGED else NpcTriggerKind.PLAN_BOUNDARY,i.through,cause)
+            return NpcDecisionContextProjector(reads).project(
+                NpcDecisionScope(scope,npc,state.revision,i.through,0,"P"),trigger,state.knowledgeHolder,
+                ContextRuntimeProfile("TEST",8192,64,64,512)
+            ){b,records->NpcTravelAffordances.options(b,records,body,routePort)} as NpcContextResult.Ready
+        }
+        val travelMechanics=NpcMechanicalActionApplication(generic,{scope},routePort,NpcTravelActorReadPort{requested,actor->
+            body.takeIf{requested==scope && actor==npc}
+        })
+        val travelApp=NpcTimedActionApplication(
+            "CMD-ALT",NpcPhysicalContextPort{_,i,p->projected(i,p)},
+            AiModelRoutePort{_,_,_->AiRouteResult.Selected(decisionProvider,true,"ALT")},{scope},travelMechanics
+        )
+        val started=travelApp.prepare(npc,input(0)){false} as NpcActionPreparation.Started
+        val originalOption=started.pending.optionUid
+        primaryOpen=false
+        val done=travelApp.complete(started.pending,input(120000,started.changes)){false} as NpcActionCompletion.Finished
+
+        assertTrue(done.interrupted)
+        assertTrue(done.effects.isEmpty())
+        val continuation=requireNotNull(done.continuation)
+        assertNotEquals(originalOption,continuation.pending.optionUid)
+        assertEquals(alternateDestination,projected(input(120000,started.changes+done.brainChange),null).context.options.single().target)
+        assertEquals(1,calls)
+        assertEquals(origin,body.locationRef)
+    }
+
 }
