@@ -93,7 +93,7 @@ class Phase62NpcTravelLifecycleTest {
         assertEquals(origin,body.locationRef)
         val done=app().complete(pending,input(120000)){false} as NpcActionCompletion.Finished
         assertFalse(done.interrupted)
-        assertTrue(LocationReachedCriterion(npc,destination).provenBy(changes(done.effects)))
+        assertEquals(listOf(SpatialChange(npc,0,0,destination)),changes(done.effects).filterIsInstance<SpatialChange>())
         assertEquals(NpcPlanLifecycle.COMPLETED,NpcBrainCodec.decode(done.brainChange.stateCanonical).plans.single().lifecycle)
         assertEquals(NpcGoalLifecycle.ACTIVE,NpcBrainCodec.decode(done.brainChange.stateCanonical).goals.single().lifecycle)
         assertEquals(1,modelCalls)
