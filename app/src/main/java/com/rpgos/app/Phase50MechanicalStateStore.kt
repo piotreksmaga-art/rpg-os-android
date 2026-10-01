@@ -162,7 +162,7 @@ internal class MechanicalActorStateStore(private val db:SQLiteDatabase,private v
         val position=position(ref.uid)
         // entity_positions.location_uid is the canonical place anchor. Exact coordinates are a
         // separate spatial projection; never substitute POSITION:<entity> for the location.
-        val location=db.rawQuery("SELECT location_uid FROM entity_positions WHERE entity_uid=? LIMIT 1",arrayOf(ref.uid)).use{cursor->
+        val location=if(tableExists("entity_positions"))db.rawQuery("SELECT location_uid FROM entity_positions WHERE entity_uid=? LIMIT 1",arrayOf(ref.uid)).use{cursor->
             if(!cursor.moveToFirst()||cursor.isNull(0))null else cursor.getString(0)?.takeIf(String::isNotBlank)?.let{uid->
                 val explicitKind=uid.substringBefore(':',"")
                 when(explicitKind){
@@ -170,7 +170,7 @@ internal class MechanicalActorStateStore(private val db:SQLiteDatabase,private v
                     else->DomainRef("LOCATION",uid)
                 }
             }
-        }
+        } else null
         return MechanicalActorView(
             campaignUid,ref,MechanicalActorKind.valueOf(header[0] as String),header[3] as Long,
             MechanicalStateMaterialization.valueOf(header[1] as String),effectiveAttributes,resources,abilities,traits,resistances,
