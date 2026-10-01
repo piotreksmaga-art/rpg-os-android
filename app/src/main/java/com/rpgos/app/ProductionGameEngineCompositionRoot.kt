@@ -704,7 +704,7 @@ class ProductionGameEngineCompositionRoot(
     private val semanticApplication:BekkoSemanticApplication?=null,
     private val directorGuidance:DirectorGuidancePort=DirectorGuidancePort.NONE,
     private val npcActivities:NpcActivityContractPort=NpcActivityContractPort.STANDARD,
-    private val npcTravelRoutes:NpcTravelRoutePort=NpcTravelRoutePort.NONE,
+    private val npcTravelRoutes:NpcTravelRoutePort=repository.infrastructureNpcTravelRoutePort(),
     private val npcProgress:NpcWorkProgressPort=NpcWorkProgressPort.NONE
 ){
     private val app=context.applicationContext
