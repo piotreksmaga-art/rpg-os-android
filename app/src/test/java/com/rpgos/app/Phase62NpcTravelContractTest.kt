@@ -6,6 +6,7 @@ import org.junit.Test
 class Phase62NpcTravelContractTest {
     private val origin=DomainRef("PLACE","VILLAGE-A")
     private val destination=DomainRef("PLACE","VILLAGE-B")
+    private val catalogActor=DomainRef("NPC","CATALOG-NPC")
     private val route=NpcTravelRouteContract(
         campaignUid="C1",routeUid="ROUTE-A-B",version=1,origin=origin,destination=destination,
         duration=ActionDuration(120_000),timingRuleUid="WORLD:ROAD_TRAVEL_V1",resourceCosts=mapOf("STAMINA" to 3)
@@ -15,9 +16,9 @@ class Phase62NpcTravelContractTest {
         assertEquals(route.fingerprint,route.copy().fingerprint)
         val reverse=route.copy(routeUid="ROUTE-B-A",origin=destination,destination=origin)
         val port=NpcTravelRoutePort.registered(listOf(reverse,route))
-        assertEquals(listOf(route),port.routes("C1",origin))
-        assertEquals(listOf(reverse),port.routes("C1",destination))
-        assertTrue(port.routes("C2",origin).isEmpty())
+        assertEquals(listOf(route),port.routes("C1",catalogActor,origin))
+        assertEquals(listOf(reverse),port.routes("C1",catalogActor,destination))
+        assertTrue(port.routes("C2",catalogActor,origin).isEmpty())
     }
 
     @Test fun routeCannotPretendOriginEqualsDestinationOrHaveZeroDuration() {
@@ -42,7 +43,7 @@ class Phase62NpcTravelContractTest {
         val mutable=mutableMapOf("STAMINA" to 3L)
         val port=NpcTravelRoutePort.registered(listOf(route.copy(resourceCosts=mutable)))
         mutable["STAMINA"]=99
-        assertEquals(3L,port.routes("C1",origin).single().resourceCosts["STAMINA"])
+        assertEquals(3L,port.routes("C1",catalogActor,origin).single().resourceCosts["STAMINA"])
     }
 
     @Test fun locationCriterionRequiresTypedSpatialDestinationChange() {
@@ -75,12 +76,12 @@ class Phase62NpcTravelContractTest {
     @Test fun sameRouteIdentityInDifferentCampaignsDoesNotCollide() {
         val other=route.copy(campaignUid="C2")
         val port=NpcTravelRoutePort.registered(listOf(route,other))
-        assertEquals(listOf(route),port.routes("C1",origin));assertEquals(listOf(other),port.routes("C2",origin))
+        assertEquals(listOf(route),port.routes("C1",catalogActor,origin));assertEquals(listOf(other),port.routes("C2",catalogActor,origin))
         assertNotEquals(route.fingerprint,other.fingerprint)
     }
 
     @Test fun registryDoesNotExposeMutableCostsAndEligibilityIsPartOfIdentity() {
-        val stored=NpcTravelRoutePort.registered(listOf(route)).routes("C1",origin).single()
+        val stored=NpcTravelRoutePort.registered(listOf(route)).routes("C1",catalogActor,origin).single()
         assertThrows(UnsupportedOperationException::class.java) { (stored.resourceCosts as MutableMap<String,Long>)["STAMINA"]=99L }
         assertEquals(route.fingerprint,stored.fingerprint)
         assertNotEquals(route.fingerprint,route.copy(eligibility=NpcActivityEligibility.CONSCIOUS_SELF).fingerprint)
