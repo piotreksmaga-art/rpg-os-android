@@ -76,6 +76,9 @@ class Phase62NpcTravelPersistenceTest {
         assertEquals(NpcActivityResolutionKind.SUCCEEDED,evidence.resolutionKind)
         assertEquals(listOf(PlayerChangeKinds.SPATIAL),evidence.canonicalEvidence.map{it.changeKindUid})
         assertTrue(LocationReachedCriterion(npc,route().destination).provenBy(attempt(),route(),evidence))
+        assertNull(NpcTravelArrivalEvidence.fromStore(
+            db,attempt(),route().copy(resourceCosts=mapOf("STAMINA" to 4L,"SUPPLIES" to 2L)),committed.receipt.transactionUid
+        ))
         val digest=AuthoritativeStateDigest.compute(db)
         assertTrue(commit(db,"TRAVEL") is TurnExecutionResult.AlreadyCommitted)
         assertEquals(digest,AuthoritativeStateDigest.compute(db));assertArrival(db)
