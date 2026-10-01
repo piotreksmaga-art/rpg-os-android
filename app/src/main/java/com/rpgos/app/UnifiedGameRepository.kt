@@ -87,6 +87,11 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     private fun openGameplaySaveDb(): SQLiteDatabase = store.openGameplaySaveDb()
     internal fun infrastructureOpenWorldDb(): SQLiteDatabase = store.openWorldDb()
     internal fun infrastructureOpenCoreDb(): SQLiteDatabase = store.openCoreDb()
+    internal fun infrastructureNpcTravelRoutePort():NpcTravelRoutePort = SqliteNpcTravelRouteCatalog(
+        currentCampaign={activeCampaignRef().campaignId},
+        openCampaignDb={openGameplaySaveDb()},
+        openWorldDb={store.openWorldDb()}
+    )
     internal fun infrastructureReceipt(transactionUid:String):TurnCommitReceipt? =
         openGameplaySaveDb().use{TurnTransactionReceiptStore(it).committedTransaction(transactionUid)}
     internal fun infrastructureLastCommitOrder():Long =
