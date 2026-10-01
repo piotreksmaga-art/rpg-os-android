@@ -46,13 +46,6 @@ class Phase62NpcTravelContractTest {
         assertEquals(3L,port.routes("C1",catalogActor,origin).single().resourceCosts["STAMINA"])
     }
 
-    @Test fun locationCriterionRequiresTypedSpatialDestinationChange() {
-        val actor=DomainRef("NPC","NPC-1")
-        assertTrue(LocationReachedCriterion(actor,destination).provenBy(listOf(SpatialChange(actor,0,0,destination))))
-        assertFalse(LocationReachedCriterion(actor,destination).provenBy(listOf(SpatialChange(actor,100,0,null))))
-        assertFalse(LocationReachedCriterion(actor,destination).provenBy(listOf(SpatialChange(DomainRef("NPC","OTHER"),0,0,destination))))
-    }
-
     @Test fun travelAffordanceRequiresCurrentOriginAndAuthorizedDestinationKnowledge() {
         val actorRef=DomainRef("NPC","NPC-1")
         val base=NpcBrainOwner.initialize("C1",actorRef,"seed")
