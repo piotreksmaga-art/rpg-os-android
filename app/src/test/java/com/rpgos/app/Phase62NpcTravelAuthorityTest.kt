@@ -3,6 +3,12 @@ package com.rpgos.app
 import android.database.sqlite.SQLiteDatabase
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk=[34])
 
 class Phase62NpcTravelAuthorityTest {
     private val origin=DomainRef("LOCATION","A")
