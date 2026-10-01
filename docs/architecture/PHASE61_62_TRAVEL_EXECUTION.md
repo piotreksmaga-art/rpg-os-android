@@ -1,39 +1,164 @@
-# Phase61–62 R1 — rozstrzygnięcie podróży i testy lifecycle
+# Phase61–62 R1 — podróż NPC
 
-Status: **KANDYDAT, NIE COMPLETE**. Bazowy kod audytu: `754b333fa2235741cf6736d0e0d9cf4346bff3e8`.
+Status: **R1 COMPLETE CANDIDATE — merge wyłącznie po exact-SHA GREEN**.  
+Baza R0: `4e6debebf4df04b165aa59f94fead65d57fa77ca`.
 
-## Rozpoznany brak
+## Niezmienny kontrakt
 
-W bazie `NpcTravelRoutePort` trafiał tylko do affordances. Ogólny resolver `LOCATION_TRANSITION` produkował zmianę lokacji bez ponownego odczytu kontraktu trasy i bez rozliczenia `resourceCosts`. Zielony test samego kształtu kontraktu nie dowodził wykonania podróży.
+```text
+NPC intent / plan
+!= rozpoczęcie podróży
+!= upływ czasu
+!= dotarcie
 
-## Wdrożone w tym pakiecie
+Dotarcie =
+jawny kontrakt trasy
++ aktualny dostęp aktora
++ świeży preflight
++ Phase60 boundary
++ Phase50 SpatialChange
++ zwykły TurnTransaction
++ persisted receipt + committed replay
+```
 
-`NpcMechanicalActionApplication` ma osobną, fail-closed ścieżkę podróży. Wymaga `NpcTravelRoutePort` oraz `NpcTravelActorReadPort`; nie przekazuje niezweryfikowanej podróży do ogólnego resolvera ruchu. Dotychczasowy konstruktor z dwoma argumentami pozostaje zgodny źródłowo, ale odmawia podróży bez readera. Inne rodzaje czynności zachowują poprzedni resolver.
+Phase62 nie jest właścicielem pozycji, zasobów ani czasu. Model nie może utworzyć trasy, przyznać dostępu, określić sukcesu ani zapisać lokacji.
 
-`NpcTravelMechanics` sprawdza autoryzację konkretnej opcji, kampanię i aktora, aktualną trasę, origin/destination, capability, fingerprint kontraktu, materializację, przytomność, HEALTH oraz wszystkie dodatnie koszty zasobów. Uwzględnia wydatki z efektów staged. Ruch tego aktora w tej samej turze unieważnia stary origin; nie zgadujemy nowego punktu startowego.
+## Authority trasy
 
-Koszty każdego zasobu mają osobne verified effects. `LOCATION_TRANSITION` nadal przechodzi przez `MechanicalEffectMaterializer` do `SpatialChange`. Nie powstaje nowy writer pozycji, zasobów ani osobna baza podróży.
+R1 dodaje administracyjną rodzinę definicji:
 
-Wersjonowana polityka `COMPLETION_ONLY_V1`: koszt i dotarcie są rozliczane razem dopiero po pomyślnym zakończeniu. Przerwanie nie pobiera kosztu ani nie przyznaje częściowego postępu. To świadomie ograniczona polityka; nie oznacza modelowania etapów drogi lub zużycia zapasów w trakcie marszu. Takie skutki wymagają osobnego kontraktu, nie obejścia Phase60.
+- `rpgos_travel_route_definitions`;
+- `rpgos_travel_route_costs`;
+- `rpgos_travel_route_access`.
 
-Metadata czasu pochodzi z nowego core-owned `P62:TRAVEL_ROUTE_MS_V1`. Oryginalny identyfikator reguły świata pozostaje w provenance. Preflight niczego nie zapisuje; completion ponownie odczytuje stan. Phase60 nadal posiada termin i pending action.
+Jest klasyfikowana jako `MECHANICS_DEFINITION_AUTHORITY`, tworzona tylko przez jawny bootstrap/migrację i chroniona administrative guards. Zwykły gameplay nie może dodawać ani zmieniać tras.
 
-Fingerprint trasy v2 koduje pola strukturalnie, obejmuje kampanię, koszty i eligibility. Rejestr nie udostępnia mutowalnej mapy kosztów. Identyfikator opcji obejmuje również cel NPC. Zmiana tego kontraktu unieważnia stare opcje kandydata R1; nie modyfikuje eventów ani wcześniej zatwierdzonego świata.
+`SqliteNpcTravelRoutePort` odczytuje wyłącznie:
 
-## Dodane dowody do wykonania w CI
+- aktywną trasę dokładnej kampanii;
+- dokładny origin;
+- wersję kontraktu;
+- jawny czas i regułę czasu;
+- koszt zasobów;
+- eligibility/capability;
+- politykę `PUBLIC` albo dokładny grant aktora.
 
-- `Phase62NpcTravelLifecycleTest`: rzeczywisty decision/context pipeline, nowy resolver i stary Phase50 materializer; koszty dwóch zasobów; preflight bez mutacji; pending-action codec; przedwczesny termin; ponowne zbudowanie aplikacji i wznowienie bez kolejnego wywołania AI; usunięcie drogi; zmiana kontraktu bez podbicia wersji; utrata wiedzy; utrata wykonalności; zmiana origin; staged wydatki/ruch; anulowanie i porzucona historia; zakaz fallbacku.
-- `Phase62NpcTravelPersistenceTest`: zapis rzeczywiście rozstrzygniętych efektów przez wspólny `TurnTransaction`, idempotentny retry, rollback między zapisami, ponowne otwarcie pliku SQLite oraz undo i alternatywna transakcja.
-- Rozszerzony `Phase62NpcTravelContractTest`: eligibility, zasoby, zakaz przejęcia gracza, izolacja kampanii i niemutowalny rejestr.
+Legacy `travel_profiles` opisuje profile prędkości, a `trade_routes_v2` gospodarkę. Żaden z nich nie jest automatycznie promowany do fizycznej drogi. Dwie istniejące lokacje również nie tworzą połączenia.
 
-To są dodane testy, nie deklaracja ich zaliczenia. CI musi potwierdzić wynik na konkretnym SHA. Round-trip kodeka i otwarcie SQLite nie zastępują Android process-death acceptance. Dotychczasowy smoke API 28/36 testuje R0, nie pełną podróż R1.
+World Pack lub narzędzie administracyjne może dostarczyć dowolne własne UID-y tras bez dodawania nazw świata do Core.
 
-## Otwarte zadania przed odbiorem R1
+## Affordance
 
-1. Podłączyć oba nowe porty do produkcyjnego wywołania `NpcMechanicalActionApplication`, nie tylko do menu opcji. Aktualny composition root nadal używa konstruktora dwuargumentowego; podróż pozostaje tam celowo zablokowana bez nowego readera.
-2. Zbudować prawidłową projekcję lokacji z canonical spatial ownera. `MechanicalActorStateStore.actor()` w bazowym kodzie umieszcza w `locationRef` referencję `POSITION:<entity>`, a nie `PLACE/LOCATION:<location_uid>`. Nie wolno uznać jej za origin, zamienić na lokację gracza ani naprawiać przez zapis podczas odczytu. Affordances i completion muszą korzystać ze zgodnego, scope-checked odczytu miejsca.
-3. Dostarczyć rzeczywiste kontrakty tras z właściciela świata; domyślny katalog pozostaje `NONE`. Rozstrzygnąć autoryzację dostępu konkretnego aktora do trasy, nie tylko wiedzę o destination. Obecny port katalogowy nie jest pełną polityką per-actor dostępu.
-4. Zweryfikować plany wieloetapowe, alternatywy, pending action razem z canonical temporal state i Android kill/restart na produkcyjnym composition root.
-5. Formalne arrival receipt wolno wydać dopiero na podstawie zatwierdzonego commitu. Verified effects i wynik `LocationReachedCriterion` przed commitem są materiałem transakcji, a nie dowodem, że świat już się zmienił.
+Opcja podróży istnieje tylko, gdy równocześnie:
 
-Fazy 61–62 i R1 pozostają PARTIAL. Bez zmian zakresu 63–64/72, bez wydania APK i bez wymogu lokalnego telefonu. Integracja AI pozostaje provider-independent.
+1. `MechanicalActorView` należy do właściwej kampanii i aktora;
+2. canonical `locationRef` dokładnie odpowiada origin trasy;
+3. aktualny route authority dopuszcza trasę dla tego aktora;
+4. destination jest już w legalnej holder-scoped wiedzy NPC;
+5. aktor spełnia eligibility/capability;
+6. aktor jest materializowany i zdolny do działania;
+7. posiada wymagane zasoby.
+
+Samo istnienie trasy nie ujawnia destination. Phase37/38 nadal kontroluje wiedzę.
+
+## Stan przestrzenny
+
+`MechanicalActorStateStore.actor()` projektuje `locationRef` z canonical `entity_positions.location_uid`, a nie z technicznego `POSITION:<entity>`. Exact coordinates pozostają osobnym odczytem. Brak legacy tabeli pozycji daje `locationRef=null`, nie fikcyjną lokację i nie zapis przy odczycie.
+
+## Wykonanie
+
+`NpcTravelMechanics` ma osobną fail-closed ścieżkę w `NpcMechanicalActionApplication`.
+
+Start:
+
+- Core wybiera istniejącą opcję;
+- wykonuje preflight;
+- zapisuje wyłącznie `NpcPendingAction` i deadline;
+- preflight effects są odrzucane.
+
+Completion:
+
+- nie ma drugiego wywołania modelu;
+- ponownie odczytywany jest current scope;
+- ponownie odczytywany jest canonical actor/location;
+- route authority jest ponownie pytane o dokładnego aktora;
+- route fingerprint, destination, capability, koszt i timing muszą nadal odpowiadać saved intention;
+- staged movement lub staged koszt zasobu może unieważnić próbę;
+- dopiero wtedy powstają verified effects.
+
+Polityka `COMPLETION_ONLY_V1` rozlicza wszystkie koszty i `LOCATION_TRANSITION` razem. Przerwanie nie przyznaje częściowej drogi ani kosztu. Etapowe zużycie zasobów wymaga w przyszłości osobnego kontraktu.
+
+`LOCATION_TRANSITION` przechodzi przez istniejący Phase50 materializer do `SpatialChange`; nie ma nowego writera pozycji.
+
+## Plany i alternatywa
+
+Pending action nie serializuje przyszłych efektów. Round-trip zachowuje zamiar, czas i regułę.
+
+Jeśli pierwsza preautoryzowana trasa znika przy granicy czasu, wcześniej wskazana alternatywa może zostać rozpoczęta po nowym context/preflight bez drugiego AI call. Alternatywa nie może pojawić się znikąd ani obejść aktualnej wiedzy, route authority lub mechaniki.
+
+## Arrival evidence i cele
+
+Speculative `SpatialChange`, verified effect oraz zakończony plan nie oznaczają osiągnięcia celu.
+
+`NpcTravelArrivalEvidence` wydaje `NpcActivityResolutionEvidence` wyłącznie z:
+
+- persisted V3 `TurnCommitReceipt`;
+- dokładnego `CommittedReplayPayload` tej samej transakcji;
+- dokładnego route fingerprint;
+- dokładnego committed `SpatialChange` do destination;
+- dokładnego zestawu committed kosztów tej trasy.
+
+Brak receipt/replay, inna trasa, dodatkowy lub brakujący koszt, błędny destination albo materiał po Undo nie daje arrival evidence.
+
+`LocationReachedCriterion` jest post-commit. Precommit travel completion pozostaje goal-neutral.
+
+## Recovery, replay i undo
+
+JVM acceptance obejmuje:
+
+- wspólny TurnTransaction;
+- atomiczne koszty + arrival;
+- idempotentny retry;
+- rollback po części zapisów;
+- reopen SQLite;
+- replay;
+- destructive undo;
+- inną transakcję po Undo;
+- unieważnienie starego arrival evidence po Undo.
+
+Android API 28/36 wykonuje dodatkowy host-driven gate:
+
+1. zapisuje realny `NpcPendingAction` w `FileTemporalCheckpointStore`;
+2. host wykonuje `am force-stop`;
+3. nowy instrumentation process ponownie odczytuje checkpoint;
+4. canonical location i zasoby nadal są sprzed podróży.
+
+Ten gate nie dokonuje bezpośredniego zapisu po restarcie. Zwykły TurnTransaction jest oddzielnie udowodniony przez test persistence.
+
+## Acceptance R1
+
+Obowiązkowe przed merge:
+
+- targeted JVM: lifecycle, route authority, contracts, persistence, recovery;
+- pełny `:app:testDebugUnitTest` i `:app:testLabDebugUnitTest`;
+- Android emulator API 28;
+- Android emulator API 36;
+- host process-death pending-travel gate;
+- release isolation;
+- Phase55–59 regression;
+- exact SHA zapisany w PR.
+
+R1 nie wymaga fizycznego telefonu ani lokalnego modelu. Te bramki pozostają odłożone zgodnie z przyjętym trybem pracy.
+
+## Granice dalszych faz
+
+R1 nie implementuje:
+
+- treningu/nauki/czytania — R2;
+- leczenia — R3;
+- obowiązków — R4;
+- szerszej percepcji i legacy NPC completion — R5;
+- Living World / globalnej topologii dynamicznej — Phase63–64;
+- branchingu — Phase72.
+
+Fazy 61–62 pozostają `PARTIAL`, dopóki R2–R5 i końcowy odbiór całego bloku nie zostaną zakończone.
