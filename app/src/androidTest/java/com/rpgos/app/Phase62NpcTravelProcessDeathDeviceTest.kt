@@ -83,21 +83,11 @@ class Phase62NpcTravelProcessDeathDeviceTest {
 
         SQLiteDatabase.openDatabase(dbFile.absolutePath,null,SQLiteDatabase.OPEN_READWRITE).use { db->
             val store=MechanicalActorStateStore(db,campaign)
-            // Process death cannot advance world position or charge resources.
+            // Process death cannot advance world position or charge resources. The separate
+            // persistence acceptance proves the ordinary TurnTransaction path; this device gate
+            // deliberately does not bypass it with a direct state-store write.
             assertEquals(DomainRef("LOCATION","ORIGIN"),store.actor(actor)!!.locationRef)
             assertEquals(20L,store.actor(actor)!!.resources.single{it.resourceUid=="STAMINA"}.current)
-
-            db.beginTransaction()
-            try {
-                store.applySpatial(
-                    TurnTransactionIdentity(campaign,"TURN:DEVICE-R1","CMD:DEVICE-R1-COMMIT","TX:DEVICE-R1"),
-                    "DEVICE-R1-ARRIVAL",
-                    SpatialChange(actor,0,0,DomainRef("LOCATION","DESTINATION")),
-                    1
-                )
-                db.setTransactionSuccessful()
-            } finally { db.endTransaction() }
-            assertEquals(DomainRef("LOCATION","DESTINATION"),store.actor(actor)!!.locationRef)
         }
         FileTemporalCheckpointStore(checkpointDir).remove(campaign,command)
         dbFile.delete()
