@@ -6,6 +6,19 @@ package com.rpgos.app
  * written by the same TurnTransaction and bound to the exact route fingerprint.
  */
 internal object NpcTravelArrivalEvidence {
+    fun fromStore(
+        db:android.database.sqlite.SQLiteDatabase,
+        attempt:NpcActivityAttemptIdentity,
+        route:NpcTravelRouteContract,
+        transactionUid:String
+    ):NpcActivityResolutionEvidence? {
+        val receipt=TurnTransactionReceiptStore(db).committedTransaction(transactionUid)?:return null
+        val order=receipt.commitOrder?:return null
+        val replay=CommittedReplayPayloadStore(db).between(attempt.campaignUid,order-1L,order)
+            .singleOrNull{it.identity.transactionUid==transactionUid}?:return null
+        return fromCommitted(attempt,route,receipt,replay)
+    }
+
     fun fromCommitted(
         attempt:NpcActivityAttemptIdentity,
         route:NpcTravelRouteContract,
