@@ -49,6 +49,9 @@ jobs:
             sqlite3 "$db" ".schema travel_profiles" || true
             echo '--- trade_routes_v2 ---'
             sqlite3 "$db" ".schema trade_routes_v2" || true
+            echo '--- spatial/travel candidate tables ---'
+            sqlite3 "$db" "SELECT name FROM sqlite_master WHERE type='table' AND (lower(name) LIKE '%location%' OR lower(name) LIKE '%route%' OR lower(name) LIKE '%road%' OR lower(name) LIKE '%path%' OR lower(name) LIKE '%travel%' OR lower(name) LIKE '%region%' OR lower(name) LIKE '%distance%') ORDER BY name;" || true
+            sqlite3 "$db" "SELECT sql FROM sqlite_master WHERE type='table' AND (lower(name) LIKE '%location%' OR lower(name) LIKE '%route%' OR lower(name) LIKE '%road%' OR lower(name) LIKE '%path%' OR lower(name) LIKE '%travel%' OR lower(name) LIKE '%region%' OR lower(name) LIKE '%distance%') ORDER BY name;" || true
           fi
       - name: Run Phase61-62 R0/R1 and existing NPC boundary tests
         run: |
