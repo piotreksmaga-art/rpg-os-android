@@ -37,22 +37,6 @@ jobs:
           gradle-version: "9.5.0"
       - name: Verify exact source SHA
         run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
-      - name: Inspect bundled travel profile schema (R1 audit)
-        shell: bash
-        run: |
-          rm -rf "$RUNNER_TEMP/rpgos-campaign-audit" && mkdir -p "$RUNNER_TEMP/rpgos-campaign-audit"
-          unzip -q app/src/main/assets/Naruto_Default.campaign.zip -d "$RUNNER_TEMP/rpgos-campaign-audit"
-          find "$RUNNER_TEMP/rpgos-campaign-audit" -type f -print
-          db="$(find "$RUNNER_TEMP/rpgos-campaign-audit" -type f \( -name '*.db' -o -name '*.sqlite' \) | head -n 1)"
-          if [ -n "$db" ]; then
-            echo '--- travel_profiles ---'
-            sqlite3 "$db" ".schema travel_profiles" || true
-            echo '--- trade_routes_v2 ---'
-            sqlite3 "$db" ".schema trade_routes_v2" || true
-            echo '--- spatial/travel candidate tables ---'
-            sqlite3 "$db" "SELECT name FROM sqlite_master WHERE type='table' AND (lower(name) LIKE '%location%' OR lower(name) LIKE '%route%' OR lower(name) LIKE '%road%' OR lower(name) LIKE '%path%' OR lower(name) LIKE '%travel%' OR lower(name) LIKE '%region%' OR lower(name) LIKE '%distance%') ORDER BY name;" || true
-            sqlite3 "$db" "SELECT sql FROM sqlite_master WHERE type='table' AND (lower(name) LIKE '%location%' OR lower(name) LIKE '%route%' OR lower(name) LIKE '%road%' OR lower(name) LIKE '%path%' OR lower(name) LIKE '%travel%' OR lower(name) LIKE '%region%' OR lower(name) LIKE '%distance%') ORDER BY name;" || true
-          fi
       - name: Run Phase61-62 R0/R1 and existing NPC boundary tests
         run: |
           gradle --no-daemon :app:testDebugUnitTest \
