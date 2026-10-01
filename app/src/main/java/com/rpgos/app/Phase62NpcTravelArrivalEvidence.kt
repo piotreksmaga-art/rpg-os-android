@@ -3,7 +3,7 @@ package com.rpgos.app
 /**
  * Post-commit proof for travel. Verified effects and pre-commit SpatialChange candidates are not
  * arrival receipts. This adapter accepts only a persisted V3 receipt plus the exact replay payload
- * written by the same TurnTransaction.
+ * written by the same TurnTransaction and bound to the exact route fingerprint.
  */
 internal object NpcTravelArrivalEvidence {
     fun fromCommitted(
@@ -27,17 +27,35 @@ internal object NpcTravelArrivalEvidence {
         if(replay.changeSet.campaignUid!=receipt.campaignUid ||
             replay.changeSet.sourceCommandUid!=receipt.commandUid)return null
 
-        val arrivals=replay.changeSet.changes.filter { change->
+        val sourcePrefix="P62:TRAVEL:${route.fingerprint}:"
+        val travelChanges=replay.changeSet.changes.filter{it.sourceRuleUid?.startsWith(sourcePrefix)==true}
+
+        val arrivals=travelChanges.filter { change->
             if(change.changeKindUid!=PlayerChangeKinds.SPATIAL)return@filter false
             val spatial=change.payload as? SpatialChange?:return@filter false
-            spatial.subject==attempt.actor && spatial.destinationLocation==route.destination
+            spatial.subject==attempt.actor && spatial.destinationLocation==route.destination &&
+                spatial.deltaXMillimetres==0L && spatial.deltaYMillimetres==0L
         }
         if(arrivals.size!=1)return null
         val arrival=arrivals.single()
+
+        val expectedCosts=route.resourceCosts.filterValues{it>0}.toSortedMap()
+        val actualCosts=travelChanges.mapNotNull { change->
+            if(change.changeKindUid!=PlayerChangeKinds.RESOURCE)return@mapNotNull null
+            val resource=change.payload as? ResourceChange?:return@mapNotNull null
+            if(resource.subject!=attempt.actor || resource.delta.units>=0)return@mapNotNull null
+            resource.resourceUid to Math.negateExact(resource.delta.units)
+        }
+        if(actualCosts.size!=actualCosts.map{it.first}.distinct().size)return null
+        if(actualCosts.toMap().toSortedMap()!=expectedCosts)return null
+
+        if(travelChanges.size!=expectedCosts.size+1)return null
+
         val sourceFingerprint=phase60Hash(
-            "P62:TRAVEL_COMMITTED_ARRIVAL:1|" +
+            "P62:TRAVEL_COMMITTED_ARRIVAL:2|" +
                 listOf(receipt.transactionUid,order.toString(),receipt.semanticFingerprint,
-                    receipt.resultFingerprint,replay.payloadSha256,arrival.changeUid,route.fingerprint).joinToString("|")
+                    receipt.resultFingerprint,replay.payloadSha256,arrival.changeUid,route.fingerprint,
+                    expectedCosts.entries.joinToString(","){"${it.key}=${it.value}"}).joinToString("|")
         )
         return NpcActivityResolutionEvidence(
             attemptFingerprint=attempt.fingerprint,
