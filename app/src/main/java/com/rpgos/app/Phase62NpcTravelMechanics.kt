@@ -49,7 +49,7 @@ internal object NpcTravelMechanics {
         // Precise staged routes require a later spatial-owner projection, not guessed coordinates.
         if(StagedMechanicalProjection.hasSpatialChange(setOf(canonicalActor.actor),context.stagedEffects))return fail("TRAVEL_ORIGIN_CHANGED_IN_TURN")
         val origin=canonicalActor.locationRef?:return fail("TRAVEL_ORIGIN_UNKNOWN")
-        val current=routes.routes(context.campaignUid,origin)
+        val current=routes.routes(context.campaignUid,canonicalActor.actor,origin)
         if(current.size>1024)return fail("TRAVEL_ROUTE_BUDGET")
         val route=current.singleOrNull{it.campaignUid==context.campaignUid && it.origin==origin &&
             it.routeUid==request.parameters["route_uid"] && it.version.toString()==request.parameters["route_version"]}
