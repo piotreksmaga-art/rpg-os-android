@@ -463,6 +463,10 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         openGameplaySaveDb().use{MechanicalActorStateStore(it,activeCampaignRef().campaignId).population(ref)}
     internal fun infrastructureAggregateTargets(phrase:String):List<Pair<String,DomainRef>> =
         openGameplaySaveDb().use{MechanicalActorStateStore(it,activeCampaignRef().campaignId).aggregateTargets(phrase)}
+    internal fun infrastructureNpcTravelRoutePort():NpcTravelRoutePort = NpcTravelRoutePort { campaignUid,origin ->
+        val active=activeCampaignRef().campaignId
+        if(campaignUid!=active)emptyList() else openGameplaySaveDb().use{db->SqliteNpcTravelRoutePort(db).routes(campaignUid,origin)}
+    }
     internal fun infrastructureEntityLocationUid(entityUid:String):String?=openGameplaySaveDb().use{db->
         db.rawQuery("SELECT location_uid FROM entity_positions WHERE entity_uid=? LIMIT 1",arrayOf(entityUid)).use{cursor->
             if(cursor.moveToFirst()&&!cursor.isNull(0))cursor.getString(0)?.takeIf(String::isNotBlank) else null
