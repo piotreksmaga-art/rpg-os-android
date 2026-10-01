@@ -9,8 +9,22 @@ data class NpcExecutionObjective(val capabilityUid:String,val mechanicsOwnerUid:
 }
 internal data class LocationReachedCriterion(val actor:DomainRef,val destination:DomainRef) {
     init { require(destination.kindUid in setOf("PLACE","LOCATION")){"P61:LOCATION_CRITERION_KIND"} }
-    fun provenBy(changes:List<PlayerDomainChangePayload>):Boolean = changes.filterIsInstance<SpatialChange>().any {
-        it.subject==actor && it.destinationLocation==destination
+
+    /** Goal success is post-commit only. A speculative SpatialChange candidate is insufficient. */
+    fun provenBy(
+        attempt:NpcActivityAttemptIdentity,
+        route:NpcTravelRouteContract,
+        evidence:NpcActivityResolutionEvidence
+    ):Boolean {
+        val owner=NpcTravelAffordances.ownerContract(route)
+        return actor==attempt.actor && destination==route.destination &&
+            attempt.campaignUid==route.campaignUid &&
+            evidence.attemptFingerprint==attempt.fingerprint &&
+            evidence.ownerUid==owner.resultOwnerUid &&
+            evidence.evidenceKindUid==owner.evidenceKindUid &&
+            evidence.resolutionKind==NpcActivityResolutionKind.SUCCEEDED &&
+            evidence.canonicalEvidence.size==1 &&
+            evidence.canonicalEvidence.single().changeKindUid==PlayerChangeKinds.SPATIAL
     }
 }
 
@@ -35,8 +49,10 @@ internal object NpcExecutionGoals {
             selected.option.goalUid!=goal.uid || selected.option.uid!=plan.actionUid || result.authorization!=selected.authorization ||
             !selected.authorization.matches(context.scope,context.contextFingerprint,selected.option) || result.effects.isEmpty() ||
             result.effects.any{it.mechanicsOwnerUid!=objective.mechanicsOwnerUid})return null
-        if(objective.effectKindUid.substringAfterLast(':').uppercase()==NpcTravelAffordances.EFFECT_KIND &&
-            !LocationReachedCriterion(context.brain.actor,objective.target).provenBy(result.changes))return null
+        // Travel is special: mechanics here is still speculative. The plan may finish, but the
+        // goal cannot be fulfilled until NpcTravelArrivalEvidence is issued from persisted receipt
+        // + replay material after the common TurnTransaction commits.
+        if(objective.effectKindUid.substringAfterLast(':').uppercase()==NpcTravelAffordances.EFFECT_KIND)return null
         return NpcExecutionFulfillment.issue(context,plan,goal)
     }
 }
