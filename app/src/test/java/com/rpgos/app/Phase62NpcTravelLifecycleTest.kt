@@ -26,8 +26,8 @@ class Phase62NpcTravelLifecycleTest {
     private var brain=NpcBrainOwner.initialize("C1",npc,"seed").let{it.copy(goals=listOf(NpcGoal("G",it.motivations.first().uid,
         "Dotrzeć do celu",NpcWeight(5000),NpcGoalLifecycle.ACTIVE,NpcCauseRef(NpcCauseKind.KNOWLEDGE_ACQUISITION,"ACQ"))))}
     private val record=NpcKnownRecord("R",KnowledgeEpistemicState.KNOWN,"Znam miejsce docelowe.","ACQ",1,setOf(destination))
-    private val routes=NpcTravelRoutePort { campaign,at ->
-        if(roadOpen && route.campaignUid==campaign && route.origin==at)listOf(route) else emptyList()
+    private val routes=NpcTravelRoutePort { campaign,actor,at ->
+        if(roadOpen && actor==npc && route.campaignUid==campaign && route.origin==at)listOf(route) else emptyList()
     }
     private var modelCalls=0
     private val provider=DeterministicAiProvider(AiCapabilityContract("TEST","TEST","TEST",setOf(AiWorkload.NPC_DECISION),maximumContextUnits=8192),
