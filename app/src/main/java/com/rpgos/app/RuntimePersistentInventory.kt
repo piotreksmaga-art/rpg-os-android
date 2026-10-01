@@ -65,7 +65,7 @@ object RuntimePersistentWriterRegistry {
     )
 
     val campaignRepositoryContracts: Map<String, PersistentWriterContract> = listOf(
-        c("bootstrap",PersistentWriterCapability.ADMINISTRATIVE,"SCHEMA_MIGRATION_REPAIR","GAMEPLAY_READINESS_METADATA","MEMORY_DERIVED_STATE"),
+        c("bootstrap",PersistentWriterCapability.ADMINISTRATIVE,"SCHEMA_MIGRATION_REPAIR","GAMEPLAY_READINESS_METADATA","MEMORY_DERIVED_STATE","TRAVEL_ROUTE_DEFINITIONS"),
         c("activeCampaignRef",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE),
         c("activePlayerRef",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE,"ACTIVE_PLAYER_IDENTITY"),
         c("setActivePlayer",PersistentWriterCapability.ADMINISTRATIVE,"ACTIVE_PLAYER_IDENTITY"),
