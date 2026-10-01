@@ -69,7 +69,7 @@ internal object NpcTravelMechanics {
                 "npc_travel_settlement" to "COMPLETION_ONLY_V1"
             )
             val output=phase60Hash("$uid|$kind|${payload.toSortedMap()}")
-            return VerifiedMechanicsEffect(uid,request.nodeUid,OWNER,kind,payload,"P62:TRAVEL:${phase60Hash(input+output)}",input,output)
+            return VerifiedMechanicsEffect(uid,request.nodeUid,OWNER,kind,payload,"P62:TRAVEL:${route.fingerprint}:${phase60Hash(input+output)}",input,output)
         }
         val effects=route.resourceCosts.toSortedMap().filterValues{it>0}.map{(uid,cost)->
             effect("${request.effectUid}:COST:${phase60Hash(uid).take(16)}","RESOURCE_DELTA",Math.negateExact(cost),
