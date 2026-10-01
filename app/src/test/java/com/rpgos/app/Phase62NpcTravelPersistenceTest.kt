@@ -57,24 +57,25 @@ class Phase62NpcTravelPersistenceTest {
     private fun route()=NpcTravelRouteContract("C1","ROAD",1,DomainRef("PLACE","A"),DomainRef("PLACE","B"),
         ActionDuration(120000),"WORLD:ROAD",capabilityUid="WORLD:WALK",resourceCosts=mapOf("STAMINA" to 3L,"SUPPLIES" to 2L))
 
-    private fun committedArrivalEvidence(db:SQLiteDatabase,receipt:TurnCommitReceipt):NpcActivityResolutionEvidence? {
+    private fun attempt():NpcActivityAttemptIdentity {
         val route=route();val owner=NpcTravelAffordances.ownerContract(route)
-        val attempt=NpcActivityAttemptIdentity(
+        return NpcActivityAttemptIdentity(
             campaignUid="C1",historyGenerationUid="H",actor=npc,planUid="PLAN:TRAVEL",optionUid="OPTION:TRAVEL",
             capabilityUid=route.capabilityUid,authorizedAt=WorldTimeTick(0),dueAt=WorldTimeTick(120000),
             authorizationFingerprint=phase60Hash("TRAVEL-AUTH"),ownerContractFingerprint=owner.fingerprint
         )
-        val replay=CommittedReplayPayloadStore(db).after("C1",0).singleOrNull{it.identity.transactionUid==receipt.transactionUid}?:return null
-        return NpcTravelArrivalEvidence.fromCommitted(attempt,route,receipt,replay)
     }
+    private fun committedArrivalEvidence(db:SQLiteDatabase,transactionUid:String)=
+        NpcTravelArrivalEvidence.fromStore(db,attempt(),route(),transactionUid)
 
     @Test fun costsAndArrivalCommitTogetherAndRetryDoesNotChargeAgain()=SQLiteDatabase.create(null).use{db->
         setup(db);assertOrigin(db)
         val committed=commit(db,"TRAVEL") as TurnExecutionResult.Committed
         assertArrival(db)
-        val evidence=requireNotNull(committedArrivalEvidence(db,committed.receipt))
+        val evidence=requireNotNull(committedArrivalEvidence(db,committed.receipt.transactionUid))
         assertEquals(NpcActivityResolutionKind.SUCCEEDED,evidence.resolutionKind)
         assertEquals(listOf(PlayerChangeKinds.SPATIAL),evidence.canonicalEvidence.map{it.changeKindUid})
+        assertTrue(LocationReachedCriterion(npc,route().destination).provenBy(attempt(),route(),evidence))
         val digest=AuthoritativeStateDigest.compute(db)
         assertTrue(commit(db,"TRAVEL") is TurnExecutionResult.AlreadyCommitted)
         assertEquals(digest,AuthoritativeStateDigest.compute(db));assertArrival(db)
@@ -82,9 +83,12 @@ class Phase62NpcTravelPersistenceTest {
 
     @Test fun failureBetweenWritesRollsBackBothCostsAndArrival()=SQLiteDatabase.create(null).use{db->
         setup(db);val before=AuthoritativeStateDigest.compute(db)
+        assertNull(committedArrivalEvidence(db,"TX:FAIL"))
         assertTrue(runCatching{commit(db,"FAIL",TurnFailureInjector{if(it==TurnFailurePoint.AFTER_FIRST_WRITE)error("injected")})}.isFailure)
+        assertNull(committedArrivalEvidence(db,"TX:FAIL"))
         assertEquals(before,AuthoritativeStateDigest.compute(db));assertOrigin(db)
         assertTrue(commit(db,"FAIL") is TurnExecutionResult.Committed);assertArrival(db)
+        assertNotNull(committedArrivalEvidence(db,"TX:FAIL"))
     }
 
     @Test fun fileReopenAndUndoRestoreOriginAndCostsThenAllowDifferentTransaction() {
@@ -100,7 +104,9 @@ class Phase62NpcTravelPersistenceTest {
             val result=undo.confirm(preview);assertTrue(result.toString(),result is DestructiveUndoResult.Completed)
             db=SQLiteDatabase.openDatabase(file.absolutePath,null,SQLiteDatabase.OPEN_READWRITE)
             GameplayRuntimeBootstrap.requireReady(db,"C1");assertOrigin(db)
+            assertNull(committedArrivalEvidence(db,"TX:FIRST"))
             assertTrue(commit(db,"ALTERNATIVE") is TurnExecutionResult.Committed);assertArrival(db)
+            assertNotNull(committedArrivalEvidence(db,"TX:ALTERNATIVE"))
         } finally { if(db.isOpen)db.close() }
     }
 }
