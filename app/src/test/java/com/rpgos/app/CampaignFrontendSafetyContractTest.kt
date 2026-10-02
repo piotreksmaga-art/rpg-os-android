@@ -139,8 +139,12 @@ class CampaignFrontendSafetyContractTest {
             .substringBefore("private fun reconcileCanonicalPackageRoots()")
         assertTrue(bootstrap.contains("GameplayRuntimeBootstrap.requireReady(save,campaignUid)"))
         assertTrue(bootstrap.contains("if(!alreadyReady){"))
-        assertTrue(bootstrap.contains("AutoRepairEngine().repair(save)"))
-        assertTrue(bootstrap.contains("GameplayRuntimeBootstrap.initialize(save, campaignUid)"))
+        assertTrue(bootstrap.contains("prepareCampaignRuntime(save,campaignUid,repairLegacyRows=true)"))
+        val prepare=store.substringAfter("private fun prepareCampaignRuntime(").substringBefore("private fun materializeWorldActors(")
+        assertTrue(prepare.contains("AutoRepairEngine().repair(saveDb)"))
+        assertTrue(prepare.contains("GameplayRuntimeBootstrap.initialize(saveDb,campaignUid)"))
+        assertTrue(prepare.indexOf("if(repairLegacyRows)")<prepare.lastIndexOf("GameplayRuntimeBootstrap.initialize(saveDb,campaignUid)"))
+        assertTrue(prepare.contains("withAdministrativeMutationAuthority(saveDb,campaignUid,prepare)"))
         assertTrue(
             bootstrap.indexOf("GameplayRuntimeBootstrap.requireReady(save,campaignUid)") <
                 bootstrap.indexOf("if(!alreadyReady){")

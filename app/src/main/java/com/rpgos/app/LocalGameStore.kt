@@ -46,18 +46,7 @@ internal class LocalGameStore(private val context: Context) {
                 GameplayRuntimeBootstrap.requireReady(save,campaignUid)
             }.isSuccess
             if(!alreadyReady){
-                val explicitBootstrap = {
-                    ensureCurrentSchema(save)
-                    AutoRepairEngine().repair(save)
-                    materializeWorldActors(save,campaignUid)
-                }
-                runCatching {
-                    if (GameplayMutationDatabaseGuards.isInstalled(save)) {
-                        withAdministrativeMutationAuthority(save, campaignUid, explicitBootstrap)
-                    } else explicitBootstrap()
-                }.onFailure { DiagnosticLogger.log(context, "AUTO_REPAIR_BOOT_FAILED", it) }
-                ensureCharacterCreationDefinitions(save,campaignUid)
-                GameplayRuntimeBootstrap.initialize(save, campaignUid)
+                prepareCampaignRuntime(save,campaignUid,repairLegacyRows=true)
             }
             ensureUniversalInventoryDefinition(save,campaignUid)
             val snapshots=CampaignSnapshotManager(save,campaignUid,File(saveDir,"snapshots"))
@@ -296,7 +285,14 @@ internal class LocalGameStore(private val context: Context) {
         val created = selection.createCampaign(name)
         try{
             val campaignUid=selection.activeCampaignRef().campaignId
-            openSaveDb().use { db -> prepareCampaignRuntime(db,campaignUid) }
+            openSaveDb().use { db ->
+                prepareCampaignRuntime(db,campaignUid)
+                val packUid=selection.currentWorldPackAuthority().binding.worldPackUid
+                val defaults=context.assets.open("new-campaign-defaults.json").bufferedReader().use{it.readText()}
+                PristineCampaignStartupProfile.fromJson(defaults,packUid)?.let { profile ->
+                    withAdministrativeMutationAuthority(db,campaignUid){profile.apply(db,campaignUid)}
+                }
+            }
             created
         }catch(t:Throwable){
             // A failed post-clone migration/bootstrap must not leave a broken campaign selected.
@@ -387,17 +383,27 @@ internal class LocalGameStore(private val context: Context) {
      * A template can already contain Phase 32 guards, so even additive schema/default-definition
      * writes must carry ADMIN authority before the normal gameplay-ready verification is restored.
      */
-    private fun prepareCampaignRuntime(saveDb:SQLiteDatabase,campaignUid:String){
+    private fun prepareCampaignRuntime(saveDb:SQLiteDatabase,campaignUid:String,repairLegacyRows:Boolean=false){
         CampaignRuntimeLifecycleLock.withRecovery(campaignUid){
             val prepare={
                 ensureCurrentSchema(saveDb)
+                Phase62ActivitySchema.ensureReady(saveDb)
+                // Repair may introduce classified historical families. Complete it before the
+                // final guard installation; no ordinary read is allowed to repair missing guards.
+                if(repairLegacyRows)runCatching{AutoRepairEngine().repair(saveDb)}
+                    .onFailure{DiagnosticLogger.log(context,"AUTO_REPAIR_BOOT_FAILED",it)}
                 UniversalInventoryDefinitionBootstrap.ensure(saveDb,campaignUid)
                 ensureCharacterCreationDefinitions(saveDb,campaignUid)
                 materializeWorldActors(saveDb,campaignUid)
+                if(File(worldDir,"world.db").isFile)openWorldDb().use{world->
+                    NpcActivityActorImport.importPack(saveDb,world,campaignUid)
+                    NpcDutyAssignmentImport.importPack(saveDb,world,campaignUid,selection.currentWorldPackAuthority().binding)
+                }
             }
-            if(GameplayMutationDatabaseGuards.isInstalled(saveDb)){
-                withAdministrativeMutationAuthority(saveDb,campaignUid,prepare)
-            }else prepare()
+            // Even an unguarded historical template enters the explicit administrative owner
+            // before material definitions, duty assignments or legacy body completion occur.
+            if(!GameplayMutationDatabaseGuards.isInstalled(saveDb))GameplayRuntimeBootstrap.initialize(saveDb,campaignUid)
+            withAdministrativeMutationAuthority(saveDb,campaignUid,prepare)
             GameplayRuntimeBootstrap.initialize(saveDb,campaignUid)
         }
     }
@@ -408,7 +414,8 @@ internal class LocalGameStore(private val context: Context) {
     }
     private fun materializeWorldActorsWithAuthority(saveDb:SQLiteDatabase,campaignUid:String){
         val action={materializeWorldActors(saveDb,campaignUid)}
-        if(GameplayMutationDatabaseGuards.isInstalled(saveDb))withAdministrativeMutationAuthority(saveDb,campaignUid,action) else action()
+        if(!GameplayMutationDatabaseGuards.isInstalled(saveDb))GameplayRuntimeBootstrap.initialize(saveDb,campaignUid)
+        withAdministrativeMutationAuthority(saveDb,campaignUid,action)
     }
 
     private fun ensureCharacterCreationDefinitions(saveDb:SQLiteDatabase,campaignUid:String){
@@ -418,7 +425,10 @@ internal class LocalGameStore(private val context: Context) {
         if(!File(worldDir,"world.db").isFile)return
         val worldPack=selection.currentWorldPackAuthority().binding
         val install={
-            openWorldDb().use{world->CharacterCreationDefinitionBootstrap(saveDb,world,worldPack).ensure()}
+            openWorldDb().use{world->
+                CharacterCreationDefinitionBootstrap(saveDb,world,worldPack).ensure()
+                NpcActivityDefinitionImport.importPack(saveDb,world,campaignUid,worldPack)
+            }
         }
         if(GameplayMutationDatabaseGuards.isInstalled(saveDb))withAdministrativeMutationAuthority(saveDb,campaignUid,install) else install()
     }

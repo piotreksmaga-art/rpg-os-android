@@ -56,6 +56,20 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     fun createPlayerCharacter(draft:PlayerCharacterCreationDraft,confirmation:PlayerCharacterCreationConfirmation):PlayerCharacterBootstrapReceipt=
         store.createPlayerCharacter(draft,confirmation)
     internal fun infrastructurePlayerState(): PlayerStateSnapshot? = store.playerState()
+    internal fun infrastructureMemoryEnrichmentContext(request:MemoryEnrichmentRequest):MemoryEnrichmentContext? {
+        val campaign=activeCampaignRef().campaignId
+        if(campaign!=request.manifest.identity.campaignUid)return null
+        return openGameplaySaveDb().use { db ->
+            val player=ActivePlayerStore(db,campaign).active()?:return@use null
+            val holder=KnowledgeHolderRef(KnowledgeHolderKinds.CHARACTER,player.playerUid,campaign)
+            val projected=ProtectedCampaignReadRepository.borrowed(db,campaign){player}.episodeKnowledge(
+                VisibilityAudienceFactory.player(campaign),PurposeContext(campaign,VisibilityPurposeKinds.GAMEPLAY_NARRATION),
+                holder,request.manifest)
+            val records=(projected as? ProtectedReadResult.Allow)?.takeIf{it.disclosure==DisclosureLevel.DISCLOSE_FULL}?.value
+                ?.takeIf{it.isNotEmpty()}?:return@use null
+            MemoryEnrichmentContext(campaign,request.manifest.identity.historyGenerationUid,holder,records)
+        }
+    }
     override fun protectedReads(): ProtectedCampaignReadRepository =
         ProtectedCampaignReadRepository.owned(::openGameplaySaveDb, activeCampaignRef().campaignId, ::activePlayerRef)
     override fun statDefinitions(): List<StatDefinition> = store.statDefinitions()
@@ -87,10 +101,130 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     private fun openGameplaySaveDb(): SQLiteDatabase = store.openGameplaySaveDb()
     internal fun infrastructureOpenWorldDb(): SQLiteDatabase = store.openWorldDb()
     internal fun infrastructureOpenCoreDb(): SQLiteDatabase = store.openCoreDb()
+    internal fun infrastructureNpcTravelRoutePort():NpcTravelRoutePort = NpcTravelRoutePort { campaignUid,actor,origin ->
+        val active=activeCampaignRef().campaignId
+        if(campaignUid!=active)emptyList() else openGameplaySaveDb().use{db->
+            SqliteNpcTravelRoutePort(db).routes(campaignUid,actor,origin)
+        }
+    }
+    internal fun infrastructureNpcActivityContractPort():NpcActivityContractPort = object:NpcActivityContractPort {
+        override fun contract(campaignUid:String,capabilityUid:String)=forCapability(campaignUid,capabilityUid).singleOrNull()
+        override fun inherent(campaignUid:String)=if(campaignUid==activeCampaignRef().campaignId)NpcActivityContractPort.STANDARD.inherent(campaignUid) else emptyList()
+        override fun forCapability(campaignUid:String,capabilityUid:String)=if(campaignUid!=activeCampaignRef().campaignId)emptyList() else
+            openGameplaySaveDb().use{SqliteNpcActivityContractPort(it).forCapability(campaignUid,capabilityUid)}
+    }
+    internal fun infrastructureNpcLearningStatePort():NpcLearningStatePort=NpcLearningStatePort { campaign,actor,rule->
+        if(campaign!=activeCampaignRef().campaignId)null else openGameplaySaveDb().use { db->
+            when(rule.targetKindUid) {
+                ProgressionTargetKinds.SKILL -> {
+                    val store=SkillStore(db,campaign)
+                    val entry=store.playerSkills(actor.uid).singleOrNull{it.skillUid==rule.targetUid}
+                    val definition=store.definitions().singleOrNull{it.skillUid==rule.targetUid && it.status==SkillDefinitionStatus.ACTIVE}
+                    if(entry?.progressValue==null || entry.progressSemanticsUid==null || definition==null)null else
+                        NpcLearningState(entry.baseMastery,entry.progressValue,entry.progressSemanticsUid,entry.entryVersion,definition.definitionVersion)
+                }
+                ProgressionTargetKinds.TECHNIQUE -> {
+                    val store=TechniqueStore(db,campaign)
+                    val entry=store.playerTechniques(actor.uid).singleOrNull{it.techniqueUid==rule.targetUid}
+                    val definition=store.definitions().singleOrNull{it.techniqueUid==rule.targetUid && it.status==TechniqueDefinitionStatus.ACTIVE}
+                    if(entry?.progressValue==null || entry.progressSemanticsUid==null || definition==null)null else
+                        NpcLearningState(entry.baseMastery,entry.progressValue,entry.progressSemanticsUid,entry.entryVersion,definition.definitionVersion)
+                }
+                else -> null
+            }
+        }
+    }
+    internal fun infrastructureNpcReadingAccessPort():NpcReadingAccessPort=NpcReadingAccessPort { campaign,actor,rule->
+        if(campaign!=activeCampaignRef().campaignId)false else openGameplaySaveDb().use { db->
+            if(!Phase38AccessAuthoritySchema.isReady(db))return@use false
+            // Physical possession is necessary, but does not grant disclosure by itself.
+            val held=InventoryStore(db,campaign).typedUnique(actor.uid).any{it.first.itemInstanceUid==rule.carrier.uid}
+            if(!held)return@use false
+            val order=TurnTransactionReceiptStore(db).lastValidCommit(campaign)?.commitOrder?:0L
+            val authority=UniversalAccessAuthority(AccessAuthorityStore(db,campaign))
+            val audience=AudienceContext(campaign,AudienceKinds.WORLD_ACTOR,VisibilityPrincipalRef(actor.kindUid,actor.uid))
+            val trusted=authority.trustedContext(audience,order)?:return@use false
+            val carrier=InformationCarrierRef(campaign,rule.carrier.kindUid,rule.carrier.uid)
+            val requirement=AccessRequirement(rule.accessPolicyUid,explicitGrantRequired=true,carrier=carrier,
+                requiredCarrierStages=CarrierAccessStage.entries.toSet())
+            val authorized=authority.authorize(trusted,requirement,order)
+            if(!authorized.authorized)return@use false
+            val path=Phase38AccessRuntimeAuthority.issuePath(trusted,carrier,"P62:POSSESSED_READABLE_CARRIER",rule.fingerprint,
+                false,CarrierAccessStage.entries.toSet())
+            authority.effectiveAccess(trusted,requirement,authorized,path).accessible
+        }
+    }
+    internal fun infrastructureNpcActivityRequirementPort():NpcActivityRequirementPort=NpcActivityRequirementPort { campaign,actor,r->
+        if(campaign!=activeCampaignRef().campaignId)false else openGameplaySaveDb().use { db->
+            val held=InventoryStore(db,campaign).typedUnique(actor.uid).map{it.first.itemInstanceUid}.toSet()
+            if(!held.containsAll(r.toolInstanceUids))return@use false
+            val holder=KnowledgeHolderRef(KnowledgeHolderKinds.CHARACTER,actor.uid,campaign)
+            val order=TurnTransactionReceiptStore(db).lastValidCommit(campaign)?.commitOrder?:0L
+            val audience=AudienceContext(campaign,AudienceKinds.WORLD_ACTOR,VisibilityPrincipalRef(actor.kindUid,actor.uid))
+            val authority=UniversalAccessAuthority(AccessAuthorityStore(db,campaign))
+            val trusted=authority.trustedContext(audience,order)?:return@use !r.needsExternalRead
+            val cognition=trusted.copy(cognitionHolders=setOf(holder))
+            val reads=ProtectedCampaignReadRepository.borrowedTrusted(db,campaign,::activePlayerRef,cognition)
+            if(r.knowledgeClaimUids.isNotEmpty()) {
+                val knowledge=reads.npcRequiredClaims(audience,PurposeContext(campaign,VisibilityPurposeKinds.WORLD_ACTOR_REASONING),holder,order,r.knowledgeClaimUids)
+                val records=(knowledge as? ProtectedReadResult.Allow)?.value?:return@use false
+                if(!records.containsAll(r.knowledgeClaimUids))return@use false
+            }
+            r.teacher?.let { teacher->
+                val requirement=AccessRequirement("P62:TEACHER_ACCESS",explicitGrantRequired=true,
+                    carrier=InformationCarrierRef(campaign,teacher.kindUid,teacher.uid))
+                if(!authority.authorize(trusted,requirement,order).authorized)return@use false
+                val self=MechanicalActorStateStore(db,campaign).actor(actor)?:return@use false
+                val other=MechanicalActorStateStore(db,campaign).actor(teacher)?:return@use false
+                if(self.locationRef==null || self.locationRef!=other.locationRef || other.resources.any{it.resourceUid=="HEALTH" && it.current==0L} ||
+                    other.conditions.any{it.conditionUid in setOf("DEAD","UNCONSCIOUS","INCAPACITATED") && it.intensity>0})return@use false
+                val a=infrastructureMechanicalPersistence(actor.uid).position as? CombatPosition.Exact?:return@use false
+                val b=infrastructureMechanicalPersistence(teacher.uid).position as? CombatPosition.Exact?:return@use false
+                if(!npcWithinInteractionRange(a,b,3000))return@use false
+            }
+            true
+        }
+    }
+    internal fun infrastructureNpcTreatmentReadPort():NpcTreatmentReadPort=NpcTreatmentReadPort { campaign,healer,patient,rule,staged->
+        if(campaign!=activeCampaignRef().campaignId) null else openGameplaySaveDb().use { db->
+            if(healer!=patient) {
+                if(StagedMechanicalProjection.hasSpatialChange(setOf(healer,patient),staged))return@use null
+                val order=TurnTransactionReceiptStore(db).lastValidCommit(campaign)?.commitOrder?:0L
+                val authority=UniversalAccessAuthority(AccessAuthorityStore(db,campaign))
+                val trusted=authority.trustedContext(AudienceContext(campaign,AudienceKinds.WORLD_ACTOR,VisibilityPrincipalRef(healer.kindUid,healer.uid)),order)?:return@use null
+                val access=AccessRequirement("P62:TREATMENT_ACCESS",explicitGrantRequired=true,carrier=InformationCarrierRef(campaign,patient.kindUid,patient.uid))
+                if(!authority.authorize(trusted,access,order).authorized)return@use null
+                val self=MechanicalActorStateStore(db,campaign).actor(healer)?:return@use null
+                val other=MechanicalActorStateStore(db,campaign).actor(patient)?:return@use null
+                if(self.locationRef==null || self.locationRef!=other.locationRef)return@use null
+                val a=infrastructureMechanicalPersistence(healer.uid).position as? CombatPosition.Exact?:return@use null
+                val b=infrastructureMechanicalPersistence(patient.uid).position as? CombatPosition.Exact?:return@use null
+                if(!npcWithinInteractionRange(a,b,rule.maximumRangeMillimetres))return@use null
+            }
+            MechanicalActorStateStore(db,campaign).actor(patient)?.let{StagedMechanicalProjection.actor(it,staged)}
+        }
+    }
     internal fun infrastructureReceipt(transactionUid:String):TurnCommitReceipt? =
         openGameplaySaveDb().use{TurnTransactionReceiptStore(it).committedTransaction(transactionUid)}
+    internal fun infrastructureNpcDutyAssignmentPort():NpcDutyAssignmentPort=NpcDutyAssignmentPort { campaign,actor,rule,at->
+        if(campaign!=activeCampaignRef().campaignId || at>rule.due)false else openGameplaySaveDb().use { db->
+            SqliteNpcDutyAssignmentPort(db,campaign).admitted(campaign,actor,rule,at)
+        }
+    }
     internal fun infrastructureLastCommitOrder():Long =
         openGameplaySaveDb().use{TurnTransactionReceiptStore(it).lastValidCommit(activeCampaignRef().campaignId)?.commitOrder?:0L}
+    internal fun prepareNpcResultConfirmations(input:TemporalOwnerInput,actors:List<DomainRef>):List<NpcBrainChange> {
+        require(infrastructureTemporalRead().scope==input.scope){"P61:STALE_RESULT_SCOPE"}
+        return openGameplaySaveDb().use { db->
+            val store=NpcBrainStore(db,input.scope.campaignUid)
+            val owner=NpcCanonicalResultOwner(db,input.scope.campaignUid)
+            actors.distinct().take(32).mapNotNull{actor->
+                val canonical=store.read(actor)?:return@mapNotNull null
+                val brain=applyNpcBrainOverlay(canonical,input.scope,input.stagedChanges.filterIsInstance<NpcBrainChange>())
+                owner.reconcile(brain,input.scope)
+            }
+        }
+    }
     internal fun infrastructureTemporalRead():TemporalReadSnapshot {
         val campaign = activeCampaignRef().campaignId
         return CampaignRuntimeLifecycleLock.withTurn(campaign) {
@@ -251,7 +385,37 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
             val active=activePlayerRef()?.playerUid
             openGameplaySaveDb().use { db ->
                 val actors=MechanicalActorStateStore(db,campaign)
-                NpcConsequenceObservation.annotate(expected,effects){actor->if(actor.uid==active)null else actors.actor(actor)}
+                val observing=db.rawQuery("SELECT actor_kind_uid,actor_uid FROM ${Phase61NpcSchema.STATES} WHERE campaign_uid=? ORDER BY actor_kind_uid,actor_uid LIMIT 32",arrayOf(campaign))
+                    .use{c->buildList{while(c.moveToNext())add(DomainRef(c.getString(0),c.getString(1)))}}
+                val witnessed=NpcWitnessObservation.annotate(expected,effects) { effect->
+                    if(effect.effectKindUid!="WOUND" || effect.mechanicsOwnerUid!="UNIVERSAL_COMBAT" || effect.magnitude<=0)return@annotate emptyList()
+                    observing.filter{it!=effect.target && it.uid!=active}.mapNotNull { observer->
+                        val body=actors.actor(observer)?:return@mapNotNull null
+                        if(body.materialization!=MechanicalStateMaterialization.FULL || NpcLegalEffectObservation.CAPABILITY !in body.executableAbilityUids ||
+                            body.conditions.any{it.intensity>0 && it.conditionUid in setOf("DEAD","UNCONSCIOUS","INCAPACITATED","BLIND")} ||
+                            body.resources.any{it.resourceUid=="HEALTH" && it.current==0L})return@mapNotNull null
+                        if(effects.any{it.target==observer && it.effectKindUid in setOf("SPATIAL","LOCATION_TRANSITION","CONDITION","CONTROL","RESTRICTION")})return@mapNotNull null
+                        val observerLocation=infrastructureEntityLocationUid(observer.uid)?:return@mapNotNull null
+                        if(observerLocation!=infrastructureEntityLocationUid(effect.target.uid))return@mapNotNull null
+                        val a=infrastructureMechanicalPersistence(observer.uid).position as? CombatPosition.Exact?:return@mapNotNull null
+                        val b=infrastructureMechanicalPersistence(effect.target.uid).position as? CombatPosition.Exact?:return@mapNotNull null
+                        if(!npcWithinInteractionRange(a,b,NpcLegalEffectObservation.RANGE_MM))return@mapNotNull null
+                        val audience=AudienceContext(campaign,AudienceKinds.WORLD_ACTOR,VisibilityPrincipalRef(observer.kindUid,observer.uid))
+                        val authority=UniversalAccessAuthority(AccessAuthorityStore(db,campaign))
+                        val trusted=authority.trustedContext(audience,expected.baseCommitOrder)?:return@mapNotNull null
+                        if(!authority.authorize(trusted,AccessRequirement(NpcLegalEffectObservation.POLICY,explicitGrantRequired=true,
+                            carrier=InformationCarrierRef(campaign,effect.target.kindUid,effect.target.uid)),expected.baseCommitOrder).authorized)return@mapNotNull null
+                        val holder=KnowledgeHolderRef(KnowledgeHolderKinds.CHARACTER,observer.uid,campaign)
+                        val reads=ProtectedCampaignReadRepository.borrowedTrusted(db,campaign,::activePlayerRef,trusted.copy(cognitionHolders=setOf(holder)))
+                        val knowledge=reads.npcKnowledge(audience,PurposeContext(campaign,VisibilityPurposeKinds.WORLD_ACTOR_REASONING),holder,expected.baseCommitOrder,64)
+                        val records=(knowledge as? ProtectedReadResult.Allow)?.value?:return@mapNotNull null
+                        val recognized=records.filter{effect.target in it.subjectRefs}
+                        if(recognized.isEmpty())return@mapNotNull null
+                        NpcLegalEffectObservation.project(authority,trusted,expected,effect.target,effect,NpcWitnessPerceptionInput(body,
+                            observerLocation,infrastructureEntityLocationUid(effect.target.uid),a,b,recognized))
+                    }
+                }
+                NpcConsequenceObservation.annotate(expected,witnessed){actor->if(actor.uid==active)null else actors.actor(actor)}
             }
         }
     }

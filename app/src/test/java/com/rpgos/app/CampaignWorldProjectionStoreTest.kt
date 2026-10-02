@@ -139,9 +139,14 @@ class CampaignWorldProjectionStoreTest {
             fact(truth,"A",CampaignWorldFacts.AUDIENCE_SCOPE,CampaignWorldAudience.PLAYER_VISIBLE,8)
             Phase50MechanicalSchema.ensureReady(db)
 
-            WorldActorMechanicalBootstrap.materializeCampaignProjectionActors(db,"C")
+            GameplayRuntimeBootstrap.initialize(db,"C")
+            withAdministrativeMutationAuthority(db,"C"){
+                WorldActorMechanicalBootstrap.materializeCampaignProjectionActors(db,"C")
+            }
             val actor=MechanicalActorStateStore(db,"C").actor(DomainRef("ACTOR","WORLD-1"))
-            WorldActorMechanicalBootstrap.materializeCampaignProjectionActors(db,"C")
+            withAdministrativeMutationAuthority(db,"C"){
+                WorldActorMechanicalBootstrap.materializeCampaignProjectionActors(db,"C")
+            }
 
             assertEquals(MechanicalActorKind.NPC,actor?.kind)
             assertEquals(setOf("ATTACK","DEFEND","STRIKE"),actor?.executableAbilityUids)

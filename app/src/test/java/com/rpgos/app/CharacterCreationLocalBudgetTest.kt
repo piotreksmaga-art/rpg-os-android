@@ -1,10 +1,28 @@
 package com.rpgos.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CharacterCreationLocalBudgetTest {
+    @Test fun allBaseStatsRemainVisibleAndOmittedValuesUseStartingProfileNotZero(){
+        val catalog=CharacterCreationCatalog("C",(1..8).map{
+            option(CharacterCreationDefinitionKind.STAT,"STAT-$it","Stat $it")
+        })
+        val projected=catalog.projectForAi(listOf(CharacterCreationConversationEntry(CharacterCreationConversationRole.PLAYER,"Smagi")))
+        assertEquals(8,projected.options.count{it.kind==CharacterCreationDefinitionKind.STAT})
+        val draft=PlayerCharacterCreationDraft("D","C","P","Smagi","UNSPECIFIED",
+            stats=listOf(CharacterCreationValueChoice("STAT-1",0.0)),resources=listOf(CharacterCreationValueChoice("R",1.0)),
+            talents=listOf(CharacterCreationValueChoice("T",1.0)),potentials=listOf(CharacterCreationValueChoice("T",1.0,"MAXIMUM")),
+            skills=listOf(CharacterCreationValueChoice("K",1.0)),techniques=listOf(CharacterCreationValueChoice("X",1.0)),startingLocationUid="L")
+        val completed=draft.completeMandatoryChoices(catalog)
+        assertEquals(8,completed.stats.size)
+        assertEquals(0.0,completed.stats.first{it.definitionUid=="STAT-1"}.value,0.0)
+        assertTrue(completed.stats.filter{it.definitionUid!="STAT-1"}.all{it.value==10.0})
+        assertEquals(12.0,option(CharacterCreationDefinitionKind.STAT,"BOUNDED","Bounded").copy(minimumValue=10.0,maximumValue=30.0).startingProfileValue(),0.0)
+    }
+
     @Test fun execuTorchStreamingTokenizerKeepsMetaspaceWordBoundaries(){
         val source="""{"version":"1.0","decoder":{"type":"Sequence","decoders":[{"type":"Replace","pattern":{"String":"▁"},"content":" "},{"type":"ByteFallback"},{"type":"Fuse"},{"type":"Strip","content":" ","start":1,"stop":0}]},"model":{"type":"BPE"}}"""
 
@@ -178,6 +196,7 @@ class CharacterCreationLocalBudgetTest {
         assertTrue(answer.contains("Sharingan"))
         assertTrue(!answer.contains("Technika Klonów"))
         assertEquals(null,catalog.answerCatalogQuestion("Chcę być uczniem Akademii."))
+        assertNull(catalog.answerCatalogQuestion("Dobierz dla mnie legalne pochodzenie i umiejętności oraz pokaż propozycję postaci do zatwierdzenia."))
     }
 
     @Test fun lockedDraftSectionsSurviveManualChangesAndRerollsWhileUnlockedSectionsChange(){

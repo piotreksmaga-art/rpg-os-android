@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "profiles": [
+    {
+      "worldpack_uid": "naruto",
+      "era_key": "naruto",
+      "era_name": "Era Naruto",
+      "year_label": "Początek ery Naruto"
+    }
+  ]
+}

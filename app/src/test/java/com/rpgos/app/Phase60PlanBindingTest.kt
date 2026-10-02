@@ -53,6 +53,16 @@ class Phase60PlanBindingTest {
         assertTrue(production(listOf(node("anything"))) is ProductionTimeResult.Rejected)
         assertTrue(production(listOf(timed("anything", 1000)), listOf(WorldProcessDeadline("D", "unknown", WorldTimeTick(500)))) is ProductionTimeResult.Rejected)
     }
+    @Test fun productionUsesPlayersExactTimeEvenWhenModelOmitsItsTimingCandidate() {
+        val text="Przez 1 minutę rozglądam się."
+        fun run(nodes:List<IntentNode>):ProductionTimeResult {
+            val original=plan(nodes);val bound=original.copy(intent=original.intent.copy(rawInput=text))
+            val request=ChatTurnRequest("R","C1","T","CMD","TX",bound.intent.actor,text,"pl",bound.audience,bound.purpose)
+            return Phase60ProductionTime.prepare(request,bound,TemporalReadSnapshot(TemporalScope("C1","G1",0,"HASH"),CanonicalTemporalState(0,WorldTimeTick(0),emptyList())))
+        }
+        assertEquals(WorldTimeTick(60000),(run(listOf(node("LOOK"))) as ProductionTimeResult.Ready).change!!.proposedTime)
+        assertTrue(run(listOf(node("LOOK"),node("TALK"))) is ProductionTimeResult.Rejected)
+    }
     @Test fun futureIntentionHasNoClockChange() {
         assertEquals(ProductionTimeResult.Ready(null), production(listOf(node("later", modality = IntentModality.PLAN_FUTURE))))
     }

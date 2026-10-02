@@ -6,6 +6,11 @@ import java.text.Normalizer
 
 /** Strict provider wire schema. JSON is transport data only; every decoded value is revalidated by Core. */
 class CanonicalAiJsonCodec:AiStructuredCodec{
+    private fun proposalDialogueInstruction(delegated:Boolean):String = if(delegated)
+        "Do not generate NPC_UTTERANCE claims or guess an NPC's knowledge. Core invokes the mandatory holder-scoped NPC_DIALOGUE provider for a successful TALK/QUERY before commit. Request the interaction only; its response is not a GM-owned outcome."
+    else
+        "For one or more successful TALK/QUERY nodes addressed to the same ACTOR/NPC, include exactly one proposed_claim for that actor across the whole proposal. Bind it to the final TALK/QUERY node for that actor; use claim_kind NARRATIVE_COLOR, predicate_uid RPGOS-NARRATIVE:NPC_UTTERANCE, that actor UID as subject_projected_uid, and one concise in-world reply covering all the player's questions in value_canonical. Return the spoken content without surrounding quotation marks. This records only what the NPC says, never promotes it to FACT, and must not invent player choices, mechanics results or hidden knowledge"
+
     override fun encodeIntent(request:AiIntentRequest)=JSONObject()
         .put("contract","RPGOS_INTENT_DOCUMENT_V2")
         .put("request",JSONObject().put("campaign_uid",request.campaignUid).put("actor_kind_uid",request.actor.actorKindUid)
@@ -82,6 +87,7 @@ class CanonicalAiJsonCodec:AiStructuredCodec{
         .put("projected_context",encodeContext(request.context))
         .put("working_memory",request.workingMemory?.let(::encodeWorkingMemory)?:JSONObject.NULL)
         .put("strategic_guidance",request.strategicGuidance?.let(::encodeDirectorGuidance)?:JSONObject.NULL)
+        .put("npc_dialogue_mode",if(request.holderDialogueDelegated)"HOLDER_SCOPED" else "GM_PROPOSAL")
         .put("requirements",JSONArray(listOf(
             "Proposal is not reality and cannot commit","Preserve actor/action/target/modality/player agency",
             "For every node, copy action_semantic_uid exactly from intent.nodes[].action_semantic_uid; canonical_action_uid is informational and already settled by Core",
@@ -89,7 +95,7 @@ class CanonicalAiJsonCodec:AiStructuredCodec{
             "Every factual claim cites projected supporting record UIDs","Mechanics effects only request the registered owner from the plan",
             "mechanics_effects is optional: effect_kind_uid must occur in plan.allowed_effect_kind_uids; an empty list means return no effect, and a legal target is still required",
             "For a PROPOSED_WORLD_EFFECT node with one allowed_effect_kind_uid and PROPOSED_SUCCESS, emit exactly one mechanics effect; when the intent has no target because it is a self action, use the intent actor as the effect target without adding it to node_proposal.target_projected_refs",
-            "For one or more successful TALK/QUERY nodes addressed to the same ACTOR/NPC, include exactly one proposed_claim for that actor across the whole proposal. Bind it to the final TALK/QUERY node for that actor; use claim_kind NARRATIVE_COLOR, predicate_uid RPGOS-NARRATIVE:NPC_UTTERANCE, that actor UID as subject_projected_uid, and one concise in-world reply covering all the player's questions in value_canonical. Return the spoken content without surrounding quotation marks. This records only what the NPC says, never promotes it to FACT, and must not invent player choices, mechanics results or hidden knowledge",
+            proposalDialogueInstruction(request.holderDialogueDelegated),
             "An omission with cause PROVIDER_NO_DATA is informational after Core completed context assembly; never request clarification solely because semantic memory or World Pack returned no data",
             "Never supply mechanics outcomes; stop at the next player decision"
         )))
@@ -136,7 +142,7 @@ class CanonicalAiJsonCodec:AiStructuredCodec{
             "Do not reroll mechanics","Do not add mechanics entitlement","Do not change player intent or context scope",
             "For every node, copy target_projected_refs exactly from original_request.intent.nodes[].target_projected_refs; never replace an empty list with an unresolved reference UID or an invented canonical target",
             "A node whose original_request.plan.match_state is EXACT, COMPOSED or GENERIC has already passed Core ambiguity, reference and capability adjudication; return PROPOSED_SUCCESS or PROPOSED_FAILURE, never NEEDS_CLARIFICATION or REQUIRES_ADJUDICATION",
-            "For all successful TALK/QUERY nodes to the same ACTOR/NPC preserve or produce one combined legal RPGOS-NARRATIVE:NPC_UTTERANCE NARRATIVE_COLOR claim, bound to that actor's final conversation node, so the NPC actually answers every question; it remains NARRATIVE, never FACT",
+            proposalDialogueInstruction(request.original.holderDialogueDelegated),
             "If an effect was rejected as TARGET_REQUIRED or UNSUPPORTED_OR_UNVERIFIABLE_EFFECT, remove it unless original_request explicitly provides an exact allowed effect kind and legal target",
             "Return full corrected proposal JSON"
         )))
@@ -417,6 +423,35 @@ class CanonicalAiJsonCodec:AiStructuredCodec{
 class LocalCompactAiJsonCodec(
     private val canonical:CanonicalAiJsonCodec=CanonicalAiJsonCodec()
 ):AiStructuredCodec by canonical{
+    override fun encodeNpcDialogue(request:NpcDialogueRequest):String {
+        // Reuse the existing holder projection, then remove correlation strings which a small
+        // model need not regenerate. Source ordinals refer only to this authorized request.
+        val source=JSONObject(NpcDialogueCodec.encode(request))
+        return JSONObject().put("v","RPGOS_NPC_DIALOGUE_LOCAL_1")
+            .put("brain",source.getJSONObject("brain")).put("received_message",request.receivedMessage)
+            .put("records",JSONArray(request.context.records.mapIndexed { index,record->
+                JSONObject().put("i",index).put("kind",record.epistemicState.name)
+                    .put("memory_kind",record.memoryKind.name).put("text",record.projectedText)
+            })).apply {
+                if(source.has("mode"))put("mode",source.getString("mode"))
+                if(source.has("own_goal"))put("own_goal",source.getString("own_goal"))
+            }.toString().also{require((it.length.toLong()+3)/4<=request.context.maximumInputUnits){"P62:DIALOGUE_INPUT_BUDGET"}}
+    }
+    override fun decodeNpcDialogue(payload:String,request:NpcDialogueRequest):NpcDialogueCandidate {
+        require(payload.length<=8192)
+        val root=JSONObject(payload)
+        require(root.keys().asSequence().toSet()==setOf("t","r")){"LOCAL_DIALOGUE_FIELDS"}
+        val text=root.get("t");require(text is String)
+        val sources=root.getJSONArray("r")
+        val indices=(0 until sources.length()).map { index->
+            val value=sources.get(index)
+            require(value is Int || value is Long){"LOCAL_DIALOGUE_SOURCE_INTEGER"}
+            (value as Number).toLong().also { require(it>=0 && it<request.context.records.size){"LOCAL_DIALOGUE_UNKNOWN_SOURCE"} }.toInt()
+        }
+        require(indices.distinct().size==indices.size)
+        return NpcDialogueCandidate(request.requestUid,request.fingerprint,text,indices.map{request.context.records[it].uid}.toSet())
+            .also { NpcDialogueCodec.validate(it,request) }
+    }
     override fun encodeDirector(request:AiDirectorRequest)=LocalDirectorCodec.encode(request)
     override fun decodeDirector(payload:String,request:AiDirectorRequest)=LocalDirectorCodec.decode(payload,request)
     override fun encodeIntent(request:AiIntentRequest)=JSONObject()
@@ -811,9 +846,14 @@ class LocalCompactAiJsonCodec(
                 }
                 values.map(String::trim).filter(String::isNotBlank).take(4).forEach{surfaceValue->
                     val contextualTopic=field in setOf("what","topic","description")&&(
-                        trainingAction||semanticKind in setOf("TRAIN","TRAINING","PRACTICE","LEARN","TRENING","CWICZENIE","ĆWICZENIE","QUERY","ASK","QUESTION","PYTANIE","TALK","COMMUNICATION","SPEAK","ROZMOWA")
+                        trainingAction||communicationAction||semanticKind in setOf("TRAIN","TRAINING","PRACTICE","LEARN","TRENING","CWICZENIE","ĆWICZENIE","QUERY","ASK","QUESTION","PYTANIE","TALK","COMMUNICATION","SPEAK","ROZMOWA")
                     )
                     if(contextualTopic)return@forEach
+                    // A position qualifier is not the recipient of a spoken question. In
+                    // particular, a contradictory MOVE enum must not create an "obok mnie"
+                    // place when the provider's actual action is ASK. Keep only explicit
+                    // recipients and never reconstruct a missing NPC from raw player text.
+                    if(communicationAction && field in setOf("where","place","destination"))return@forEach
                     val surface=alignToPlayerText(surfaceValue.take(160))?:surfaceValue.take(160)
                     val groundedTarget=normalizedWorldText(surface)
                     val compactGrounded=groundedTarget.replace(" ","")
@@ -843,6 +883,7 @@ class LocalCompactAiJsonCodec(
             }
             val route=when{
                 trainingAction->"T"
+                communicationAction->if(action in setOf("ASK","QUERY","QUESTION","PYTAJ","PYTAM","ZAPYTAJ"))"Q" else "D"
                 semanticKind in setOf("MOVE","MOVEMENT","TRAVEL")&&(movementAction||hasDestination)->"M"
                 semanticKind in setOf("COMBAT","FIGHT","ATTACK")->"C"
                 semanticKind in setOf("TRAIN","TRAINING","PRACTICE","LEARN","TRENING","CWICZENIE","ĆWICZENIE")->"T"
@@ -852,6 +893,13 @@ class LocalCompactAiJsonCodec(
                 combatAction||hasOpponent->"C"
                 else->"A"
             }
+            // Keep the open vocabulary, but an unregistered, ungrounded bare verb has no
+            // player-supplied evidence at all. Do not turn a repeated hallucinated "walked"
+            // into successful self-interactions for a player who asked a spoken question.
+            if(references.length()==0 && movementAction && !actionGroundedInPlayerText(action))continue
+            if(references.length()==0 && !actionGroundedInPlayerText(action) &&
+                !movementAction && !combatAction && !communicationAction && !trainingAction &&
+                action !in UniversalIntentFamilies.REGISTERED)continue
             val referenceKey=(0 until references.length()).joinToString("|"){position->
                 val reference=references.getJSONObject(position)
                 listOf(reference.optString("x"),reference.optString("k"),reference.optString("scope"),reference.optString("role")).joinToString(":")
@@ -928,6 +976,7 @@ class LocalCompactAiJsonCodec(
         })
         return JSONObject().put("v","RPGOS_GM_LOCAL_1").put("c",request.plan.campaignUid).put("p",request.plan.planUid)
             .put("nodes",nodes).put("context",context)
+            .put("npc_dialogue_mode",if(request.holderDialogueDelegated)"HOLDER_SCOPED" else "GM_PROPOSAL")
             .put("guidance",request.strategicGuidance?.let{guidance->JSONArray(guidance.candidates.map{candidate->
                 JSONObject().put("id",candidate.candidateUid).put("kind",candidate.kind.name)
                     .put("hint",candidate.summary.take(240))
@@ -1075,6 +1124,7 @@ class LocalCompactAiJsonCodec(
     override fun encodeNarrativeRepair(request:AiNarrativeRepairRequest):String{
         val root=JSONObject(encodeNarrative(request.original))
         root.put("v","RPGOS_NARRATIVE_LOCAL_REPAIR_1").put("reasons",JSONArray(request.rejectionReasonUids))
+            .put("rejected_text",request.rejected.text)
             .put("reply",root.getString("reply")+" Popraw tekst zgodnie z reasons.")
         return root.toString()
     }
@@ -1092,10 +1142,12 @@ class LocalCompactAiJsonCodec(
         val placeholder=normalizedWorldText(text) in setOf(
             "narracja","tekst","opis","odpowiedz","odpowiedź","wynik","pierwsze zdanie drugie zdanie"
         )
-        require(text.length>=24&&!placeholder){"LOCAL_NARRATIVE_PLACEHOLDER_REJECTED"}
-        val claims=request.context.legalFacts.take(8).map{fact->NarrativeSemanticClaim(
+        // A concise lawful sentence is not a placeholder. The old 24-character floor
+        // rejected short answers before the normal narrative validator/repair could run.
+        require(text.length>=8&&!placeholder){"LOCAL_NARRATIVE_PLACEHOLDER_REJECTED"}
+        val claims=request.context.legalFacts.take(8).mapNotNull{fact->NarrativeSemanticClaim(
             "LOCAL-NARRATIVE:${fact.factUid}",
-            if(fact.kind==CommittedNarrativeFactKind.MECHANICAL_RESULT)NarrativeClaimKind.MECHANICAL_RESULT else NarrativeClaimKind.FACT,
+            fact.supportedClaimKind()?:return@mapNotNull null,
             fact.factUid,fact.predicateUid,fact.valueCanonical
         )}
         return RenderedNarrative(text,request.context.stopPointUid,request.context.committedOrder,claims,root.optBoolean("vol",false))
@@ -1282,7 +1334,8 @@ class LocalCompactAiJsonCodec(
             }
             return when(option.kind){
                 CharacterCreationDefinitionKind.POTENTIAL->option.maximumValue?:50.0
-                CharacterCreationDefinitionKind.STAT,CharacterCreationDefinitionKind.SKILL,CharacterCreationDefinitionKind.TECHNIQUE->{
+                CharacterCreationDefinitionKind.STAT->option.startingProfileValue()
+                CharacterCreationDefinitionKind.SKILL,CharacterCreationDefinitionKind.TECHNIQUE->{
                     val maximum=option.maximumValue?:minimum
                     (minimum+(maximum-minimum)*0.1).coerceIn(minimum,maximum)
                 }

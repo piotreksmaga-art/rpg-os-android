@@ -512,7 +512,11 @@ private class RpgOsLabRuntime(context: Context) {
     }
 
     private fun recoveryState():JSONObject{
-        val token=runCatching{chat.pendingRecovery()}.getOrNull()
+        val token=try{chat.pendingRecovery()}catch(failure:Exception){
+            DiagnosticLogger.log(app,"LAB_RECOVERY_PROBE_FAILED",failure)
+            return JSONObject().put("available",false).put("request",JSONObject.NULL)
+                .put("reason_uid",typedReason("LAB_RECOVERY_PROBE_FAILED",failure)).put("failure_type",failure.javaClass.simpleName)
+        }
         return JSONObject().put("available",token!=null).put("request",token?.request?.let(::recoveryRequestJson) ?: JSONObject.NULL)
     }
 

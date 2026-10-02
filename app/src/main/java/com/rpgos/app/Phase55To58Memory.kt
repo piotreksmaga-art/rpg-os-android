@@ -234,7 +234,21 @@ data class ConsolidationReceipt(
     require(resumeCursor?.isBlank()!=true&&reasonUid?.isBlank()!=true)
 }}
 
-data class MemoryEnrichmentRequest(val requestUid:String,val manifest:EpisodeManifest,val localeUid:String){init{require(requestUid.isNotBlank()&&localeUid.isNotBlank())}}
+/** Presentation evidence is a bounded Phase37/38 projection, never an event-store dump. */
+data class MemoryEnrichmentContext(val campaignUid:String,val historyGenerationUid:HistoryGenerationUid,
+                                   val holder:KnowledgeHolderRef,val records:List<NpcKnownRecord>){init{
+    require(holder.campaignUid==campaignUid && records.size in 1..4)
+    require(records.map{it.uid}.distinct().size==records.size && records.sumOf{it.projectedText.length}<=2_048)
+    require(records.all{it.sourceEventUid?.isNotBlank()==true})
+}}
+data class MemoryEnrichmentRequest(val requestUid:String,val manifest:EpisodeManifest,val localeUid:String,
+                                   val authorizedContext:MemoryEnrichmentContext?=null){init{
+    require(requestUid.isNotBlank()&&localeUid.isNotBlank())
+    authorizedContext?.let { context ->
+        require(context.campaignUid==manifest.identity.campaignUid && context.historyGenerationUid==manifest.identity.historyGenerationUid)
+        require(context.records.all{it.sourceEventUid in manifest.eventUids && it.sourceCommittedOrder<=manifest.endOrder})
+    }
+}}
 sealed interface MemoryEnrichmentResult{
     data class Success(val title:String,val summary:String,val tags:Set<String>):MemoryEnrichmentResult{init{require(title.isNotBlank()&&summary.isNotBlank()&&tags.none{it.isBlank()})}}
     data class Failure(val reasonUid:String,val retryable:Boolean=false):MemoryEnrichmentResult{init{require(reasonUid.isNotBlank())}}
@@ -244,11 +258,17 @@ fun interface MemoryEnrichmentPort{fun enrich(request:MemoryEnrichmentRequest,ca
 internal fun encodeMemoryEnrichmentRequest(request:MemoryEnrichmentRequest)=JSONObject().apply{
     put("schema_version",1);put("request_uid",request.requestUid);put("locale_uid",request.localeUid)
     put("episode_uid",request.manifest.identity.logicalArtifactUid)
-    put("event_uids",JSONArray(request.manifest.eventUids))
+    put("event_uids",JSONArray(request.authorizedContext?.records.orEmpty().mapNotNull{it.sourceEventUid}.distinct()))
     put("start_order",request.manifest.startOrder);put("end_order",request.manifest.endOrder)
-    put("participant_refs",JSONArray(request.manifest.participantRefs.map{"${it.kindUid}:${it.uid}"}))
-    put("location_refs",JSONArray(request.manifest.locationRefs.map{"${it.kindUid}:${it.uid}"}))
-    put("instruction","Return a presentation-only title, summary and tags. Do not add facts or mutations.")
+    val disclosedRefs=request.authorizedContext?.records.orEmpty().flatMap{it.subjectRefs}.distinct()
+    put("participant_refs",JSONArray(disclosedRefs.map{"${it.kindUid}:${it.uid}"}))
+    put("location_refs",JSONArray(disclosedRefs.filter{it.kindUid in setOf("LOCATION","PLACE","REGION")}.map{"${it.kindUid}:${it.uid}"}))
+    put("authorized_evidence",JSONArray(request.authorizedContext?.records.orEmpty().map { record ->
+        JSONObject().put("record_uid",record.uid).put("acquisition_uid",record.acquisitionUid)
+            .put("event_uid",record.sourceEventUid).put("source_version",record.sourceVersion)
+            .put("epistemic_state",record.epistemicState.name).put("text",record.projectedText)
+    }))
+    put("instruction","Return a presentation-only title, summary and tags using authorized_evidence only. Preserve beliefs as beliefs, not facts. Missing evidence means unknown. Do not infer events from identifiers, add facts or mutations.")
 }.toString()
 
 internal fun decodeMemoryEnrichmentPresentation(payload:String):MemoryEnrichmentResult.Success{

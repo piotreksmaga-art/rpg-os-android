@@ -7,7 +7,16 @@ internal sealed interface NpcMechanicalResult {
     data class Unavailable(val reasonUid:String):NpcMechanicalResult
 }
 
-internal class NpcMechanicalActionApplication(private val resolver:MechanicsRuleResolver,private val currentScope:()->TemporalScope) {
+internal class NpcMechanicalActionApplication(
+    private val resolver:MechanicsRuleResolver,
+    private val currentScope:()->TemporalScope,
+    private val travelRoutes:NpcTravelRoutePort,
+    private val travelActors:NpcTravelActorReadPort
+) {
+    // Preserve the two-argument/trailing-lambda construction used by existing callers.
+    constructor(resolver:MechanicsRuleResolver,currentScope:()->TemporalScope):
+        this(resolver,currentScope,NpcTravelRoutePort.NONE,NpcTravelActorReadPort.NONE)
+
     fun resolve(projected:NpcContextResult.Ready,selected:NpcDecisionResult.Selected,
                 stagedEffects:List<VerifiedMechanicsEffect> = emptyList(),cancellation:AiCancellationSignal=AiCancellationSignal.NONE):NpcMechanicalResult {
         fun fail(reason:String)=NpcMechanicalResult.Unavailable("P62:$reason")
@@ -39,12 +48,26 @@ internal class NpcMechanicalActionApplication(private val resolver:MechanicsRule
         if(!budget.safeForAi)return fail("MECHANICS_CONTEXT_BUDGET")
         val request=MechanicsEffectRequest("P62:EFFECT:${authorization.decisionUid}",node.nodeUid,owner,effectKind,target,option.parameters)
         if(!authorization.authorizesMechanics(context.scope.temporal,plan,node,request))return fail("MECHANICAL_BINDING_MISMATCH")
-        val verified=when(val result=resolver.resolve(request,MechanicsResolutionContext(plan.campaignUid,plan,budget,stagedEffects,authorization))) {
-            is MechanicsEffectResolution.Rejected -> return fail("MECHANICS:${result.reasonUid}")
-            is MechanicsEffectResolution.Verified -> result.effect
+        val resolutionContext=MechanicsResolutionContext(plan.campaignUid,plan,budget,stagedEffects,authorization)
+        val verified=if(effectKind.substringAfterLast(':').uppercase()==NpcTravelAffordances.EFFECT_KIND) {
+            // Fail closed until both current route and canonical actor readers are supplied.
+            // Never fall back to generic LOCATION_TRANSITION, which cannot settle route costs.
+            val actor=travelActors.actor(context.scope.temporal,context.brain.actor)?:return fail("TRAVEL_ACTOR_UNAVAILABLE")
+            when(val result=NpcTravelMechanics.resolve(request,resolutionContext,actor,travelRoutes)) {
+                is NpcTravelMechanicalResolution.Rejected -> return fail("MECHANICS:${result.reasonUid}")
+                is NpcTravelMechanicalResolution.Resolved -> result.effects
+            }
+        } else {
+            val effect=when(val result=resolver.resolve(request,resolutionContext)) {
+                is MechanicsEffectResolution.Rejected -> return fail("MECHANICS:${result.reasonUid}")
+                is MechanicsEffectResolution.Verified -> result.effect
+            }
+            if(effect.effectUid!=request.effectUid)return fail("MECHANICS_CORRELATION")
+            listOf(effect)
         }
-        if(verified.effectUid!=request.effectUid || verified.nodeUid!=node.nodeUid || verified.mechanicsOwnerUid!=owner)return fail("MECHANICS_CORRELATION")
-        val effects=canonicalMechanicsCommandEffects(verified,target)?:return fail("MECHANICS_MATERIALIZATION")
+        if(verified.isEmpty() || verified.size>17 || verified.map{it.effectUid}.distinct().size!=verified.size ||
+            verified.any{it.nodeUid!=node.nodeUid || it.mechanicsOwnerUid!=owner})return fail("MECHANICS_CORRELATION")
+        val effects=verified.flatMap{canonicalMechanicsCommandEffects(it,target)?:return fail("MECHANICS_MATERIALIZATION")}
         val changes=effects.flatMap { effect -> when(val material=MechanicalEffectMaterializer.materialize(effect)) {
             is MechanicalEffectMaterializationResult.Rejected -> return fail("MATERIALIZATION:${material.reasonUid}")
             is MechanicalEffectMaterializationResult.Materialized -> material.changes.map{it.payload}

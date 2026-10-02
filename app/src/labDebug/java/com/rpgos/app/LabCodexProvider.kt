@@ -115,7 +115,7 @@ internal class LabCodexRequestBroker(
         val deadline=clock()+waitMillis
         while(true){
             val remaining=(deadline-clock()).coerceAtLeast(0L)
-            val request=if(remaining==0L)queue.poll() else queue.poll(remaining,TimeUnit.MILLISECONDS)
+            val request=(if(remaining==0L)queue.poll() else queue.poll(remaining,TimeUnit.MILLISECONDS))
                 ?:return JSONObject().put("available",false).put("lane",lane.name)
             if(request.state.compareAndSet(LabAiRequestState.QUEUED,LabAiRequestState.CLAIMED)){
                 request.claimedBySessionUid=sessionUid

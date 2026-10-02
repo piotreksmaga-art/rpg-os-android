@@ -868,7 +868,12 @@ internal fun draftReferences(draft: PlayerResolutionDraft): List<DomainRef> = bu
                 add(DomainRef(PlayerResolutionReferenceKinds.CURRENCY, payload.currencyUid))
             }
             is ProgressionLedgerIntentPayload -> {
-                add(DomainRef("PLAYER", payload.characterUid))
+                // Progression is also used by canonical NPC skill/technique owners. Infer the
+                // subject kind from the ledger's causal grant, never from its display text.
+                val subjects=draft.changes.filter{it.changeUid in intent.causalChangeUids}.mapNotNull{change->when(val p=change.payload){
+                    is StatChange->p.subject;is SkillChange->p.subject;is TechniqueChange->p.subject;else->null
+                }}.filter{it.uid==payload.characterUid}.distinct()
+                add(subjects.singleOrNull()?:DomainRef("PLAYER",payload.characterUid))
                 add(DomainRef(payload.targetKindUid, payload.targetUid))
                 payload.progressionDomainUid?.let { add(DomainRef(PlayerResolutionReferenceKinds.PROGRESSION_DOMAIN, it)) }
             }

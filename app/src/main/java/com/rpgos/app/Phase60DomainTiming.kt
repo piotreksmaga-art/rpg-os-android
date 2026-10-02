@@ -16,7 +16,7 @@ internal object Phase60CombatTime {
 
 /** Only resolved mechanics payloads enter this adapter, never model request parameters. */
 internal object Phase60DomainTiming {
-    private val rules=setOf(Phase60CombatTime.RULE,NpcActivityMechanics.TIMING_RULE,NpcSpeechMechanics.TIMING_RULE)
+    private val rules=setOf(Phase60CombatTime.RULE,NpcActivityMechanics.TIMING_RULE,NpcSpeechMechanics.TIMING_RULE,NpcTravelMechanics.TIMING_RULE)
     fun accepted(effects:List<VerifiedMechanicsCommandEffect>):Map<String,AcceptedActionTiming> = effects
         .filter{it.canonicalPayload["p60_core_timing_rule"] in rules}
         .groupBy{it.nodeUid}.mapValues { (_,rows)->

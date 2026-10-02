@@ -11,7 +11,8 @@ internal object NpcBrainRules {
     val PLANNING=NpcBrainRule("P61:PLANNING",1,NpcBrainTransitionKind.GOALS_AND_PLANS)
     val ADAPTATION=NpcBrainRule("P61:ADAPTATION",1,NpcBrainTransitionKind.PERSONALITY_ADAPTATION,250)
     val EXECUTION_COMPLETION=NpcBrainRule("P61:EXECUTION_COMPLETION",1,NpcBrainTransitionKind.GOALS_AND_PLANS)
-    fun resolve(uid:String,version:Int)=listOf(GENESIS,APPRAISAL,PLANNING,ADAPTATION,EXECUTION_COMPLETION).singleOrNull{it.uid==uid && it.version==version}
+    val DOMAIN_RESULT=NpcBrainRule("P61:DOMAIN_RESULT",1,NpcBrainTransitionKind.GOALS_AND_PLANS)
+    fun resolve(uid:String,version:Int)=listOf(GENESIS,APPRAISAL,PLANNING,ADAPTATION,EXECUTION_COMPLETION,DOMAIN_RESULT).singleOrNull{it.uid==uid && it.version==version}
         ?:error("P61:UNREGISTERED_BRAIN_RULE")
 }
 
@@ -114,7 +115,12 @@ internal class NpcBrainStore(private val db:SQLiteDatabase,private val campaignU
                         if(!it.moveToFirst())false else { newestAcquisitionOrder=maxOf(newestAcquisitionOrder,it.getLong(0));true }
                     }
                 // Event existence alone is not evidence that the actor perceived it.
-                NpcCauseKind.COMMITTED_EVENT->false
+                NpcCauseKind.COMMITTED_EVENT->rule==NpcBrainRules.DOMAIN_RESULT && before!=null &&
+                    after.goals.filter{it.cause==cause && it !in before.goals}.let{changed->changed.isNotEmpty() && changed.all{goal->
+                        val prior=before.goals.singleOrNull{it.uid==goal.uid}
+                        prior!=null && NpcCanonicalResultOwner(db,campaignUid).proof(before,prior,
+                            TurnTransactionReceiptStore(db).lastValidCommit(campaignUid)?.commitOrder?:0L)==cause.uid
+                    }}
             }
             require(present) { "P61:CAUSE_NOT_AUTHORIZED" }
         }

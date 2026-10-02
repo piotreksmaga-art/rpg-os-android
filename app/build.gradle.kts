@@ -12,8 +12,8 @@ android {
         applicationId = "com.rpgos.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 160
-        versionName = "1.3.0-alpha20-npc-preview"
+        versionCode = 161
+        versionName = "1.3.0-alpha21-npc61-62"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "RPGOS_BACKEND_URL", "\"https://YOUR-BACKEND.example\"")
         buildConfigField(
@@ -86,6 +86,12 @@ android {
         compose = true
         buildConfig = true
         aidl = true
+    }
+
+    // The isolated Motorola acceptance package needs its own instrumentation target as well.
+    // Ordinary CI continues to exercise debug; neither property changes release identity.
+    if (providers.gradleProperty("rpgosDeviceAcceptance").orNull == "true") {
+        testBuildType = "labDebug"
     }
 
     // Keep Android bytecode stable even when a newer Android Studio JBR runs Gradle.

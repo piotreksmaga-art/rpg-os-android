@@ -54,7 +54,7 @@ data class OwnershipShare private constructor(val units: Long) {
             val scaled = BigInteger.valueOf(numerator).multiply(BigInteger.valueOf(OWNERSHIP_SHARE_SCALE))
             val parts = scaled.divideAndRemainder(BigInteger.valueOf(denominator))
             require(parts[1] == BigInteger.ZERO) { "ownership share precision is not exactly representable" }
-            val value = parts[0].longValueExact()
+            val value = parts[0].toExactLongCompat()
             return OwnershipShare(value)
         }
 

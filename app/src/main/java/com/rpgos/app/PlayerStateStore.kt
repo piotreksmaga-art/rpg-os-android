@@ -46,6 +46,21 @@ class PlayerStateStore(
             entityUid = ref.playerUid,
             orderBy = "is_equipped DESC, mastery DESC, xp DESC"
         )
+        // Modern owners supersede legacy caches, including an authoritative empty collection.
+        // Preserve old-save evidence separately; never merge it into typed current state.
+        listOf(
+            Triple("stats","player_stats","stat_uid"),
+            Triple("resources","player_resources","resource_uid"),
+            Triple("skills","player_skills_v2","skill_uid"),
+            Triple("techniques","player_techniques_v2","technique_uid")
+        ).forEach{(key,table,uidColumn)->
+            if(tableExists(table)){
+                persistent.remove(key)?.let{persistent["legacy_$key"]=it}
+                persistent[key]=queryMany("SELECT * FROM $table WHERE campaign_id=? AND character_uid=? ORDER BY $uidColumn",
+                    arrayOf(campaignId,ref.playerUid))
+            }
+        }
+        persistent["legacy_components_authoritative"]=false
         persistent["finances"] = firstForEntity(
             table = "character_finances",
             entityColumn = "entity_uid",

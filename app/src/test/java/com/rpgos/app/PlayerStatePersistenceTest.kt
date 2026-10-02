@@ -102,7 +102,7 @@ class PlayerStatePersistenceTest {
             ActivePlayerStore(db, "campaign-a").set("PLAYER-A")
 
             val state = PlayerStateStore(db, "campaign-a").load()
-            val skills = state?.persistent?.get("skills") as List<*>
+            val skills = state?.persistent?.get("legacy_skills") as List<*>
             assertEquals(125, skills.size)
         }
     }
@@ -118,7 +118,7 @@ class PlayerStatePersistenceTest {
             ActivePlayerStore(db, "campaign-a").set("PLAYER-A")
 
             val state = PlayerStateStore(db, "campaign-a").load()
-            val skills = state?.persistent?.get("skills") as List<Map<String, Any?>>
+            val skills = state?.persistent?.get("legacy_skills") as List<Map<String, Any?>>
             assertEquals(1, skills.size)
             assertEquals("PLAYER-A", skills.single()["entity_uid"])
             assertEquals("a-only", skills.single()["skill_uid"])
@@ -131,6 +131,34 @@ class PlayerStatePersistenceTest {
         assertNull(PlayerIdentityPolicy.resolveUnambiguous(mapOf("A" to 1, "B" to 1)))
         assertEquals("A", PlayerIdentityPolicy.resolveUnambiguous(mapOf("A" to 3, "B" to 1)))
         assertEquals("A", PlayerIdentityPolicy.resolveUnambiguous(mapOf("A" to 1)))
+    }
+
+    @Test
+    fun canonicalComponentsReplaceLegacyCachesAndStayCampaignAndPlayerScoped() {
+        open().use { db ->
+            createActivePlayerTable(db)
+            db.execSQL("INSERT INTO active_player_ref VALUES('campaign-a','PLAYER-A',0)")
+            createSkillsTable(db)
+            insertSkill(db,"PLAYER-A","legacy-only",99)
+            listOf("stats" to "stat_uid", "resources" to "resource_uid",
+                "skills_v2" to "skill_uid", "techniques_v2" to "technique_uid").forEach { (suffix,uidColumn) ->
+                db.execSQL("CREATE TABLE player_$suffix(campaign_id TEXT,character_uid TEXT,$uidColumn TEXT,value REAL)")
+                db.execSQL("INSERT INTO player_$suffix VALUES('campaign-a','PLAYER-A','current',10)")
+                db.execSQL("INSERT INTO player_$suffix VALUES('campaign-b','PLAYER-A','foreign-campaign',20)")
+                db.execSQL("INSERT INTO player_$suffix VALUES('campaign-a','PLAYER-B','foreign-player',30)")
+            }
+            val first=PlayerStateStore(db,"campaign-a").load()!!.persistent
+            listOf("stats","resources","skills","techniques").forEach { key ->
+                val rows=first[key] as List<*>
+                assertEquals(1,rows.size)
+                assertEquals("current",(rows.single() as Map<*,*>).values.first { it=="current" })
+            }
+            db.execSQL("DELETE FROM player_skills_v2 WHERE campaign_id='campaign-a' AND character_uid='PLAYER-A'")
+            val after=PlayerStateStore(db,"campaign-a").load()!!.persistent
+            assertTrue((after["skills"] as List<*>).isEmpty())
+            assertEquals(1,(after["legacy_skills"] as List<*>).size)
+            assertEquals(false,after["legacy_components_authoritative"])
+        }
     }
 
     private fun open(): SQLiteDatabase = SQLiteDatabase.openOrCreateDatabase(dbFile, null)

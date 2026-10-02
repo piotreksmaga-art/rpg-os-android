@@ -144,6 +144,8 @@ internal object NpcBrainOwner {
         if(rule.allowed!=NpcBrainTransitionKind.APPRAISAL)
             require(before.emotions==after.emotions && before.dispositions==after.dispositions &&
                 before.lastAppraisedAcquisitionOrder==after.lastAppraisedAcquisitionOrder) { "P61:APPRAISAL_OWNER_REQUIRED" }
+        if(rule==NpcBrainRules.DOMAIN_RESULT)require(before.motivations==after.motivations && before.plans==after.plans &&
+            before.goals.map{it.uid}==after.goals.map{it.uid} && causes.all{it.kind==NpcCauseKind.COMMITTED_EVENT}) { "P61:RESULT_CAN_ONLY_CONFIRM_EXISTING_GOALS" }
         require(after.lastAppraisedAcquisitionOrder>=before.lastAppraisedAcquisitionOrder) { "P61:APPRAISAL_WATERMARK_REGRESSION" }
         fun caused(cause:NpcCauseRef)=cause in causes
         require(after.emotions.filter{it !in before.emotions}.all{caused(it.cause)} &&
@@ -155,8 +157,12 @@ internal object NpcBrainOwner {
             require(goal.objective==prior.objective && goal.motivationUid==prior.motivationUid && goal.executionObjective==prior.executionObjective) { "P61:GOAL_IDENTITY_CHANGED" }
             require(prior.lifecycle !in setOf(NpcGoalLifecycle.ACHIEVED,NpcGoalLifecycle.ABANDONED) || goal==prior) { "P61:TERMINAL_GOAL_REWRITTEN" }
             if(goal.lifecycle==NpcGoalLifecycle.ACHIEVED && prior.lifecycle!=goal.lifecycle)require(
-                rule==NpcBrainRules.EXECUTION_COMPLETION && prior.executionObjective!=null && prior.lifecycle==NpcGoalLifecycle.ACTIVE &&
-                    after.plans.any{it.goalUid==goal.uid && it.lifecycle==NpcPlanLifecycle.COMPLETED && it.cause==goal.cause && it !in before.plans}) { "P61:GOAL_COMPLETION_OWNER_REQUIRED" }
+                prior.executionObjective!=null && prior.lifecycle==NpcGoalLifecycle.ACTIVE &&
+                    (rule==NpcBrainRules.EXECUTION_COMPLETION && prior.executionObjective.worldResult==null &&
+                        after.plans.any{it.goalUid==goal.uid && it.lifecycle==NpcPlanLifecycle.COMPLETED && it.cause==goal.cause && it !in before.plans} ||
+                     rule==NpcBrainRules.DOMAIN_RESULT && prior.executionObjective.worldResult!=null && goal.cause.kind==NpcCauseKind.COMMITTED_EVENT &&
+                        before.plans.any{it.goalUid==goal.uid && it.lifecycle==NpcPlanLifecycle.COMPLETED})) { "P61:GOAL_COMPLETION_OWNER_REQUIRED" }
+            if(rule==NpcBrainRules.DOMAIN_RESULT)require(goal==prior || goal==prior.copy(lifecycle=NpcGoalLifecycle.ACHIEVED,cause=goal.cause)) { "P61:RESULT_MUTATION_SCOPE" }
         } ?: require(goal.lifecycle!=NpcGoalLifecycle.ACHIEVED) { "P61:GOAL_CANNOT_START_ACHIEVED" }}
         after.plans.forEach{plan->before.plans.singleOrNull{it.uid==plan.uid}?.let{prior->
             require(plan.goalUid==prior.goalUid && plan.actionUid==prior.actionUid && plan.startedAt==prior.startedAt &&

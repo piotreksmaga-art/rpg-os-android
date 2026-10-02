@@ -37,6 +37,6 @@ object Phase60Accrual {
         val total = BigInteger.valueOf(contract.totalUnits)
         val divisor = BigInteger.valueOf(duration)
         fun accrued(value: Long) = total.multiply(BigInteger.valueOf(value)).divide(divisor)
-        return accrued(after).subtract(accrued(before)).longValueExact()
+        return accrued(after).subtract(accrued(before)).toExactLongCompat()
     }
 }

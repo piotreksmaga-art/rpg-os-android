@@ -5,6 +5,7 @@ param(
     [Parameter(Position = 1)]
     [string] $Arguments = "{}",
     [string] $Serial = "ZY22HDLNVF",
+    [string] $PackageName = "com.rpgos.app",
     [int] $Port = 43137,
     [int] $TimeoutSeconds = 900,
     [string] $OutputDirectory
@@ -13,7 +14,7 @@ param(
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $androidUserHome = Join-Path $projectRoot ".android-codex"
-$packageName = "com.rpgos.app"
+if ($PackageName -notmatch '^com\.rpgos\.app(?:\.acceptance)?$') { throw "Nieprawidłowy pakiet laboratoryjny." }
 $normalizedCommand = $Command.Trim().ToUpperInvariant()
 
 if ([string]::IsNullOrWhiteSpace($env:ANDROID_USER_HOME)) {

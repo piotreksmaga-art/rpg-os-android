@@ -89,6 +89,13 @@ class Phase37WorldActorKnowledgeTest {
         assertEquals("ACQ-NPC-PRIVATE",projection.boundedForNpc(holder("N1"),Long.MAX_VALUE,1,emptySet(),setOf("ACQ-NPC-ROLE","ACQ-NPC-OTHER")).single().acquisitionUid)
         assertTrue(projection.boundedForNpc(holder("N1"),0,64,setOf("GUARD")).isEmpty())
         assertTrue(own.none{it.projectedText.contains("Ukryta")})
+        val ownEvent=requireNotNull(own.single().sourceEventUid)
+        val episode=projection.boundedForNpc(holder("N1"),Long.MAX_VALUE,4,setOf("GUARD"),sourceEventUids=setOf(ownEvent))
+        assertEquals(own,episode)
+        assertTrue(projection.boundedForNpc(holder("N1"),0,4,setOf("GUARD"),sourceEventUids=setOf(ownEvent)).isEmpty())
+        val otherEvent=requireNotNull(projection.boundedForNpc(holder("N2"),Long.MAX_VALUE,4,emptySet()).single().sourceEventUid)
+        assertTrue(projection.boundedForNpc(holder("N1"),Long.MAX_VALUE,4,setOf("GUARD"),sourceEventUids=setOf(otherEvent)).isEmpty())
+        assertTrue(projection.boundedForNpc(holder("N2"),Long.MAX_VALUE,4,emptySet(),sourceEventUids=setOf(ownEvent)).isEmpty())
         assertTrue(runCatching{projection.boundedForNpc(KnowledgeHolderRef(KnowledgeHolderKinds.CHARACTER,"N1","OTHER"),10,64,emptySet())}.isFailure)
     }
 

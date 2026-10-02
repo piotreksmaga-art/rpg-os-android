@@ -640,7 +640,7 @@ Reputacja jest holder-scoped belief acquired legalnie, nie omniscient globalnym 
 
 LOD może stosować crowd/minor/persistent/major tiers. Materializacja szczegółu nie fabrykuje nieistniejącej historii.
 
-### 14.1 Wdrożenie Phase61–62 — stan częściowy
+### 14.1 Wdrożenie Phase61–62 — ukończona implementacja, wydanie bramkowane CI
 
 Aktualna implementacja i pozostałe bramki są opisane w [PHASE61_62_NPC_IMPLEMENTATION.md](architecture/PHASE61_62_NPC_IMPLEMENTATION.md).
 Trwały Brain przechodzi zwykły canonical commit/replay/undo. Prywatny kontekst decyzji korzysta z Phase37/38 → Phase41/44/45 oraz osobnego holder-scoped rankingu Bekko, bez kopiowania ukrytej wiedzy MG.
@@ -650,6 +650,8 @@ Phase60 uruchamia dwa ograniczone procesy uczestniczących aktorów: `P62:NPC_CO
 Aktywacja fizyczna obejmuje zarejestrowane zdolności bojowe i kontrakty czynności rozliczające czas/wysiłek. `NpcActivityResourceRecovery` może dodatkowo odnowić własny, istniejący zasób przez Phase50. Domyślny REST v2 to sześć minut oraz najwyżej 1 STAMINA, bez przekroczenia maksimum; HEALTH wymaga osobno zarejestrowanej i materializowanej capability. Efekt jest wyznaczany ponownie dopiero na granicy ukończenia Phase60 i zapisywany razem z wysiłkiem. Nie powstaje przy samym przygotowaniu lub anulowaniu. Nie oznacza to leczenia ran/innych osób, nadania umiejętności ani sukcesu celu. Aktualne role pochodzą z Phase38. Dawne acquisition i assertions Phase56–58 są ponownie odczytywane ze źródeł canonical; cache nie przekazuje tekstu podsumowania ani pominiętych wydarzeń.
 
 `NPC_DIALOGUE` przygotowuje wypowiedź w osobnym wywołaniu z wiedzą danego NPC, bez kontekstu wszechwiedzącego MG. Odpowiedź pozostaje NARRATIVE. Dopiero dostarczona, zatwierdzona rozmowa tworzy Phase37 acquisition „X powiedział Y” u dokładnych uczestników; treść Y nie staje się przez to prawdą świata. Awaria tej ścieżki nie jest maskowana wypowiedzią MG.
+
+Produkcja może delegować jawny `MESSAGE` zamiast żądać wcześniejszej wypowiedzi od MG. Przygotowane `NPC_DIALOGUE_PENDING` nie jest canonical effect: materializer je odrzuca, a obowiązkowy owner rozmowy zastępuje je dopiero zweryfikowaną odpowiedzią holdera przed wspólnym commitem. Nie dotyczy przyszłych, zaprzeczonych ani META wypowiedzi. Kompaktowy lokalny wire `t/r` zachowuje typed dialogue, źródła i rodzaje epistemiczne; nie daje modelowi własnej ścieżki zapisu.
 
 Krótka sekwencja obejmuje do czterech już autoryzowanych opcji tego samego celu; każda przechodzi ponowną projekcję i mechanikę przy swojej granicy czasu. Własne odczucie rany może tworzyć osobne acquisition przez `NpcConsequenceObservation`, wyłącznie z zatwierdzonego skutku oraz reguły percepcji przytomnego aktora. Nie ujawnia sprawcy ani ukrytej przyczyny. Nowe Brain mają deterministyczne wartości osobiste; istniejące zapisy pozostają bez przelosowania.
 
@@ -661,7 +663,11 @@ Nowy ACTOR może otrzymać `MechanicalActorGenesisChange` w tej samej transakcji
 
 Wewnątrz tury `StagedMechanicalProjection` rozwija zatwierdzone efekty według tej samej reguły co commit, bez podwójnego trafienia głównego celu AOE. Zmiana lokacji wyklucza użycie starego zasięgu rozmowy i starych scene paths do autoryzacji walki. Przesunięcie z nieznanej pozycji nie ustanawia dokładnych współrzędnych. Projekcja nie zapisuje stanu ani wiedzy NPC i nie zastępuje właściciela trasy/czasu podróży.
 
-Phase61–62 pozostają częściowe do domknięcia integracji właścicieli skutków, złożonych planów, dodatkowych źródeł percepcji i odbioru rozgrywki. Nie jest to realizacja populacyjnego Living World Phase63–64.
+Domykanie Phase61–62 dodaje do istniejącej ścieżki kontrakty R2 nauki/czytania (Phase21/37), R3 leczenia (Phase50) i R4 obowiązków (Phase38/60), a także R5 kryteria rzeczywistych wyników i legalną obserwację widocznego urazu. Reguły oraz actor bindings pochodzą z jawnych rozszerzeń World Packa. Brak reguły nie daje modelowi prawa do wymyślenia skutku. `NpcWorldResultContract` wymaga aktualnego właściciela i aktywnego receipt/replay; koniec planu nie jest sukcesem świata.
+
+Produkcja nie używa `LegacyRuleIntentFallback` po awarii modelu lub dekodowania: composition root wstrzykuje `IntentInterpretationFallback.NONE`. Błąd interpretacji kończy się typed failure przed planowaniem/commitem, bez materializacji zastępczego celu. Legacy adapter pozostaje jawnym portem kompatybilności. Flaga fallbacku narracji nie stanowi dowodu poprawności innych etapów. Weryfikacja rozmowy wymaga faktycznego `NPC_DIALOGUE`, odbiorcy i Phase37 acquisition, a nie samego `NARRATED`.
+
+Stan implementacji, schematy importu i bramki znajdują się w `docs/architecture/PHASE61_62_NPC_IMPLEMENTATION.md`. R1–R5 są podłączone do produkcyjnego composition root. Scalenie i publikacja wymagają exact-SHA GREEN pełnych JVM debug/lab, Android API28/36, pamięci/undo, process-death i izolacji release. Krótki odbiór generatywny może używać aktywnego czatu przez LAB zamiast Bielika; nie dowodzi jakości lokalnego modelu. Długie testy modeli i wydajności są jawnie odłożone. Nie jest to realizacja populacyjnego Living World Phase63–64 ani branchingu Phase72.
 
 ## 15. Living World / Autonomous World Simulation — CANONICAL TARGET
 `THE WORLD DOES NOT WAIT FOR THE PLAYER.`
