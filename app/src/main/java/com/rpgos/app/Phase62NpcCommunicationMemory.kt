@@ -53,6 +53,25 @@ internal object NpcCommunicationMemory {
             it.polarity==KnowledgeEvidencePolarity.SUPPORTS &&
             it.sourceRef==KnowledgeSourceRef.campaign(campaign,change.claim.subjectKindUid,change.claim.subjectUid)}}
         .mapTo(linkedSetOf()){DomainRef(it.claim.subjectKindUid,it.claim.subjectUid)}
+    internal const val PENDING_DIALOGUE_KIND="NPC_DIALOGUE_PENDING"
+    internal fun pendingDialogue(plan:CanonicalTurnPlan,successfulNodes:Set<String>,alreadyRepresented:Set<String>):List<VerifiedMechanicsCommandEffect> {
+        val targets=plan.intent.nodes.filter{it.nodeUid in successfulNodes && isConversationNode(it) &&
+            it.modality==IntentModality.ATTEMPT_NOW && it.polarity==IntentPolarity.AFFIRMATIVE &&
+            it.semanticAction.attributes["time_scope"]?.uppercase()!="META"}
+            .flatMap{node->projectedTargetRefs(plan.intent,node).filter{it.kindUid in setOf("ACTOR","NPC")}.map{it to node}}
+            .groupBy({it.first},{it.second})
+        return targets.filterKeys{it.uid !in alreadyRepresented}.map{(target,nodes)->
+            require(nodes.all{node->node.participants.singleOrNull{it.roleUid=="MESSAGE"}?.literalValue?.isNotBlank()==true}){
+                "P62:COMMUNICATION_MESSAGE_REQUIRED"
+            }
+            val node=nodes.last()
+            val hash=phase60Hash("${plan.intent.canonicalFingerprint()}|$target|${nodes.map{it.nodeUid}}")
+            val pending=VerifiedMechanicsCommandEffect("P62:DIALOGUE-PENDING:$hash",node.nodeUid,"RPGOS-CORE:NPC-DIALOGUE",
+                "NARRATIVE_EVENT",target,1,mapOf("predicate_uid" to GmNarrativePredicates.NPC_UTTERANCE,"narrative_text" to "PENDING"),
+                "P62:DIALOGUE-PENDING:$hash",hash,hash)
+            annotate(pending,plan,node,nodes).copy(effectKindUid=PENDING_DIALOGUE_KIND)
+        }
+    }
     fun annotate(effect:VerifiedMechanicsCommandEffect,plan:CanonicalTurnPlan,node:IntentNode,addressedNodes:List<IntentNode> = listOf(node)):VerifiedMechanicsCommandEffect {
         require(effect.effectKindUid=="NARRATIVE_EVENT" && effect.canonicalPayload["predicate_uid"]==GmNarrativePredicates.NPC_UTTERANCE)
         require(effect.target in projectedTargetRefs(plan.intent,node) && isConversationNode(node))

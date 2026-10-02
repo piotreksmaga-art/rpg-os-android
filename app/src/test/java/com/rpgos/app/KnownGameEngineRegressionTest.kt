@@ -85,7 +85,7 @@ class KnownGameEngineRegressionTest {
         assertTrue(prompt.contains("Nie przepisuj prywatnych myśli do message"))
         assertTrue(prompt.contains("time_min_ms i time_max_ms"))
         assertTrue(prompt.contains("polarity=NEGATED"))
-        assertTrue(prompt.endsWith("{\"steps\":[{"))
+        assertTrue(prompt.endsWith("{\"steps\":[{\"action\":\""))
         assertFalse(prompt.contains("destination/where/who/what"))
         assertTrue(prompt.indexOf("Każda niezależna czynność")<prompt.lastIndexOf("Idę do Akademii."))
         assertFalse(prompt.contains("przewoźnika"))
@@ -659,10 +659,24 @@ END""",request
         assertEquals("strażnika",legal.references.single().rawPhrase)
         assertEquals("ACTOR",legal.references.single().descriptorHints["world_base_kind"])
         assertEquals("Jak masz na imię?",legal.nodes.single().participants.single{it.roleUid=="MESSAGE"}.literalValue)
-        val hallucinated="""{"steps":[{"locality":"L","kind":"MOVE","action":"walked"},{"locality":"L","kind":"MOVE","action":"walked"}]}"""
-        assertThrows(IllegalArgumentException::class.java){codec.decodeIntent(hallucinated,request)}
+        for(verb in listOf("walked","walk","MOVE")) {
+            val hallucinated="""{"steps":[{"locality":"L","kind":"MOVE","action":"$verb"},{"locality":"L","kind":"MOVE","action":"$verb"}]}"""
+            assertThrows(IllegalArgumentException::class.java){codec.decodeIntent(hallucinated,request)}
+        }
         val openRequest=request.copy(rawInput="Śpiewam przez 10 sekund.")
         assertEquals("OPEN_WORLD_ACTION",codec.decodeIntent("""{"steps":[{"locality":"L","kind":"ACTION","action":"śpiewam"}]}""",openRequest).nodes.single().semanticAction.semanticFamilyUid)
+    }
+
+    @Test fun objectSeedPreservesFirstKeyQuoteWithoutChangingStringValueSeed() {
+        val payload="""{"v":"RPGOS_INTENT_LOCAL_9"}"""
+        val continuation=""""action":"pytam","kind":"QUERY","who":"strażnika","message":"Jak masz na imię?"}]}"""
+        val completed=ExecuTorchInferenceService.seedCharacterCreationJson(continuation,"{\"steps\":[{")
+        assertEquals("pytam",JSONObject(completed).getJSONArray("steps").getJSONObject(0).getString("action"))
+        val actionContinuation="""pytam","kind":"QUERY","who":"strażnika","message":"Jak masz na imię?"}]}"""
+        val normalized=ExecuTorchInferenceService.normalizeStructuredOutput(payload,actionContinuation)
+        assertEquals("pytam",JSONObject(normalized).getJSONArray("steps").getJSONObject(0).getString("action"))
+        assertEquals("{\"t\":\"Czekasz.\",\"vol\":false}",
+            ExecuTorchInferenceService.seedCharacterCreationJson("\"Czekasz.\",\"vol\":false}","{\"t\":\""))
     }
 
     @Test fun conciseNarrationReachesTheValidatorInsteadOfFailingAnArbitraryLengthFloor() {

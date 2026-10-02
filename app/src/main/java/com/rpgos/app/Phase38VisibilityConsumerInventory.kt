@@ -118,6 +118,16 @@ object VisibilityConsumerInventory {
         // cache text never grants knowledge or permission to disclose it to another audience.
         c("phase62-npc-historical-memory", "app/src/main/java/com/rpgos/app/Phase62NpcHistoricalMemory.kt", ProtectedConsumerCapability.PROJECTION_DATA_SOURCE,
             VisibilityPurposeKinds.WORLD_ACTOR_REASONING),
+        // Internal result owners expose only a proof after current-state and receipt validation,
+        // not hidden patient/organization rows to UI or generative providers.
+        c("phase61-npc-canonical-results", "app/src/main/java/com/rpgos/app/Phase61NpcWorldResults.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION),
+        c("phase62-npc-duty-authority", "app/src/main/java/com/rpgos/app/Phase62NpcDuties.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION),
+        // Issues only a disclosed wound summary through Phase38's signal/capability resolvers;
+        // a shared location alone never creates holder knowledge.
+        c("phase62-npc-witness-projector", "app/src/main/java/com/rpgos/app/Phase62NpcWitnessObservation.kt", ProtectedConsumerCapability.PROJECTION_AUTHORITY,
+            VisibilityPurposeKinds.WORLD_ACTOR_REASONING, VisibilityPurposeKinds.INTERNAL_SIMULATION),
         c("campaign-truth-authority", "app/src/main/java/com/rpgos/app/CampaignTruthStore.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
             VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.DIAGNOSTIC_INSPECTION),
         c("campaign-world-projection", "app/src/main/java/com/rpgos/app/CampaignWorldProjectionStore.kt", ProtectedConsumerCapability.PROJECTION_DATA_SOURCE,

@@ -417,6 +417,35 @@ class CanonicalAiJsonCodec:AiStructuredCodec{
 class LocalCompactAiJsonCodec(
     private val canonical:CanonicalAiJsonCodec=CanonicalAiJsonCodec()
 ):AiStructuredCodec by canonical{
+    override fun encodeNpcDialogue(request:NpcDialogueRequest):String {
+        // Reuse the existing holder projection, then remove correlation strings which a small
+        // model need not regenerate. Source ordinals refer only to this authorized request.
+        val source=JSONObject(NpcDialogueCodec.encode(request))
+        return JSONObject().put("v","RPGOS_NPC_DIALOGUE_LOCAL_1")
+            .put("brain",source.getJSONObject("brain")).put("received_message",request.receivedMessage)
+            .put("records",JSONArray(request.context.records.mapIndexed { index,record->
+                JSONObject().put("i",index).put("kind",record.epistemicState.name)
+                    .put("memory_kind",record.memoryKind.name).put("text",record.projectedText)
+            })).apply {
+                if(source.has("mode"))put("mode",source.getString("mode"))
+                if(source.has("own_goal"))put("own_goal",source.getString("own_goal"))
+            }.toString().also{require((it.length.toLong()+3)/4<=request.context.maximumInputUnits){"P62:DIALOGUE_INPUT_BUDGET"}}
+    }
+    override fun decodeNpcDialogue(payload:String,request:NpcDialogueRequest):NpcDialogueCandidate {
+        require(payload.length<=8192)
+        val root=JSONObject(payload)
+        require(root.keys().asSequence().toSet()==setOf("t","r")){"LOCAL_DIALOGUE_FIELDS"}
+        val text=root.get("t");require(text is String)
+        val sources=root.getJSONArray("r")
+        val indices=(0 until sources.length()).map { index->
+            val value=sources.get(index)
+            require(value is Int || value is Long){"LOCAL_DIALOGUE_SOURCE_INTEGER"}
+            (value as Number).toLong().also { require(it>=0 && it<request.context.records.size){"LOCAL_DIALOGUE_UNKNOWN_SOURCE"} }.toInt()
+        }
+        require(indices.distinct().size==indices.size)
+        return NpcDialogueCandidate(request.requestUid,request.fingerprint,text,indices.map{request.context.records[it].uid}.toSet())
+            .also { NpcDialogueCodec.validate(it,request) }
+    }
     override fun encodeDirector(request:AiDirectorRequest)=LocalDirectorCodec.encode(request)
     override fun decodeDirector(payload:String,request:AiDirectorRequest)=LocalDirectorCodec.decode(payload,request)
     override fun encodeIntent(request:AiIntentRequest)=JSONObject()
@@ -861,6 +890,7 @@ class LocalCompactAiJsonCodec(
             // Keep the open vocabulary, but an unregistered, ungrounded bare verb has no
             // player-supplied evidence at all. Do not turn a repeated hallucinated "walked"
             // into successful self-interactions for a player who asked a spoken question.
+            if(references.length()==0 && movementAction && !actionGroundedInPlayerText(action))continue
             if(references.length()==0 && !actionGroundedInPlayerText(action) &&
                 !movementAction && !combatAction && !communicationAction && !trainingAction &&
                 action !in UniversalIntentFamilies.REGISTERED)continue

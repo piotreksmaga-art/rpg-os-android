@@ -139,4 +139,51 @@ class Phase62NpcDialogueTest {
         assertEquals(42,NpcWorkProgressPort{_,_->error("UI_FAILED")}.observe("C1",AiWorkload.NPC_DECISION){42})
         assertEquals(42,NpcWorkProgressPort{_,_->AutoCloseable{error("UI_CLOSE_FAILED")}}.observe("C1",AiWorkload.NPC_DECISION){42})
     }
+    @Test fun delegatedDialogueIsRequiredBeforePendingSpeechCanMaterialize() {
+        val original=plan()
+        val node=original.intent.nodes.single().copy(participants=original.intent.nodes.single().participants+
+            IntentParticipant("MESSAGE",literalValue="jestem królem."))
+        val p=original.copy(intent=original.intent.copy(nodes=listOf(node)))
+        val pending=NpcCommunicationMemory.pendingDialogue(p,setOf("N"),emptySet()).single()
+        assertEquals(NpcCommunicationMemory.PENDING_DIALOGUE_KIND,pending.effectKindUid)
+        assertTrue(MechanicalEffectMaterializer.materialize(pending) is MechanicalEffectMaterializationResult.Rejected)
+        var seen=""
+        val model=provider{r->seen=r.receivedMessage;NpcDialogueCandidate(r.requestUid,r.fingerprint,"Nie znam twojego pochodzenia.",emptySet())}
+        val app=NpcConversationApplication(router(model),{temporal}){_,_,_->projection()}
+        val ready=app.prepare(request(),p,snapshot(),listOf(pending)){false} as NpcConversationPreparation.Ready
+        assertEquals("jestem królem.",seen)
+        assertEquals("NARRATIVE_EVENT",ready.effects.single().effectKindUid)
+        assertEquals("Nie znam twojego pochodzenia.",ready.effects.single().canonicalPayload["narrative_text"])
+        assertTrue(MechanicalEffectMaterializer.materialize(ready.effects.single()) is MechanicalEffectMaterializationResult.Materialized)
+        assertTrue(NpcCommunicationMemory.pendingDialogue(p,emptySet(),emptySet()).isEmpty())
+        assertTrue(NpcCommunicationMemory.pendingDialogue(p,setOf("N"),setOf(npc.uid)).isEmpty())
+        listOf(node.copy(modality=IntentModality.PLAN_FUTURE),node.copy(polarity=IntentPolarity.NEGATED),
+            node.copy(semanticAction=node.semanticAction.copy(attributes=mapOf("time_scope" to "META")))).forEach{inactive->
+            assertTrue(NpcCommunicationMemory.pendingDialogue(p.copy(intent=p.intent.copy(nodes=listOf(inactive))),setOf("N"),emptySet()).isEmpty())
+        }
+        assertTrue(runCatching{NpcCommunicationMemory.pendingDialogue(original,setOf("N"),emptySet())}.isFailure)
+        assertTrue(runCatching{NpcCommunicationMemory.pendingDialogue(p.copy(intent=p.intent.copy(rawInput="inne słowa")),setOf("N"),emptySet())}.isFailure)
+    }
+    @Test fun onlyTrustedHolderCompositionMayDelegateExplicitGroundedSpeech() {
+        val original=plan().copy(steps=listOf(CanonicalTurnPlanStep("STEP","N","TALK",CapabilityMatchState.EXACT,
+            emptyList(),emptyList(),null,CapabilitySideEffectClass.NONE)))
+        val node=original.intent.nodes.single().copy(participants=original.intent.nodes.single().participants+
+            IntentParticipant("MESSAGE",literalValue="jestem królem."))
+        val p=original.copy(intent=original.intent.copy(nodes=listOf(node)))
+        fun proposal(plan:CanonicalTurnPlan)=GmProposalCandidate(proposalUid="PROPOSAL",campaignUid="C1",planUid="PLAN",
+            nodeProposals=listOf(GmNodeProposal("N","O","Rozmowa",actor,"TALK",listOf(npc),node.modality,GmNodeOutcomeState.PROPOSED_SUCCESS)),
+            narrativeBlueprint=NarrativeBlueprint(emptyList(),stopPointUid="PLAYER_DECISION_POINT"),providerUid="TEST",modelUid="TEST",
+            intentFingerprint=plan.intent.canonicalFingerprint())
+        assertTrue(StructuredGmProposalValidator().validate(proposal(p),p) is GmProposalValidationResult.Rejected)
+        assertTrue(StructuredGmProposalValidator.withHolderScopedDialogue().validate(proposal(p),p) is GmProposalValidationResult.Accepted)
+        assertTrue(StructuredGmProposalValidator.withHolderScopedDialogue().validate(proposal(original),original) is GmProposalValidationResult.Rejected)
+        val assembler=ProductionCanonicalMutationAssembler(productionMechanicsPlayerDomainEngine(),
+            PlayerResolutionContextFactory{error("No admission during pure preparation")},holderDialogueDelegated=true)
+        val prepared=requireNotNull(assembler.prepareEffects(request(),p,ResolvedGmProposal(proposal(p),emptyList())))
+        assertEquals(NpcCommunicationMemory.PENDING_DIALOGUE_KIND,prepared.single().effectKindUid)
+        assertTrue(MechanicalEffectMaterializer.materialize(prepared.single()) is MechanicalEffectMaterializationResult.Rejected)
+        val blocked=proposal(p).copy(nodeProposals=proposal(p).nodeProposals.map{it.copy(outcomeState=GmNodeOutcomeState.PROPOSED_FAILURE)})
+        assertTrue(StructuredGmProposalValidator.withHolderScopedDialogue().validate(blocked,p) is GmProposalValidationResult.Accepted)
+        assertTrue(requireNotNull(assembler.prepareEffects(request(),p,ResolvedGmProposal(blocked,emptyList()))).isEmpty())
+    }
 }

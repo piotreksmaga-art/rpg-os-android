@@ -16,6 +16,17 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 
 class Phase62NpcDomainsDeviceTest {
     @get:Rule val folder=TemporaryFolder()
+    @Test fun exactArithmeticUsesOnlySupportedAndroidLibraryMethods() {
+        listOf(Long.MIN_VALUE, -1L, 0L, 1L, Long.MAX_VALUE).forEach {
+            assertEquals(it, java.math.BigInteger.valueOf(it).toExactLongCompat())
+        }
+        val overflow=java.math.BigInteger.valueOf(Long.MAX_VALUE).add(java.math.BigInteger.ONE)
+        assertTrue(runCatching { overflow.toExactLongCompat() }.exceptionOrNull() is ArithmeticException)
+        assertEquals(1_250_000L, ProgressionScaledValue.fromDouble(1.25).scaledUnits)
+        assertEquals(3L, ProgressionNumericPolicy.applyFactors(3L, emptyList()))
+        assertEquals(500_000L, Phase21DiminishingReturnsPolicy.factor("E", 1L, 1L).appliedFactor.scaledUnits)
+        assertEquals(OWNERSHIP_SHARE_SCALE / 2, OwnershipShare.ofFraction(1, 2).units)
+    }
     private val npc=DomainRef("NPC","N")
     private val learning=NpcActivityContract("TRAIN","WORLD:LEARN",1,ActionDuration(1000),"TRAINING",
         learning=NpcLearningRule("SKILL","POTTERY","XP",3))

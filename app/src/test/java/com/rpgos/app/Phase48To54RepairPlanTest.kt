@@ -630,6 +630,37 @@ class Phase48NativePackageAndProductionWiringTest{
         assertEquals("PLAYER-CREATED",created.receipt.playerUid);assertEquals("PLAYER-CREATED",repository.activePlayerRef()?.playerUid)
     }
 
+    @Test fun brokenIntentDoesNotCommit()=runBlocking {
+        cleanup()
+        val repository=UnifiedGameRepository(context);repository.bootstrap()
+        if(repository.activePlayerRef()==null)activateFixturePlayer(repository)
+        val selection=AiModelSelection("CONTROLLED-BROKEN-INTENT","MODEL")
+        val configuration=AiSystemConfiguration(gameMaster=AiRoleAssignment(AiRole.GAME_MASTER,AiAssignmentKind.PINNED,selection))
+        for(payload in listOf("""{"steps":[{"action":"pytam","who":"strażnika","what":"jak masz na imię"""",
+            """{"steps":[{"action":"walk","kind":"MOVE","locality":"L"}]}""")) {
+            var calls=0
+            val provider=TransportAiProviderAdapter(
+                AiCapabilityContract("BROKEN-INTENT",selection.providerUid,selection.modelUid,AiWorkload.entries.toSet(),maximumContextUnits=16_000),
+                AiStructuredTransport { request,_->
+                    calls++;assertEquals(AiWorkload.INTENT_INTERPRETATION,request.workload)
+                    AiProviderResult.Success(AiTransportResponse(request.requestUid,payload,"TRACE"),selection.providerUid,selection.modelUid,"TRACE")
+                },LocalCompactAiJsonCodec())
+            val application=ProductionGameEngineCompositionRoot(context,repository,AndroidAiProviderCenterApplication(context),
+                {configuration},{listOf(provider)}).chatApplication()
+            val before=LocalGameStore(context).openGameplaySaveDb().use { AuthoritativeStateDigest.compute(it) }
+            val order=repository.infrastructureLastCommitOrder()
+            val result=application.play("Pytam strażnika przez 10 sekund: Jak masz na imię?",AiCancellationSignal.NONE)
+            assertTrue(result.toString(),result is ChatApplicationOutcome.Failed)
+            result as ChatApplicationOutcome.Failed
+            assertEquals(AiTurnStage.INTERPRETATION,result.stage)
+            assertEquals("STRUCTURED_OUTPUT_DECODE_REJECTED",result.reasonUid)
+            assertEquals(TurnMutationState.NOT_STARTED,result.mutationState)
+            assertEquals(1,calls)
+            assertEquals(order,repository.infrastructureLastCommitOrder())
+            assertEquals(before,LocalGameStore(context).openGameplaySaveDb().use { AuthoritativeStateDigest.compute(it) })
+        }
+    }
+
     @Test fun androidDefaultsToCanonicalChatAndPackagedRuntime(){
         val working=File(requireNotNull(System.getProperty("user.dir")));val module=if(File(working,"src/main").isDirectory)working else File(working,"app")
         val root=File(module,"src/main/java/com/rpgos/app")

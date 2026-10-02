@@ -66,7 +66,9 @@ internal class NpcConversationApplication(private val route:AiModelRoutePort,
     override fun prepare(request:ChatTurnRequest,plan:CanonicalTurnPlan,snapshot:TemporalReadSnapshot,effects:List<VerifiedMechanicsCommandEffect>,cancelled:()->Boolean):NpcConversationPreparation {
         fun fail(reason:String)=NpcConversationPreparation.Unavailable("P62:$reason")
         if(request.campaignUid!=snapshot.scope.campaignUid || plan.campaignUid!=request.campaignUid || request.actor!=plan.intent.actor)return fail("DIALOGUE_SCOPE")
-        val conversations=effects.filter{NpcCommunicationMemory.participants(request.campaignUid,it).isNotEmpty()}
+        val conversations=effects.map{effect->
+            if(effect.effectKindUid==NpcCommunicationMemory.PENDING_DIALOGUE_KIND)effect.copy(effectKindUid="NARRATIVE_EVENT") else effect
+        }.filter{NpcCommunicationMemory.participants(request.campaignUid,it).isNotEmpty()}
         if(conversations.isEmpty())return NpcConversationPreparation.Ready(effects)
         if(conversations.size>4)return fail("DIALOGUE_PARTICIPANT_BUDGET")
         val replacements=linkedMapOf<String,VerifiedMechanicsCommandEffect>()

@@ -63,7 +63,7 @@ object ProgressionNumericPolicy {
         }
         if (value > 0.0 && scaled == BigInteger.ZERO) fail("PROGRESSION_NUMERIC_UNDERFLOW")
         if (scaled > LONG_MAX) fail("PROGRESSION_NUMERIC_OVERFLOW")
-        return ProgressionScaledValue.ofScaled(scaled.longValueExact())
+        return ProgressionScaledValue.ofScaled(scaled.toExactLongCompat())
     }
 
     internal fun applyFactors(baseGrantUnits: Long, factors: List<ProgressionCalculationFactor>): Long {
@@ -78,7 +78,7 @@ object ProgressionNumericPolicy {
         if (numerator == BigInteger.ZERO) return 0L
         val rounded = numerator.add(denominator.divide(TWO)).divide(denominator)
         if (rounded > LONG_MAX) fail("PROGRESSION_GRANT_OVERFLOW")
-        return rounded.longValueExact()
+        return rounded.toExactLongCompat()
     }
 
     private val BIG_SCALE = BigInteger.valueOf(SCALE)

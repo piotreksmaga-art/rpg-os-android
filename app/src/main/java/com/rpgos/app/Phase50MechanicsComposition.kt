@@ -243,7 +243,8 @@ fun interface PlayerResolutionContextFactory{
  */
 class ProductionCanonicalMutationAssembler(
     private val engine:PlayerDomainEngine,
-    private val contexts:PlayerResolutionContextFactory
+    private val contexts:PlayerResolutionContextFactory,
+    private val holderDialogueDelegated:Boolean=false
 ):CanonicalMutationAssembler,CanonicalMutationAssemblyDiagnostics{
     @Volatile private var lastReasons:List<String> = emptyList()
     override fun lastAssemblyReasonUids()=lastReasons
@@ -270,9 +271,13 @@ class ProductionCanonicalMutationAssembler(
             canonicalMechanicsCommandEffects(verified,proposedTarget)?:return null
         }
         val successfulNodes=proposal.candidate.nodeProposals.filter{it.outcomeState==GmNodeOutcomeState.PROPOSED_SUCCESS}.map{it.nodeUid}.toSet()
+        // These are requests, not speech or canonical effects. The mandatory conversation
+        // owner must replace them before admission; the materializer rejects the pending kind.
+        val pendingDialogue=if(holderDialogueDelegated)NpcCommunicationMemory.pendingDialogue(plan,successfulNodes,
+            proposal.candidate.proposedClaims.filter{it.predicateUid==GmNarrativePredicates.NPC_UTTERANCE}.mapNotNull{it.subjectProjectedUid}.toSet()) else emptyList()
         val narrativeSubjectUids=proposal.candidate.proposedClaims.asSequence()
             .filter{it.claimKind==ProposedClaimKind.NARRATIVE_COLOR}
-            .mapNotNull{it.subjectProjectedUid}.toSet()
+            .mapNotNull{it.subjectProjectedUid}.toSet()+pendingDialogue.map{it.target.uid}
         val materializationEffects=plan.intent.references.mapNotNull{reference->
             val consumer=plan.intent.nodes.firstOrNull{node->node.nodeUid in successfulNodes&&node.participants.any{it.referenceUid==reference.referenceUid}}?:return@mapNotNull null
             val draft=LatentWorldReferenceCodec.decode(plan.campaignUid,reference)?:return@mapNotNull null
@@ -321,7 +326,7 @@ class ProductionCanonicalMutationAssembler(
         // those verified deltas before PlayerChangeSet validation; otherwise two legal QUERY
         // nodes become duplicate mutations of ACTION:QUERY in a single atomic change set.
         if(!validateDependencies(plan,proposal))return null
-        return materializationEffects+narrativeEffects+providerEffects
+        return materializationEffects+narrativeEffects+pendingDialogue+providerEffects
     }
 
     internal fun admitEffects(request:ChatTurnRequest,planUid:String,proposalUid:String,

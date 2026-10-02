@@ -46,9 +46,7 @@ internal class LocalGameStore(private val context: Context) {
                 GameplayRuntimeBootstrap.requireReady(save,campaignUid)
             }.isSuccess
             if(!alreadyReady){
-                prepareCampaignRuntime(save,campaignUid)
-                runCatching{withAdministrativeMutationAuthority(save,campaignUid){AutoRepairEngine().repair(save)}}
-                    .onFailure{DiagnosticLogger.log(context,"AUTO_REPAIR_BOOT_FAILED",it)}
+                prepareCampaignRuntime(save,campaignUid,repairLegacyRows=true)
             }
             ensureUniversalInventoryDefinition(save,campaignUid)
             val snapshots=CampaignSnapshotManager(save,campaignUid,File(saveDir,"snapshots"))
@@ -378,15 +376,19 @@ internal class LocalGameStore(private val context: Context) {
      * A template can already contain Phase 32 guards, so even additive schema/default-definition
      * writes must carry ADMIN authority before the normal gameplay-ready verification is restored.
      */
-    private fun prepareCampaignRuntime(saveDb:SQLiteDatabase,campaignUid:String){
+    private fun prepareCampaignRuntime(saveDb:SQLiteDatabase,campaignUid:String,repairLegacyRows:Boolean=false){
         CampaignRuntimeLifecycleLock.withRecovery(campaignUid){
             val prepare={
                 ensureCurrentSchema(saveDb)
                 Phase62ActivitySchema.ensureReady(saveDb)
+                // Repair may introduce classified historical families. Complete it before the
+                // final guard installation; no ordinary read is allowed to repair missing guards.
+                if(repairLegacyRows)runCatching{AutoRepairEngine().repair(saveDb)}
+                    .onFailure{DiagnosticLogger.log(context,"AUTO_REPAIR_BOOT_FAILED",it)}
                 UniversalInventoryDefinitionBootstrap.ensure(saveDb,campaignUid)
                 ensureCharacterCreationDefinitions(saveDb,campaignUid)
                 materializeWorldActors(saveDb,campaignUid)
-                openWorldDb().use{world->
+                if(File(worldDir,"world.db").isFile)openWorldDb().use{world->
                     NpcActivityActorImport.importPack(saveDb,world,campaignUid)
                     NpcDutyAssignmentImport.importPack(saveDb,world,campaignUid,selection.currentWorldPackAuthority().binding)
                 }

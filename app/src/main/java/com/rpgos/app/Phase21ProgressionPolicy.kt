@@ -63,7 +63,7 @@ object Phase21DiminishingReturnsPolicy {
             .multiply(BigInteger.valueOf(resistanceUnits))
             .add(denominator.divide(BigInteger.valueOf(2L)))
             .divide(denominator)
-            .longValueExact()
+            .toExactLongCompat()
         val applied = maxOf(scaled, floorFactor.scaledUnits)
         return Phase21ProgressionFactorEvidence(
             Phase21ProgressionFactorKinds.DIMINISHING_RETURNS,

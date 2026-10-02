@@ -777,7 +777,7 @@ class ProductionGameEngineCompositionRoot(
         val binding=StructuredProviderBinding(CORE_PLAYER_CONTEXT_PROVIDER,setOf(CORE_PLAYER_CONTEXT_OPERATION),ProductionPlayerContextProvider(repository,campaignUid))
         val bindings=buildList{add(binding);semanticApplication?.let{add(it.structuredBinding())}}
         val contextPipeline=CanonicalIterativeRetrievalPipeline(StructuredSqlRetriever(bindings),SemanticContextBudgetManager(),TypedContextCompletionStrategy{_,_,_->emptyList()})
-        val evaluator=GmProposalEvaluator(StructuredGmProposalValidator(),MechanicsResolutionEngine(mechanicsRegistry))
+        val evaluator=GmProposalEvaluator(StructuredGmProposalValidator.withHolderScopedDialogue(),MechanicsResolutionEngine(mechanicsRegistry))
         val mechanicsAssembler=ProductionCanonicalMutationAssembler(playerEngine,PlayerResolutionContextFactory{command->
             val refs=linkedSetOf<CampaignScopedDomainRef>()
             fun add(ref:DomainRef){refs+=CampaignScopedDomainRef(command.campaignUid,ref)}
@@ -819,7 +819,7 @@ class ProductionGameEngineCompositionRoot(
                 }
             }
             PlayerResolutionContext.create(command.campaignUid,command.actor,refs,dependencyVersions=mapOf("PHASE50" to "3"),worldRuleMode=worldRuleMode)
-        })
+        },holderDialogueDelegated=true)
         val route=DynamicProductionModelRoute(providerCenter,configuration,additionalProviders)
         val assembler=ProductionTemporalMutationAssembler(mechanicsAssembler,repository::infrastructureTemporalRead,
             FileTemporalCheckpointStore(File(app.noBackupFilesDir,"temporal-checkpoints")),processOwners={state,effects->
@@ -906,7 +906,9 @@ class ProductionGameEngineCompositionRoot(
                 {PurposeContext(repository.activeCampaignRef().campaignId,VisibilityPurposeKinds.GAMEPLAY_NARRATION)},
                 if(configuration().privacy.cloudAllowedForDirector)MediaWikiWorldEvidenceProvider() else WorldEvidenceProviderPort.NONE,
                 semanticApplication?.gameplayReferenceCandidates()?:SemanticWorldPackReferenceCandidatePort.NONE),
-            LegacyRuleIntentFallback(),GraphTurnPlanner(capabilities),contextPipeline,
+            // Production must not silently reinterpret a provider/decode failure as another
+            // action. In particular, a legacy TALK target must not become a fabricated PLACE.
+            IntentInterpretationFallback.NONE,GraphTurnPlanner(capabilities),contextPipeline,
             ContextRuntimeProfile("ANDROID-PRODUCTION",8_192,256,768,1_024,256),BoundedProposalRepair(evaluator),assembler,
             AuthoritativeTurnCommitPort{identity,proposal->try{
                 repository.commitTemporalTurn(identity,proposal,assembler.scopeFor(proposal)).also{result->

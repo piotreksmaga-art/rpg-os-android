@@ -110,7 +110,13 @@ internal fun isConversationNode(node:IntentNode?):Boolean{
     return node.form in setOf(IntentForm.QUERY,IntentForm.COMMUNICATION)||action in setOf("TALK","QUERY")
 }
 
-class StructuredGmProposalValidator{
+class StructuredGmProposalValidator private constructor(private val holderDialogueDelegated:Boolean){
+    constructor():this(false)
+    companion object {
+        /** Composition-root choice only: the mandatory holder-scoped dialogue owner runs
+         * before assembly/commit. A model cannot opt out of the ordinary speech contract. */
+        internal fun withHolderScopedDialogue()=StructuredGmProposalValidator(true)
+    }
 
     fun validate(candidate:GmProposalCandidate,plan:CanonicalTurnPlan):GmProposalValidationResult{
         val reasons=linkedSetOf<String>()
@@ -156,7 +162,12 @@ class StructuredGmProposalValidator{
         }
         successfulConversationTargets.groupBy({it.first},{it.second}).forEach{(actorUid,nodeUids)->
             val utterances=candidate.proposedClaims.filter{it.claimKind==ProposedClaimKind.NARRATIVE_COLOR&&it.predicateUid==GmNarrativePredicates.NPC_UTTERANCE&&it.subjectProjectedUid==actorUid}
-            if(utterances.isEmpty())reasons+="NPC_UTTERANCE_REQUIRED:$actorUid"
+            val delegated=holderDialogueDelegated && nodeUids.all { uid->
+                plan.intent.nodes.singleOrNull{it.nodeUid==uid}?.participants.orEmpty().any {
+                    it.roleUid=="MESSAGE" && !it.literalValue.isNullOrBlank()
+                }
+            }
+            if(utterances.isEmpty() && !delegated)reasons+="NPC_UTTERANCE_REQUIRED:$actorUid"
             if(utterances.size>1)reasons+="MULTIPLE_NPC_UTTERANCES_PER_ACTOR:$actorUid"
             val finalNode=nodeUids.last()
             utterances.singleOrNull()?.takeIf{it.nodeUid!=finalNode}?.let{reasons+="NPC_UTTERANCE_NOT_BOUND_TO_FINAL_CONVERSATION_NODE:${it.claimUid}"}

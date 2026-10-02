@@ -201,6 +201,8 @@ interface AiStructuredCodec{
     fun encodeNpcDecision(request:NpcDecisionRequest):String=NpcDecisionCodec.encodeRequest(request.requestUid,request.context)
     fun decodeNpcDecision(payload:String,request:NpcDecisionRequest):NpcDecisionProposal=
         NpcDecisionCodec.decodeProposal(payload,request.requestUid,request.context.contextFingerprint)
+    fun encodeNpcDialogue(request:NpcDialogueRequest):String=NpcDialogueCodec.encode(request)
+    fun decodeNpcDialogue(payload:String,request:NpcDialogueRequest):NpcDialogueCandidate=NpcDialogueCodec.decode(payload,request)
 }
 
 /** Production-ready adapter seam: adding a model requires transport + codec + registration, not Core changes. */
@@ -252,8 +254,8 @@ class TransportAiProviderAdapter(
         {payload->codec.decodeNpcDecision(payload,request)}
     )
     override fun speakNpc(request:NpcDialogueRequest,cancellation:AiCancellationSignal)=call(
-        request.requestUid,AiWorkload.NPC_DIALOGUE,1,NpcDialogueCodec.encode(request),cancellation,
-        {payload->NpcDialogueCodec.decode(payload,request)}
+        request.requestUid,AiWorkload.NPC_DIALOGUE,1,codec.encodeNpcDialogue(request),cancellation,
+        {payload->codec.decodeNpcDialogue(payload,request)}
     )
 
     private fun <T> call(requestUid:String,workload:AiWorkload,schema:Int,payload:String,cancellation:AiCancellationSignal,decode:(String)->T):AiProviderResult<T>{
