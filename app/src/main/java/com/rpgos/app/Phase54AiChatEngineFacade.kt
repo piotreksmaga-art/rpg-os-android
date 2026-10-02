@@ -137,7 +137,8 @@ class AiChatEngineFacade(
     private val recoveryStore:NarrationRecoveryStore=InMemoryNarrationRecoveryStore(),
     private val recoveryDiscovery:()->ChatTurnRequest?={null},
     private val directorGuidance:DirectorGuidancePort=DirectorGuidancePort.NONE,
-    private val workingMemoryScopes:WorkingMemoryScopePort=WorkingMemoryScopePort.NONE
+    private val workingMemoryScopes:WorkingMemoryScopePort=WorkingMemoryScopePort.NONE,
+    private val holderDialogueDelegated:Boolean=false
 ){
     fun play(request:ChatTurnRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):ChatTurnResult{
         if(cancellation.isCancelled())return ChatTurnResult.Cancelled(AiTurnStage.INTERPRETATION,TurnMutationState.NOT_STARTED)
@@ -214,7 +215,8 @@ class AiChatEngineFacade(
             AiTurnStage.PROPOSAL,"PROVIDER_SCHEMA_UNSUPPORTED",TurnMutationState.NOT_STARTED
         )
         val proposalRequest=AiGmProposalRequest(
-            "${request.requestUid}:PROPOSAL",plan,context.budgeted,guidance,workingMemory
+            "${request.requestUid}:PROPOSAL",plan,context.budgeted,guidance,workingMemory,
+            holderDialogueDelegated=holderDialogueDelegated
         )
         val candidate=when(val generated=proposalProvider.propose(proposalRequest,cancellation)){
             is AiProviderResult.Success->generated.value

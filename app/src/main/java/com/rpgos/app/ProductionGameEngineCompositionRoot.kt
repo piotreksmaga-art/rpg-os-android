@@ -629,20 +629,25 @@ private class DynamicProductionModelRoute(
  * remain identical to the rest of the production AI boundary. Any failure is typed and the
  * deterministic consolidation fallback remains authoritative.
  */
-private class DynamicMemoryEnrichmentPort(
-    private val route:AiModelRoutePort
+internal class DynamicMemoryEnrichmentPort(
+    private val route:AiModelRoutePort,
+    private val evidence:(MemoryEnrichmentRequest)->MemoryEnrichmentContext?
 ):MemoryEnrichmentPort{
     override fun enrich(
         request:MemoryEnrichmentRequest,
         cancellation:AiCancellationSignal
     ):MemoryEnrichmentResult{
         if(cancellation.isCancelled())return MemoryEnrichmentResult.Failure("MEMORY_ENRICHMENT_CANCELLED",true)
-        val requiredContextUnits=(128+request.manifest.eventUids.size*16).coerceAtMost(2_048)
+        val context=runCatching{evidence(request)}.getOrNull()
+            ?:return MemoryEnrichmentResult.Failure("MEMORY_ENRICHMENT_NO_AUTHORIZED_EVIDENCE")
+        val projected=runCatching{request.copy(authorizedContext=context)}.getOrNull()
+            ?:return MemoryEnrichmentResult.Failure("MEMORY_ENRICHMENT_STALE_SCOPE")
+        val requiredContextUnits=encodeMemoryEnrichmentRequest(projected).length/3+256
         return when(val selected=route.route(AiRole.DIRECTOR_SCENARIST,AiWorkload.MEMORY_ENRICHMENT,requiredContextUnits)){
             is AiRouteResult.Unavailable->MemoryEnrichmentResult.Failure(
                 "MEMORY_ENRICHMENT_ROUTE:${selected.reasonUids.joinToString("|")}",true
             )
-            is AiRouteResult.Selected->when(val result=selected.provider.enrichMemory(request,cancellation)){
+            is AiRouteResult.Selected->when(val result=selected.provider.enrichMemory(projected,cancellation)){
                 is AiProviderResult.Success->result.value
                 is AiProviderResult.Failure->MemoryEnrichmentResult.Failure(result.reasonUid,result.retryable)
             }
@@ -718,7 +723,8 @@ class ProductionGameEngineCompositionRoot(
     private val app=context.applicationContext
     init{
         repository.configureMemoryEnrichment(
-            DynamicMemoryEnrichmentPort(DynamicProductionModelRoute(providerCenter,configuration,additionalProviders))
+            DynamicMemoryEnrichmentPort(DynamicProductionModelRoute(providerCenter,configuration,additionalProviders),
+                repository::infrastructureMemoryEnrichmentContext)
         )
     }
     fun characterCreationApplication():AiCharacterCreationApplication=AiCharacterCreationApplication(
@@ -928,6 +934,7 @@ class ProductionGameEngineCompositionRoot(
             deliveryStore=FileNarrativeDeliveryStore(File(app.filesDir,"narrative-delivery")),
             recoveryStore=FileNarrationRecoveryStore(File(app.filesDir,"narrative-recovery")),
             directorGuidance=directorGuidance,
+            holderDialogueDelegated=true,
             workingMemoryScopes=WorkingMemoryScopePort{turn->
                 val principal=turn.audience.principal?.uid?:turn.actor.actorUid
                 WorkingMemoryScope(

@@ -56,6 +56,20 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     fun createPlayerCharacter(draft:PlayerCharacterCreationDraft,confirmation:PlayerCharacterCreationConfirmation):PlayerCharacterBootstrapReceipt=
         store.createPlayerCharacter(draft,confirmation)
     internal fun infrastructurePlayerState(): PlayerStateSnapshot? = store.playerState()
+    internal fun infrastructureMemoryEnrichmentContext(request:MemoryEnrichmentRequest):MemoryEnrichmentContext? {
+        val campaign=activeCampaignRef().campaignId
+        if(campaign!=request.manifest.identity.campaignUid)return null
+        return openGameplaySaveDb().use { db ->
+            val player=ActivePlayerStore(db,campaign).active()?:return@use null
+            val holder=KnowledgeHolderRef(KnowledgeHolderKinds.CHARACTER,player.playerUid,campaign)
+            val projected=ProtectedCampaignReadRepository.borrowed(db,campaign){player}.episodeKnowledge(
+                VisibilityAudienceFactory.player(campaign),PurposeContext(campaign,VisibilityPurposeKinds.GAMEPLAY_NARRATION),
+                holder,request.manifest)
+            val records=(projected as? ProtectedReadResult.Allow)?.takeIf{it.disclosure==DisclosureLevel.DISCLOSE_FULL}?.value
+                ?.takeIf{it.isNotEmpty()}?:return@use null
+            MemoryEnrichmentContext(campaign,request.manifest.identity.historyGenerationUid,holder,records)
+        }
+    }
     override fun protectedReads(): ProtectedCampaignReadRepository =
         ProtectedCampaignReadRepository.owned(::openGameplaySaveDb, activeCampaignRef().campaignId, ::activePlayerRef)
     override fun statDefinitions(): List<StatDefinition> = store.statDefinitions()

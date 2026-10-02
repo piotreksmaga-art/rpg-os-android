@@ -13,6 +13,17 @@ import java.io.File
 import java.util.UUID
 
 class LabCodexStage3Test{
+    @Test fun `zero wait on either empty lane returns unavailable without throwing`(){
+        val broker=LabCodexRequestBroker(LabAiTraceStore())
+        broker.register(JSONObject().put("session_uid","SESSION"))
+        for(lane in listOf("GAME_MASTER","DIRECTOR")){
+            val result=broker.claim(JSONObject().put("session_uid","SESSION").put("lane",lane).put("wait_ms",0))
+            assertFalse(result.getBoolean("available"))
+            assertEquals(lane,result.getString("lane"))
+        }
+        assertEquals(0,broker.state().getInt("active_requests"))
+    }
+
     @Test
     fun `request cannot leave application while host is absent or stale`(){
         var now=1_000L

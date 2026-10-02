@@ -680,19 +680,22 @@ class KnowledgeContextProjection(private val db: SQLiteDatabase, private val cam
      * Role knowledge requires current trusted access; PERSONAL records never inherit a role grant.
      * Incomplete/oversized claims stay absent (unknown), never become a negative assertion. */
     internal fun boundedForNpc(holder:KnowledgeHolderRef,atOrder:Long,limit:Int,
-                               authorizedRoleUids:Set<String>,preferredAcquisitionUids:Set<String> = emptySet()):List<NpcKnownRecord> {
+                               authorizedRoleUids:Set<String>,preferredAcquisitionUids:Set<String> = emptySet(),
+                               sourceEventUids:Set<String>?=null):List<NpcKnownRecord> {
         require(holder.campaignUid==campaignUid && atOrder>=0 && limit in 1..64)
         Phase37KnowledgeSchema.requireProjectionReadable(db)
         if(!Phase37KnowledgeSchema.isReady(db))return emptyList()
         require(authorizedRoleUids.size<=128)
         require(preferredAcquisitionUids.size<=32 && preferredAcquisitionUids.none{it.isBlank()})
+        require(sourceEventUids==null || (sourceEventUids.size in 1..128 && sourceEventUids.none{it.isBlank()}))
         val roles=authorizedRoleUids.sorted()
         val preferred=preferredAcquisitionUids.sorted()
         val preferredOrder=if(preferred.isEmpty())"" else "CASE WHEN s.latest_acquisition_uid IN (${preferred.joinToString{ "?" }}) THEN 0 ELSE 1 END,"
         val roleClause=if(roles.isEmpty())"0" else "s.scope_uid='ROLE_ACCESSIBLE' AND s.role_uid IN (${roles.joinToString{ "?" }})"
-        val args=listOf(campaignUid,holder.holderKindUid,holder.holderUid,atOrder.toString(),atOrder.toString())+roles+preferred+limit.toString()
+        val episodeClause=sourceEventUids?.let{"AND a.created_event_uid IN (${it.joinToString{"?"}})"}.orEmpty()
+        val args=listOf(campaignUid,holder.holderKindUid,holder.holderUid,atOrder.toString(),atOrder.toString())+sourceEventUids.orEmpty().sorted()+roles+preferred+limit.toString()
         return db.rawQuery("""SELECT s.state_uid,s.epistemic_state_uid,c.subject_uid,c.predicate_uid,c.value_canonical,
-                s.latest_acquisition_uid,s.state_version,c.subject_kind_uid,c.object_kind_uid,c.object_uid,s.updated_order
+                s.latest_acquisition_uid,s.state_version,c.subject_kind_uid,c.object_kind_uid,c.object_uid,s.updated_order,a.created_event_uid
             FROM ${Phase37KnowledgeSchema.STATES} s JOIN ${Phase37KnowledgeSchema.CLAIMS} c
               ON c.campaign_uid=s.campaign_uid AND c.claim_uid=s.claim_uid
             JOIN ${Phase37KnowledgeSchema.ACQUISITIONS} a ON a.campaign_uid=s.campaign_uid
@@ -701,14 +704,14 @@ class KnowledgeContextProjection(private val db: SQLiteDatabase, private val cam
               AND a.scope_uid=s.scope_uid AND COALESCE(a.role_uid,'')=s.role_uid
             WHERE s.campaign_uid=? AND s.holder_kind_uid=? AND s.holder_uid=?
               AND s.updated_order<=? AND a.created_order<=? AND a.provenance_status='RECORDED'
-              AND ((s.scope_uid='PERSONAL' AND s.role_uid='') OR ($roleClause))
+              $episodeClause AND ((s.scope_uid='PERSONAL' AND s.role_uid='') OR ($roleClause))
               AND length(c.subject_uid)+length(c.predicate_uid)+length(c.value_canonical)<=500
             ORDER BY $preferredOrder s.updated_order DESC,s.state_uid LIMIT ?""",args.toTypedArray()).use { c -> buildList {
                 while(c.moveToNext())add(NpcKnownRecord(c.getString(0),KnowledgeEpistemicState.valueOf(c.getString(1)),
                     "${c.getString(2)}: ${c.getString(3)} = ${c.getString(4)}",c.getString(5),c.getLong(6),buildSet {
                         add(DomainRef(c.getString(7),c.getString(2)))
                         if(!c.isNull(8) && !c.isNull(9))add(DomainRef(c.getString(8),c.getString(9)))
-                    },c.getLong(10)))
+                    },c.getLong(10),sourceEventUid=c.getString(11)))
             } }
     }
 

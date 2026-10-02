@@ -63,7 +63,9 @@ data class AiGmProposalRequest(
     val context:BudgetedCanonicalContext,
     val strategicGuidance:DirectorGuidanceEnvelope?=null,
     val workingMemory:WorkingMemorySnapshot?=null,
-    val proposalSchemaVersion:Int=1
+    val proposalSchemaVersion:Int=1,
+    /** Trusted composition-root mode, not an AI-controlled choice. */
+    val holderDialogueDelegated:Boolean=false
 ){init{
     require(requestUid.isNotBlank()&&proposalSchemaVersion>0)
     require(context.candidate.plan.planUid==plan.planUid&&context.safeForAi){"RPGOS-P48:UNSAFE_CONTEXT"}

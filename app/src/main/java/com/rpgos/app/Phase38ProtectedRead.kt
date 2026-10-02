@@ -240,6 +240,20 @@ class ProtectedCampaignReadRepository private constructor(
         }
     }
 
+    internal fun episodeKnowledge(audience:AudienceContext,purpose:PurposeContext,holder:KnowledgeHolderRef,
+                                  manifest:EpisodeManifest):ProtectedReadResult<List<NpcKnownRecord>> = withSaveDb { db ->
+        val request=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,
+            VisibilitySubjectKinds.PHASE37_HOLDER_KNOWLEDGE,holder.holderUid,holder=holder))
+        gateway(db).read(request) {
+            require(manifest.identity.campaignUid==campaignUid &&
+                HistoryGenerationStore(db,campaignUid).current()==manifest.identity.historyGenerationUid) {
+                "MEMORY_ENRICHMENT_STALE_SCOPE"
+            }
+            KnowledgeContextProjection(db,campaignUid).boundedForNpc(holder,manifest.endOrder,4,
+                resolver(db).resolve(audience)?.roleUids.orEmpty(),sourceEventUids=manifest.eventUids.toSet())
+        }
+    }
+
     /** Narrow prerequisite read: a holder's acquired claim, not a world-truth lookup. */
     internal fun npcRequiredClaims(audience:AudienceContext,purpose:PurposeContext,holder:KnowledgeHolderRef,
                                    atOrder:Long,claimUids:Set<String>):ProtectedReadResult<Set<String>> = withSaveDb { db->

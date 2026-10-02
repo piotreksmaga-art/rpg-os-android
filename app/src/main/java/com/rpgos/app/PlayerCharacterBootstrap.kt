@@ -129,10 +129,9 @@ class AiCharacterCreationApplication(
         val catalog=repository.characterCreationCatalog()
         // A World Pack can expose hundreds of skills and techniques. Sending the whole catalog to
         // a 2k mobile model made an otherwise ready Bielik fail routing with NO_ELIGIBLE_MODEL.
-        // Every legal family stays represented, while the full mandatory families are completed
-        // below by Core from the authoritative catalog. Re-sending every stat/resource/domain to
-        // a 1.5B model only increases prefill and structured-output failures without giving AI
-        // additional mutation authority.
+        // All base stats stay visible: hiding seven of eight attributes caused a complete-looking
+        // draft with zero-valued omitted stats. Optional definitions remain ranked and bounded;
+        // Core completes missing mandatory values using the same starting profile as local drafts.
         val projectedConversation=conversation.projectForAi()
         val projectedCatalog=runCatching{catalogProjection.project(catalog,projectedConversation)}
             .getOrElse{catalog.projectForAi(projectedConversation)}
@@ -182,7 +181,8 @@ class AiCharacterCreationApplication(
                 else lockedSections+(CharacterCreationDraftSection.entries.toSet()-requestedSections)
                 val completedDraft=candidate.draft.completeMandatoryChoices(catalog)
                     .preserveLockedSections(pending?.draft,effectiveLocks)
-                val completed=candidate.copy(draft=completedDraft)
+                val completed=candidate.copy(draft=completedDraft,playerFacingSummary=
+                    candidate.playerFacingSummary+completedDraft.playerFacingStats(catalog))
                 pending=completed
                 conversation+=CharacterCreationConversationEntry(CharacterCreationConversationRole.GAME_MASTER,completed.playerFacingSummary)
                 CharacterCreationApplicationOutcome.AwaitingExplicitConfirmation(
@@ -266,10 +266,11 @@ internal fun CharacterCreationCatalog.answerCatalogQuestion(input:String):String
     return lines.joinToString("\n")+"\nMożesz wskazać wybrane elementy albo poprosić o losowy szablon."
 }
 
-private fun PlayerCharacterCreationDraft.completeMandatoryChoices(catalog:CharacterCreationCatalog):PlayerCharacterCreationDraft{
+internal fun PlayerCharacterCreationDraft.completeMandatoryChoices(catalog:CharacterCreationCatalog):PlayerCharacterCreationDraft{
     fun defaultValue(option:CharacterCreationDefinitionOption)=when(option.kind){
         CharacterCreationDefinitionKind.RESOURCE->option.maximumValue?:option.minimumValue?:1.0
         CharacterCreationDefinitionKind.POTENTIAL->option.maximumValue?:50.0
+        CharacterCreationDefinitionKind.STAT,CharacterCreationDefinitionKind.TALENT->option.startingProfileValue()
         else->option.minimumValue?:0.0
     }
     fun complete(kind:CharacterCreationDefinitionKind,current:List<CharacterCreationValueChoice>):List<CharacterCreationValueChoice>{
@@ -292,6 +293,13 @@ private fun PlayerCharacterCreationDraft.completeMandatoryChoices(catalog:Charac
     )
 }
 
+/** Draft-only starting profile; definition bounds remain authoritative, explicit choices survive. */
+internal fun CharacterCreationDefinitionOption.startingProfileValue():Double{
+    val minimum=minimumValue?:0.0
+    val maximum=maximumValue?:minimum
+    return (minimum+(maximum-minimum)*0.1).coerceIn(minimum,maximum)
+}
+
 internal fun CharacterCreationCatalog.projectForAi(
     conversation:List<CharacterCreationConversationEntry>,
     maximumEstimatedInputUnits:Int=900,
@@ -300,7 +308,8 @@ internal fun CharacterCreationCatalog.projectForAi(
 ):CharacterCreationCatalog{
     require(maximumEstimatedInputUnits>0)
     require(maximumOptionsPerOptionalKind>0)
-    val coreCompletedKinds=setOf(CharacterCreationDefinitionKind.STAT,CharacterCreationDefinitionKind.RESOURCE,CharacterCreationDefinitionKind.TALENT)
+    val coreCompletedKinds=setOf(CharacterCreationDefinitionKind.RESOURCE,CharacterCreationDefinitionKind.TALENT)
+    val mandatoryKinds=coreCompletedKinds+CharacterCreationDefinitionKind.STAT
     val semanticRank=semanticOrder.withIndex().associate{it.value to it.index}
     val queryText=conversation.joinToString("\n"){it.text}.lowercase()
     val words=queryText.split(Regex("[^\\p{L}\\p{N}_-]+")).asSequence()
@@ -337,6 +346,7 @@ internal fun CharacterCreationCatalog.projectForAi(
     }
 
     val selected=mutableListOf<CharacterCreationDefinitionOption>()
+    selected+=options.filter{it.kind==CharacterCreationDefinitionKind.STAT}.sortedBy{it.definitionUid}
     coreCompletedKinds.forEach{kind->options.filter{it.kind==kind}
         .sortedWith(compareByDescending<CharacterCreationDefinitionOption>(::relevance).thenBy{it.definitionUid})
         .firstOrNull()?.let(selected::add)}
@@ -347,7 +357,7 @@ internal fun CharacterCreationCatalog.projectForAi(
         .map{variants->variants.firstOrNull{it.dimensionUid=="MAXIMUM"}?:variants.sortedBy{it.dimensionUid}.first()}
         .sortedWith(compareByDescending<CharacterCreationDefinitionOption>(::relevance).thenBy{it.definitionUid})
         .firstOrNull()?.let(selected::add)
-    val optionalKinds=CharacterCreationDefinitionKind.entries.filterNot{it in coreCompletedKinds||it==CharacterCreationDefinitionKind.POTENTIAL}
+    val optionalKinds=CharacterCreationDefinitionKind.entries.filterNot{it in mandatoryKinds||it==CharacterCreationDefinitionKind.POTENTIAL}
     val queues=optionalKinds.associateWith{kind->options.filter{it.kind==kind}
         .sortedWith(compareByDescending<CharacterCreationDefinitionOption>(::relevance).thenBy{it.definitionUid})
         .take(maximumOptionsPerOptionalKind).toMutableList()}
@@ -497,8 +507,16 @@ internal fun PlayerCharacterCreationDraft.playerFacingEditSummary(catalog:Charac
         if(innateFeatureUids.isEmpty())append("; bez cech wrodzonych")
         else append("; cechy wrodzone: ${innateFeatureUids.joinToString{label(it)}}")
         append("; start: ${label(startingLocationUid)}. Zatwierdź dopiero, gdy wszystko Ci odpowiada.")
+        append(playerFacingStats(catalog))
     }
 }
+
+internal fun PlayerCharacterCreationDraft.playerFacingStats(catalog:CharacterCreationCatalog):String =
+    "\nStatystyki projektu: "+stats.sortedBy{it.definitionUid}.joinToString { choice ->
+        val label=catalog.options.firstOrNull{it.kind==CharacterCreationDefinitionKind.STAT && it.definitionUid==choice.definitionUid}?.displayName?:choice.definitionUid
+        val value=if(choice.value%1.0==0.0)choice.value.toLong().toString() else choice.value.toString()
+        "$label: $value"
+    }
 
 internal fun List<CharacterCreationConversationEntry>.projectForAi(maximumUnits:Int=160):List<CharacterCreationConversationEntry>{
     require(maximumUnits>0)

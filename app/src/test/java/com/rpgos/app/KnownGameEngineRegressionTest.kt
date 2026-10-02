@@ -296,6 +296,11 @@ class KnownGameEngineRegressionTest {
             StructuredSqlRetriever(emptyList()),SemanticContextBudgetManager(),TypedContextCompletionStrategy{_,_,_->emptyList()}
         ).execute(plan,ContextRuntimeProfile("TEST",8_000,100,100,500,100)).budgeted
         val request=AiGmProposalRequest("REQ-P",plan,context)
+        val fullCodec=CanonicalAiJsonCodec()
+        val delegated=JSONObject(fullCodec.encodeProposal(request.copy(holderDialogueDelegated=true)))
+        assertEquals("HOLDER_SCOPED",delegated.getString("npc_dialogue_mode"))
+        assertTrue(delegated.getJSONArray("requirements").toString().contains("Do not generate NPC_UTTERANCE"))
+        assertEquals("GM_PROPOSAL",JSONObject(fullCodec.encodeProposal(request)).getString("npc_dialogue_mode"))
         val codec=LocalCompactAiJsonCodec()
 
         val encoded=codec.encodeProposal(request)

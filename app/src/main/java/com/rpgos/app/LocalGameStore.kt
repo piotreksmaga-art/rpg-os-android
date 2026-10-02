@@ -285,7 +285,14 @@ internal class LocalGameStore(private val context: Context) {
         val created = selection.createCampaign(name)
         try{
             val campaignUid=selection.activeCampaignRef().campaignId
-            openSaveDb().use { db -> prepareCampaignRuntime(db,campaignUid) }
+            openSaveDb().use { db ->
+                prepareCampaignRuntime(db,campaignUid)
+                val packUid=selection.currentWorldPackAuthority().binding.worldPackUid
+                val defaults=context.assets.open("new-campaign-defaults.json").bufferedReader().use{it.readText()}
+                PristineCampaignStartupProfile.fromJson(defaults,packUid)?.let { profile ->
+                    withAdministrativeMutationAuthority(db,campaignUid){profile.apply(db,campaignUid)}
+                }
+            }
             created
         }catch(t:Throwable){
             // A failed post-clone migration/bootstrap must not leave a broken campaign selected.

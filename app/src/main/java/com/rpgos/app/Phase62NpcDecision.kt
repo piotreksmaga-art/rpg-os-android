@@ -16,7 +16,8 @@ data class NpcTrigger(val uid:String,val kind:NpcTriggerKind,val atTime:WorldTim
 enum class NpcMemoryRecordKind { CURRENT_KNOWLEDGE, HISTORICAL_ACQUISITION, SEMANTIC_ASSERTION }
 data class NpcKnownRecord(val uid:String,val epistemicState:KnowledgeEpistemicState,val projectedText:String,
                           val acquisitionUid:String,val sourceVersion:Long,val subjectRefs:Set<DomainRef> = emptySet(),val sourceCommittedOrder:Long=0,
-                          val memoryKind:NpcMemoryRecordKind=NpcMemoryRecordKind.CURRENT_KNOWLEDGE) {
+                          val memoryKind:NpcMemoryRecordKind=NpcMemoryRecordKind.CURRENT_KNOWLEDGE,
+                          val sourceEventUid:String?=null) {
     init { npcUid(uid);npcText(projectedText);npcUid(acquisitionUid);require(sourceVersion>=0 && sourceCommittedOrder>=0 && subjectRefs.size<=2) }
 }
 data class NpcTraitPreference(val traitUid:String,val preferred:NpcWeight,val weight:NpcWeight) {
