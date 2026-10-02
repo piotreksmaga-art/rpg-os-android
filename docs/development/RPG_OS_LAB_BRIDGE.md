@@ -10,6 +10,8 @@ Transport: Android `localabstract:rpgos_lab_bridge` udostępniany komputerowi wy
 
 Wariant aplikacji: wyłącznie `labDebug`
 
+Odbiór Phase61–62 używa tej samej ścieżki UI/Bridge, ale może ręcznie podstawiać odpowiedzi aktywnego czatu do kolejki `LAB_CODEX` bez uruchamiania `codex exec`. Etykieta modelu w rejestracji hosta nie dowodzi rzeczywistego modelu autora odpowiedzi. Nie jest to test jakości Bielika. Krótkie mechaniczne bramki domen, pamięci/undo i host-driven process-death uruchamia `tools/run_phase61_62_android_acceptance.sh`; dla fizycznego telefonu stosujemy osobny pakiet `com.rpgos.app.acceptance` (`-PrpgosDeviceAcceptance=true`). Testy i aktualizacja nie mogą kasować zapisów normalnego pakietu. Publiczne APK nadal nie zawiera Bridge'a ani `LAB_CODEX`.
+
 ## 1. Cel
 
 LAB Bridge skraca lokalną pętlę rozwoju do:

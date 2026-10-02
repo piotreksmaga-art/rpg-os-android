@@ -23,7 +23,7 @@ run_test() {
   ! grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed|shortMsg=' "$evidence"
 }
 
-run_test 'com.rpgos.app.Phase61To62ActivityContractDeviceSmokeTest,com.rpgos.app.Phase62NpcDomainsDeviceTest,com.rpgos.app.Phase62NpcAuthorityDeviceTest,com.rpgos.app.Phase62NpcWitnessDeviceTest,com.rpgos.app.Phase55To59DeviceAcceptanceTest' \
+run_test 'com.rpgos.app.Phase61To62ActivityContractDeviceSmokeTest,com.rpgos.app.Phase62NpcTravelCompletionDeviceTest,com.rpgos.app.Phase62NpcDomainsDeviceTest,com.rpgos.app.Phase62NpcAuthorityDeviceTest,com.rpgos.app.Phase62NpcWitnessDeviceTest,com.rpgos.app.Phase55To59DeviceAcceptanceTest' \
   app/build/r1-android-evidence/activity-contract.txt
 
 run_test 'com.rpgos.app.Phase62NpcTravelProcessDeathDeviceTest#seedPendingTravel' \

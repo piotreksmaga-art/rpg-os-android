@@ -73,6 +73,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "LocalGameStore.kt",
             "MigrationManager.kt",
             "PackageManager.kt",
+            "PristineCampaignStartupProfile.kt",
             "Phase36EventSchemaScaffold.kt",
             "Phase36SchemaVersioning.kt",
             "Phase62NpcTravelAuthority.kt",
@@ -178,6 +179,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         assertTrue("LocalGameStore must remain explicitly audited infrastructure", "LocalGameStore.kt" in admin)
         assertTrue("NPC travel definitions must remain administrative", "Phase62NpcTravelAuthority.kt" in admin)
         assertTrue("NPC activity definitions must remain administrative", "Phase62NpcActivityAuthority.kt" in admin)
+        assertTrue("new-campaign epoch setup must remain administrative", "PristineCampaignStartupProfile.kt" in admin)
         assertTrue(canonical.intersect(evidence).isEmpty())
         assertTrue(canonical.intersect(admin).isEmpty())
         assertTrue(evidence.intersect(admin).isEmpty())

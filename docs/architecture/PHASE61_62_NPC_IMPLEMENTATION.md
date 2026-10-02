@@ -1,6 +1,6 @@
 # Phase61–62 — wdrożenie NPC Brain i Decision Engine
 
-Status: **W TRAKCIE IMPLEMENTACJI — nie jest to odbiór całego bloku ani wydanie**.
+Status: **IMPLEMENTED / LOCAL ACCEPTANCE — scalenie i publikacja wymagają exact-SHA GREEN**.
 Gałąź robocza: `codex/phase61-62-complete`, kontynuacja HEAD PR #91 `c48f907e5a5311d94cad02431a038c7b3ecf271a`. Historia wcześniejszego Brain i R1 pozostaje zachowana.
 
 ## Integracja R1 do R5
@@ -30,6 +30,16 @@ Reguły mają limit 1024 wierszy importu i 64 aktywnych kontraktów na zdolnoś�
 Brak rozszerzenia w packu nie nadaje wszystkim NPC umiejętności lekarza, czytania ani obowiązków. Obecny bazowy pakiet Naruto nie zawiera tych nowych tabel; jego dotychczasowe zdolności są zachowane. Autor packa musi jawnie dostarczyć reguły i przypisania. Interfejsy nie są źródłem wymyślonych nagród.
 
 ### Odbiór i świadomie odłożone testy
+
+Zakres implementacyjny R1–R5 jest zamknięty. Końcowa bramka obejmuje pełne JVM debug/lab, Android API28/36, pamięć/undo, process-death i izolację release na publikowanym SHA. Nie wolno zastępować jej wynikiem wcześniejszego commita. Roadmapa oznacza ukończenie implementacji, nie automatyczne zaakceptowanie przyszłego wyniku CI.
+
+Krótki odbiór domen uruchamia `tools/run_phase61_62_android_acceptance.sh`. Test `Phase62NpcTravelCompletionDeviceTest` dodatkowo przechodzi przez rzeczywisty `NpcTimedActionApplication`, ponowny preflight przy terminie, resolver trasy oraz zwykły `TurnTransaction`: przed terminem nie ma dotarcia ani kosztów, rollback usuwa oba skutki, retry nie pobiera kosztów ponownie. Testy nauki/czytania/leczenia, importu obowiązków i percepcji używają istniejących właścicieli, nie równoległego silnika. Są to testy poprawności mechaniki z kontrolowanymi wejściami, nie ocena jakości Bielika.
+
+Na życzenie właściciela krótka próba generatywna używa odpowiedzi aktywnego czatu dostarczanych ręcznie przez `LAB_CODEX`, bez `codex exec` i bez automatycznego hosta generatywnego. Zapisany identyfikator modelu jest etykietą transportu, nie dowodem użycia wskazanego modelu. Nie zaliczamy tej próby jako jakościowego odbioru Bielika/Bekko. Długie 100-tur AI, szerokie A/B, wydajność i temperatura pozostają odłożone. Phase63–64 i Phase72 nie są ukończone.
+
+Nowy administracyjny owner epoki `PristineCampaignStartupProfile` jest jawnie sklasyfikowany w G32. Działa tylko podczas tworzenia pustej kampanii; otwarcie istniejącej gry nie zmienia kalendarza ani legalnych historycznych statystyk postaci. MG otrzymuje canonical typed statystyki, zasoby, umiejętności i techniki. Delegowanie `MESSAGE` do `NPC_DIALOGUE` jest częścią zaufanego żądania, nie decyzją modelu.
+
+Poniższe notatki zachowują historię wcześniejszych prób i otwartych wtedy bramek; nie zastępują aktualnego wyniku końcowego CI.
 
 Krótkie testy JVM obejmują start/koniec, utratę wymagań, zmianę wersji, anulowanie, starą generację, rollback/retry oraz rzeczywisty grant Phase21 i acquisition Phase37. Wspólny test bazy obejmuje reopen, prefix replay, undo i inną decyzję. Osobny test potwierdzenia celu obejmuje replay i ponowne potwierdzenie po undo.
 

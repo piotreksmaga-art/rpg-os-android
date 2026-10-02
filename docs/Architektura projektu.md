@@ -640,7 +640,7 @@ Reputacja jest holder-scoped belief acquired legalnie, nie omniscient globalnym 
 
 LOD może stosować crowd/minor/persistent/major tiers. Materializacja szczegółu nie fabrykuje nieistniejącej historii.
 
-### 14.1 Wdrożenie Phase61–62 — stan częściowy
+### 14.1 Wdrożenie Phase61–62 — ukończona implementacja, wydanie bramkowane CI
 
 Aktualna implementacja i pozostałe bramki są opisane w [PHASE61_62_NPC_IMPLEMENTATION.md](architecture/PHASE61_62_NPC_IMPLEMENTATION.md).
 Trwały Brain przechodzi zwykły canonical commit/replay/undo. Prywatny kontekst decyzji korzysta z Phase37/38 → Phase41/44/45 oraz osobnego holder-scoped rankingu Bekko, bez kopiowania ukrytej wiedzy MG.
@@ -667,7 +667,7 @@ Domykanie Phase61–62 dodaje do istniejącej ścieżki kontrakty R2 nauki/czyta
 
 Produkcja nie używa `LegacyRuleIntentFallback` po awarii modelu lub dekodowania: composition root wstrzykuje `IntentInterpretationFallback.NONE`. Błąd interpretacji kończy się typed failure przed planowaniem/commitem, bez materializacji zastępczego celu. Legacy adapter pozostaje jawnym portem kompatybilności. Flaga fallbacku narracji nie stanowi dowodu poprawności innych etapów. Weryfikacja rozmowy wymaga faktycznego `NPC_DIALOGUE`, odbiorcy i Phase37 acquisition, a nie samego `NARRATED`.
 
-Stan implementacji, schematy importu i pozostałe bramki znajdują się w `docs/architecture/PHASE61_62_NPC_IMPLEMENTATION.md`. Odbiór trzech tur na Motoroli i końcowego CI nadal trwa; nie oznaczamy tego checkpointu jako ukończonego. Długie testy modeli i wydajności są jawnie odłożone. Nie jest to realizacja populacyjnego Living World Phase63–64 ani branchingu Phase72.
+Stan implementacji, schematy importu i bramki znajdują się w `docs/architecture/PHASE61_62_NPC_IMPLEMENTATION.md`. R1–R5 są podłączone do produkcyjnego composition root. Scalenie i publikacja wymagają exact-SHA GREEN pełnych JVM debug/lab, Android API28/36, pamięci/undo, process-death i izolacji release. Krótki odbiór generatywny może używać aktywnego czatu przez LAB zamiast Bielika; nie dowodzi jakości lokalnego modelu. Długie testy modeli i wydajności są jawnie odłożone. Nie jest to realizacja populacyjnego Living World Phase63–64 ani branchingu Phase72.
 
 ## 15. Living World / Autonomous World Simulation — CANONICAL TARGET
 `THE WORLD DOES NOT WAIT FOR THE PLAYER.`
