@@ -44,9 +44,18 @@ internal object StagedMechanicalProjection {
             when(kind) {
                 "WOUND"->{
                     require(magnitude>0){"P50:INVALID_STAGED_WOUND"}
-                    attributes["DEFENCE"]=(attributes["DEFENCE"]?:0L).minus(magnitude).coerceAtLeast(0)
                     val wound=Math.addExact(conditions.singleOrNull{it.conditionUid=="WOUND"}?.intensity?:0,magnitude)
+                    attributes["DEFENCE"]=base.unwoundedDefence?.let{(it-wound).coerceAtLeast(0)}?:(attributes["DEFENCE"]?:0L).minus(magnitude).coerceAtLeast(0)
                     conditions=conditions.filterNot{it.conditionUid=="WOUND"}+MechanicalCondition("WOUND",wound)
+                }
+                "WOUND_HEALING"->{
+                    val wound=conditions.singleOrNull{it.conditionUid=="WOUND"}?.intensity?:0L
+                    require(magnitude>0 && magnitude<=wound && effect.mechanicsOwnerUid==NpcActivityMechanics.OWNER && payload["npc_treatment_contract"]!=null){"P50:INVALID_STAGED_WOUND_HEALING"}
+                    val next=wound-magnitude
+                    // A clipped effective value cannot reveal the raw baseline. Unknown baseline
+                    // remains conservative; production always supplies it from the canonical owner.
+                    base.unwoundedDefence?.let{attributes["DEFENCE"]=(it-next).coerceAtLeast(0)}
+                    conditions=conditions.filterNot{it.conditionUid=="WOUND"}+if(next>0)listOf(MechanicalCondition("WOUND",next)) else emptyList()
                 }
                 "RESOURCE_DELTA","RESOURCE","HEALTH_DELTA","DAMAGE_HP","HEALING","RESTORATION"->{
                     val uid=payload["resource_uid"]?:"HEALTH"

@@ -88,6 +88,12 @@ android {
         aidl = true
     }
 
+    // The isolated Motorola acceptance package needs its own instrumentation target as well.
+    // Ordinary CI continues to exercise debug; neither property changes release identity.
+    if (providers.gradleProperty("rpgosDeviceAcceptance").orNull == "true") {
+        testBuildType = "labDebug"
+    }
+
     // Keep Android bytecode stable even when a newer Android Studio JBR runs Gradle.
     // Robolectric and the supported device range consume Java 17 class files; allowing
     // the host JDK to select the target made local and CI builds environment-dependent.

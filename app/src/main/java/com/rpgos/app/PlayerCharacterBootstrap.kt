@@ -230,6 +230,10 @@ internal fun String.characterCreationRequestedSections():Set<CharacterCreationDr
  */
 internal fun CharacterCreationCatalog.answerCatalogQuestion(input:String):String?{
     val query=input.lowercase()
+    // "Pokaż propozycję postaci i dobierz pochodzenie" requests a draft, not a list of origins.
+    // Real catalog questions ("jakie klany?") still use the authorized deterministic catalog.
+    val explicitQuestion=Regex("(?iu)\\b(jakie|jaki|jaka|które|ktore)\\b").containsMatchIn(query)
+    if(!explicitQuestion && Regex("(?iu)\\b(pokaż|pokaz)\\s+(mi\\s+)?(propozycj\\p{L}*|posta[ćc]|szablon)\\b").containsMatchIn(query))return null
     val looksLikeQuestion='?' in input||Regex("(?iu)\\b(jakie|jaki|jaka|które|ktore|pokaż|pokaz|wymień|wymien|dostępne|dostepne)\\b").containsMatchIn(query)
     if(!looksLikeQuestion)return null
     val kinds=linkedSetOf<CharacterCreationDefinitionKind>()

@@ -339,6 +339,8 @@ Future Player Interaction acceptance, rozwijane wraz z Phase 43–54, 63–64 i 
 - [ ] 64. Background-world causal simulation: organizations/economy/projects/demography/wars/knowledge propagation/conflict resolution + controlled randomness `[REF-ADAPTER]`
 
 ## Acceptance direction Phase 55–64
+
+Domknięcie NPC R1–R5 kontynuuje PR #91 na `codex/phase61-62-complete`: actor-scoped travel, nauka/czytanie przez Phase21/37, odrębne gojenie ran i leczenie innych przez Phase50, obowiązki Phase38/60 oraz cele z canonical evidence i legalna percepcja. Kontrakty i przypisania importuje rzeczywisty bootstrap World Packa. Krótkie testy JVM i pierwsza próba transakcji Android14 przeszły; trzy tury Bielik 1.5B/Bekko oraz końcowe exact-SHA CI pozostają w odbiorze. Statusy 61–62 pozostają PARTIAL do GREEN. Testy długotrwałe jakości/wydajności są odłożone; 63–64 i 72 nie zmieniają statusu. Szczegóły: `docs/architecture/PHASE61_62_NPC_IMPLEMENTATION.md`.
 Memory pozostaje RPG OS-owned i odtwarzalna po zmianie modelu/runtime. Fazy 55–59 są zaakceptowane decyzją właściciela z 2026-09-13 w zakresie ALPHA 18; dodatkowe testy pozostają w odłożonym backlogu. Implementacja orkiestratora Phase60 jest podłączona do produkcyjnej tury. Reguły przyszłych domen nadal należą do ich właścicieli, a ich brak zwraca jawny wynik bez zapisu.
 
 Canonicalny kontrakt tych faz jest szczegółowo opisany w: [docs/architecture/PHASE55_59_MEMORY.md](/docs/architecture/PHASE55_59_MEMORY.md)

@@ -21,6 +21,8 @@ internal object Phase60ProductionTime {
         if (read.scope.campaignUid != request.campaignUid || plan.campaignUid != request.campaignUid)
             return ProductionTimeResult.Rejected("P60:CROSS_CAMPAIGN_TIME")
         val bindings = linkedMapOf<String, TemporalNodeBinding>()
+        val attempted=plan.intent.activeNodes().filter{it.modality==IntentModality.ATTEMPT_NOW && it.form !in setOf(IntentForm.CORRECTION,IntentForm.CANCELLATION)}
+        val declared=if(attempted.size==1 && request.input==plan.intent.rawInput)Phase60PlayerDeclaredDuration.read(request.input) else null
         for (node in plan.intent.activeNodes()) {
             if (node.modality != IntentModality.ATTEMPT_NOW || node.form in setOf(IntentForm.CORRECTION, IntentForm.CANCELLATION)) continue
             val attributes = node.semanticAction.attributes
@@ -34,6 +36,7 @@ internal object Phase60ProductionTime {
             val evidence = ActionTimingEvidence(
                 if (meta) ActionTimeMeaning.OUT_OF_WORLD else ActionTimeMeaning.IN_WORLD,
                 authoritative = authoritative[node.nodeUid],
+                requestedDuration = declared,
                 estimatedMinimum = minimum?.let(::ActionDuration), estimatedMaximum = maximum?.let(::ActionDuration),
                 uncertaintyHasMaterialConsequences = minimum == null || maximum == null || maximum < minimum ||
                     maximum - minimum > minimum / 4 || (minimum != maximum && (read.state.deadlines.isNotEmpty() || read.state.processStates.isNotEmpty()))
@@ -135,8 +138,12 @@ internal class ProductionTemporalMutationAssembler(
                         val memory=NpcActionMemory.materialize(request.campaignUid,request.commandUid,request.atOrder?:1L,execution.effects,brains)
                         val communication=NpcCommunicationMemory.materialize(request.campaignUid,request.commandUid,request.atOrder?:1L,execution.effects)
                         val sensations=NpcConsequenceObservation.materialize(request.campaignUid,request.commandUid,request.atOrder?:1L,observed)
+                        val witnessed=NpcWitnessObservation.materialize(request.campaignUid,request.commandUid,request.atOrder?:1L,observed)
+                        val reading=NpcReadingApplication.materialize(request.campaignUid,request.commandUid,request.atOrder?:1L,observed)
+                        val learning=NpcLearningApplication.intervalPayloads(request.campaignUid,request.commandUid,observed)
                         val settled=execution.work.copy(checkpoint=execution.work.checkpoint.copy(candidateChanges=phase60CoalesceChanges(foregroundPayloads)+brains+
-                            memory.changes.map{it.payload}+communication.changes.map{it.payload}+sensations.changes.map{it.payload},candidateEffects=emptyList()))
+                            memory.changes.map{it.payload}+communication.changes.map{it.payload}+sensations.changes.map{it.payload}+
+                            witnessed.changes.map{it.payload}+reading.changes.map{it.payload}+learning,candidateEffects=emptyList()))
                         val failure=Phase60EffectSettlement.validate(settled,phase60CoalesceChanges(canonical.playerChangeSet.changes.map{it.payload}))
                         if(failure!=null){reasons=listOf(failure);return null}
                         scopes[canonical]=snapshot.scope

@@ -35,7 +35,7 @@ data class NpcActionOption(
     /** Core projects cost relative to the actor's perceived reserve; unlike raw units it is comparable across resources. */
     val resourcePressure:NpcWeight=NpcWeight(0),
     val mechanicsOwnerUid:String?=null,val mechanicalEffectKindUid:String?=null,
-    val motivationAlignment:Map<String,NpcAffect> = emptyMap()
+    val motivationAlignment:Map<String,NpcAffect> = emptyMap(),val worldResult:NpcWorldResultContract?=null
 ) {
     init {
         npcUid(uid);npcUid(capabilityUid);goalUid?.let(::npcUid)
@@ -302,7 +302,8 @@ internal object NpcDecisionCodec {
         put("goals",JsonArray(goals.map{g->buildJsonObject {
             put("uid",g.uid);put("motivation_uid",g.motivationUid);put("objective",g.objective)
             put("priority",g.priority.basisPoints);put("lifecycle",g.lifecycle.name)
-            if(g.executionObjective!=null)put("success_contract","CORE_VERIFIED_SINGLE_EXECUTION")
+            g.executionObjective?.let{objective->put("success_contract",if(objective.worldResult==null)"CORE_VERIFIED_SINGLE_EXECUTION" else "CORE_COMMITTED_DOMAIN_RESULT")
+                objective.worldResult?.let{put("result_criteria",NpcWorldResultCodec.encode(it))}}
             g.deadline?.let{put("deadline_ms",it.milliseconds)}
         }}))
         put("emotions",JsonArray(brain.emotions.filter{it.intensityAt(atTime).basisPoints!=0}
@@ -362,6 +363,7 @@ internal object NpcDecisionCodec {
         put("motivations",JsonObject(o.motivationAlignment.toSortedMap().mapValues{JsonPrimitive(it.value.basisPoints)}))
         put("emotions",JsonObject(o.emotionalAffinity.toSortedMap().mapValues{JsonPrimitive(it.value.basisPoints)}))
         put("roles",JsonObject(o.roleAlignment.toSortedMap().mapValues{JsonPrimitive(it.value.basisPoints)}))
+        o.worldResult?.let{put("world_result",NpcWorldResultCodec.encode(it))}
         put("social",buildJsonObject { put("trust",o.socialPreference.trust.basisPoints)
             put("attachment",o.socialPreference.attachment.basisPoints);put("grievance",o.socialPreference.grievance.basisPoints) })
     }

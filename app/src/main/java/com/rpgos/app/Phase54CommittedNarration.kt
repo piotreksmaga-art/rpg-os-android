@@ -83,6 +83,16 @@ class CommittedNarrationContextBuilder(private val readPort:CommittedNarrationRe
 }
 
 enum class NarrativeClaimKind { FACT, BELIEF, PLAYER_ASSERTION, MECHANICAL_RESULT, NARRATIVE_COLOR }
+
+/** Presentation is not factual evidence. Preserve the source owner's epistemic category. */
+internal fun CommittedNarrativeFact.supportedClaimKind():NarrativeClaimKind?=when(kind) {
+    CommittedNarrativeFactKind.FACT->NarrativeClaimKind.FACT
+    CommittedNarrativeFactKind.HOLDER_BELIEF->NarrativeClaimKind.BELIEF
+    CommittedNarrativeFactKind.PLAYER_ASSERTION->NarrativeClaimKind.PLAYER_ASSERTION
+    CommittedNarrativeFactKind.MECHANICAL_RESULT->NarrativeClaimKind.MECHANICAL_RESULT
+    CommittedNarrativeFactKind.NARRATIVE_COLOR->NarrativeClaimKind.NARRATIVE_COLOR
+    CommittedNarrativeFactKind.PRESENTATION_CONSEQUENCE->null
+}
 data class NarrativeSemanticClaim(
     val claimUid:String,val kind:NarrativeClaimKind,val supportFactUid:String?,val predicateUid:String?,val valueCanonical:String?
 ){init{
@@ -128,6 +138,10 @@ class NarrativeValidator{
             Regex("\\b[A-Z]{2,}(?:_[A-Z0-9]+)+\\b")
         )
         if(technicalSurface.any{it.containsMatchIn(narrative.text)})reasons+="INTERNAL_MECHANICS_SURFACE_DISCLOSURE"
+        // A bare role label is not a narration of the committed turn. It can also falsely
+        // assign the player a role mentioned only as the intended recipient of a question.
+        if(Regex("(?iu)^\\s*ty\\s*[–—:-]\\s*[^.!?\\n]{1,64}\\s*$").matches(narrative.text))
+            reasons+="NARRATIVE_INCOMPLETE_IDENTITY_FRAGMENT"
         return NarrativeValidationResult(reasons.isEmpty(),reasons.sorted())
     }
 }
@@ -144,7 +158,7 @@ private object NarrativePlayerAgencySurfaceGuard{
     private val explicitFirstPersonFuture=setOf(
         "zacznę","zaczne","będę","bede","pójdę","pojde","zrobię","zrobie","poszukam","spróbuję","sprobuje",
         "zaatakuję","zaatakuje","wybiorę","wybiore","zdecyduję","zdecyduje","postanowię","postanowie",
-        "zamierzam","planuję","planuje"
+        "zamierzam","planuję","planuje","czekam","rozglądam","rozgladam"
     )
     private val words=Regex("(?iu)\\p{L}+")
     private val sentenceStart=Regex("(?iu)(?:^|[.!?]\\s+)(\\p{L}+)")
@@ -168,6 +182,8 @@ private object NarrativePlayerAgencySurfaceGuard{
         }
         if(explicitFirstPersonDesire.containsMatchIn(playerAgencySurface))return true
         val outputWords=words.findAll(playerAgencySurface).map{fold(it.value)}.toList()
+        // A second-person style prefix does not authorize a following first-person verb.
+        // In particular, "Ty czekam" or "Tylko czekam" is not legal GM narration.
         if(outputWords.any{it in firstPersonPronouns||it in explicitFirstPersonFuture})return true
         val inputSurfaceWords=playerInput?.let{value->words.findAll(value).map{it.value}.toList()}?:emptyList()
         val inputWords=inputSurfaceWords.map(::fold)
@@ -176,6 +192,9 @@ private object NarrativePlayerAgencySurfaceGuard{
                 inputSurfaceWords.any{source->fold(source)==token&&looksLikeFirstPersonVerb(source)}
             }
             if(mirroredFirstPerson)return true
+            if(Regex("(?iu)\\bty\\s+(\\p{L}+)\\b").findAll(playerAgencySurface).any{match->
+                inputSurfaceWords.any{source->fold(source)==fold(match.groupValues[1])&&looksLikeFirstPersonVerb(source)}
+            })return true
             val unauthorizedGerund=polishGerund.findAll(playerAgencySurface).any{match->
                 val stem=fold(match.groupValues[1]).removeSuffix("uj")
                 inputWords.none{candidate->commonPrefixLength(stem,candidate)>=4}
@@ -234,8 +253,8 @@ class CommittedNarrativeRenderer(
             if(isEmpty())add("Świat przyjął rezultat tej tury. Możesz zdecydować, co robisz dalej.")
         }
         val text=sentences.joinToString(" ").replace(Regex("\\s+")," ").trim()
-        val claims=context.legalFacts.take(4).map{fact->NarrativeSemanticClaim(
-            "FALLBACK:${fact.factUid}",if(fact.kind==CommittedNarrativeFactKind.MECHANICAL_RESULT)NarrativeClaimKind.MECHANICAL_RESULT else NarrativeClaimKind.FACT,
+        val claims=context.legalFacts.take(4).mapNotNull{fact->NarrativeSemanticClaim(
+            "FALLBACK:${fact.factUid}",fact.supportedClaimKind()?:return@mapNotNull null,
             fact.factUid,fact.predicateUid,fact.valueCanonical
         )}
         return NarrativeRenderOutcome(RenderedNarrative(text,context.stopPointUid,context.committedOrder,claims,false),true,attempts,reason)

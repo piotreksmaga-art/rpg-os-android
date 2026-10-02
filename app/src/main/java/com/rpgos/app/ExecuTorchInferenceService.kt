@@ -126,7 +126,7 @@ class ExecuTorchInferenceService:Service(){
             payload.contains("\"v\":\"RPGOS_NARRATIVE_LOCAL_1\"")||payload.contains("\"v\":\"RPGOS_NARRATIVE_LOCAL_REPAIR_1\"")->"{\"t\":\""
             payload.contains("\"v\":\"RPGOS_GM_LOCAL_1\"")||payload.contains("\"v\":\"RPGOS_GM_LOCAL_REPAIR_1\"")->"{\"n\":["
             payload.contains("\"v\":\"RPGOS_INTENT_LOCAL_6\"")->""
-            payload.contains("\"v\":\"RPGOS_INTENT_LOCAL_9\"")->"{\"steps\":[{\"locality\":\""
+            payload.contains("\"v\":\"RPGOS_INTENT_LOCAL_9\"")->"{\"steps\":[{"
             payload.contains("\"v\":\"RPGOS_INTENT_LOCAL_8\"")->"{\"actions\":[{\"route\":\""
             payload.contains("\"v\":\"RPGOS_INTENT_LOCAL_7\"")->"{\"a\":[[\""
             payload.contains("\"v\":\"RPGOS_INTENT_LOCAL_5\"")->"{\"s\":\"U\",\"n\":[{"
@@ -157,13 +157,14 @@ class ExecuTorchInferenceService:Service(){
                 return """<|im_start|>system
 Jesteś parserem. Analizujesz wyłącznie tekst gracza i zwracasz tylko krótki JSON. Nie opowiadasz historii. Pola wyniku opisują wiadomość gracza, nigdy słowa tej instrukcji.<|im_end|>
 <|im_start|>user
-Każda niezależna czynność z wiadomości gracza to osobny element steps. Każdy element zawiera locality, kind i action. kind to MOVE, COMBAT, TRAIN, QUERY, TALK albo ACTION. Role występują dosłownie w polach: destination=dokąd, where=gdzie lub skąd, who=kto, what=bezpośredni obiekt czynności; jeden step może mieć kilka ról. Dla „biorę miecz ze stojaka” what to „miecz”, a where to „stojaka”. locality to L dla celu lokalnego lub bliskiego, R dla odległego albo wymagającego podróży, U przy braku danych. Bez podmiotu „ja”, bez słów instrukcji i bez dodatkowych pól.
+Każda niezależna czynność z wiadomości gracza to osobny element steps. Każdy element zawiera locality, kind i action. kind to MOVE, COMBAT, TRAIN, QUERY, TALK albo ACTION. Role z TEKSTU GRACZA: destination=dokąd, where=gdzie lub skąd, who=opis rozmówcy lub przeciwnika, what=bezpośredni obiekt czynności. Nie kopiuj żadnego słowa z instrukcji. locality to L dla celu lokalnego lub bliskiego, R dla odległego albo wymagającego podróży, U przy braku danych. Pytanie do postaci ma kind QUERY, action ASK, who będące opisem rozmówcy oraz message będące dokładnym pytaniem z tekstu gracza. Wypowiedź do postaci ma kind TALK, action TALK, who i dokładne message. Nie wpisuj pytania w what ani rozmówcy w where. Nie przepisuj prywatnych myśli do message. Brak danej roli oznacza pominięcie jej pola. Nie dodawaj żadnych osób, przedmiotów ani działań.
 FRAGMENTY POMOCNICZE (sprawdź każdy, ale nie twórz czynności z samego rzeczownika):
 $segments
+Jeżeli gracz podał czas działania, dopisz time_scope=WORLD oraz dodatnie time_min_ms i time_max_ms w milisekundach; dla dokładnego czasu granice są równe. Nieznany czas pomiń. Czynność zaprzeczona ma polarity=NEGATED, przyszły zamiar modality=PLAN_FUTURE. Nie zamieniaj pytania wypowiedzianego do postaci w pytanie poza światem gry.
 TEKST GRACZA (jedyne źródło wartości):
 $rawInput<|im_end|>
 <|im_start|>assistant
-{"steps":[{"locality":"""".trimIndent()
+${structuredSeed(payload)}""".trimIndent()
             }
             if(payload.contains("\"v\":\"RPGOS_INTENT_LOCAL_8\"")){
                 val root=org.json.JSONObject(payload)
@@ -283,10 +284,15 @@ Nie zmieniaj id. Zwróć tylko JSON i zakończ na pierwszym kompletnym obiekcie.
                     Triple(root.optString("player_action").trim(),consequences,scene)
                 }.getOrDefault(Triple("",emptyList(),emptyList()))
                 val (playerAction,consequences,scene)=narrativeData
+                val repair=runCatching {
+                    val root=org.json.JSONObject(payload)
+                    val rejected=root.optString("rejected_text").trim()
+                    if(rejected.isBlank()) "" else "ODRZUCONY TEKST DO POPRAWY: $rejected\nPOWÓD: ${root.optJSONArray("reasons")}\nZmień pierwszą osobę na drugą. Nie powtarzaj odrzuconego tekstu."
+                }.getOrDefault("")
                 val approved=consequences.mapIndexed{index,value->"${index+1}. $value"}.joinToString("\n")
                 val visibleScene=scene.mapIndexed{index,value->"${index+1}. $value"}.joinToString("\n")
                 return """<|im_start|>system
-Jesteś polskim Mistrzem Gry. Opisujesz zatwierdzoną turę naturalnie i konkretnie w drugiej osobie. Tekst działania gracza jest zapisany w pierwszej osobie; musisz zmienić ją na drugą, np. „Rozglądam się” na „Rozglądasz się”. Nie pisz jako gracz. Nie dodajesz osób, miejsc, zdarzeń, wyników ani działań. Bez słów „czynność”, „postęp”, „mechanika”, bez nagłówków i list. Zwracasz tylko krótki JSON z tekstem w polu t i vol=false.<|im_end|>
+Jesteś polskim Mistrzem Gry. Opisujesz zatwierdzoną turę naturalnie i konkretnie w drugiej osobie. Zwracasz się do gracza jako ty, nie mówisz jako ja ani my. Nie kopiujesz przykładu lub instrukcji. Nie dodajesz osób, miejsc, zdarzeń, wyników ani działań. Bez słów „czynność”, „postęp”, „mechanika”, bez nagłówków i list. Zwracasz tylko krótki JSON z tekstem w polu t i vol=false.<|im_end|>
 <|im_start|>user
 DZIAŁANIE GRACZA JUŻ PODJĘTE W TEJ TURZE:
 $playerAction
@@ -294,9 +300,10 @@ WIDOCZNE FAKTY SCENY:
 $visibleScene
 ZATWIERDZONE SKUTKI:
 $approved
+$repair
 Napisz 1–2 krótkie, naturalne polskie zdania. Opisz wyłącznie podjęte działanie i zatwierdzone skutki; fakty sceny służą tylko jako tło. Nie pokazuj identyfikatorów ani treści polecenia. Zwróć {"t":"tekst","vol":false} i zakończ na pierwszym domkniętym obiekcie.<|im_end|>
 <|im_start|>assistant
-{"t":"""".trimIndent()
+${structuredSeed(payload)}""".trimIndent()
             }
             val contract=runCatching{org.json.JSONObject(payload).optString("contract")}.getOrDefault("")
             val contractInstruction=when(contract){

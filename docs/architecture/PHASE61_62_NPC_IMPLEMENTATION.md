@@ -1,7 +1,47 @@
 # Phase61–62 — wdrożenie NPC Brain i Decision Engine
 
 Status: **W TRAKCIE IMPLEMENTACJI — nie jest to odbiór całego bloku ani wydanie**.
-Gałąź robocza: `codex/phase61-62-npc-brain`, baza `2a5490c10aab7350c6c76abccbf8dc0d43cbe6a1`.
+Gałąź robocza: `codex/phase61-62-complete`, kontynuacja HEAD PR #91 `c48f907e5a5311d94cad02431a038c7b3ecf271a`. Historia wcześniejszego Brain i R1 pozostaje zachowana.
+
+## Integracja R1 do R5
+
+Wersjonowane kontrakty są podłączone w `ProductionGameEngineCompositionRoot` przez istniejący `NpcActivityContractPort`, opcje `NpcMechanicalAffordances` i `NpcTimedActionApplication`. Wspólny `NpcActivityOwnerContract` wiąże lifecycle, właściciela wyniku, politykę dowodu i dozwolone rodziny zmian; nauka, czytanie i leczenie nadal podlegają właścicielom Phase21/37/50. Preflight nie zapisuje przyszłych nagród. Przy terminie Phase60 ponownie projektuje kontekst i rozlicza efekty w tej samej `TurnTransaction` co gracz. Anulowanie, zmiana kontraktu lub generacji historii nie przyznają przyszłego skutku.
+
+- **R1 podróże:** jeden actor-scoped adapter tras, aktualna wiedza i dostęp NPC, koszty i dotarcie w jednym commicie. Dowód podróży wymaga receipt oraz odpowiadającego mu replay, nie kandydata `SpatialChange`.
+- **R2 nauka:** kontrakt wskazuje istniejącą umiejętność albo technikę, semantykę postępu, wymagania i wysiłek. Przy ukończeniu `ProgressionEngine` Phase21 wylicza grant i ledger. Nie zamienia postępu w mastery ani nie dopisuje nieznanej techniki. Czytanie wymaga posiadanego nośnika oraz Phase38 access; Phase37 zapisuje poznane twierdzenie jako BELIEVED, nie FACT świata.
+- **R3 leczenie:** oddzielne operacje odzysku HEALTH/STAMINA, gojenia WOUND, usunięcia warunku i stabilizacji. Jawne `WOUND_HEALING` stosuje istniejący właściciel Phase50, staged projection i replay signed `WoundChange`. Reguła sprawdza zdolność, pacjenta, zasięg, wymagane narzędzia oraz koszty zasobów (np. zdefiniowanych materiałów). Wynik może być częściowy lub nieudany; brak dalszej potrzeby nie nalicza dalszego leczenia ani kosztów.
+- **R4 obowiązki:** `NpcDutyRule` jest związany z aktualnymi rolami, organizacją, jawnym grantem i terminem Phase60. Import nie przywraca odwołanego przypisania. Decision Engine zachowuje konflikt potrzeb, ryzyka, wartości i obowiązków. AI nie wydaje rozkazów ani kar; Phase63–64 nie są aktywowane.
+- **R5 wyniki i percepcja:** `NpcWorldResultContract` wiąże cel z wynikami właścicieli domen. Potwierdzenie wymaga aktywnego receipt/replay oraz aktualnego stanu, nie samego końca planu. Kryteria obejmują lokację, postęp/mastery, istniejącą technikę, knowledge acquisition, zdrowie/warunki/stabilizację, własność przedmiotu, jawny wynik walki i wykonany obowiązek. Legalna obserwacja widocznej rany wymaga kanału percepcji, zdolności wzrokowej, rzeczywistego zasięgu, rozpoznania celu i Phase38 disclosure; współlokacja nie wystarcza.
+
+`MechanicalActorStateStore.completeLegacyActor` jest jawnym, idempotentnym właścicielem administracyjnego uzupełnienia brakujących komponentów zgodnego historycznego profilu. Zachowuje istniejące wartości, obrażenia i pozycje. Odczyt NPC nie tworzy pozycji i nie kopiuje współrzędnych PC.
+
+### Dane World Packa
+
+Opcjonalne rozszerzenia `world.db` są odczytywane przez produkcyjny bootstrap/import:
+
+| Tabela | Wymagane kolumny | Właściciel |
+|---|---|---|
+| `npc_activity_definitions` | `rule_uid`, `rule_version`, `contract_json` | `NpcActivityDefinitionImport`, autorytatywne definicje ADMIN |
+| `npc_activity_actor_bindings` | `actor_kind_uid`, `actor_uid`, `rule_uid`, `rule_version`, `initial_mastery` | `NpcActivityActorImport`, Phase50/Phase21 |
+| `npc_duty_assignments` | `actor_kind_uid`, `actor_uid`, `rule_uid`, `rule_version`, `assignment_uid` | `NpcDutyAssignmentImport`, Phase38/Phase60 |
+
+Reguły mają limit 1024 wierszy importu i 64 aktywnych kontraktów na zdolność. JSON koduje `NpcActivityContractCodec`; UID i wersja wiersza muszą być zgodne z treścią. Ponowne użycie wersji z innym fingerprintem jest błędem. Starsza wersja nie reaktywuje reguły zastąpionej nowszą. Actor binding wymaga zmaterializowanego NPC i istniejącej definicji Phase21; nie nadpisuje jego postępu podczas otwierania zapisu. Obowiązek wymaga już istniejącej roli/organizacji.
+
+Brak rozszerzenia w packu nie nadaje wszystkim NPC umiejętności lekarza, czytania ani obowiązków. Obecny bazowy pakiet Naruto nie zawiera tych nowych tabel; jego dotychczasowe zdolności są zachowane. Autor packa musi jawnie dostarczyć reguły i przypisania. Interfejsy nie są źródłem wymyślonych nagród.
+
+### Odbiór i świadomie odłożone testy
+
+Krótkie testy JVM obejmują start/koniec, utratę wymagań, zmianę wersji, anulowanie, starą generację, rollback/retry oraz rzeczywisty grant Phase21 i acquisition Phase37. Wspólny test bazy obejmuje reopen, prefix replay, undo i inną decyzję. Osobny test potwierdzenia celu obejmuje replay i ponowne potwierdzenie po undo.
+
+Na Motoroli Android14 oddzielny pakiet `com.rpgos.app.acceptance` zachowuje dotychczasową instalację. Dziesięć krótkich testów Android przeszło: lifecycle/podróż, rollback/retry domen, authority/import/legacy, percepcja oraz pamięć z save/reopen/undo. Dodatkowe dwa testy hostowego process-death potwierdziły zapis i wznowienie pending podróży bez przedwczesnej zmiany lokacji i zasobów; nie stanowią dowodu jej ukończenia po awarii. Bielik 1.5B utworzył i zatwierdził postać. Odbiór trzech rzeczywistych tur, rozmowy/recall i końcowego CI nadal nie jest GREEN — testy deterministyczne nie zastępują jakości rozgrywki ani publikacji.
+
+Po wykryciu `P60:DURATION_UNRESOLVED` podłączono istniejący `requestedDuration`: literalny czas gracza dla jednej czynności nie zależy od tego, czy model powtórzy go w JSON. Czas domenowy ma pierwszeństwo; brak lub wieloznaczność nadal wymaga doprecyzowania, bez zapisu. Prośba „pokaż propozycję postaci” nie jest już błędnie uznawana za pytanie o katalog.
+
+Krótka rozgrywka ujawniła osobne regresje: pytajnik w dostarczanej wypowiedzi blokował poprzedzający ją jawny czas, compact narration promowała BELIEF/NARRATIVE do FACT, a rzeczywisty prompt lokalnego intentu pomijał pole `message` mimo obecności w kontrakcie. Poprawki zachowują kategorie epistemiczne i izolację prywatnych myśli. Znany ASK/TALK nie może materializować tematu pytania ani kwalifikatora pozycji jako lokacji przy sprzecznym `kind=MOVE`; brak rozmówcy nie jest naprawiany przez tworzenie NPC z tekstu. Wadliwe zatwierdzone próby w kampanii odbiorowej cofnięto zwykłą ścieżką UndoPreview/confirm. Narracja pierwszoosobowa, niewłaściwy cel oraz sam COMMITTED_NARRATION_PENDING nie są liczone jako sukces odbioru.
+
+Dodatkowa rzeczywista próba zwróciła powtarzane `walk` zamiast pytania gracza i zakończyła się `REQUIRED_REFERENCE_UNRESOLVED` przy niezmienionym commit order 0. Wcześniejszy fragment „Ty – strażnik” przeszedł dawny walidator, lecz nie uruchomił `NPC_DIALOGUE`; nie jest zaliczany jako poprawna rozmowa. Dodano odrzucenie takiego fragmentu, odrzucenie niezarejestrowanego, nieugruntowanego pustego czasownika oraz usunięto semantyczną treść prefiksów odpowiedzi. To poprawki kontraktu i diagnostyki, nie dowód dobrej jakości rzeczywistego modelu. Definicje czynności są ADMIN-only mechanics authority: własny fingerprint tabeli zmienia się przy imporcie, ale samo dodanie tej rodziny nie zmienia historycznego digestu stanu gameplay.
+
+Długie testy jakości i wydajności pozostają osobnym odbiorem: 100 tur z generatywnym AI, szerokie A/B, milion rekordów i duży Bielik. Końcowa bramka tego bloku wymaga debug/lab JVM, Android API28/36, process-death, regresji pamięci i izolacji release na zaakceptowanym SHA. Usunięto lokalną duplikację targeted/full w workflow NPC; nie usunięto niezależnych zabezpieczeń istniejących workflow pamięci i publikacji. Phase63–64 i Phase72 pozostają poza zakresem.
 
 ## Obowiązujące granice
 
@@ -72,7 +112,9 @@ Weryfikacja punktu 47 — 2026-09-15, 13:01: **55/55 GREEN**, końcowy przebieg 
 48. R1 podróży NPC ma własny, jawny route authority zamiast inferowania drogi z tekstu lub istnienia lokacji. `rpgos_travel_route_definitions/costs/access` są administracyjną rodziną definicji mechaniki z per-actor access; legacy `travel_profiles` i `trade_routes_v2` nie stają się fizyczną topologią. Affordance wymaga canonical origin, legalnej wiedzy destination, aktualnego dostępu, capability/stanu i zasobów. Phase60 przechowuje zamiar i deadline bez przyszłych efektów; na granicy czasu Core ponownie odczytuje trasę, aktora i staged state. Koszty oraz `LOCATION_TRANSITION` są jednym atomicznym skutkiem `COMPLETION_ONLY_V1` przez Phase50/TurnTransaction. Cel dotarcia pozostaje niespełniony przed commitem: `NpcTravelArrivalEvidence` wymaga persisted receipt + dokładnego replay + route fingerprint + committed kosztów i `SpatialChange`. Undo unieważnia dawny dowód. Wariant alternatywny używa wyłącznie wcześniej autoryzowanej opcji i świeżego preflight bez drugiego wywołania AI. Android gate API28/36 obejmuje host-driven force-stop pomiędzy zapisem i odczytem pending travel; fizyczny telefon pozostaje odroczony zgodnie z bieżącym trybem acceptance.
 
 
-## Kolejne wymagane elementy przed domknięciem
+## Historyczny backlog po R1 (2026-09-15)
+
+Lista poniżej zachowuje historyczny zakres braków po R1. Podłączenie domen R2–R5 i bieżące wymagania odbioru są opisane na początku dokumentu; tej listy nie należy traktować jako aktualnego inventory implementacji.
 
 - Rozszerzyć źródła legalnych obserwacji poza własną próbę, bezpośrednią rozmowę i wąski kontrakt odczucia własnej rany. Sama wzmianka, obecność w tej samej lokacji lub globalny event nadal nie jest dowodem percepcji.
 - Podłączyć pozostałych właścicieli rzeczywistych skutków domenowych (leczenie ran/innych osób, nauka), aktualne obowiązki oraz dalsze kryteria celów dotyczących skutków świata. R1 podróży ma już własny kontrakt; odzysk własnego zasobu, rejestrowany wysiłek i cel pojedynczego wykonania nie zastępują pozostałych reguł.

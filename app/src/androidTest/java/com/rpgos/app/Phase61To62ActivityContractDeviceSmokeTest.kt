@@ -72,26 +72,28 @@ class Phase61To62ActivityContractDeviceSmokeTest {
         SQLiteDatabase.create(null).use { db ->
             db.execSQL("CREATE TABLE rpgos_schema_migrations(migration_id TEXT PRIMARY KEY,applied_at INTEGER,notes TEXT)")
             db.execSQL("CREATE TABLE entity_positions(entity_uid TEXT PRIMARY KEY,location_uid TEXT,x_coord REAL,y_coord REAL,last_updated_day INTEGER,updated_chapter INTEGER)")
-            Phase50MechanicalSchema.ensureReady(db)
+            GameplayRuntimeBootstrap.initialize(db,"DEVICE-CAMPAIGN")
             val actor=DomainRef("NPC","DEVICE-TRAVEL-NPC")
             withAdministrativeMutationAuthority(db,"DEVICE-CAMPAIGN") {
                 MechanicalActorStateStore(db,"DEVICE-CAMPAIGN").materializeIfMissing(MechanicalActorSeed(
                     actor,MechanicalActorKind.NPC,"DEVICE-TEMPLATE","DEVICE-SEED","DEVICE-PROVENANCE",
                     mapOf("POWER" to 10),listOf(MechanicalResource("HEALTH",100,100)),setOf("WORLD:WALK")
                 ))
+                db.execSQL("INSERT INTO entity_positions VALUES(?,?,?,?,0,0)",arrayOf<Any?>(actor.uid,"ORIGIN",12.0,34.0))
             }
-            db.execSQL("INSERT INTO entity_positions VALUES(?,?,?,?,0,0)",arrayOf<Any?>(actor.uid,"ORIGIN",12.0,34.0))
             val store=MechanicalActorStateStore(db,"DEVICE-CAMPAIGN")
             assertEquals(DomainRef("LOCATION","ORIGIN"),store.actor(actor)!!.locationRef)
 
-            db.beginTransaction()
-            try {
-                store.applySpatial(
-                    TurnTransactionIdentity("DEVICE-CAMPAIGN","TURN:DEVICE","CMD:DEVICE","TX:DEVICE"),
-                    "DEVICE-ARRIVAL",SpatialChange(actor,0,0,DomainRef("LOCATION","DESTINATION")),1
-                )
-                db.setTransactionSuccessful()
-            } finally { db.endTransaction() }
+            val player=CommandActorRef("PLAYER","P")
+            val effect=VerifiedMechanicsCommandEffect("DEVICE-ARRIVAL","NODE","UNIVERSAL_MOVEMENT","LOCATION_TRANSITION",actor,0,
+                mapOf("destination_kind_uid" to "LOCATION","destination_uid" to "DESTINATION"),"PROOF:DEVICE","IN","OUT")
+            val command=PlayerCommand(commandUid="CMD:DEVICE",campaignUid="DEVICE-CAMPAIGN",actor=player,
+                commandKindUid=PlayerCommandKinds.APPLY_VERIFIED_MECHANICS,payload=ApplyVerifiedMechanicsCommandPayload("PLAN",listOf(effect)),
+                provenance=CommandProvenance("DEVICE"),requestedEffectiveOrder=1)
+            val refs=setOf(actor,DomainRef("PLAYER","P"),DomainRef("LOCATION","DESTINATION")).map{CampaignScopedDomainRef("DEVICE-CAMPAIGN",it)}.toSet()
+            val admitted=CampaignMutationBoundary.resolveAndAdmit("DEVICE-CAMPAIGN",productionMechanicsPlayerDomainEngine(),command,
+                PlayerResolutionContext.createUnboundGeneric("DEVICE-CAMPAIGN",player,refs)) as CampaignMutationAdmission.Accepted
+            assertTrue(TurnTransactionBoundary.create(db,TurnTransactionIdentity("DEVICE-CAMPAIGN","TURN:DEVICE","CMD:DEVICE","TX:DEVICE"),admitted.proposal).commit() is TurnExecutionResult.Committed)
 
             assertEquals(DomainRef("LOCATION","DESTINATION"),store.actor(actor)!!.locationRef)
         }

@@ -811,9 +811,14 @@ class LocalCompactAiJsonCodec(
                 }
                 values.map(String::trim).filter(String::isNotBlank).take(4).forEach{surfaceValue->
                     val contextualTopic=field in setOf("what","topic","description")&&(
-                        trainingAction||semanticKind in setOf("TRAIN","TRAINING","PRACTICE","LEARN","TRENING","CWICZENIE","ĆWICZENIE","QUERY","ASK","QUESTION","PYTANIE","TALK","COMMUNICATION","SPEAK","ROZMOWA")
+                        trainingAction||communicationAction||semanticKind in setOf("TRAIN","TRAINING","PRACTICE","LEARN","TRENING","CWICZENIE","ĆWICZENIE","QUERY","ASK","QUESTION","PYTANIE","TALK","COMMUNICATION","SPEAK","ROZMOWA")
                     )
                     if(contextualTopic)return@forEach
+                    // A position qualifier is not the recipient of a spoken question. In
+                    // particular, a contradictory MOVE enum must not create an "obok mnie"
+                    // place when the provider's actual action is ASK. Keep only explicit
+                    // recipients and never reconstruct a missing NPC from raw player text.
+                    if(communicationAction && field in setOf("where","place","destination"))return@forEach
                     val surface=alignToPlayerText(surfaceValue.take(160))?:surfaceValue.take(160)
                     val groundedTarget=normalizedWorldText(surface)
                     val compactGrounded=groundedTarget.replace(" ","")
@@ -843,6 +848,7 @@ class LocalCompactAiJsonCodec(
             }
             val route=when{
                 trainingAction->"T"
+                communicationAction->if(action in setOf("ASK","QUERY","QUESTION","PYTAJ","PYTAM","ZAPYTAJ"))"Q" else "D"
                 semanticKind in setOf("MOVE","MOVEMENT","TRAVEL")&&(movementAction||hasDestination)->"M"
                 semanticKind in setOf("COMBAT","FIGHT","ATTACK")->"C"
                 semanticKind in setOf("TRAIN","TRAINING","PRACTICE","LEARN","TRENING","CWICZENIE","ĆWICZENIE")->"T"
@@ -852,6 +858,12 @@ class LocalCompactAiJsonCodec(
                 combatAction||hasOpponent->"C"
                 else->"A"
             }
+            // Keep the open vocabulary, but an unregistered, ungrounded bare verb has no
+            // player-supplied evidence at all. Do not turn a repeated hallucinated "walked"
+            // into successful self-interactions for a player who asked a spoken question.
+            if(references.length()==0 && !actionGroundedInPlayerText(action) &&
+                !movementAction && !combatAction && !communicationAction && !trainingAction &&
+                action !in UniversalIntentFamilies.REGISTERED)continue
             val referenceKey=(0 until references.length()).joinToString("|"){position->
                 val reference=references.getJSONObject(position)
                 listOf(reference.optString("x"),reference.optString("k"),reference.optString("scope"),reference.optString("role")).joinToString(":")
@@ -1075,6 +1087,7 @@ class LocalCompactAiJsonCodec(
     override fun encodeNarrativeRepair(request:AiNarrativeRepairRequest):String{
         val root=JSONObject(encodeNarrative(request.original))
         root.put("v","RPGOS_NARRATIVE_LOCAL_REPAIR_1").put("reasons",JSONArray(request.rejectionReasonUids))
+            .put("rejected_text",request.rejected.text)
             .put("reply",root.getString("reply")+" Popraw tekst zgodnie z reasons.")
         return root.toString()
     }
@@ -1092,10 +1105,12 @@ class LocalCompactAiJsonCodec(
         val placeholder=normalizedWorldText(text) in setOf(
             "narracja","tekst","opis","odpowiedz","odpowiedź","wynik","pierwsze zdanie drugie zdanie"
         )
-        require(text.length>=24&&!placeholder){"LOCAL_NARRATIVE_PLACEHOLDER_REJECTED"}
-        val claims=request.context.legalFacts.take(8).map{fact->NarrativeSemanticClaim(
+        // A concise lawful sentence is not a placeholder. The old 24-character floor
+        // rejected short answers before the normal narrative validator/repair could run.
+        require(text.length>=8&&!placeholder){"LOCAL_NARRATIVE_PLACEHOLDER_REJECTED"}
+        val claims=request.context.legalFacts.take(8).mapNotNull{fact->NarrativeSemanticClaim(
             "LOCAL-NARRATIVE:${fact.factUid}",
-            if(fact.kind==CommittedNarrativeFactKind.MECHANICAL_RESULT)NarrativeClaimKind.MECHANICAL_RESULT else NarrativeClaimKind.FACT,
+            fact.supportedClaimKind()?:return@mapNotNull null,
             fact.factUid,fact.predicateUid,fact.valueCanonical
         )}
         return RenderedNarrative(text,request.context.stopPointUid,request.context.committedOrder,claims,root.optBoolean("vol",false))

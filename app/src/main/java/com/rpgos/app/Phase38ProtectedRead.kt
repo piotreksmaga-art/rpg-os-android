@@ -240,6 +240,29 @@ class ProtectedCampaignReadRepository private constructor(
         }
     }
 
+    /** Narrow prerequisite read: a holder's acquired claim, not a world-truth lookup. */
+    internal fun npcRequiredClaims(audience:AudienceContext,purpose:PurposeContext,holder:KnowledgeHolderRef,
+                                   atOrder:Long,claimUids:Set<String>):ProtectedReadResult<Set<String>> = withSaveDb { db->
+        require(claimUids.size<=8 && claimUids.none{it.isBlank()})
+        val request=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,
+            VisibilitySubjectKinds.PHASE37_HOLDER_KNOWLEDGE,holder.holderUid,holder=holder))
+        gateway(db).read(request) {
+            if(claimUids.isEmpty())emptySet() else {
+                val roles=resolver(db).resolve(audience)?.roleUids.orEmpty().sorted()
+                val roleClause=if(roles.isEmpty())"0" else "s.scope_uid='ROLE_ACCESSIBLE' AND s.role_uid IN (${roles.joinToString{"?"}})"
+                val args=listOf(campaignUid,holder.holderKindUid,holder.holderUid,atOrder.toString(),atOrder.toString())+claimUids.sorted()+roles
+                db.rawQuery("""SELECT DISTINCT s.claim_uid FROM ${Phase37KnowledgeSchema.STATES} s
+                    JOIN ${Phase37KnowledgeSchema.ACQUISITIONS} a ON a.campaign_uid=s.campaign_uid AND a.acquisition_uid=s.latest_acquisition_uid
+                    WHERE s.campaign_uid=? AND s.holder_kind_uid=? AND s.holder_uid=? AND s.updated_order<=? AND a.created_order<=?
+                    AND s.claim_uid IN (${claimUids.joinToString{"?"}}) AND a.provenance_status='RECORDED'
+                    AND s.epistemic_state_uid IN ('KNOWN','BELIEVED','PARTIALLY_KNOWN')
+                    AND ((s.scope_uid='PERSONAL' AND s.role_uid='') OR ($roleClause))""".trimIndent(),args.toTypedArray()).use{c->
+                    buildSet{while(c.moveToNext())add(c.getString(0))}
+                }
+            }
+        }
+    }
+
     fun playerState(audience:AudienceContext,purpose:PurposeContext,playerUid:String):ProtectedReadResult<PlayerStateSnapshot> = withSaveDb{db->
         val request=VisibilityRequest(audience,purpose,VisibilitySubjectRef(campaignUid,VisibilitySubjectKinds.PLAYER_STATE,playerUid))
         gateway(db).read(request){PlayerStateStore(db,campaignUid).load()?.takeIf{it.activePlayer.playerUid==playerUid}}.withoutNullPayload()

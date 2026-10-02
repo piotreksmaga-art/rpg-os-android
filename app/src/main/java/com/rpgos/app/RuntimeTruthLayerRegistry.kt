@@ -47,6 +47,7 @@ object RuntimeTruthLayerRegistry {
         RuntimeStateFamily("PROJECT_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("project_type_definitions")),
         RuntimeStateFamily("LEGACY_MECHANICS_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),setOf("technique_definitions")),
         RuntimeStateFamily("TRAVEL_ROUTE_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),Phase62TravelRouteSchema.tables),
+        RuntimeStateFamily("NPC_ACTIVITY_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),Phase62ActivitySchema.tables),
 
         RuntimeStateFamily("CURRENT_WORLD_AUTHORITY",setOf(RuntimeTruthLayer.AUTHORITATIVE),BundledCampaignPersistentFamilies.CURRENT_WORLD_AUTHORITY),
         RuntimeStateFamily("ACTION_TIME_AUTHORITY",setOf(RuntimeTruthLayer.AUTHORITATIVE),setOf(Phase60TemporalSchema.TABLE)),

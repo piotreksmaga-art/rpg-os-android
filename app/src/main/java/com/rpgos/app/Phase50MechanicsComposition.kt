@@ -56,6 +56,14 @@ object MechanicalEffectMaterializer{
                 if(effect.magnitude==0L)return rejected(effect,"ZERO_SPATIAL_EFFECT")
                 change(effect,PlayerChangeKinds.SPATIAL,SpatialChange(effect.target,effect.magnitude))
             }
+            "WOUND_HEALING"->{
+                if(effect.mechanicsOwnerUid!=NpcActivityMechanics.OWNER || effect.canonicalPayload["npc_treatment_contract"]==null)
+                    return rejected(effect,"WOUND_HEALING_OWNER_REQUIRED")
+                if(effect.magnitude<=0L)return rejected(effect,"POSITIVE_WOUND_HEALING_REQUIRED")
+                val expected=effect.canonicalPayload["expected_wound_units"]?.toLongOrNull()?:return rejected(effect,"WOUND_EVIDENCE_REQUIRED")
+                if(effect.magnitude>expected)return rejected(effect,"WOUND_HEALING_EXCEEDS_EVIDENCE")
+                change(effect,PlayerChangeKinds.WOUND,WoundChange(effect.target,ExactLongDelta.of(Math.negateExact(effect.magnitude)),"P62:HEALING"))
+            }
             "LOCATION_TRANSITION"->{
                 val destinationKind=effect.canonicalPayload["destination_kind_uid"]?:return rejected(effect,"DESTINATION_KIND_REQUIRED")
                 val destinationUid=effect.canonicalPayload["destination_uid"]?:return rejected(effect,"DESTINATION_UID_REQUIRED")
@@ -213,10 +221,15 @@ internal class ProductionVerifiedMechanicsComponent:PlayerResolutionComponent<Ap
         changes+=communication.changes;events+=communication.events
         val sensations=NpcConsequenceObservation.materialize(command.campaignUid,command.commandUid,command.requestedEffectiveOrder,command.payload.effects)
         changes+=sensations.changes;events+=sensations.events
+        val witnessed=NpcWitnessObservation.materialize(command.campaignUid,command.commandUid,command.requestedEffectiveOrder,command.payload.effects)
+        changes+=witnessed.changes;events+=witnessed.events
+        val reading=NpcReadingApplication.materialize(command.campaignUid,command.commandUid,command.requestedEffectiveOrder,command.payload.effects)
+        changes+=reading.changes;events+=reading.events
         if(changes.isEmpty())return PlayerResolutionComponentOutcome.Rejected(
             PlayerResolutionRejection.create(PlayerResolutionRejectionReason.DOMAIN_REJECTED,detailUid="EMPTY_MECHANICS_MATERIALIZATION")
         )
-        return PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(changes=changes,eventIntents=events))
+        return PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(changes=changes,eventIntents=events,
+            progressionStimuli=NpcLearningApplication.stimuli(command.campaignUid,command.payload.effects)))
     }
 }
 
@@ -380,15 +393,19 @@ internal fun canonicalMechanicsCommandEffects(verified:VerifiedMechanicsEffect,p
     val commonPayload=verified.canonicalPayload.filterKeys{!it.startsWith("area_target_")}
     return specifications.mapIndexed{index,(canonicalTarget,canonicalMagnitude,canonicalKind)->
         val suffix=if(areaCount==0)"" else ":AREA:$index"
+        val memberPayload=if(areaCount==0)emptyMap() else listOf("resource_uid","condition_uid","operation","track_uid","expected_wound_units").mapNotNull{key->
+            verified.canonicalPayload["area_target_${index}_$key"]?.let{key to it}
+        }.toMap()
         VerifiedMechanicsCommandEffect(verified.effectUid+suffix,verified.nodeUid,verified.mechanicsOwnerUid,canonicalKind,canonicalTarget,canonicalMagnitude,
-            commonPayload+mapOf("target_kind_uid" to canonicalTarget.kindUid,"target_uid" to canonicalTarget.uid,"magnitude" to canonicalMagnitude.toString()),
+            commonPayload+memberPayload+mapOf("target_kind_uid" to canonicalTarget.kindUid,"target_uid" to canonicalTarget.uid,"magnitude" to canonicalMagnitude.toString()),
             verified.proofUid+suffix,phase60Hash(verified.deterministicInputFingerprint+suffix),phase60Hash(verified.deterministicOutputFingerprint+"|$canonicalTarget|$canonicalMagnitude"))
     }
 }
 
 internal fun coalesceInteractionEffects(effects:List<VerifiedMechanicsCommandEffect>):List<VerifiedMechanicsCommandEffect>{
     val grouped=effects.groupBy{effect->
-        if(effect.effectKindUid.substringAfterLast(':').uppercase()!="INTERACTION")"UNIQUE:${effect.effectUid}"
+        if(effect.effectKindUid.substringAfterLast(':').uppercase()!="INTERACTION" ||
+            effect.canonicalPayload.keys.any{it.startsWith("npc_learning_") || it.startsWith("npc_reading_")})"UNIQUE:${effect.effectUid}"
         else listOf(effect.effectKindUid,effect.target.kindUid,effect.target.uid,effect.canonicalPayload["track_uid"].orEmpty()).joinToString("|")
     }
     return grouped.values.map{group->

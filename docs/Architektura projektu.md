@@ -661,7 +661,9 @@ Nowy ACTOR może otrzymać `MechanicalActorGenesisChange` w tej samej transakcji
 
 Wewnątrz tury `StagedMechanicalProjection` rozwija zatwierdzone efekty według tej samej reguły co commit, bez podwójnego trafienia głównego celu AOE. Zmiana lokacji wyklucza użycie starego zasięgu rozmowy i starych scene paths do autoryzacji walki. Przesunięcie z nieznanej pozycji nie ustanawia dokładnych współrzędnych. Projekcja nie zapisuje stanu ani wiedzy NPC i nie zastępuje właściciela trasy/czasu podróży.
 
-Phase61–62 pozostają częściowe do domknięcia integracji właścicieli skutków, złożonych planów, dodatkowych źródeł percepcji i odbioru rozgrywki. Nie jest to realizacja populacyjnego Living World Phase63–64.
+Domykanie Phase61–62 dodaje do istniejącej ścieżki kontrakty R2 nauki/czytania (Phase21/37), R3 leczenia (Phase50) i R4 obowiązków (Phase38/60), a także R5 kryteria rzeczywistych wyników i legalną obserwację widocznego urazu. Reguły oraz actor bindings pochodzą z jawnych rozszerzeń World Packa. Brak reguły nie daje modelowi prawa do wymyślenia skutku. `NpcWorldResultContract` wymaga aktualnego właściciela i aktywnego receipt/replay; koniec planu nie jest sukcesem świata.
+
+Stan implementacji, schematy importu i pozostałe bramki znajdują się w `docs/architecture/PHASE61_62_NPC_IMPLEMENTATION.md`. Odbiór trzech tur na Motoroli i końcowego CI nadal trwa; nie oznaczamy tego checkpointu jako ukończonego. Długie testy modeli i wydajności są jawnie odłożone. Nie jest to realizacja populacyjnego Living World Phase63–64 ani branchingu Phase72.
 
 ## 15. Living World / Autonomous World Simulation — CANONICAL TARGET
 `THE WORLD DOES NOT WAIT FOR THE PLAYER.`

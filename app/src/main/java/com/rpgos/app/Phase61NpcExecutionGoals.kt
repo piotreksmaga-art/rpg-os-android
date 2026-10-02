@@ -3,9 +3,9 @@ package com.rpgos.app
 /** One exact personal action, NOT a claim about its world outcome. Rich objectives such as
  * healing somebody or winning a battle require their respective domain's success contract. */
 data class NpcExecutionObjective(val capabilityUid:String,val mechanicsOwnerUid:String,val effectKindUid:String,
-    val target:DomainRef,val actionBinding:String,val version:Int=1) {
+    val target:DomainRef,val actionBinding:String,val version:Int=1,val worldResult:NpcWorldResultContract?=null) {
     init { npcUid(capabilityUid);npcUid(mechanicsOwnerUid);npcUid(effectKindUid);npcUid(target.kindUid);npcUid(target.uid)
-        require(version==1 && actionBinding.matches(Regex("[0-9a-f]{64}"))) }
+        require(version in 1..2 && (version==2)==(worldResult!=null) && actionBinding.matches(Regex("[0-9a-f]{64}"))) }
 }
 internal data class LocationReachedCriterion(val actor:DomainRef,val destination:DomainRef) {
     init { require(destination.kindUid in setOf("PLACE","LOCATION")){"P61:LOCATION_CRITERION_KIND"} }
@@ -37,10 +37,12 @@ internal object NpcExecutionGoals {
         val option=context.options.singleOrNull{it.uid==uid}?:error("P61:OBJECTIVE_OPTION_NOT_AUTHORIZED")
         require(context.records.map{it.uid}.containsAll(option.supportingRecordUids))
         return NpcExecutionObjective(option.capabilityUid,requireNotNull(option.mechanicsOwnerUid),requireNotNull(option.mechanicalEffectKindUid),
-            option.target?:context.brain.actor,binding(context.brain.actor,option))
+            option.target?:context.brain.actor,binding(context.brain.actor,option),if(option.worldResult==null)1 else 2,option.worldResult)
     }
     // The model cannot label one WAIT as "save the village" and get that objective completed.
-    fun description(objective:NpcExecutionObjective)="Wykonać raz ${objective.capabilityUid} dla ${objective.target.kindUid}:${objective.target.uid}."
+    fun description(objective:NpcExecutionObjective)=objective.worldResult?.let { result->
+        "Uzyskać wynik ${result.criteria.joinToString(","){"${it.kind}:${it.valueUid}"}} dla ${objective.target.kindUid}:${objective.target.uid}.".take(512)
+    }?:"Wykonać raz ${objective.capabilityUid} dla ${objective.target.kindUid}:${objective.target.uid}."
     fun fulfilled(context:NpcDecisionContextEnvelope,plan:NpcPlan,selected:NpcDecisionResult.Selected,
                   result:NpcMechanicalResult.Resolved):NpcExecutionFulfillment? {
         val goal=context.brain.goals.singleOrNull{it.uid==plan.goalUid && it.lifecycle==NpcGoalLifecycle.ACTIVE}?:return null
@@ -52,7 +54,8 @@ internal object NpcExecutionGoals {
         // Travel is special: mechanics here is still speculative. The plan may finish, but the
         // goal cannot be fulfilled until NpcTravelArrivalEvidence is issued from persisted receipt
         // + replay material after the common TurnTransaction commits.
-        if(objective.effectKindUid.substringAfterLast(':').uppercase()==NpcTravelAffordances.EFFECT_KIND)return null
+        if(objective.worldResult!=null || objective.effectKindUid.substringAfterLast(':').uppercase()==NpcTravelAffordances.EFFECT_KIND ||
+            result.effects.any{e->e.canonicalPayload.keys.any{it.startsWith("npc_learning_") || it.startsWith("npc_reading_") || it.startsWith("npc_treatment_") || it.startsWith("npc_duty_")}})return null
         return NpcExecutionFulfillment.issue(context,plan,goal)
     }
 }

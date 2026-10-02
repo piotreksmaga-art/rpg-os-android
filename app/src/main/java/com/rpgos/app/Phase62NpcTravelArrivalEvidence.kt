@@ -41,7 +41,10 @@ internal object NpcTravelArrivalEvidence {
             replay.changeSet.sourceCommandUid!=receipt.commandUid)return null
 
         val sourcePrefix="P62:TRAVEL:${route.fingerprint}:"
-        val travelChanges=replay.changeSet.changes.filter{it.sourceRuleUid?.startsWith(sourcePrefix)==true}
+        val travelChanges=replay.changeSet.changes.filter{change->
+            val proof=change.sourceRuleUid.orEmpty()
+            proof.startsWith(sourcePrefix) || (proof.startsWith("P60:PROCESS:") && proof.contains(":$sourcePrefix"))
+        }
 
         val arrivals=travelChanges.filter { change->
             if(change.changeKindUid!=PlayerChangeKinds.SPATIAL)return@filter false

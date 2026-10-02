@@ -79,7 +79,9 @@ internal class NpcTimedActionApplication(private val commandUid:String,private v
                 is NpcInitiatedSpeechResult.Delivered->resolved.effects+speech.effect
             }
         } else resolved.effects
-        val effects=delivered.map { effect->effect.copy(proofUid="P60:PROCESS:${phase60Hash(effect.proofUid+"|"+context.contextFingerprint)}",
+        // Keep the domain owner's proof in the process chain. Receipt/replay consumers must
+        // still be able to identify the exact route/activity whose effects were committed.
+        val effects=delivered.map { effect->effect.copy(proofUid="P60:PROCESS:${phase60Hash(effect.proofUid+"|"+context.contextFingerprint)}:${effect.proofUid}",
             canonicalPayload=effect.canonicalPayload+mapOf(
             "source_actor_kind_uid" to action.actor.kindUid,"source_actor_uid" to action.actor.uid)) }
         val fulfillment=NpcExecutionGoals.fulfilled(context,plan,selected,resolved)

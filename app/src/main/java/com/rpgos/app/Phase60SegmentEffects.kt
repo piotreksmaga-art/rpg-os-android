@@ -61,7 +61,9 @@ internal fun phase60CoalesceEffects(effects:List<VerifiedMechanicsCommandEffect>
     effects.forEachIndexed { index,effect ->
         val materialized=MechanicalEffectMaterializer.materialize(effect) as? MechanicalEffectMaterializationResult.Materialized
         val scalar=materialized?.changes?.singleOrNull()?.payload
-        val key=when(scalar) {
+        // Completion proofs and enrichment stimuli are atomic. Coalescing away a domain
+        // identity would lose its receipt evidence or pay only the first learning attempt.
+        val key=if(effect.canonicalPayload.containsKey("npc_travel_contract"))index else when(scalar) {
             is ResourceChange->listOf("RESOURCE",scalar.subject.kindUid,scalar.subject.uid,scalar.resourceUid)
             is MechanicalTrackChange->listOf("TRACK",scalar.subject.kindUid,scalar.subject.uid,scalar.trackUid)
             else->index
@@ -73,11 +75,18 @@ internal fun phase60CoalesceEffects(effects:List<VerifiedMechanicsCommandEffect>
         val magnitude=group.fold(0L){sum,effect->Math.addExact(sum,effect.magnitude)}
         if(magnitude==0L)return@mapNotNull null
         val first=group.first()
+        val enrichment=if(first.effectKindUid=="INTERACTION" && first.canonicalPayload["npc_learning_target"]!=null) {
+            require(group.all{it.canonicalPayload["npc_learning_contract"]==first.canonicalPayload["npc_learning_contract"] &&
+                it.canonicalPayload["npc_learning_state"]==first.canonicalPayload["npc_learning_state"]}){"P62:LEARNING_COALESCENCE_BINDING"}
+            mapOf("npc_learning_effort" to group.fold(0L){sum,e->Math.addExact(sum,requireNotNull(e.canonicalPayload["npc_learning_effort"]?.toLongOrNull()))}.toString(),
+                "p60_core_duration_ms" to group.fold(0L){sum,e->Math.addExact(sum,requireNotNull(e.canonicalPayload["p60_core_duration_ms"]?.toLongOrNull()))}.toString())
+        } else emptyMap()
         val fingerprint=phase60Hash(group.joinToString("|"){"${it.effectUid}:${it.proofUid}:${it.magnitude}"})
         val prefix=if(group.any{it.proofUid.startsWith("P60:PROCESS:")})"P60:PROCESS:" else "P60:SETTLEMENT:"
+        val activityProofs=group.mapNotNull { e->e.canonicalPayload["npc_activity_contract"]?.let{"P62:ACTIVITY:$it:"} }.distinct().sorted()
         first.copy(effectUid="P60:SUM:$fingerprint",magnitude=magnitude,
-            canonicalPayload=first.canonicalPayload+("magnitude" to magnitude.toString())+mergedMechanicSourcePayload(group),
-            proofUid=prefix+fingerprint,deterministicInputFingerprint=fingerprint,
+            canonicalPayload=first.canonicalPayload+("magnitude" to magnitude.toString())+mergedMechanicSourcePayload(group)+enrichment,
+            proofUid=prefix+fingerprint+(if(activityProofs.isEmpty())"" else ":"+activityProofs.joinToString(":")),deterministicInputFingerprint=fingerprint,
             deterministicOutputFingerprint=phase60Hash("$fingerprint|$magnitude"))
     }
 }

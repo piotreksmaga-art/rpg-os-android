@@ -48,6 +48,7 @@ internal object GameplayRuntimeBootstrap {
                 Phase40SchedulerSchema.ensureReady(db)
                 Phase55To58MemorySchema.ensureReady(db,campaignUid)
                 Phase62TravelRouteSchema.ensureReady(db)
+                Phase62ActivitySchema.ensureReady(db)
             }
             if (GameplayMutationDatabaseGuards.isInstalled(db)) {
                 withAdministrativeMutationAuthority(db, campaignUid) { ensureAcceptedStructuralSchemas() }
@@ -93,6 +94,7 @@ internal object GameplayRuntimeBootstrap {
         check(Phase55To58MemorySchema.isReady(db)) { "RPGOS-MEMORY:SCHEMA_NOT_READY" }
         check(CampaignWorldProjectionSchema.isReady(db)) { "RPGOS-WORLD:PROJECTION_SCHEMA_NOT_READY" }
         check(Phase62TravelRouteSchema.isReady(db)) { "RPGOS-P62:TRAVEL_ROUTE_SCHEMA_NOT_READY" }
+        check(Phase62ActivitySchema.isReady(db)) { "RPGOS-P62:ACTIVITY_SCHEMA_NOT_READY" }
         Phase36SchemaVersioning.requireReady(db)
         check(GameplayMutationDatabaseGuards.isInstalled(db)) { "RPGOS-G32:GAMEPLAY_GUARDS_NOT_READY" }
         RuntimePersistentTableInventory.requireComplete(db)

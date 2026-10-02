@@ -83,7 +83,9 @@ internal object NpcTravelAffordances {
                 capabilityUid=route.capabilityUid,target=route.destination,timing=NpcTravelMechanics.timing(route),goalUid=goal.uid,
                 traitPreferences=emptyList(),supportingRecordUids=evidence,
                 resourceCosts=route.resourceCosts.toMap(),parameters=NpcTravelMechanics.parameters(route),
-                mechanicsOwnerUid=route.mechanicsOwnerUid,mechanicalEffectKindUid=EFFECT_KIND
+                mechanicsOwnerUid=route.mechanicsOwnerUid,mechanicalEffectKindUid=EFFECT_KIND,
+                worldResult=NpcWorldResultContract(route.mechanicsOwnerUid,route.fingerprint,
+                    listOf(NpcWorldResultCriterion(NpcWorldResultKind.LOCATION_REACHED,brain.actor,route.destination.uid)))
             )
         }.take(8).toList()
     }

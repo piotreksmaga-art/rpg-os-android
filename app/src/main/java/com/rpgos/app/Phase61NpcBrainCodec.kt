@@ -20,6 +20,7 @@ internal object NpcBrainCodec {
             g.executionObjective?.let{put("execution_objective",buildJsonObject {
                 put("capability",it.capabilityUid);put("owner",it.mechanicsOwnerUid);put("effect",it.effectKindUid)
                 put("target",ref(it.target));put("binding",it.actionBinding);put("version",it.version)
+                it.worldResult?.let{result->put("world_result",NpcWorldResultCodec.encode(result))}
             })}
         } }))
         put("emotions",JsonArray(state.emotions.sortedBy{it.uid}.map { e -> buildJsonObject {
@@ -49,8 +50,8 @@ internal object NpcBrainCodec {
             rows(o,"motivations",64).map{ m -> keys(m,"uid","kind","domain","strength","subject")
                 NpcMotivation(text(m,"uid"),NpcMotivationKind.valueOf(text(m,"kind")),text(m,"domain"),NpcWeight(integer(m,"strength")),m["subject"]?.takeUnless{it==JsonNull}?.let(::readRef)) },
             rows(o,"goals",64).map{ g -> keys(JsonObject(g.filterKeys{it!="execution_objective"}),"uid","motivation","objective","priority","lifecycle","cause","deadline")
-                val objective=g["execution_objective"]?.jsonObject?.let{e->keys(e,"capability","owner","effect","target","binding","version")
-                    NpcExecutionObjective(text(e,"capability"),text(e,"owner"),text(e,"effect"),readRef(e.getValue("target")),text(e,"binding"),integer(e,"version"))}
+                val objective=g["execution_objective"]?.jsonObject?.let{e->keys(JsonObject(e.filterKeys{it!="world_result"}),"capability","owner","effect","target","binding","version")
+                    NpcExecutionObjective(text(e,"capability"),text(e,"owner"),text(e,"effect"),readRef(e.getValue("target")),text(e,"binding"),integer(e,"version"),e["world_result"]?.let(NpcWorldResultCodec::decode))}
                 NpcGoal(text(g,"uid"),text(g,"motivation"),text(g,"objective"),NpcWeight(integer(g,"priority")),NpcGoalLifecycle.valueOf(text(g,"lifecycle")),readCause(g.getValue("cause")),tick(g,"deadline"),objective) },
             rows(o,"emotions",32).map{ e -> keys(e,"uid","intensity","at","cause")
                 NpcEmotion(text(e,"uid"),NpcAffect(integer(e,"intensity")),WorldTimeTick(number(e,"at")),readCause(e.getValue("cause"))) },

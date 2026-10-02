@@ -78,8 +78,14 @@ class KnownGameEngineRegressionTest {
 
         assertTrue(prompt.contains("Jesteś parserem"))
         assertTrue(prompt.contains("Każda niezależna czynność z wiadomości gracza to osobny element steps"))
-        assertTrue(prompt.contains("what to „miecz”, a where to „stojaka”"))
-        assertTrue(prompt.endsWith("{\"steps\":[{\"locality\":\""))
+        assertTrue(prompt.contains("what=bezpośredni obiekt czynności"))
+        assertFalse(prompt.contains("miecz"))
+        assertFalse(prompt.contains("stojaka"))
+        assertTrue(prompt.contains("message będące dokładnym pytaniem"))
+        assertTrue(prompt.contains("Nie przepisuj prywatnych myśli do message"))
+        assertTrue(prompt.contains("time_min_ms i time_max_ms"))
+        assertTrue(prompt.contains("polarity=NEGATED"))
+        assertTrue(prompt.endsWith("{\"steps\":[{"))
         assertFalse(prompt.contains("destination/where/who/what"))
         assertTrue(prompt.indexOf("Każda niezależna czynność")<prompt.lastIndexOf("Idę do Akademii."))
         assertFalse(prompt.contains("przewoźnika"))
@@ -402,6 +408,22 @@ class KnownGameEngineRegressionTest {
         assertTrue(prompt.contains("ZATWIERDZONE SKUTKI"))
         assertFalse(prompt.contains("PLAYER_DECISION_POINT"))
         assertTrue(prompt.endsWith("{\"t\":\""))
+        val rejected=decoded.copy(text="Rozglądam się po poligonie.")
+        val repair=codec.encodeNarrativeRepair(AiNarrativeRepairRequest("NREQ:R",request,rejected,
+            listOf("NARRATIVE_INVENTED_PLAYER_VOLITION"),1))
+        val repairPrompt=ExecuTorchInferenceService.bielikChatPrompt(repair)
+        assertEquals(rejected.text,JSONObject(repair).getString("rejected_text"))
+        assertTrue(repairPrompt.contains("ODRZUCONY TEKST DO POPRAWY: ${rejected.text}"))
+        assertTrue(repairPrompt.contains("NARRATIVE_INVENTED_PLAYER_VOLITION"))
+        assertTrue(repairPrompt.endsWith("{\"t\":\""))
+        assertFalse(repairPrompt.contains("DZIAŁANIE: Przez minutę czekam"))
+        assertTrue(NarrativeValidator().validate(decoded.copy(text="Tylko czekam przez minutę."),context,request.playerInput)
+            .reasonUids.contains("NARRATIVE_INVENTED_PLAYER_VOLITION"))
+        assertTrue(NarrativeValidator().validate(decoded.copy(text="Ty rozglądam się po poligonie."),context,request.playerInput)
+            .reasonUids.contains("NARRATIVE_INVENTED_PLAYER_VOLITION"))
+        val fullRejected=ExecuTorchInferenceService.normalizeStructuredOutput(repair,"{\"t\":\"Rozglądam się po poligonie.\",\"vol\":false}")
+        assertTrue(NarrativeValidator().validate(codec.decodeNarrative(fullRejected,request),context,request.playerInput)
+            .reasonUids.contains("NARRATIVE_INVENTED_PLAYER_VOLITION"))
         assertEquals("Rozglądasz się uważnie po poligonie.",decoded.text)
         assertEquals(7,decoded.committedOrder)
         assertEquals("PLAYER_DECISION_POINT",decoded.stopReasonUid)
@@ -446,6 +468,20 @@ class KnownGameEngineRegressionTest {
         )
         assertThrows(IllegalArgumentException::class.java){codec.decodeNarrative("""{"t":"narracja","vol":false}""",request)}
         assertThrows(IllegalArgumentException::class.java){codec.decodeNarrative("""{"w":["Pierwsze","zdanie.","Drugie","zdanie."],"vol":false}""",request)}
+    }
+
+    @Test fun localNarrationPreservesBeliefSpeechAndPresentationCategories() {
+        val facts=CommittedNarrativeFactKind.entries.map{kind->
+            CommittedNarrativeFact("FACT:${kind.name}",kind,"NPC:N","P:${kind.name}","Treść ${kind.name}",1)
+        }
+        val context=CommittedNarrationContext(campaign,"T","CMD","TX",1,"P38",emptyMap(),facts,
+            emptyList(),emptySet(),emptySet(),"PLAYER_DECISION_POINT","FP")
+        val narrative=LocalCompactAiJsonCodec().decodeNarrative("{\"t\":\"Wypowiedź dociera do ciebie bez zmian.\",\"vol\":false}",
+            AiNarrativeRequest("N",context,"pl-PL"))
+        assertEquals(setOf(NarrativeClaimKind.FACT,NarrativeClaimKind.BELIEF,NarrativeClaimKind.PLAYER_ASSERTION,
+            NarrativeClaimKind.MECHANICAL_RESULT,NarrativeClaimKind.NARRATIVE_COLOR),narrative.claims.map{it.kind}.toSet())
+        assertFalse(narrative.claims.any{it.supportFactUid=="FACT:PRESENTATION_CONSEQUENCE"})
+        assertTrue(NarrativeValidator().validate(narrative,context).accepted)
     }
 
     @Test
@@ -604,9 +640,40 @@ END""",request
             """{"steps":[{"locality":"local","action":"Idę","destination":"biblioteki","what":"zwój"},{"locality":"local","action":"pytam","who":"archiwistkę","what":"zwój"}]}""",request
         )
 
-        assertEquals(listOf("TRAVEL","OPEN_WORLD_ACTION"),decoded.nodes.map{it.semanticAction.semanticFamilyUid})
-        assertEquals(listOf("biblioteki","archiwistkę","zwój"),decoded.references.map{it.rawPhrase})
-        assertEquals(listOf("PLACE","ACTOR","OBJECT"),decoded.references.map{it.descriptorHints["world_base_kind"]})
+        assertEquals(listOf("TRAVEL","QUERY"),decoded.nodes.map{it.semanticAction.semanticFamilyUid})
+        assertEquals(listOf("biblioteki","archiwistkę"),decoded.references.map{it.rawPhrase})
+        assertEquals(listOf("PLACE","ACTOR"),decoded.references.map{it.descriptorHints["world_base_kind"]})
+    }
+
+    @Test fun compactNpcQuestionCannotMaterializeItsTopicOrPositionAsAPlace() {
+        val request=AiIntentRequest("REQ",campaign,actor,"Przez 10 sekund pytam strażnika stojącego obok mnie: Jak masz na imię?","pl")
+        val codec=LocalCompactAiJsonCodec()
+        val broken="""{"steps":[{"locality":"L","kind":"MOVE","action":"ask","what":"Jak masz na imię","where":"obok mnie"}]}"""
+        val missing=codec.decodeIntent(broken,request)
+        assertEquals("QUERY",missing.nodes.single().semanticAction.semanticFamilyUid)
+        assertTrue(missing.references.isEmpty())
+        assertTrue(missing.nodes.single().participants.isEmpty())
+        val correct="""{"steps":[{"locality":"L","kind":"MOVE","action":"ask","who":"strażnika","message":"Jak masz na imię?","what":"Jak masz na imię","where":"obok mnie"}]}"""
+        val legal=codec.decodeIntent(correct,request)
+        assertEquals("QUERY",legal.nodes.single().semanticAction.semanticFamilyUid)
+        assertEquals("strażnika",legal.references.single().rawPhrase)
+        assertEquals("ACTOR",legal.references.single().descriptorHints["world_base_kind"])
+        assertEquals("Jak masz na imię?",legal.nodes.single().participants.single{it.roleUid=="MESSAGE"}.literalValue)
+        val hallucinated="""{"steps":[{"locality":"L","kind":"MOVE","action":"walked"},{"locality":"L","kind":"MOVE","action":"walked"}]}"""
+        assertThrows(IllegalArgumentException::class.java){codec.decodeIntent(hallucinated,request)}
+        val openRequest=request.copy(rawInput="Śpiewam przez 10 sekund.")
+        assertEquals("OPEN_WORLD_ACTION",codec.decodeIntent("""{"steps":[{"locality":"L","kind":"ACTION","action":"śpiewam"}]}""",openRequest).nodes.single().semanticAction.semanticFamilyUid)
+    }
+
+    @Test fun conciseNarrationReachesTheValidatorInsteadOfFailingAnArbitraryLengthFloor() {
+        val context=CommittedNarrationContext(campaign,"T","CMD","TX",1,"P38",emptyMap(),emptyList(),
+            emptyList(),emptySet(),emptySet(),"PLAYER_DECISION_POINT","CTX-FP")
+        val request=AiNarrativeRequest("NREQ",context,"pl-PL",playerInput="Czekam.")
+        val codec=LocalCompactAiJsonCodec()
+        assertEquals("Czekasz.",codec.decodeNarrative("""{"t":"Czekasz.","vol":false}""",request).text)
+        val fragment=codec.decodeNarrative("""{"t":"Ty – strażnik","vol":false}""",request)
+        assertTrue(NarrativeValidator().validate(fragment,context,request.playerInput).reasonUids.contains("NARRATIVE_INCOMPLETE_IDENTITY_FRAGMENT"))
+        assertThrows(IllegalArgumentException::class.java){codec.decodeNarrative("""{"t":"tekst","vol":false}""",request)}
     }
 
     @Test

@@ -243,7 +243,12 @@ internal class ProductionCombatSnapshotAuthority(
 }
 
 internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapshots:ProductionCombatSnapshotAuthority,
-    private val npcActivities:NpcActivityContractPort=NpcActivityContractPort.STANDARD):MechanicsRuleResolver{
+    private val npcActivities:NpcActivityContractPort=NpcActivityContractPort.STANDARD,
+    private val npcLearningState:NpcLearningStatePort=NpcLearningStatePort.NONE,
+    private val npcReadingAccess:NpcReadingAccessPort=NpcReadingAccessPort.NONE,
+    private val npcRequirements:NpcActivityRequirementPort=NpcActivityRequirementPort.NONE,
+    private val npcTreatments:NpcTreatmentReadPort=NpcTreatmentReadPort.NONE,
+    private val npcDuties:NpcDutyAssignmentPort=NpcDutyAssignmentPort.NONE):MechanicsRuleResolver{
     private sealed interface CanonicalEffectResolution{
         data class Applied(val payload:Map<String,String>):CanonicalEffectResolution
         data class Rejected(val reasonUid:String):CanonicalEffectResolution
@@ -259,9 +264,12 @@ internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapsh
         if(owner!=request.mechanicsOwnerUid)return MechanicsEffectResolution.Rejected("MECHANICS_OWNER_MISMATCH")
         if(owner==NpcActivityMechanics.OWNER) {
             val actor=combatSnapshots.npcActivityActor(request,context)?:return MechanicsEffectResolution.Rejected("P62:ACTIVITY_ACTOR_UNAVAILABLE")
-            val contract=npcActivities.contract(context.campaignUid,node.semanticAction.canonicalActionUid.orEmpty())
+            val contract=npcActivities.forCapability(context.campaignUid,node.semanticAction.canonicalActionUid.orEmpty())
+                .singleOrNull{it.fingerprint==request.parameters["contract_fingerprint"]}
                 ?:return MechanicsEffectResolution.Rejected("P62:ACTIVITY_CONTRACT_MISSING")
-            return NpcActivityMechanics.resolve(request,context,actor,contract)
+            if(contract.requirements.teacher?.let{StagedMechanicalProjection.hasSpatialChange(setOf(actor.actor,it),context.stagedEffects)}==true)
+                return MechanicsEffectResolution.Rejected("P62:TEACHER_SPATIAL_CONTEXT_CHANGED")
+            return NpcActivityMechanics.resolve(request,context,actor,contract,npcLearningState,npcReadingAccess,npcRequirements,npcTreatments,npcDuties)
         }
         if(owner==NpcSpeechMechanics.OWNER) {
             val actor=combatSnapshots.npcActivityActor(request,context)?:return MechanicsEffectResolution.Rejected("P62:SPEECH_ACTOR_UNAVAILABLE")
@@ -532,7 +540,7 @@ private class ProductionCommittedNarrationReadPort(private val repository:Unifie
                 is ConditionChange->if(payload.operation==ConditionOperation.ADD)"Pojawił się stan ${payload.conditionUid}." else "Stan ${payload.conditionUid} ustąpił."
                 is RuntimeChange->"Skutek działania został zastosowany."
                 is InventoryChange->if(payload.quantityDelta.units>0L)"Przedmiot trafia do twojego ekwipunku." else "Przedmiot opuszcza twój ekwipunek."
-                is WoundChange->"Cel otrzymał ranę o nasileniu ${payload.severityDelta.units}."
+                is WoundChange->if(payload.severityDelta.units>0)"Cel otrzymał ranę o nasileniu ${payload.severityDelta.units}." else "Nasilenie rany zmniejszyło się o ${Math.negateExact(payload.severityDelta.units)}."
                 is SpatialChange->"Postać zmieniła swoje położenie."
                 is EquipmentIntegrityChange->"Wyposażenie celu zostało uszkodzone."
                 is StructureIntegrityChange->"Struktura została uszkodzona."
@@ -703,7 +711,7 @@ class ProductionGameEngineCompositionRoot(
     private val combatAbilityContracts:CombatAbilityContractPort=CombatAbilityContractPort.UNIVERSAL_FALLBACK,
     private val semanticApplication:BekkoSemanticApplication?=null,
     private val directorGuidance:DirectorGuidancePort=DirectorGuidancePort.NONE,
-    private val npcActivities:NpcActivityContractPort=NpcActivityContractPort.STANDARD,
+    private val npcActivities:NpcActivityContractPort=repository.infrastructureNpcActivityContractPort(),
     private val npcTravelRoutes:NpcTravelRoutePort=repository.infrastructureNpcTravelRoutePort(),
     private val npcProgress:NpcWorkProgressPort=NpcWorkProgressPort.NONE
 ){
@@ -741,7 +749,12 @@ class ProductionGameEngineCompositionRoot(
         val worldAuthority=authority?.let{WorldPackAuthoritySnapshot.single(it.campaignUid,it.binding)}?:WorldPackAuthoritySnapshot.empty()
         val worldRuleMode:WorldRuleMode=authority?.let{WorldRuleMode.Bound(it.binding)}?:UnboundGenericWorldRuleMode
         val playerEngine=productionMechanicsPlayerDomainEngine(worldRules,worldAuthority)
-        val mechanics=ProductionUniversalMechanicsRuleResolver(ProductionCombatSnapshotAuthority(repository,aggregateCombatState,combatAbilityContracts),npcActivities)
+        val npcLearningState=repository.infrastructureNpcLearningStatePort()
+        val npcReadingAccess=repository.infrastructureNpcReadingAccessPort()
+        val npcRequirements=repository.infrastructureNpcActivityRequirementPort()
+        val npcTreatments=repository.infrastructureNpcTreatmentReadPort()
+        val npcDuties=repository.infrastructureNpcDutyAssignmentPort()
+        val mechanics=ProductionUniversalMechanicsRuleResolver(ProductionCombatSnapshotAuthority(repository,aggregateCombatState,combatAbilityContracts),npcActivities,npcLearningState,npcReadingAccess,npcRequirements,npcTreatments,npcDuties)
         val mechanicsRegistry=MechanicsResolverRegistry.fromCompositionRoot(mapOf(
             "UNIVERSAL_COMBAT" to mechanics,"UNIVERSAL_ACTION" to mechanics,"UNIVERSAL_MOVEMENT" to mechanics
         ))
@@ -781,10 +794,22 @@ class ProductionGameEngineCompositionRoot(
             canonicalHeldInventoryReferences(command,heldItemInstanceUids).forEach(::add)
             command.payload.effects.forEach{effect->
                 add(effect.target)
+                if(effect.canonicalPayload["npc_learning_target"]!=null) {
+                    add(DomainRef(requireNotNull(effect.canonicalPayload["npc_learning_target_kind"]),requireNotNull(effect.canonicalPayload["npc_learning_target"])))
+                }
+                effect.canonicalPayload["npc_reading_definition"]?.let { definition ->
+                    add(DomainRef(KnowledgeHolderKinds.CHARACTER,effect.target.uid))
+                    requireNotNull(NpcActivityContractCodec.decode(definition).reading).let { reading ->
+                        add(reading.carrier)
+                        add(DomainRef(reading.claim.subjectKindUid,reading.claim.subjectUid))
+                        reading.claim.objectKindUid?.let { kind -> add(DomainRef(kind,requireNotNull(reading.claim.objectUid))) }
+                    }
+                }
                 NpcCommunicationMemory.participants(command.campaignUid,effect).forEach{participant->
                     add(participant);add(DomainRef(KnowledgeHolderKinds.CHARACTER,participant.uid))
                 }
                 NpcConsequenceObservation.recipient(command.campaignUid,effect)?.let{add(DomainRef(KnowledgeHolderKinds.CHARACTER,it.uid))}
+                NpcWitnessObservation.recipients(command.campaignUid,effect).forEach{add(DomainRef(KnowledgeHolderKinds.CHARACTER,it.uid))}
                 when(effect.effectKindUid.substringAfterLast(':').uppercase()){
                     "RESOURCE_DELTA","RESOURCE","HEALTH_DELTA","DAMAGE_HP","HEALING","RESTORATION"->add(DomainRef("RESOURCE",effect.canonicalPayload["resource_uid"]?:"HEALTH"))
                     "CONDITION","BUFF","DEBUFF","CONTROL","RESTRICTION"->effect.canonicalPayload["condition_uid"]?.let{add(DomainRef("CONDITION",it))}
@@ -841,7 +866,11 @@ class ProductionGameEngineCompositionRoot(
                                 }?:body.copy(locationRef=null)
                             }
                             repository.projectNpcDecision(scope,trigger,NpcContextProfiles.MOBILE,
-                                {b,records->NpcMechanicalAffordances(combatAbilityContracts,npcActivities,npcTravelRoutes).options(b,records,mechanical,DomainRef("PLAYER",active.playerUid))},
+                                {b,records->NpcMechanicalAffordances(combatAbilityContracts,npcActivities,npcTravelRoutes,npcLearningState,npcReadingAccess,npcRequirements,npcTreatments,npcDuties,input.through,pending==null)
+                                    .options(b,records,mechanical,DomainRef("PLAYER",active.playerUid)).filter { option->
+                                        npcActivities.forCapability(input.scope.campaignUid,option.capabilityUid).none{contract->
+                                            npcActivityPrerequisiteChanged(contract,actor,input.stagedChanges)}
+                                    }},
                                 semanticApplication?.npcRecall()?:NpcRecallPort.NONE,staged)
                         }
                     }
@@ -864,7 +893,10 @@ class ProductionGameEngineCompositionRoot(
                                 input.through>=interval.start+ActionDuration(Phase60DomainTiming.effectOffset(effect,interval.action.timing.duration))
                             }==true }},interruptsForeground={effects->npcRequiresForegroundDecision(effects,foregroundSubjects)},progress=npcProgress,
                             initiatedSpeech=NpcInitiatedSpeechApplication(route,{repository.infrastructureTemporalRead().scope},npcProgress))).extension()
-                cognition.plus(actions)
+                cognition.plus(actions).plus(NpcDutyDeadlineProcess.extension()).plus(
+                    NpcResultReconciliationProcess(snapshot.scope,snapshot.state.time) { input->
+                        repository.prepareNpcResultConfirmations(input,participants)
+                    }.extension())
             },conversations=NpcConversationApplication(route,{repository.infrastructureTemporalRead().scope},npcProgress,{snapshot,actor,plan->
                 repository.npcConversationContext(snapshot,actor,plan,semanticApplication?.npcRecall()?:NpcRecallPort.NONE)
             }),observations=repository::prepareNpcConsequenceObservations)

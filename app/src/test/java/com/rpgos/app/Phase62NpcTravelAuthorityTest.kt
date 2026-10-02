@@ -46,7 +46,7 @@ class Phase62NpcTravelAuthorityTest {
         }
     }
 
-    @Test fun bootstrapClassifiesAndGuardsTravelDefinitionsAsAdministrativeMechanicsAuthority()=db().use{database->
+    @Test fun bootstrapClassifiesAndGuardsTravelDefinitionsAsAdministrativeMechanicsAuthority():Unit=db().use{database->
         assertTrue(Phase62TravelRouteSchema.isReady(database))
         Phase62TravelRouteSchema.tables.forEach { table ->
             assertEquals("TRAVEL_ROUTE_DEFINITIONS",RuntimeTruthLayerRegistry.requireClassifiedTable(table).uid)
@@ -59,6 +59,7 @@ class Phase62NpcTravelAuthorityTest {
                 "duration_ms,timing_rule_uid,mechanics_owner_uid,capability_uid,eligibility_uid,access_policy_uid,active,provenance_uid) "+
                 "VALUES('C1','ILLEGAL',1,'LOCATION','A','LOCATION','B',1,'R','UNIVERSAL_MOVEMENT','WALK','CONSCIOUS_SELF','PUBLIC',1,'X')")
         }
+        Unit
     }
 
     @Test fun productionCatalogRequiresExplicitActorAccessAndPreservesCosts()=db().use{database->

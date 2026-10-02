@@ -1,6 +1,7 @@
 package com.rpgos.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -178,6 +179,7 @@ class CharacterCreationLocalBudgetTest {
         assertTrue(answer.contains("Sharingan"))
         assertTrue(!answer.contains("Technika Klonów"))
         assertEquals(null,catalog.answerCatalogQuestion("Chcę być uczniem Akademii."))
+        assertNull(catalog.answerCatalogQuestion("Dobierz dla mnie legalne pochodzenie i umiejętności oraz pokaż propozycję postaci do zatwierdzenia."))
     }
 
     @Test fun lockedDraftSectionsSurviveManualChangesAndRerollsWhileUnlockedSectionsChange(){

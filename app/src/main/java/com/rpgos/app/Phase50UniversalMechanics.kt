@@ -31,7 +31,9 @@ data class MechanicalActorView(
     val conditions:List<MechanicalCondition> = emptyList(),
     val locationRef:DomainRef?=null,
     val generationProvenanceUid:String,
-    val aggregatePopulation:AggregateMechanicalPopulation?=null
+    val aggregatePopulation:AggregateMechanicalPopulation?=null,
+    /** Read-only baseline supplied by the mechanical owner, not inferred from clipped defence. */
+    val unwoundedDefence:Long?=null
 ){init{
     require(campaignUid.isNotBlank()&&actor.kindUid.isNotBlank()&&actor.uid.isNotBlank()&&stateVersion>=0&&generationProvenanceUid.isNotBlank())
     require(attributes.keys.none{it.isBlank()}&&resources.map{it.resourceUid}.distinct().size==resources.size)

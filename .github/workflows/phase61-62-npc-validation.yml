@@ -16,51 +16,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  npc-targeted-jvm:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-      - run: yes | sdkmanager --licenses >/dev/null || true
-      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "9.5.0"
-      - name: Verify exact source SHA
-        run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
-      - name: Run Phase61-62 R0/R1 and existing NPC boundary tests
-        run: |
-          gradle --no-daemon :app:testDebugUnitTest \
-            --tests 'com.rpgos.app.Phase62NpcActivityLifecycleContractTest' \
-            --tests 'com.rpgos.app.Phase62NpcTravel*Test' \
-            --tests 'com.rpgos.app.Phase62NpcActivityContractsTest' \
-            --tests 'com.rpgos.app.Phase62NpcMechanicsTest' \
-            --tests 'com.rpgos.app.Phase62NpcRecoveryTest' \
-            --tests 'com.rpgos.app.Phase62NpcRecoveryPersistenceTest' \
-            --tests 'com.rpgos.app.Phase62NpcActionProcessTest' \
-            --tests 'com.rpgos.app.Phase61NpcDynamicsTest' \
-            --stacktrace
-      - name: Compile Android acceptance tests
-        run: gradle --no-daemon :app:compileDebugAndroidTestKotlin --stacktrace
-      - name: Upload targeted test evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: phase61-62-r1-targeted-${{ github.sha }}
-          path: |
-            app/build/test-results/testDebugUnitTest/**
-            app/build/reports/tests/testDebugUnitTest/**
-          if-no-files-found: warn
-          retention-days: 14
 
   full-jvm:
     runs-on: ubuntu-latest

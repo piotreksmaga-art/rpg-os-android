@@ -75,6 +75,8 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "PackageManager.kt",
             "Phase36EventSchemaScaffold.kt",
             "Phase36SchemaVersioning.kt",
+            "Phase62NpcTravelAuthority.kt",
+            "Phase62NpcActivityAuthority.kt",
             "Phase6Migration.kt",
             "Phase7Migration.kt",
             "Phase8Migration.kt",
@@ -174,6 +176,8 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         assertTrue("Phase36 Event schema rewrite must remain administrative", "Phase36EventSchemaScaffold.kt" in admin)
         assertTrue("Phase36 migration infrastructure must remain administrative", "Phase36SchemaVersioning.kt" in admin)
         assertTrue("LocalGameStore must remain explicitly audited infrastructure", "LocalGameStore.kt" in admin)
+        assertTrue("NPC travel definitions must remain administrative", "Phase62NpcTravelAuthority.kt" in admin)
+        assertTrue("NPC activity definitions must remain administrative", "Phase62NpcActivityAuthority.kt" in admin)
         assertTrue(canonical.intersect(evidence).isEmpty())
         assertTrue(canonical.intersect(admin).isEmpty())
         assertTrue(evidence.intersect(admin).isEmpty())
@@ -202,7 +206,10 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         }
 
         val bootstrap = functionSource(source, "bootstrap")
-        assertTrue("administrative bootstrap lost explicit schema setup", bootstrap.contains("ensureCurrentSchema"))
+        assertTrue("administrative bootstrap lost explicit schema setup owner", bootstrap.contains("prepareCampaignRuntime(save,campaignUid)"))
+        val prepare = functionSource(source, "prepareCampaignRuntime")
+        assertTrue("administrative runtime preparation lost schema setup", prepare.contains("ensureCurrentSchema"))
+        assertTrue("administrative runtime preparation lost mutation guards", prepare.contains("GameplayRuntimeBootstrap.initialize"))
         assertTrue("administrative bootstrap lost explicit repair ownership", bootstrap.contains("AutoRepairEngine"))
     }
 

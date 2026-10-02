@@ -401,6 +401,16 @@ Panel LAB pokazuje też podsumowania `npc_decision`/`npc_dialogue` (model, korel
 
 ## 11. Relacja do pozostałych dokumentów
 
+### Oddzielna instalacja odbiorowa 61–62
+
+Przy niezgodnym podpisie istniejącej instalacji nie usuwać aplikacji ani zapisów. Właściwość `-PrpgosDeviceAcceptance=true` buduje `labDebug` jako `com.rpgos.app.acceptance` i test runner `com.rpgos.app.acceptance.test/androidx.test.runner.AndroidJUnitRunner`. Skrypt hosta przyjmuje `-PackageName com.rpgos.app.acceptance`; domyślny pakiet pozostaje bez zmian. Właściwość nie zmienia publicznego release.
+
+Odbiór lokalnego Bielika wymaga wyłączenia labowego przypisania Codexa przez `SET_LAB_AI_ASSIGNMENTS {"game_master":"BASE","director":"BASE"}`, następnie `SELECT_LOCAL_AI {"engine":"EXECUTORCH","pin_game_master":true,"pin_director":true}` oraz `SET_BEKKO_SETTINGS {"enabled":true,"backend":"CPU"}`. Potwierdzić lokalne role PINNED i Bekko READY przez `GET_AI_STATE`. Nie uruchamiać hosta Codexa i nie liczyć CLARIFICATION jako zatwierdzonej tury. Po commicie z błędem narracji używać wyłącznie `RECOVER_PENDING_NARRATION`, bez ponowienia akcji.
+
+Kontrakty nauki/czytania, leczenia i obowiązków korzystają z normalnej tury, Phase60 i właścicieli wyników. Definicje oraz przypisania musi jawnie dostarczyć World Pack; brak reguły nie nadaje NPC wymyślonej zdolności. Schemat importu opisuje `docs/architecture/PHASE61_62_NPC_IMPLEMENTATION.md`. Dokładny czas jednej czynności można podać w tekście, np. „Przez 1 minutę rozglądam się”; brak lub wieloznaczność czasu nadal wymaga doprecyzowania, bez commitu.
+
+Długie generatywne testy 100 tur, szerokie A/B, milion rekordów i duży Bielik pozostają osobnym odbiorem. Fazy 63–64 oraz 72 nie są przez to ukończone.
+
 Ten dokument jest nadrzędną instrukcją bieżącego Bridge'a Etapów 1–3. Raporty:
 
 - `docs/development/RPG_OS_LAB_BRIDGE_STAGE2.md`;

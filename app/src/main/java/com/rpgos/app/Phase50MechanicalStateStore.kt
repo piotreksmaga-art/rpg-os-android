@@ -174,7 +174,7 @@ internal class MechanicalActorStateStore(private val db:SQLiteDatabase,private v
         return MechanicalActorView(
             campaignUid,ref,MechanicalActorKind.valueOf(header[0] as String),header[3] as Long,
             MechanicalStateMaterialization.valueOf(header[1] as String),effectiveAttributes,resources,abilities,traits,resistances,
-            allComponents.filter{it.kind=="EQUIPMENT"}.map{DomainRef("MECHANICAL_COMPONENT",it.uid)},conditions,location,header[2] as String,population(ref)
+            allComponents.filter{it.kind=="EQUIPMENT"}.map{DomainRef("MECHANICAL_COMPONENT",it.uid)},conditions,location,header[2] as String,population(ref),attributes["DEFENCE"]
         )
     }
 
@@ -193,7 +193,65 @@ internal class MechanicalActorStateStore(private val db:SQLiteDatabase,private v
         return out
     }
 
-    fun applyWound(identity:TurnTransactionIdentity,changeUid:String,change:WoundChange,effectiveOrder:Long)=applyTrack(identity,changeUid,MechanicalTrackChange(change.subject,"WOUND",change.severityDelta),effectiveOrder)
+    fun applyWound(identity:TurnTransactionIdentity,changeUid:String,change:WoundChange,effectiveOrder:Long) {
+        if(change.severityDelta.units<0)healWound(identity,changeUid,change.subject,Math.negateExact(change.severityDelta.units),effectiveOrder)
+        else {
+            require(change.severityDelta.units>0){"RPGOS-P50:POSITIVE_WOUND_REQUIRED"}
+            applyTrack(identity,changeUid,MechanicalTrackChange(change.subject,"WOUND",change.severityDelta),effectiveOrder)
+        }
+    }
+
+    /** Explicit administrative compatibility owner. Never called by actor()/a UI read. Only the
+     * same accepted V2 profile may fill absent rows; existing values, position and wounds survive. */
+    fun completeLegacyActor(seed:MechanicalActorSeed):Boolean {
+        require(seed.kind!=MechanicalActorKind.ACTIVE_PLAYER && db.inTransaction() &&
+            GameplayMutationDatabaseGuards.isAdminActive(db,campaignUid)){"P62:LEGACY_COMPLETION_REQUIRES_ADMIN_TRANSACTION"}
+        val header=db.rawQuery("SELECT actor_kind_uid,template_uid,generation_seed_uid FROM mechanical_actor_states WHERE campaign_id=? AND entity_kind_uid=? AND entity_uid=?",
+            arrayOf(campaignUid,seed.ref.kindUid,seed.ref.uid)).use{c->if(c.moveToFirst())Triple(c.getString(0),c.getString(1),c.getString(2)) else null}
+        if(header==null){materializeIfMissing(seed);return true}
+        if(header.first!=seed.kind.name || header.second!=seed.templateUid || header.third!=seed.seedUid)return false
+        val before=db.rawQuery("SELECT total_changes()",null).use{it.moveToFirst();it.getLong(0)}
+        seed.attributes.toSortedMap().forEach{(uid,value)->db.execSQL(
+            "INSERT OR IGNORE INTO mechanical_actor_attributes(campaign_id,entity_kind_uid,entity_uid,attribute_uid,current_value,state_version) VALUES(?,?,?,?,?,1)",
+            arrayOf<Any?>(campaignUid,seed.ref.kindUid,seed.ref.uid,uid,value))}
+        seed.resources.forEach{r->db.execSQL(
+            "INSERT OR IGNORE INTO mechanical_actor_resources(campaign_id,entity_kind_uid,entity_uid,resource_uid,current_value,maximum_value,state_version) VALUES(?,?,?,?,?,?,1)",
+            arrayOf<Any?>(campaignUid,seed.ref.kindUid,seed.ref.uid,r.resourceUid,r.current,r.maximum))}
+        seed.abilities.sorted().forEach{uid->db.execSQL("INSERT OR IGNORE INTO mechanical_actor_abilities(campaign_id,entity_kind_uid,entity_uid,ability_uid,state_version) VALUES(?,?,?,?,1)",arrayOf(campaignUid,seed.ref.kindUid,seed.ref.uid,uid))}
+        seed.traits.sorted().forEach{uid->db.execSQL("INSERT OR IGNORE INTO mechanical_actor_traits(campaign_id,entity_kind_uid,entity_uid,trait_uid,state_version) VALUES(?,?,?,?,1)",arrayOf(campaignUid,seed.ref.kindUid,seed.ref.uid,uid))}
+        seed.resistances.toSortedMap().forEach{(uid,value)->db.execSQL("INSERT OR IGNORE INTO mechanical_actor_resistances(campaign_id,entity_kind_uid,entity_uid,resistance_uid,basis_points,state_version) VALUES(?,?,?,?,?,1)",arrayOf<Any?>(campaignUid,seed.ref.kindUid,seed.ref.uid,uid,value))}
+        if(seed.aggregateCount!=null) {
+            require(seed.kind in setOf(MechanicalActorKind.GROUP,MechanicalActorKind.UNIT)&&!seed.aggregateName.isNullOrBlank()&&seed.aggregateCount>0)
+            db.execSQL("INSERT OR IGNORE INTO aggregate_combat_populations(campaign_id,entity_kind_uid,entity_uid,display_name,total_count,active_count,wounded_count,eliminated_count,state_version,generation_provenance_uid) VALUES(?,?,?,?,?,?,0,0,1,?)",
+                arrayOf<Any?>(campaignUid,seed.ref.kindUid,seed.ref.uid,seed.aggregateName,seed.aggregateCount,seed.aggregateCount,seed.provenanceUid))
+        }
+        val changed=db.rawQuery("SELECT total_changes()",null).use{it.moveToFirst();it.getLong(0)}!=before
+        val partial=db.rawQuery("SELECT materialization_uid FROM mechanical_actor_states WHERE campaign_id=? AND entity_kind_uid=? AND entity_uid=?",
+            arrayOf(campaignUid,seed.ref.kindUid,seed.ref.uid)).use{it.moveToFirst();it.getString(0)!="FULL"}
+        if(changed || partial)db.execSQL("UPDATE mechanical_actor_states SET materialization_uid='FULL',state_version=state_version+1 WHERE campaign_id=? AND entity_kind_uid=? AND entity_uid=?",
+            arrayOf(campaignUid,seed.ref.kindUid,seed.ref.uid))
+        return true
+    }
+
+    /** Pack-authorized capability, never granted by a read, model suggestion or generic verb. */
+    internal fun importActivityCapability(actor:DomainRef,capabilityUid:String) {
+        require(db.inTransaction() && GameplayMutationDatabaseGuards.isAdminActive(db,campaignUid))
+        npcUid(capabilityUid)
+        requireActor(actor)
+        require(actor.kindUid!="PLAYER") { "P62:ACTIVITY_IMPORT_NPC_ONLY" }
+        val changed=db.compileStatement("INSERT OR IGNORE INTO mechanical_actor_abilities(campaign_id,entity_kind_uid,entity_uid,ability_uid,state_version) VALUES(?,?,?,?,1)").use {
+            it.bindString(1,campaignUid);it.bindString(2,actor.kindUid);it.bindString(3,actor.uid);it.bindString(4,capabilityUid)
+            it.executeInsert()!=-1L
+        }
+        if(changed)db.execSQL("UPDATE mechanical_actor_states SET state_version=state_version+1 WHERE campaign_id=? AND entity_kind_uid=? AND entity_uid=?",arrayOf(campaignUid,actor.kindUid,actor.uid))
+    }
+    /** Explicit healing operation. Replay carries its signed WoundChange through the same owner. */
+    private fun healWound(identity:TurnTransactionIdentity,changeUid:String,subject:DomainRef,units:Long,effectiveOrder:Long) {
+        requireTurn(identity);requireActor(subject)
+        val current=track(subject,"WOUND")?:0L
+        require(units>0 && units<=current){"RPGOS-P50:WOUND_HEALING_OUT_OF_RANGE"}
+        applyTrack(identity,changeUid,MechanicalTrackChange(subject,"WOUND",ExactLongDelta.of(Math.negateExact(units))),effectiveOrder)
+    }
 
     fun applyResource(identity:TurnTransactionIdentity,changeUid:String,change:ResourceChange,effectiveOrder:Long){
         requireTurn(identity);requireActor(change.subject)
@@ -309,7 +367,7 @@ internal object WorldActorMechanicalBootstrap{
             store.materializeIfMissing(MechanicalActorSeed(DomainRef("PLAYER",active.playerUid),MechanicalActorKind.ACTIVE_PLAYER,"PLAYER-DOMAIN",active.playerUid,
                 "PLAYER-DOMAIN:${active.playerUid}",attributes,resources,abilities))
         }
-        CanonCharacterProjectionReader(worldDb).list("").forEach{npc->store.materializeIfMissing(seed(DomainRef("NPC",npc.uid),MechanicalActorKind.NPC,npc.name,null))}
+        CanonCharacterProjectionReader(worldDb).list("").forEach{npc->store.completeLegacyActor(seed(DomainRef("NPC",npc.uid),MechanicalActorKind.NPC,npc.name,null))}
         WorldReader(worldDb,saveDb).locations().forEach{location->store.materializeIfMissing(seed(DomainRef("LOCATION",location.uid),MechanicalActorKind.WORLD_ACTOR,location.name,null))}
         materializeCampaignProjectionActors(saveDb,campaignUid,store)
         if(tableExists(worldDb,"organization_units"))worldDb.rawQuery("SELECT unit_uid,name,command_level FROM organization_units ORDER BY unit_uid",null).use{c->while(c.moveToNext()){
@@ -336,14 +394,6 @@ internal object WorldActorMechanicalBootstrap{
         store:MechanicalActorStateStore=MechanicalActorStateStore(saveDb,campaignUid)
     ){
         if(!CampaignWorldProjectionSchema.isReady(saveDb))return
-        val activePlayer=if(tableExists(saveDb,"active_player_ref"))ActivePlayerStore(saveDb,campaignUid).active() else null
-        val playerPosition=activePlayer?.let{active->saveDb.rawQuery(
-            "SELECT location_uid,x_coord,y_coord FROM entity_positions WHERE entity_uid=? LIMIT 1",arrayOf(active.playerUid)
-        ).use{cursor->if(!cursor.moveToFirst())null else Triple(
-            if(cursor.isNull(0))null else cursor.getString(0),
-            if(cursor.isNull(1))null else cursor.getDouble(1),
-            if(cursor.isNull(2))null else cursor.getDouble(2)
-        )}}
         saveDb.rawQuery("""SELECT element_kind_uid,element_uid,display_name,parent_anchor_uid
             FROM ${CampaignWorldProjectionSchema.TABLE}
             WHERE campaign_id=? AND audience_scope_uid=? AND element_kind_uid IN ('ACTOR','GROUP')
@@ -353,18 +403,15 @@ internal object WorldActorMechanicalBootstrap{
             val kind=cursor.getString(0)
             val ref=DomainRef(kind,cursor.getString(1))
             val population=if(kind=="GROUP")1L+(stable(ref.uid,"POPULATION")%20L) else null
-            store.materializeIfMissing(seed(
+            store.completeLegacyActor(seed(
                 ref,if(kind=="GROUP")MechanicalActorKind.GROUP else MechanicalActorKind.NPC,
                 cursor.getString(2),population
             ))
             val parent=if(cursor.isNull(3))null else cursor.getString(3)?.takeIf(String::isNotBlank)
             if(parent!=null&&tableExists(saveDb,"entity_positions")){
-                val sameScene=playerPosition?.first==parent
-                val x=playerPosition?.second.takeIf{sameScene}
-                val y=playerPosition?.third.takeIf{sameScene}
                 saveDb.execSQL("""INSERT OR IGNORE INTO entity_positions
                     (entity_uid,location_uid,x_coord,y_coord,last_updated_day,updated_chapter)
-                    VALUES(?,?,?,?,0,0)""",arrayOf<Any?>(ref.uid,parent,x,y))
+                    VALUES(?,?,NULL,NULL,0,0)""",arrayOf<Any?>(ref.uid,parent))
             }
         }}
     }
