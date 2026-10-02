@@ -206,11 +206,14 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         }
 
         val bootstrap = functionSource(source, "bootstrap")
-        assertTrue("administrative bootstrap lost explicit schema setup owner", bootstrap.contains("prepareCampaignRuntime(save,campaignUid)"))
+        assertTrue("administrative bootstrap lost explicit schema setup owner", bootstrap.contains("prepareCampaignRuntime(save,campaignUid,repairLegacyRows=true)"))
         val prepare = functionSource(source, "prepareCampaignRuntime")
         assertTrue("administrative runtime preparation lost schema setup", prepare.contains("ensureCurrentSchema"))
         assertTrue("administrative runtime preparation lost mutation guards", prepare.contains("GameplayRuntimeBootstrap.initialize"))
-        assertTrue("administrative bootstrap lost explicit repair ownership", bootstrap.contains("AutoRepairEngine"))
+        assertTrue("administrative repair must use the guarded preparation owner", !bootstrap.contains("AutoRepairEngine"))
+        assertTrue("administrative preparation lost explicit repair ownership", prepare.contains("if(repairLegacyRows)runCatching{AutoRepairEngine().repair(saveDb)}"))
+        assertTrue("administrative preparation lost ADMIN authority", prepare.contains("withAdministrativeMutationAuthority(saveDb,campaignUid,prepare)"))
+        assertTrue("repair must finish before final guard installation", prepare.indexOf("AutoRepairEngine().repair(saveDb)") < prepare.lastIndexOf("GameplayRuntimeBootstrap.initialize(saveDb,campaignUid)"))
     }
 
     private fun functionSource(source: String, method: String): String {
