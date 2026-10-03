@@ -426,7 +426,7 @@ po odpowiedzi MG należy obsłużyć te żądania przed narracją. Sprawdzić di
 procesu poznawczego NPC: udana narracja nie ukrywa ani nie zalicza timeoutu decyzji.
 Po awarii najpierw sprawdzić receipt/recovery; po commicie odzyskiwać samą narrację.
 Samo utrzymywanie połączenia nie generuje odpowiedzi. Prywatnych traces/bundles
-nie dołączać do publicznego wydania. Stan implementacji i niezamknięte bramki:
+nie dołączać do publicznego wydania. Stan implementacji, odbiór i bramki wydania:
 `docs/architecture/PHASE63_WORLD_SIMULATION_IMPLEMENTATION.md`.
 
 ## 11. Relacja do pozostałych dokumentów
@@ -443,7 +443,7 @@ W produkcyjnym composition root nie działa cichy legacy parser po błędzie pro
 
 Kontrakty nauki/czytania, leczenia i obowiązków korzystają z normalnej tury, Phase60 i właścicieli wyników. Definicje oraz przypisania musi jawnie dostarczyć World Pack; brak reguły nie nadaje NPC wymyślonej zdolności. Schemat importu opisuje `docs/architecture/PHASE61_62_NPC_IMPLEMENTATION.md`. Dokładny czas jednej czynności można podać w tekście, np. „Przez 1 minutę rozglądam się”; brak lub wieloznaczność czasu nadal wymaga doprecyzowania, bez commitu.
 
-Długie generatywne testy 100 tur, szerokie A/B, milion rekordów i duży Bielik pozostają osobnym odbiorem. Fazy 63–64 oraz 72 nie są przez to ukończone.
+Długie generatywne testy 100 tur, szerokie A/B, milion rekordów i duży Bielik pozostają osobnym odbiorem. Odbiór 61–62 nie kończył faz 63–64 ani 72; osobno ukończony zakres Phase63 opisuje sekcja 10.4 i dokument implementacji. Faza 64 i branching 72 pozostają nieukończone.
 
 Ten dokument jest nadrzędną instrukcją bieżącego Bridge'a Etapów 1–3. Raporty:
 

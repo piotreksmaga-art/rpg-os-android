@@ -994,8 +994,11 @@ AI i Scout dostarczają jedynie ograniczone propozycje. Zmiana szczegółowości
 przelosowuje nazwanej osoby ani nie tworzy zasobów. Brak wiedzy o trasie nie
 oznacza, że odległy cel nie istnieje.
 
-Implementacja i krótki odbiór Motoroli są zakończone. Status pozostaje **oczekuje na końcowe CI**, nie DONE. Aktualne kontrakty, potwierdzone próby i
-otwarte bramki opisuje [Phase63 — implementacja](architecture/PHASE63_WORLD_SIMULATION_IMPLEMENTATION.md).
+Implementacja, produkcyjna integracja i krótki odbiór Motoroli są zakończone.
+**Phase63 runtime jest DONE**: CI `38ff92c5` zaliczyło pełne JVM debug/lab,
+API28/36, process-death, pamięć/undo/NPC i izolację release. Końcowy SHA PR
+nadal wymaga GREEN przed merge, a publikacja osobnej kontroli podpisu i aktualizacji.
+Kontrakty oraz zakres dowodów opisuje [Phase63 — implementacja](architecture/PHASE63_WORLD_SIMULATION_IMPLEMENTATION.md).
 Preset makroregionów nie jest pełnym generatorem dowolnej geografii z prozy.
 Phase64, 65–70 i 72 nie są przez to ukończone; private LAB traces nie trafiają do release.
 

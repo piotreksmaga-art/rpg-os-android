@@ -1,8 +1,10 @@
 # Phase63 — świat, materializacja i LOD
 
-Stan: **implementacja i krótki odbiór Motoroli zakończone; końcowe CI i wydanie oczekują**, gałąź `codex/phase63-complete`, baza
-ALPHA21 `9bdc44c8d71b3e41566d69a240e5534cb44141d9`. Dokument nie stanowi
-zgody na merge ani potwierdzenia końcowych bramek wydania.
+Stan: **Phase63 ukończona w zakresie silnika, produkcyjnej integracji i krótkiego odbioru**.
+Baza to ALPHA21 `9bdc44c8d71b3e41566d69a240e5534cb44141d9`.
+Pełne CI runtime na `38ff92c568e4512489a54c51665a1e917b45085d` jest GREEN.
+Merge i publikacja wymagają tych samych bramek także na końcowym SHA PR; sam dokument
+nie zastępuje wyniku CI ani weryfikacji podpisanego APK.
 
 ## Właściciele danych
 
@@ -97,7 +99,7 @@ Produkcja wymaga poprawnego, zgodnego z kampanią źródła reguł również prz
 odczytu manifestu. Nie uruchamia zastępczego trybu unbound. Niedostępność jest
 typowanym błędem przed uruchomieniem dostawcy i przed zmianą zapisu.
 
-## Wyniki oraz pozostałe bramki
+## Wyniki odbioru i bramki wydania
 
 Lokalne testy celowane potwierdzają m.in. additive digest, guards, rollback/retry,
 stale generation, native staging i neutralny katalog, deterministyczne sloty,
@@ -151,19 +153,26 @@ Rozpoczęty plan NPC, jego termin i pending action również pozostały zapisane
 Jest to dowód ciągłości instalacji laboratoryjnej; podpis publicznego APK wymaga
 osobnej kontroli względem wydania ALPHA21.
 
-Pierwsze CI przeszło izolację release oraz API36. API28 zaliczyło wspólne 13 testów
-i seed procesu, lecz natychmiastowy odczyt PID po `force-stop` zatrzymał bramkę;
-host teraz czeka najwyżej pięć sekund i nadal wymaga faktycznego zniknięcia procesu.
-JVM debug wykonał 1705 testów z jedną awarią starego fixture bez manifestu World Packa.
-Fixture otrzymał poprawny manifest; produkcyjne wymaganie authority nie zostało
-osłabione. Przegląd dodatkowo zachował późniejszą legalną trasę, gdy połączenie
-otwiera się dopiero po czasie dotarcia krótszą drogą. Nowe regresje topologii
-i generacji latentnej przeszły 14/14. Poprawki wymagają ponownego końcowego CI.
+Przegląd zachował późniejszą legalną trasę, gdy połączenie otwiera się dopiero po
+czasie dotarcia krótszą drogą. Regresje topologii i generacji latentnej przeszły 14/14.
+Stary fixture otrzymał poprawny manifest World Packa; wymaganie produkcyjnej authority
+pozostało bez zmian. Host process-death czeka najwyżej pięć sekund na faktyczne
+zniknięcie procesu, zamiast traktować natychmiastowy odczyt PID jako wynik końcowy.
+Po tych poprawkach ponowiony test świata na Motoroli przeszedł w 43,038 sekundy,
+a wcześniejszy aktywny zapis i rozpoczęta czynność NPC pozostały nienaruszone.
 
-Otwarte przed oznaczeniem DONE i wydaniem:
+[Końcowe CI runtime](https://github.com/piotreksmaga-art/rpg-os-android/actions/runs/37146494745)
+z 3 października 2026 potwierdziło 1706 testów JVM debug i 1721 lab: zero błędów
+i zero pominięć. API28 i API36 zaliczyły wspólny odbiór Android, pamięć/undo/NPC
+oraz rzeczywiste zatrzymanie procesu i wznowienie. Kontrola publicznego APK
+potwierdziła brak laboratoryjnego transportu i providera Codexa.
 
-- JVM debug/lab, API28/36, process-death, memory/undo/NPC i release isolation na finalnym SHA;
-- review, PR/merge oraz podpisany exact-SHA APK, checksum i manifest aktualizacji.
+Przed scaleniem wymagane jest GREEN na końcowym SHA, także po zmianie dokumentacji
+lub workflow. Pełne zestawy JVM debug i lab wykonują się równolegle, każdy raz na
+SHA; nie zmniejsza to pokrycia. Wydanie korzysta z istniejącego publishera,
+stałego klucza, niezmiennego `accepted_sha`, checksum i manifestu aktualizacji.
+Osobna kontrola aktualizacji ALPHA21 odbywa się na odseparowanym emulatorze z
+publicznym podpisem, bez zastępowania prywatnej instalacji telefonu.
 
 Nie włączamy do ukończenia Phase64 (gospodarka, wojny, demografia i globalne
 organizacje), faz narracyjnych 65–70 ani branchingu Phase72. Testy 100 tur z AI,

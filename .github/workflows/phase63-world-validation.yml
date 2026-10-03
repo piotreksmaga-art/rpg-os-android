@@ -20,6 +20,10 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.head_ref == 'codex/phase63-complete'
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [Debug, LabDebug]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,12 +43,12 @@ jobs:
           gradle-version: '9.5.0'
       - name: Verify exact source SHA
         run: test "$(git rev-parse HEAD)" = "$ACCEPTANCE_SHA"
-      - name: Full JVM debug and lab, including memory, Undo, NPC and world
-        run: gradle --no-daemon :app:testDebugUnitTest :app:testLabDebugUnitTest --continue --stacktrace
+      - name: Full JVM ${{ matrix.variant }}, including memory, Undo, NPC and world
+        run: gradle --no-daemon :app:test${{ matrix.variant }}UnitTest --stacktrace
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: phase63-jvm-${{ env.ACCEPTANCE_SHA }}
+          name: phase63-jvm-${{ matrix.variant }}-${{ env.ACCEPTANCE_SHA }}
           path: |
             app/build/test-results/**
             app/build/reports/tests/**
