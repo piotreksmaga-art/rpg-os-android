@@ -144,6 +144,22 @@ oraz walki z cofnięciem również przeszły lokalnie. Nie są to sto tur genera
 ani dowód jakości inference. We wcześniejszym przebiegu rola Directora była lokalna;
 nie zaliczamy tej odpowiedzi jako dowodu pracy aktywnego czatu ani jakości Bielika.
 
+Aktualizacja oddzielnej instalacji acceptance z kodu 161 do 162 przez instalację
+z zachowaniem danych potwierdziła niezmieniony aktywny zapis: siódmy commit,
+fingerprinty receiptów, wersję świata, generację historii i miejsce postaci.
+Rozpoczęty plan NPC, jego termin i pending action również pozostały zapisane.
+Jest to dowód ciągłości instalacji laboratoryjnej; podpis publicznego APK wymaga
+osobnej kontroli względem wydania ALPHA21.
+
+Pierwsze CI przeszło izolację release oraz API36. API28 zaliczyło wspólne 13 testów
+i seed procesu, lecz natychmiastowy odczyt PID po `force-stop` zatrzymał bramkę;
+host teraz czeka najwyżej pięć sekund i nadal wymaga faktycznego zniknięcia procesu.
+JVM debug wykonał 1705 testów z jedną awarią starego fixture bez manifestu World Packa.
+Fixture otrzymał poprawny manifest; produkcyjne wymaganie authority nie zostało
+osłabione. Przegląd dodatkowo zachował późniejszą legalną trasę, gdy połączenie
+otwiera się dopiero po czasie dotarcia krótszą drogą. Nowe regresje topologii
+i generacji latentnej przeszły 14/14. Poprawki wymagają ponownego końcowego CI.
+
 Otwarte przed oznaczeniem DONE i wydaniem:
 
 - JVM debug/lab, API28/36, process-death, memory/undo/NPC i release isolation na finalnym SHA;

@@ -27,8 +27,20 @@ run_test 'com.rpgos.app.Phase63WorldDeviceTest,com.rpgos.app.Phase61To62Activity
 run_test 'com.rpgos.app.Phase62NpcTravelProcessDeathDeviceTest#seedPendingTravel' \
   app/build/phase63-android-evidence/process-death-seed.txt
 adb shell am force-stop com.rpgos.app
-if adb shell pidof com.rpgos.app | grep -q '[0-9]'; then
-  echo 'target process survived force-stop' >&2
+# API28 can report the dying process immediately after ActivityManager returns.
+# Require actual disappearance before the resume test; transport errors must not
+# be mistaken for a stopped process. This is a bounded wait, not a skipped check.
+target_stopped=false
+for attempt in {1..50}; do
+  target_pid="$(adb shell 'pidof com.rpgos.app; exit 0' | tr -d '\r')"
+  if [[ -z "$target_pid" ]]; then
+    target_stopped=true
+    break
+  fi
+  sleep 0.1
+done
+if [[ "$target_stopped" != true ]]; then
+  echo "target process survived force-stop: $target_pid" >&2
   exit 1
 fi
 echo 'force-stop confirmed' | tee app/build/phase63-android-evidence/process-death-host.txt

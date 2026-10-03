@@ -81,8 +81,14 @@ class AuthorizedWorldTopology(
         val settled=mutableSetOf<DomainRef>()
         val labels=mutableMapOf(start to mutableListOf(first))
         var labelCount=1
-        fun dominates(a:Step,b:Step)=a.elapsed<=b.elapsed && (a.costs.keys+b.costs.keys).all { (a.costs[it]?:0)<=(b.costs[it]?:0) } &&
-            (a.elapsed<b.elapsed || a.costs!=b.costs || a.key<=b.key)
+        // Earlier arrival cannot dominate a later one: an onward edge may open
+        // between them, and the typed plan does not invent a waiting action.
+        // Preserve alternative visited sets too, because only simple paths are legal.
+        fun dominates(a:Step,b:Step)=a.elapsed==b.elapsed &&
+            a.path.map { WorldTopologyAnchor.canonical(it.origin) }.all { visited->
+                b.path.any { WorldTopologyAnchor.canonical(it.origin)==visited } } &&
+            (a.costs.keys+b.costs.keys).all { (a.costs[it]?:0)<=(b.costs[it]?:0) } &&
+            (a.costs!=b.costs || a.key<=b.key)
         while(frontier.isNotEmpty()) {
             if(!authorization.current(scope))return WorldResolutionResult.Unavailable("P63:STALE_RESOLUTION_SCOPE")
             val current=frontier.remove()

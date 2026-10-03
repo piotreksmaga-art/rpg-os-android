@@ -39,6 +39,9 @@ class Phase32BuildContextNoRepairRegressionTest {
         }
 
         val worldDir = File(root, "worldpacks/Naruto.worldpack").apply { mkdirs() }
+        // Context reads now require the same valid rule-source authority as gameplay.
+        // A missing manifest must not silently become an unbound production world.
+        File(worldDir, "worldpack.json").writeText("""{"id":"NARUTO","version":"1","engine_api":"1"}""")
         SQLiteDatabase.openOrCreateDatabase(File(worldDir, "world.db"), null).close()
     }
 

@@ -55,6 +55,17 @@ class Phase63WorldTopologyTest {
         assertEquals(WorldSimulationLod.LOD1_UNIT,WorldLodPolicy.level(WorldLodInterest(a,formation=true)))
         assertEquals(WorldSimulationLod.LOD0_AGGREGATE,WorldLodPolicy.level(WorldLodInterest(a)))
     }
+    @Test fun laterArrivalRemainsLegalWhenAnOnwardConnectionOpensLater() {
+        val d=DomainRef("PLACE","D")
+        val rows=listOf(edge("FAST",a,b,1).copy(resourceCosts=emptyMap()),
+            edge("AC",a,c,2).copy(resourceCosts=emptyMap()),
+            edge("CB",c,b,2).copy(resourceCosts=emptyMap()),
+            edge("BD",b,d,1).copy(resourceCosts=emptyMap(),validFrom=WorldTimeTick(1003)))
+        val result=topology(rows).travel(scope,a,d,at) as WorldResolutionResult.Journey
+        assertEquals(listOf("AC","CB","BD"),result.plan.edges.map { it.uid })
+        assertEquals(ActionDuration(5),result.plan.duration)
+        assertEquals(result,topology(rows.reversed()).travel(scope,a,d,at))
+    }
     @Test fun resourceConstrainedRoutingKeepsSlowerFeasibleAlternativesAndPlaceAliases() {
         val d=DomainRef("LOCATION","D")
         val rows=listOf(edge("AB",a,b,1).copy(resourceCosts=mapOf("STAMINA" to 9L)),
