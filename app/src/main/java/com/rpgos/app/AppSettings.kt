@@ -61,6 +61,7 @@ class AppSettings(private val context: Context) {
             .putBoolean("ai_cloud_allowed",settings.ai.privacy.cloudAllowed)
             .putBoolean("ai_cloud_player_text_allowed",settings.ai.privacy.cloudAllowedForPlayerText)
             .putBoolean("ai_cloud_director_allowed",settings.ai.privacy.cloudAllowedForDirector)
+            .putBoolean("world_scout_allowed",settings.ai.privacy.worldScoutAllowed)
             .also{editor->settings.ai.localModelSettings?.let{local->
                 editor.putString("ai_local_model_uid",local.modelUid).putString("ai_local_variant_uid",local.variantUid)
                     .putInt("ai_local_context_units",local.contextUnits).putLong("ai_local_kv_bytes_per_unit",local.kvBytesPerContextUnit)
@@ -100,7 +101,7 @@ class AppSettings(private val context: Context) {
             decodeAssignment(AiRole.DIRECTOR_SCENARIST,prefs.getString("ai_director_assignment",null)),
             AiPrivacyPolicy(
                 prefs.getBoolean("ai_cloud_allowed",true),prefs.getBoolean("ai_cloud_player_text_allowed",true),
-                prefs.getBoolean("ai_cloud_director_allowed",true)
+                prefs.getBoolean("ai_cloud_director_allowed",true),prefs.getBoolean("world_scout_allowed",false)
             ),localModel
         )
     }

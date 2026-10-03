@@ -95,9 +95,16 @@ class PlayerResolutionContext private constructor(
         section("WORLD_RULE_MODE") {
             when (val mode = worldRuleMode) {
                 is WorldRuleMode.Bound -> {
-                    field("MODE", "BOUND")
-                    field("WORLD_PACK_UID", mode.binding.worldPackUid)
-                    field("WORLD_PACK_VERSION", mode.binding.worldPackVersion)
+                    if(mode.binding.sourceKind==CampaignRuleSourceKind.WORLD_PACK) {
+                        field("MODE", "BOUND")
+                        field("WORLD_PACK_UID", mode.binding.worldPackUid)
+                        field("WORLD_PACK_VERSION", mode.binding.worldPackVersion)
+                    } else {
+                        field("CONTRACT_VERSION","2")
+                        field("MODE","CAMPAIGN_NATIVE")
+                        field("RULE_SOURCE_UID",mode.binding.worldPackUid)
+                        field("RULE_SOURCE_VERSION",mode.binding.worldPackVersion)
+                    }
                 }
                 UnboundGenericWorldRuleMode -> field("MODE", "UNBOUND_GENERIC")
             }
@@ -823,6 +830,11 @@ internal fun draftReferences(draft: PlayerResolutionDraft): List<DomainRef> = bu
             is TemporalStateChange -> add(DomainRef("CAMPAIGN", payload.campaignUid))
             is NpcBrainChange -> add(payload.actor)
             is MechanicalActorGenesisChange -> add(payload.actor)
+            is WorldSimulationChange -> {
+                add(DomainRef("CAMPAIGN",payload.campaignUid));payload.actorExpansions.forEach { add(it.actor) }
+                payload.populationManifests.forEach { add(it.aggregate) }
+                payload.populationExtractions.forEach { add(it.member) }
+            }
             is ConditionChange -> { add(payload.subject); add(DomainRef("CONDITION", payload.conditionUid)) }
             is RuntimeChange -> { add(payload.subject); add(DomainRef("RUNTIME_COUNTER", payload.runtimeCounterUid)) }
             is WoundChange -> add(payload.subject)

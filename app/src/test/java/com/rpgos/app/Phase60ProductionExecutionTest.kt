@@ -91,6 +91,23 @@ class Phase60ProductionExecutionTest {
         assertEquals(first,execute(cache=cache))
         assertTrue(cache.value!!.candidateChanges.isEmpty())
     }
+    @Test fun worldRouteOverridesUncertainEstimateAndArrivesOnlyAtCompletion() {
+        val uncertain=plan().let { p->p.copy(intent=p.intent.copy(nodes=p.intent.nodes.map { n->n.copy(
+            semanticAction=n.semanticAction.copy(attributes=mapOf("time_scope" to "WORLD","time_min_ms" to "300000","time_max_ms" to "600000"))) })) }
+        val arrival=effect("ARRIVE","LOCATION_TRANSITION",1).copy(canonicalPayload=mapOf(
+            "destination_kind_uid" to "PLACE","destination_uid" to "DESTINATION",
+            "p60_core_timing_rule" to WorldTravelMechanics.TIMING_RULE,"p60_core_timing_version" to "1",
+            "p60_core_duration_ms" to "300000","p60_core_effect_at_ms" to "300000"))
+        val timing=Phase60ProductionTime.prepare(request,uncertain,snapshot(false),
+            authoritative=Phase60DomainTiming.accepted(listOf(arrival))) as ProductionTimeResult.Ready
+        assertEquals(WorldTimeTick(300000),timing.schedule.single().end)
+        assertEquals(300000L,Phase60DomainTiming.effectOffset(arrival,ActionDuration(300000)))
+        val interrupted=Phase60ProductionExecution(Cache(),{scope},listOf(alarm())).execute(
+            request,timing,snapshot(),listOf(arrival)){false} as ProductionTemporalExecutionResult.Completed
+        assertTrue(interrupted.effects.isEmpty())
+        val unregistered=arrival.copy(canonicalPayload=arrival.canonicalPayload+("p60_core_timing_rule" to "MODEL:UNREGISTERED"))
+        assertTrue(Phase60DomainTiming.accepted(listOf(unregistered)).isEmpty())
+    }
     @Test fun changedRulesCancellationAndMissingOwnerNeverProduceCommittableTime() {
         val cache=Cache();execute(cache=cache)
         assertEquals(ProductionTemporalExecutionResult.Rejected("P60:CHECKPOINT_SPECIFICATION_CHANGED"),execute(cache=cache,effects=listOf(effect(units=20))))
@@ -161,5 +178,36 @@ class Phase60ProductionExecutionTest {
         assertEquals(listOf("P60:STALE_TURN_CONTEXT"),wrapper.lastAssemblyReasonUids())
         assertNull(wrapper.assemble(request,plan(),resolved(plan(),listOf(effect()))){true})
         assertEquals(listOf("P60:CANCELLED"),wrapper.lastAssemblyReasonUids())
+    }
+    @Test fun travelSettlementRetainsBothTopologyEdgesAndTheirKnowledgeThroughCanonicalization() {
+        val origin=DomainRef("LOCATION","ORIGIN")
+        val destination=DomainRef("LOCATION","DESTINATION")
+        val root=CampaignWorldSkeleton.legacy("C1",CampaignRuleSource(CampaignRuleSourceKind.WORLD_PACK,"TEST","1"),"ERA",origin)
+            .copy(latentRules=CoreLatentWorldRules.initial().reversed())
+        val edges=listOf("Z" to (origin to destination),"A" to (destination to origin)).map { (uid,endpoints)->
+            WorldTopologyEdge(uid,1,endpoints.first,endpoints.second,ActionDuration(1000),emptyMap(),emptySet(),
+                WorldTimeTick(0),null,"P63:LOCAL-CONNECTION:TEST")
+        }
+        val world=WorldSimulationChange("C1",HistoryGenerationUid("G1"),0,root,edges)
+        val codec=phase63WorldChangeCodec()
+        assertEquals(world,codec.decode(codec.encode(world)))
+        val delegate=ProductionCanonicalMutationAssembler(productionMechanicsPlayerDomainEngine(),PlayerResolutionContextFactory {
+            PlayerResolutionContext.createUnboundGeneric("C1",actor,
+                (listOf(DomainRef("PLAYER","P1"),DomainRef("CHARACTER","P1"),subject,DomainRef("CAMPAIGN","C1"),origin,destination)+
+                    edges.map { DomainRef("WORLD_ROUTE",it.uid) })
+                    .map { CampaignScopedDomainRef("C1",it) }.toSet())
+        },worldInitialization={world})
+        val wrapper=ProductionTemporalMutationAssembler(delegate,{snapshot(false)},Cache())
+        val arrival=effect("ARRIVAL","LOCATION_TRANSITION",1).copy(target=DomainRef("PLAYER","P1"),
+            canonicalPayload=mapOf("destination_kind_uid" to "LOCATION","destination_uid" to destination.uid,
+                "p60_core_timing_rule" to WorldTravelMechanics.TIMING_RULE,"p60_core_timing_version" to "1",
+                "p60_core_duration_ms" to "1000","p60_core_effect_at_ms" to "1000"))
+        val plan=plan()
+        val admitted=wrapper.assemble(request,plan,resolved(plan,listOf(arrival)))
+        assertNotNull(wrapper.lastAssemblyReasonUids().toString(),admitted)
+        val changes=admitted!!.playerChangeSet.changes.map { it.payload }
+        assertEquals(listOf(world),changes.filterIsInstance<WorldSimulationChange>())
+        assertEquals(2,changes.filterIsInstance<KnowledgeAcquisitionChange>().size)
+        assertEquals(destination,changes.filterIsInstance<SpatialChange>().single().destinationLocation)
     }
 }

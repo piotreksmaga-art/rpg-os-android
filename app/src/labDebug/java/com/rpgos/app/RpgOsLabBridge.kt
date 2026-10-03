@@ -44,7 +44,7 @@ internal object RpgOsLabBridgeContract {
         "GET_LAST_AI_EXCHANGE", "GET_LAST_TURN", "GET_LAST_SCENARIO", "GET_LAST_FAILURE",
         "EXPORT_FAILURE_BUNDLE", "EXPORT_LAB_FIXTURE", "GET_PENDING_CHARACTER_DRAFT",
         "GET_CODEX_PROVIDER_STATE", "GET_DIRECTOR_JOBS", "GET_DIRECTOR_CANDIDATES", "GET_DIRECTOR_GUIDANCE",
-        "PREVIEW_UNDO_LAST_TURN", "GET_NPC_STATE", "GET_NPC_CONTEXT"
+        "PREVIEW_UNDO_LAST_TURN", "GET_NPC_STATE", "GET_NPC_CONTEXT", "GET_WORLD_STATE", "PREVIEW_WORLD_REFERENCE"
     )
     val labAdminCommands = setOf(
         "SET_ACTIVE_CAMPAIGN", "CREATE_CAMPAIGN", "LOAD_LAB_FIXTURE", "IMPORT_LOCAL_GGUF",
@@ -176,6 +176,8 @@ private class RpgOsLabRuntime(context: Context) {
                 "GET_MECHANICAL_STATE" -> mechanicalState(arguments)
                 "GET_NPC_STATE" -> npcState(arguments)
                 "GET_NPC_CONTEXT" -> npcContext(arguments)
+                "GET_WORLD_STATE" -> JSONObject(repository.infrastructureWorldDiagnostics())
+                "PREVIEW_WORLD_REFERENCE" -> worldReferencePreview(arguments)
                 "GET_PIPELINE_SNAPSHOT" -> pipelineSnapshot(arguments)
                 "GET_LAST_COMMIT" -> lastCommit()
                 "GET_CANONICAL_FINGERPRINT" -> canonicalFingerprint()
@@ -294,10 +296,28 @@ private class RpgOsLabRuntime(context: Context) {
 
     private fun createCampaign(arguments: JSONObject): JSONObject {
         val name = arguments.requiredString("name")
-        val created = repository.createCampaign(name)
+        val created = when(arguments.optString("source_kind","WORLD_PACK")) {
+            "WORLD_PACK"->repository.createCampaign(name)
+            "CAMPAIGN_NATIVE"->repository.createNativeCampaign(composition.prepareNativeWorld(NativeWorldCreationSpec(name,
+                arguments.requiredString("description"),arguments.requiredString("era"),arguments.requiredString("starting_place"))))
+            else->throw IllegalArgumentException("P63:UNKNOWN_RULE_SOURCE")
+        }
         semantic.onCampaignOpened()
         AiProviderExtensionRegistry.onCampaignOpened(repository.activeCampaignRef().campaignId)
         return JSONObject().put("directory", created.name).put("active_state", activeState())
+    }
+
+    private fun worldReferencePreview(arguments:JSONObject):JSONObject {
+        val result=repository.infrastructureWorldPreview(arguments.requiredString("phrase"),
+            WorldElementBaseKind.valueOf(arguments.optString("base_kind","PLACE")),arguments.optString("category").takeIf(String::isNotBlank),
+            arguments.optJSONArray("affordances")?.let { values->(0 until values.length()).map { values.getString(it) }.toSet() }?:emptySet())
+        return when(result) {
+            is UniversalWorldReferenceResolution.Existing->JSONObject().put("state","EXISTING").put("element_uid",result.element.element.uid)
+            is UniversalWorldReferenceResolution.Latent->JSONObject().put("state","CANDIDATE").put("element_uid",result.draft.element.uid)
+                .put("category",result.draft.categoryUid).put("fingerprint",result.draft.fingerprint()).put("feasibility",result.feasibility.state.name)
+            is UniversalWorldReferenceResolution.Unresolved->JSONObject().put("state","UNKNOWN").put("reason_uid",result.reasonUid)
+            is UniversalWorldReferenceResolution.Rejected->JSONObject().put("state","REJECTED").put("reason_uid",result.reasonUid)
+        }
     }
 
     /** A fixture is a verifiable pointer to an existing canonical campaign, not a second save
@@ -425,8 +445,9 @@ private class RpgOsLabRuntime(context: Context) {
     }
     private fun npcContext(arguments:JSONObject):JSONObject {
         val actor=npcActor(arguments);val snapshot=repository.infrastructureTemporalRead()
-        val stimulus=repository.npcCognitionStimulus(snapshot.scope,actor)
-            ?:return JSONObject().put("available",false).put("reason_uid","P62:NO_LEGAL_STIMULUS")
+        var diagnostic:String?=null
+        val stimulus=repository.npcCognitionStimulus(snapshot.scope,actor) { diagnostic=it }
+            ?:return JSONObject().put("available",false).put("reason_uid",diagnostic?:"P62:NO_LEGAL_STIMULUS")
         val scope=repository.infrastructureNpcDecisionScope(actor,snapshot.state.time,0)
         val trigger=NpcTrigger("LAB:NPC:${actor.uid}",stimulus.triggerKind,snapshot.state.time,stimulus.cause)
         return when(val result=composition.npcDecisionContext(scope,trigger){_,_->emptyList()}) {

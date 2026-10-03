@@ -983,6 +983,22 @@ Etap jest DONE dopiero gdy implementation exists + integrated + persistence work
 
 Sama klasa, tabela, dokument albo raport workera nie oznacza DONE.
 
+### Phase63 — bieżące rozszerzenie świata
+
+Na `codex/phase63-complete` zaimplementowano własne kampanie `CAMPAIGN_NATIVE`,
+deterministyczne sloty, wersjonowany szkielet/topologia oraz lineage populacji i
+robocze LOD0–3. WORLD_SIMULATION posiada te dane, Phase50 nadal mechanikę,
+Phase60 czas/procesy, a Phase37 wiedzę. Odczyt nie inicjalizuje canonical stanu;
+materializacja i działanie podlegają wspólnej transakcji, digestowi i replay/undo.
+AI i Scout dostarczają jedynie ograniczone propozycje. Zmiana szczegółowości nie
+przelosowuje nazwanej osoby ani nie tworzy zasobów. Brak wiedzy o trasie nie
+oznacza, że odległy cel nie istnieje.
+
+Implementacja i krótki odbiór Motoroli są zakończone. Status pozostaje **oczekuje na końcowe CI**, nie DONE. Aktualne kontrakty, potwierdzone próby i
+otwarte bramki opisuje [Phase63 — implementacja](architecture/PHASE63_WORLD_SIMULATION_IMPLEMENTATION.md).
+Preset makroregionów nie jest pełnym generatorem dowolnej geografii z prozy.
+Phase64, 65–70 i 72 nie są przez to ukończone; private LAB traces nie trafiają do release.
+
 ## 25. Ostateczny cel
 RPG OS ma działać jak trwały system świata, nie chatbot z długim promptem.
 

@@ -43,6 +43,13 @@ internal class ModifierStore(private val db: SQLiteDatabase, private val campaig
         return db.update("modifiers",android.content.ContentValues().apply{put("source_active",if(active)1 else 0)},where,args)
     }
 
+    /** The same item-bound modifier follows its item. No intrinsic actor modifier is copied. */
+    internal fun transferEquipmentSource(from:String,to:String,item:String) {
+        require(db.inTransaction() && from!=to);requireCanonicalGameplayMutation(db,campaignId)
+        db.execSQL("""UPDATE modifiers SET character_uid=?,source_active=0 WHERE campaign_id=? AND character_uid=?
+            AND source_type=? AND source_uid=? AND lifecycle=?""",
+            arrayOf(to,campaignId,from,EQUIPMENT_MODIFIER_SOURCE_TYPE,item,ModifierLifecycle.EQUIPMENT.name))
+    }
     internal fun remove(characterUid:String,modifierUid:String):Boolean=db.delete("modifiers","campaign_id=? AND character_uid=? AND modifier_uid=?",arrayOf(campaignId,characterUid,modifierUid))==1
     private fun exists(uid:String)=db.rawQuery("SELECT 1 FROM modifiers WHERE campaign_id=? AND modifier_uid=? LIMIT 1",arrayOf(campaignId,uid)).use{it.moveToFirst()}
 

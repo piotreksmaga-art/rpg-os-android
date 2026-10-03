@@ -30,7 +30,8 @@ data class AiSystemConfiguration(
 data class AiPrivacyPolicy(
     val cloudAllowed:Boolean=true,
     val cloudAllowedForPlayerText:Boolean=true,
-    val cloudAllowedForDirector:Boolean=true
+    val cloudAllowedForDirector:Boolean=true,
+    val worldScoutAllowed:Boolean=false
 )
 
 enum class AiAvailabilityState { READY, DEGRADED, NOT_CONFIGURED, UNAVAILABLE }
@@ -153,7 +154,7 @@ object BielikLocalModelProfiles{
         chatTemplateUid="BIELIK_CHAT_V3",
         supportedWorkloads=setOf(
             AiWorkload.INTENT_INTERPRETATION,AiWorkload.GM_PROPOSAL,AiWorkload.PROPOSAL_REPAIR,AiWorkload.CHARACTER_CREATION,
-            AiWorkload.NARRATIVE_RENDER,AiWorkload.NARRATIVE_REPAIR,AiWorkload.DIRECTOR_STRATEGY,AiWorkload.NPC_DECISION,AiWorkload.NPC_DIALOGUE
+            AiWorkload.NARRATIVE_RENDER,AiWorkload.NARRATIVE_REPAIR,AiWorkload.DIRECTOR_STRATEGY,AiWorkload.NPC_DECISION,AiWorkload.NPC_DIALOGUE,AiWorkload.WORLD_DRAFT
         ),
         recommendedContextUnits=2_048,
         maximumContextUnits=2_048,
@@ -178,7 +179,7 @@ object BielikLocalModelProfiles{
         chatTemplateUid="BIELIK_CHAT_V3",
         supportedWorkloads=setOf(
             AiWorkload.INTENT_INTERPRETATION,AiWorkload.GM_PROPOSAL,AiWorkload.PROPOSAL_REPAIR,AiWorkload.CHARACTER_CREATION,
-            AiWorkload.NARRATIVE_RENDER,AiWorkload.NARRATIVE_REPAIR,AiWorkload.DIRECTOR_STRATEGY,AiWorkload.NPC_DECISION,AiWorkload.NPC_DIALOGUE
+            AiWorkload.NARRATIVE_RENDER,AiWorkload.NARRATIVE_REPAIR,AiWorkload.DIRECTOR_STRATEGY,AiWorkload.NPC_DECISION,AiWorkload.NPC_DIALOGUE,AiWorkload.WORLD_DRAFT
         ),
         recommendedContextUnits=8_192,
         maximumContextUnits=32_768,

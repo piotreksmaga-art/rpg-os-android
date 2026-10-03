@@ -41,6 +41,9 @@ internal class CanonicalSelectionWorldPackAuthoritySource(
                     ?: "Naruto.worldpack"
 
             val campaignUid = ActiveCampaignRef.resolve(saves, campaignDirName).campaignId
+            NativeCampaignRuleManifest.binding(File(saves,"$campaignDirName/campaign.json"),campaignUid)?.let {
+                return@observe CurrentWorldPackAuthority(campaignUid,it)
+            }
             val worldPackDir = File(worldpacks, worldPackDirName)
             val unsettledRollback = worldpacks.listFiles().orEmpty().any {
                 it.name.startsWith(".${worldPackDir.name}.rollback-")
@@ -110,9 +113,14 @@ class CampaignSelectionManager private constructor(
 
     fun activeWorldPackDirName(): String =
         prefs.getString("active_worldpack", "Naruto.worldpack") ?: "Naruto.worldpack"
+    internal fun activeNativeRuleBinding():WorldPackRuleBinding?=NativeCampaignRuleManifest.binding(
+        File(saves,"${activeCampaignDirName()}/campaign.json"),activeCampaignId())
 
     /** Canonical app-level authority for the active World Pack rule mode. */
     fun activeWorldRuleMode(): WorldRuleMode.Bound {
+        NativeCampaignRuleManifest.binding(File(saves,"${activeCampaignDirName()}/campaign.json"),activeCampaignId())?.let {
+            return WorldRuleMode.Bound(it)
+        }
         val dir = File(worldpacks, activeWorldPackDirName())
         val validation = PackageValidator().validateWorldPack(dir)
         require(validation.ok) { "Active World Pack is invalid: ${validation.message}" }
@@ -203,6 +211,45 @@ class CampaignSelectionManager private constructor(
             // Staging is never authority. A failed/incomplete clone must not survive as a selectable
             // canonical package and must never become active.
             if (staging.exists()) staging.deleteRecursively()
+            throw t
+        }
+    }
+
+    internal fun createNativeCampaign(spec:NativeWorldCreationSpec,beforeActivation:(File,String)->Unit={_,_->},
+        prepare:(android.database.sqlite.SQLiteDatabase,String,WorldPackRuleBinding)->Unit):File {
+        val safe=spec.name.trim().replace(Regex("[^A-Za-z0-9_-]"),"_").ifBlank { "world" }
+        val target=File(saves,"$safe.campaign")
+        val staging=File(saves,".native-${UUID.randomUUID()}")
+        require(target.canonicalFile.parentFile==saves.canonicalFile && !target.exists()) { "Kampania już istnieje." }
+        try {
+            check(staging.mkdirs()) { "P63:NATIVE_STAGING_FAILED" }
+            val uid="native-${UUID.randomUUID()}"
+            val manifest=File(staging,"campaign.json")
+            manifest.writeText(NativeCampaignRuleManifest.manifest(uid,spec).toString())
+            android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(File(staging,"campaign.db"),null).use { db->
+                NativeCampaignBootstrap.ensureBaseSchema(db)
+                prepare(db,uid,requireNotNull(NativeCampaignRuleManifest.binding(manifest,uid)))
+                NativeCampaignBootstrap.initialize(db,manifest,uid)
+            }
+            val validation=PackageValidator().validateCampaign(staging)
+            check(validation.ok) { "P63:NATIVE_PACKAGE_INVALID:${validation.message}" }
+            requireNotNull(NativeCampaignRuleManifest.binding(manifest,uid))
+            CanonicalPackageAuthorityGate.mutate {
+                require(!target.exists()) { "Kampania już istnieje." }
+                check(staging.renameTo(target)) { "P63:NATIVE_ACTIVATION_FAILED" }
+                try {
+                    // Snapshot payload paths use their final package location. Selection is
+                    // still the previous campaign until the recovery baseline is validated.
+                    beforeActivation(target,uid)
+                } catch(t:Throwable) {
+                    check(target.renameTo(staging)) { "P63:NATIVE_STAGING_RECOVERY_FAILED" }
+                    throw t
+                }
+                prefs.edit().putString("active_campaign",target.name).putString("active_campaign_id",uid).apply()
+            }
+            return target
+        } catch(t:Throwable) {
+            if(staging.exists())staging.deleteRecursively()
             throw t
         }
     }

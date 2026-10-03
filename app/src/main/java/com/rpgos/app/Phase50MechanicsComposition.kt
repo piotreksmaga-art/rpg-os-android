@@ -127,6 +127,8 @@ object MechanicalEffectMaterializer{
             add(CampaignWorldFacts.NAME to (field("display_name")?:return rejected(effect,"WORLD_DISPLAY_NAME_REQUIRED")))
             add(CampaignWorldFacts.CATEGORY to (field("category_uid")?:return rejected(effect,"WORLD_CATEGORY_REQUIRED")))
             field("parent_anchor_uid")?.let{add(CampaignWorldFacts.PARENT to it)}
+            field("slot_ordinal")?.let{add(CampaignWorldFacts.SLOT_ORDINAL to it)}
+            field("slot_category_uid")?.let{add(CampaignWorldFacts.SLOT_CATEGORY to it)}
             field("affordance_uids").orEmpty().split(',').filter(String::isNotBlank).distinct().sorted().forEach{add(CampaignWorldFacts.AFFORDANCE to it)}
             add(CampaignWorldFacts.TOPOLOGY to (field("topology_class_uid")?:return rejected(effect,"WORLD_TOPOLOGY_REQUIRED")))
             add(CampaignWorldFacts.SOURCE_CLASSIFICATION to sourceClassification)
@@ -214,6 +216,16 @@ internal class ProductionVerifiedMechanicsComponent:PlayerResolutionComponent<Ap
                 actorRef=brain.actor,targetRefs=listOf(brain.actor),causalChangeUids=listOf(uid),
                 payload=DomainEffectEventIntentPayload(brain.actor,NPC_BRAIN_CHANGE_KIND))
         }
+        command.payload.worldChanges.forEach { world ->
+            if(world.campaignUid!=command.campaignUid)return PlayerResolutionComponentOutcome.Rejected(
+                PlayerResolutionRejection.create(PlayerResolutionRejectionReason.DOMAIN_REJECTED,detailUid="P63:CROSS_CAMPAIGN_WORLD"))
+            val binding=(context.worldRuleMode as? WorldRuleMode.Bound)?.binding
+            if(world.skeleton!=null && binding!=null && world.skeleton.ruleSource!=binding.ruleSource)
+                return PlayerResolutionComponentOutcome.Rejected(PlayerResolutionRejection.create(
+                    PlayerResolutionRejectionReason.DOMAIN_REJECTED,detailUid="P63:RULE_SOURCE_MISMATCH"))
+            changes+=PlayerDomainChange.create("RPGOS-WORLD:${command.commandUid}:${world.expectedVersion}",PHASE63_WORLD_CHANGE_KIND,
+                world,sourceRuleUid="RPGOS-P63:WORLD_OWNER")
+        }
         val memory=NpcActionMemory.materialize(command.campaignUid,command.commandUid,command.requestedEffectiveOrder,
             command.payload.effects,command.payload.npcBrains)
         changes+=memory.changes;events+=memory.events
@@ -225,10 +237,17 @@ internal class ProductionVerifiedMechanicsComponent:PlayerResolutionComponent<Ap
         changes+=witnessed.changes;events+=witnessed.events
         val reading=NpcReadingApplication.materialize(command.campaignUid,command.commandUid,command.requestedEffectiveOrder,command.payload.effects)
         changes+=reading.changes;events+=reading.events
+        val routes=WorldRouteKnowledge.materialize(command.campaignUid,command.commandUid,command.requestedEffectiveOrder?:1L,command.actor,command.payload.worldChanges)
+        changes+=routes.changes;events+=routes.events
         if(changes.isEmpty())return PlayerResolutionComponentOutcome.Rejected(
             PlayerResolutionRejection.create(PlayerResolutionRejectionReason.DOMAIN_REJECTED,detailUid="EMPTY_MECHANICS_MATERIALIZATION")
         )
-        return PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(changes=changes,eventIntents=events,
+        // Missing canonical components must exist before an admitted wound/resource effect.
+        // Legacy payloads have no world changes and retain their original order.
+        val ordered=changes.filter { it.payload is MechanicalActorGenesisChange }+
+            changes.filter { it.payload is WorldSimulationChange }+
+            changes.filterNot { it.payload is WorldSimulationChange || it.payload is MechanicalActorGenesisChange }
+        return PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(changes=ordered,eventIntents=events,
             progressionStimuli=NpcLearningApplication.stimuli(command.campaignUid,command.payload.effects)))
     }
 }
@@ -244,9 +263,15 @@ fun interface PlayerResolutionContextFactory{
 class ProductionCanonicalMutationAssembler(
     private val engine:PlayerDomainEngine,
     private val contexts:PlayerResolutionContextFactory,
-    private val holderDialogueDelegated:Boolean=false
+    private val holderDialogueDelegated:Boolean=false,
+    private val worldInitialization:(ChatTurnRequest)->WorldSimulationChange?={null},
+    private val worldExpansion:((ChatTurnRequest,List<VerifiedMechanicsCommandEffect>)->List<WorldSimulationChange>)?=null,
+    private val worldActorSeed:(WorldElementDraft)->String?={null},
+    private val worldPopulationPayload:(WorldElementDraft)->Map<String,String> = {emptyMap()}
 ):CanonicalMutationAssembler,CanonicalMutationAssemblyDiagnostics{
     @Volatile private var lastReasons:List<String> = emptyList()
+    internal fun prepareWorldChanges(request:ChatTurnRequest,effects:List<VerifiedMechanicsCommandEffect> = emptyList())=
+        worldExpansion?.invoke(request,effects)?:listOfNotNull(worldInitialization(request))
     override fun lastAssemblyReasonUids()=lastReasons
     override fun assemble(request:ChatTurnRequest,plan:CanonicalTurnPlan,proposal:ResolvedGmProposal):CanonicalCampaignMutationProposal?{
         return assembleTimed(request,plan,proposal,null)
@@ -292,7 +317,7 @@ class ProductionCanonicalMutationAssembler(
             VerifiedMechanicsCommandEffect(
                 effectUid="RPGOS-WORLD-MATERIALIZE:${draft.element.uid}",nodeUid=consumer.nodeUid,mechanicsOwnerUid="RPGOS-CORE:WORLD-MATERIALIZER",
                 effectKindUid="WORLD_ELEMENT_MATERIALIZE",target=draft.element,magnitude=1,
-                canonicalPayload=draft.materializationPayload(),proofUid="RPGOS-CORE:WORLD-MATERIALIZATION:$fingerprint",
+                canonicalPayload=draft.materializationPayload()+worldActorSeed(draft)?.let { mapOf("p63_actor_seed" to it) }.orEmpty()+worldPopulationPayload(draft),proofUid="RPGOS-CORE:WORLD-MATERIALIZATION:$fingerprint",
                 deterministicInputFingerprint=mechanicsFingerprint("${plan.intent.canonicalFingerprint()}|${reference.referenceUid}|$fingerprint"),
                 deterministicOutputFingerprint=mechanicsFingerprint("${draft.element}|$fingerprint")
             )
@@ -331,14 +356,16 @@ class ProductionCanonicalMutationAssembler(
 
     internal fun admitEffects(request:ChatTurnRequest,planUid:String,proposalUid:String,
                              effects:List<VerifiedMechanicsCommandEffect>,time:TemporalStateChange?,
-                             npcBrains:List<NpcBrainChange> = emptyList()):CanonicalCampaignMutationProposal?{
+                             npcBrains:List<NpcBrainChange> = emptyList(),
+                             worldChanges:List<WorldSimulationChange> = emptyList()):CanonicalCampaignMutationProposal?{
         if(time!=null&&time.campaignUid!=request.campaignUid){lastReasons=listOf("P60:CROSS_CAMPAIGN_TIME");return null}
-        if(effects.isEmpty()&&time==null&&npcBrains.isEmpty())return null
+        if(effects.isEmpty()&&time==null&&npcBrains.isEmpty()&&worldChanges.isEmpty())return null
+        val worldBatch=if(worldChanges.isEmpty())prepareWorldChanges(request,effects) else worldChanges
         val command=PlayerCommand(
             commandUid=request.commandUid,campaignUid=request.campaignUid,actor=request.actor,
             commandKindUid=PlayerCommandKinds.APPLY_VERIFIED_MECHANICS,
             payload=ApplyVerifiedMechanicsCommandPayload(planUid,
-                if(time==null)coalesceInteractionEffects(effects) else phase60CoalesceEffects(effects),time,npcBrains),
+                if(time==null)coalesceInteractionEffects(effects) else phase60CoalesceEffects(effects),time,npcBrains,worldBatch),
             provenance=CommandProvenance("RPGOS-PHASE54-CANONICAL-COMPOSER",proposalUid),
             causationUid=request.turnUid,correlationUid=request.requestUid,requestedEffectiveOrder=request.atOrder?:1L
         )

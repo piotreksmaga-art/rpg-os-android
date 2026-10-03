@@ -74,7 +74,12 @@ internal class NpcDecisionContextProjector(private val reads:NpcProjectionReadPo
                 .maxWithOrNull(compareBy<NpcPlan>{it.startedAt}.thenBy{it.uid})?.nextActionUids.orEmpty()
         val groups=offered.groupBy{it.capabilityUid}.toSortedMap()
         val diverse=(0 until (groups.values.maxOfOrNull{it.size}?:0)).flatMap{index->groups.values.mapNotNull{it.getOrNull(index)}}
-        var options=diverse.sortedBy{when{it.uid in pending->0;it.uid in alternatives->1;it.uid in continuations->2;else->3}}
+        // Keep legal self/routine choices before optional combat when a mobile budget
+        // trims the menu. Alphabetical capability order must not leave a friendly NPC
+        // with only ATTACK/DEFEND after its registered REST/WAIT options disappear.
+        // An exact pending/continuation action still has precedence over this preference.
+        var options=diverse.sortedBy{when{it.uid in pending->0;it.uid in alternatives->1;it.uid in continuations->2;
+            it.mechanicsOwnerUid==NpcActivityMechanics.OWNER->3;else->4}}
         while(options.size>1) {
             val needed=options.flatMap{it.supportingRecordUids}.toSet()+records.filter{it.acquisitionUid==trigger.cause.uid}.map{it.uid}
             val probe=NpcDecisionContextEnvelope(scope,trigger,brain,records.filter{it.uid in needed},options,profile.payloadUnits,"0".repeat(64),currentRoles)

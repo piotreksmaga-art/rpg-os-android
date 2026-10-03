@@ -16,7 +16,8 @@ data class NpcTravelRouteContract(
     val mechanicsOwnerUid:String="UNIVERSAL_MOVEMENT",
     val capabilityUid:String="TRAVEL",
     val resourceCosts:Map<String,Long> = emptyMap(),
-    val eligibility:NpcActivityEligibility=NpcActivityEligibility.MATERIALIZED_CAPABILITY
+    val eligibility:NpcActivityEligibility=NpcActivityEligibility.MATERIALIZED_CAPABILITY,
+    val requiredCapabilities:Set<String> = emptySet()
 ) {
     init {
         listOf(campaignUid,routeUid,timingRuleUid,mechanicsOwnerUid,capabilityUid,origin.uid,destination.uid).forEach(::npcUid)
@@ -26,13 +27,15 @@ data class NpcTravelRouteContract(
         require(duration.milliseconds>0){"P62:TRAVEL_ROUTE_DURATION"}
         require(resourceCosts.size<=16 && resourceCosts.values.all{it>=0}){"P62:TRAVEL_ROUTE_COST"}
         resourceCosts.keys.forEach(::npcUid)
+        require(requiredCapabilities.none(String::isBlank))
     }
     val fingerprint:String get()=phase60Hash(buildJsonObject {
-        put("contract", "P62:TRAVEL_ROUTE:2");put("campaign",campaignUid);put("route",routeUid);put("version",version)
+        put("contract", if(requiredCapabilities.isEmpty())"P62:TRAVEL_ROUTE:2" else "P63:TRAVEL_ROUTE:3");put("campaign",campaignUid);put("route",routeUid);put("version",version)
         put("origin",NpcBrainCodec.ref(origin));put("destination",NpcBrainCodec.ref(destination))
         put("duration_ms",duration.milliseconds);put("rule",timingRuleUid);put("owner",mechanicsOwnerUid)
         put("capability",capabilityUid);put("eligibility",eligibility.name);put("settlement","COMPLETION_ONLY_V1")
         put("costs",buildJsonObject{resourceCosts.toSortedMap().forEach{(uid,cost)->put(uid,cost)}})
+        if(requiredCapabilities.isNotEmpty())put("required_capabilities",JsonArray(requiredCapabilities.sorted().map(::JsonPrimitive)))
     }.toString())
 }
 

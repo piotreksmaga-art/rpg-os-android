@@ -12,7 +12,7 @@ data class AggregateMechanicalPopulation(
     val totalCount:Long,val activeCount:Long,val woundedCount:Long=0,val eliminatedCount:Long=0,
     val conditionCounts:Map<String,Long> = emptyMap()
 ){init{
-    require(totalCount>0&&activeCount>=0&&woundedCount>=0&&eliminatedCount>=0&&activeCount+woundedCount+eliminatedCount<=totalCount)
+    require(totalCount>=0&&activeCount>=0&&woundedCount>=0&&eliminatedCount>=0&&Math.addExact(Math.addExact(activeCount,woundedCount),eliminatedCount)<=totalCount)
     require(conditionCounts.keys.none{it.isBlank()}&&conditionCounts.values.all{it in 0..totalCount})
 }}
 

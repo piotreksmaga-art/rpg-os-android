@@ -254,7 +254,9 @@ class GraphTurnPlanner(
                     node.participants.any{participant->participant.referenceUid==reference.referenceUid&&participant.roleUid in capability.latentParticipantRoles}
                 }
             }->listOf("REQUIRED_REFERENCE_LATENT_NOT_MATERIALIZABLE")
-            requiredReferences.any{it.state !in setOf(IntentReferenceState.RESOLVED_PROJECTED,IntentReferenceState.RESOLVED_LATENT)}->listOf("REQUIRED_REFERENCE_UNRESOLVED")
+            requiredReferences.any{it.state !in setOf(IntentReferenceState.RESOLVED_PROJECTED,IntentReferenceState.RESOLVED_LATENT)}->
+                listOf("REQUIRED_REFERENCE_UNRESOLVED")+if(document.provenance.source==IntentInterpretationSource.TRUSTED_REFERENCE_RESOLUTION)
+                    requiredReferences.mapNotNull { it.descriptorHints["world_resolution_reason"] }.distinct().sorted() else emptyList()
             else->listOf("NO_REGISTERED_CAPABILITY")
         }
     }

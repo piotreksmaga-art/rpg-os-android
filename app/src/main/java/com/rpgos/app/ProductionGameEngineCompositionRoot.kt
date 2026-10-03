@@ -8,6 +8,8 @@ import kotlin.math.roundToLong
 
 private const val CORE_PLAYER_CONTEXT_PROVIDER="RPGOS-CORE:PLAYER-CONTEXT"
 private const val CORE_PLAYER_CONTEXT_OPERATION="PLAYER_STATE"
+private const val CORE_WORLD_FRAME_PROVIDER="RPGOS-CORE:WORLD-FRAME"
+private const val CORE_WORLD_FRAME_OPERATION="WORLD_FRAME"
 
 /** Phase38-protected application context provider; it never exposes a writable repository to AI. */
 private class ProductionPlayerContextProvider(
@@ -31,9 +33,24 @@ private class ProductionPlayerContextProvider(
     }
 }
 
+private class ProductionWorldFrameProvider(private val repository:UnifiedGameRepository,private val campaign:String):StructuredQueryProvider {
+    override fun retrieve(request:StructuredRetrievalRequest):StructuredRetrievalResult {
+        if(request.campaignUid!=campaign)return StructuredRetrievalResult.Denied("CROSS_CAMPAIGN_CONTEXT")
+        if(request.operationUid!=CORE_WORLD_FRAME_OPERATION)return StructuredRetrievalResult.Unsupported("OPERATION_UNSUPPORTED")
+        return when(val read=repository.infrastructureWorldFrame(request.audience,request.purpose)) {
+            is ProtectedReadResult.Allow->StructuredRetrievalResult.Value(listOf(RetrievalRecord("WORLD-FRAME:$campaign",read.value,"PHASE38:${read.reasonCode}")),true)
+            is ProtectedReadResult.NoData->StructuredRetrievalResult.NoData
+            is ProtectedReadResult.Deny->StructuredRetrievalResult.Denied(read.reasonCode)
+            is ProtectedReadResult.NotDisclosed->StructuredRetrievalResult.NotDisclosed(read.reasonCode)
+            is ProtectedReadResult.Unknown->StructuredRetrievalResult.Unknown(read.reasonCode)
+            is ProtectedReadResult.Corruption->StructuredRetrievalResult.Corruption(read.reasonCode)
+        }
+    }
+}
+
 /** Generic rule floor for Phase50 effects. A World Pack may add constraints, never bypass Core. */
 internal class UniversalMechanicsWorldRuleProvider(binding:WorldPackRuleBinding):WorldRuleProvider(
-    "RPGOS-WORLD-RULE:UNIVERSAL-MECHANICS-FLOOR","1",binding.worldPackUid,binding.worldPackVersion
+    "RPGOS-WORLD-RULE:UNIVERSAL-MECHANICS-FLOOR","1",binding.worldPackUid,binding.worldPackVersion,binding.sourceKind
 ){
     override fun evaluate(request:WorldRuleRequest):WorldRuleDecision{
         if(request.command.commandKindUid!=PlayerCommandKinds.APPLY_VERIFIED_MECHANICS){
@@ -41,7 +58,7 @@ internal class UniversalMechanicsWorldRuleProvider(binding:WorldPackRuleBinding)
         }
         if(request.stage==WorldRuleEvaluationStage.DRAFT_EFFECT_CHECK&&request.effects?.changes?.any{change->
                 change.payload !is ResourceChange&&change.payload !is ConditionChange&&change.payload !is RuntimeChange&&change.payload !is AssetChange&&
-                change.payload !is InventoryChange&&change.payload !is TemporalStateChange&&change.payload !is NpcBrainChange&&change.payload !is KnowledgeAcquisitionChange&&change.payload !is MechanicalActorGenesisChange&&
+                change.payload !is InventoryChange&&change.payload !is TemporalStateChange&&change.payload !is WorldSimulationChange&&change.payload !is NpcBrainChange&&change.payload !is KnowledgeAcquisitionChange&&change.payload !is MechanicalActorGenesisChange&&
                     change.payload !is WoundChange&&change.payload !is SpatialChange&&change.payload !is EquipmentIntegrityChange&&
                     change.payload !is StructureIntegrityChange&&change.payload !is MechanicalTrackChange&&change.payload !is AggregatePopulationChange&&
                     (change.payload !is CampaignTruthChange||when(change.payload.kind){
@@ -78,6 +95,8 @@ data class CombatAbilityContractQuery(
 /** World Packs can provide exact shapes, ranges, costs and secondary effects for any ability. */
 fun interface CombatAbilityContractPort{
     fun contractFor(query:CombatAbilityContractQuery):CombatAbilityContract?
+    /** A generic semantic family is not a registered special ability. */
+    fun isRegistered(abilityUid:String):Boolean=false
 
     /** A generic damage floor is not evidence that READ/HEAL/an arbitrary UID is an attack.
      * Custom NPC abilities opt in through an explicitly registered mechanics contract. */
@@ -90,6 +109,7 @@ fun interface CombatAbilityContractPort{
             val exact=contracts.associate{c->c.abilityUid to c.copy(requiredEquipmentKinds=c.requiredEquipmentKinds.toSet(),
                 targetKindUids=c.targetKindUids.toSet(),statusApplications=c.statusApplications.toList(),effectKinds=c.effectKinds.toList())}
             return object:CombatAbilityContractPort {
+                override fun isRegistered(abilityUid:String)=abilityUid in exact
                 override fun contractFor(query:CombatAbilityContractQuery)=exact[query.abilityUid]?:fallback.contractFor(query)
                 override fun npcContractFor(query:CombatAbilityContractQuery)=exact[query.abilityUid]?:fallback.npcContractFor(query)
             }
@@ -164,6 +184,9 @@ internal class ProductionCombatSnapshotAuthority(
         val fallback=playerValues.values.sorted().let{it[it.size/2]}
         fun canonical(vararg hints:String)=playerValues.entries.firstOrNull{entry->hints.any{it in entry.key}}?.value?:fallback
         val committedMechanical=repository.infrastructureMechanicalActor(actor)
+        if(repository.infrastructureWorldPackAuthority().binding.sourceKind==CampaignRuleSourceKind.CAMPAIGN_NATIVE &&
+            !Phase63NativeAbilityPolicy.admitted(ability,
+                repository.infrastructurePlayerTechniqueUids()+repository.infrastructurePlayerSkillUids(),abilityContracts.isRegistered(ability)))return null
         val committedWound=committedMechanical?.conditions?.filter{it.conditionUid=="WOUND"}?.sumOf{it.intensity}?:0L
         val playerAttributes=playerValues+mapOf("POWER" to canonical("POWER","STRENGTH","ATTACK"),"SKILL" to canonical("SKILL","DEXTERITY","ACCURACY"),
             "DEFENCE" to (canonical("DEFENCE","DEFENSE","ARMOR")-committedWound).coerceAtLeast(0),"AGILITY" to canonical("AGILITY","SPEED","REFLEX"),
@@ -175,10 +198,16 @@ internal class ProductionCombatSnapshotAuthority(
             setOf(ability),conditions=(conditions(attackerPersistence)+committedMechanical?.conditions.orEmpty()).distinctBy{it.conditionUid},generationProvenanceUid="PLAYER-DOMAIN:${active.playerUid}"
         ),context.stagedEffects)
         }
-        val targetRefs=(projectedTargetRefs(context.plan.intent,node)+target).distinct()
+        val declaredTargetRefs=(projectedTargetRefs(context.plan.intent,node)+target).distinct()
+        val semanticFamily=(node.semanticAction.semanticFamilyUid?:ability).uppercase()
+        val preliminaryQuery=CombatAbilityContractQuery(context.campaignUid,ability,semanticFamily,declaredTargetRefs.size,
+            declaredTargetRefs.any { it.kindUid in setOf("GROUP","UNIT") })
+        val preliminaryContract=(if(context.npcAuthorization==null)abilityContracts.contractFor(preliminaryQuery) else abilityContracts.npcContractFor(preliminaryQuery))?:return null
+        val targetRefs=if(preliminaryContract.areaRadiusMillimetres==null)declaredTargetRefs else
+            runCatching { repository.infrastructureWorldCombatMembers(context.plan,declaredTargetRefs) }.getOrNull()?:return null
         val targetPersistence=targetRefs.associateWith{repository.infrastructureMechanicalPersistence(it.uid)}
         val defenders=targetRefs.map{ref->
-            val canonical=repository.infrastructureMechanicalActor(ref)?:return null
+            val canonical=repository.infrastructureMechanicalActorCandidate(context.plan,ref)?:return null
             val aggregateKind=canonical.kind in setOf(MechanicalActorKind.GROUP,MechanicalActorKind.UNIT)
             val aggregatePopulation=if(aggregateKind)
                 aggregateCombatState.populationFor(context.campaignUid,ref,context.plan.atOrder?:0)?:canonical.aggregatePopulation
@@ -205,7 +234,6 @@ internal class ProductionCombatSnapshotAuthority(
             if(actor.uid==active.playerUid)VolitionalActionSource.VALIDATED_PLAYER_COMMAND else VolitionalActionSource.NPC_DECISION_ENGINE,
             node.intendedResult?.semanticTypeUid?:"DISABLE",context.plan.atOrder?:0,context.npcAuthorization)
         val hasAggregate=defenders.any{it.aggregatePopulation!=null}
-        val semanticFamily=(node.semanticAction.semanticFamilyUid?:ability).uppercase()
         val query=CombatAbilityContractQuery(context.campaignUid,ability,semanticFamily,targetRefs.size,hasAggregate)
         val abilityContract=(if(context.npcAuthorization==null)abilityContracts.contractFor(query) else abilityContracts.npcContractFor(query))?:return null
         if(abilityContract.abilityUid!=ability)return null
@@ -248,7 +276,8 @@ internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapsh
     private val npcReadingAccess:NpcReadingAccessPort=NpcReadingAccessPort.NONE,
     private val npcRequirements:NpcActivityRequirementPort=NpcActivityRequirementPort.NONE,
     private val npcTreatments:NpcTreatmentReadPort=NpcTreatmentReadPort.NONE,
-    private val npcDuties:NpcDutyAssignmentPort=NpcDutyAssignmentPort.NONE):MechanicsRuleResolver{
+    private val npcDuties:NpcDutyAssignmentPort=NpcDutyAssignmentPort.NONE,
+    private val worldTravel:WorldTravelMechanicsPort?=null):MechanicsRuleResolver{
     private sealed interface CanonicalEffectResolution{
         data class Applied(val payload:Map<String,String>):CanonicalEffectResolution
         data class Rejected(val reasonUid:String):CanonicalEffectResolution
@@ -262,6 +291,8 @@ internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapsh
         val owner=context.plan.steps.singleOrNull{it.nodeUid==request.nodeUid}?.mechanicsOwnerUid
             ?:return MechanicsEffectResolution.Rejected("MECHANICS_OWNER_MISSING")
         if(owner!=request.mechanicsOwnerUid)return MechanicsEffectResolution.Rejected("MECHANICS_OWNER_MISMATCH")
+        if(owner=="UNIVERSAL_MOVEMENT" && request.effectKindUid.substringAfterLast(':').uppercase()=="LOCATION_TRANSITION" && worldTravel!=null)
+            return worldTravel.resolve(request,context)
         if(owner==NpcActivityMechanics.OWNER) {
             val actor=combatSnapshots.npcActivityActor(request,context)?:return MechanicsEffectResolution.Rejected("P62:ACTIVITY_ACTOR_UNAVAILABLE")
             val contract=npcActivities.forCapability(context.campaignUid,node.semanticAction.canonicalActionUid.orEmpty())
@@ -359,6 +390,7 @@ internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapsh
                 safePayload["condition_uid"]=condition;safePayload["operation"]="ADD"
             }
         }
+        safePayload.putAll(Phase63ObservationTiming.metadata(node,kind))
         return safePayload
     }
 }
@@ -407,14 +439,20 @@ private class ProductionIntentResolver(
     private val repository:UnifiedGameRepository,
     private val audience:()->AudienceContext,
     private val purpose:()->PurposeContext,
-    evidenceProvider:WorldEvidenceProviderPort=WorldEvidenceProviderPort.NONE,
-    private val semanticWorldPack:SemanticWorldPackReferenceCandidatePort=SemanticWorldPackReferenceCandidatePort.NONE
+    private val evidenceProvider:WorldEvidenceProviderPort=WorldEvidenceProviderPort.NONE,
+    private val semanticWorldPack:SemanticWorldPackReferenceCandidatePort=SemanticWorldPackReferenceCandidatePort.NONE,
+    private val worldDraft:WorldDraftInterpretationPort=WorldDraftInterpretationPort.NONE
 ):TrustedIntentResolutionPort{
-    private val universal=UniversalWorldMaterializationResolver(evidenceProvider)
-    override fun resolve(candidate:IntentDocument):IntentDocument{
+    override fun resolve(candidateInput:IntentDocument):IntentDocument{
+        val candidate=WorldReferenceSetExpansion.expand(candidateInput.copy(references=candidateInput.references.map {
+            it.copy(descriptorHints=it.descriptorHints-"world_resolution_reason")
+        }))
+        val capturedScope=repository.infrastructureWorldResolutionScope()
+        val universal=UniversalWorldMaterializationResolver(evidenceProvider.forTurn())
         val player=repository.activePlayerRef()
         val currentAnchor=player?.let{repository.infrastructureEntityLocationUid(it.playerUid)}
         val resolved=candidate.references.map{reference->
+            if(reference.descriptorHints["world_resolution_reason"]=="P63:SET_SELECTION_REQUIRES_CLARIFICATION")return@map reference
             if(reference.state in setOf(IntentReferenceState.RESOLVED_PROJECTED,IntentReferenceState.RESOLVED_LATENT)||reference.kind in setOf(IntentReferenceKind.FUTURE_RESULT,IntentReferenceKind.RESOURCE_FROM_RESULT))return@map reference
             val phrase=(reference.rawPhrase?:reference.descriptorHints["surface"]).orEmpty().trim()
             val directConsumers=candidate.nodes.filter{node->node.participants.any{it.referenceUid==reference.referenceUid}}
@@ -424,20 +462,33 @@ private class ProductionIntentResolver(
             }
             // Discourse must not be redirected to a semantically similar World Pack entry.
             val candidates=if(direct!=null)listOf(direct) else if(reference.kind==IntentReferenceKind.DISCOURSE)emptyList() else buildList{
-                runCatching{repository.npcsProjection(phrase,audience(),purpose()).value.orEmpty()}.getOrDefault(emptyList()).filter{nameMatch(it.name,phrase)}.forEach{add(DomainRef("NPC",it.uid))}
+                runCatching{repository.npcsProjection(phrase,audience(),purpose()).value.orEmpty()}.getOrDefault(emptyList()).filter{nameMatch(it.name,phrase)}.forEach{add(repository.infrastructureWorldActorReference(it.uid))}
                 repository.infrastructureAggregateTargets(phrase).forEach{add(it.second)}
                 runCatching{repository.worldLocations(phrase)}.getOrDefault(emptyList()).filter{nameMatch(it.name,phrase)}.forEach{add(DomainRef("LOCATION",it.uid))}
                 runCatching{semanticWorldPack.candidates(candidate.campaignUid,reference,directConsumers)}.getOrDefault(emptyList()).forEach{add(it)}
             }.distinct()
-            resolveExistingDescriptorCandidates(reference,directConsumers,candidates)?:run{
+            repository.infrastructurePopulationReference(reference,directConsumers)?:resolveExistingDescriptorCandidates(reference,directConsumers,candidates,
+                repository::infrastructureNearestProjectedWorldRef)?:run{
                     val consumerIds=directConsumers.map{it.nodeUid}.toSet()
                     val consumers=(directConsumers+candidate.nodes.filter{node->node.dependencies.any{it.predecessorNodeUid in consumerIds}}).distinctBy{it.nodeUid}
-                    val dynamic=runCatching{repository.infrastructureWorldElements(reference,consumers)}.getOrDefault(emptyList())
+                    val dynamic=runCatching{repository.infrastructureWorldElements(reference,consumers,capturedScope)}.getOrDefault(emptyList())
                     val packElements=runCatching{repository.worldLocations(phrase)}.getOrDefault(emptyList()).map{
                         CampaignWorldElement(DomainRef("LOCATION",it.uid),it.name,"WORLD_PACK_LOCATION",null,emptySet(),"WORLD_PACK",WorldEvidenceClassification.SOURCE_CANON)
                     }
                     val recent=if(reference.kind==IntentReferenceKind.DISCOURSE)repository.infrastructureRecentInterlocutors() else emptySet()
-                    when(val decision=universal.resolve(candidate.campaignUid,reference,consumers,currentAnchor,dynamic+packElements,null,recent)){
+                    fun resolve(ref:IntentReference)=universal.resolve(candidate.campaignUid,ref,consumers,currentAnchor,dynamic+packElements,null,recent,
+                        repository.infrastructureWorldSkeletonCandidate(),repository::infrastructureNearestWorldElement,capturedScope,repository::infrastructureWorldResolutionCurrent,
+                        { slot->capturedScope?.let { repository.infrastructureEstablishedWorldSlot(it,slot) } })
+                    val local=resolve(reference)
+                    val decision=if(local is UniversalWorldReferenceResolution.Unresolved && local.reasonUid !in setOf(
+                        "P63:KNOWN_ROUTE_REQUIRED","NAMED_SLOT_EVIDENCE_REQUIRED","EXISTING_DISCOURSE_REFERENT_REQUIRED")) {
+                        worldDraft.interpret(candidate,reference,consumers)?.let { interpreted->
+                            if(interpreted.descriptorHints["world_resolution_reason"]=="P63:WORLD_DRAFT_REQUIRES_CLARIFICATION")
+                                UniversalWorldReferenceResolution.Unresolved("P63:WORLD_DRAFT_REQUIRES_CLARIFICATION")
+                            else resolve(interpreted)
+                        }?:local
+                    } else local
+                    when(decision){
                         is UniversalWorldReferenceResolution.Existing->reference.copy(state=IntentReferenceState.RESOLVED_PROJECTED,resolvedProjectedRef=decision.element.element,candidateProjectedRefs=emptyList(),resolutionEvidenceUid=decision.evidenceUid)
                         is UniversalWorldReferenceResolution.Latent->LatentWorldReferenceCodec.attach(reference,decision.draft,decision.feasibility)
                         is UniversalWorldReferenceResolution.Rejected->reference.copy(state=IntentReferenceState.INVALID,descriptorHints=reference.descriptorHints+("world_resolution_reason" to decision.reasonUid))
@@ -448,7 +499,11 @@ private class ProductionIntentResolver(
         val trustedNodes=candidate.nodes.map{node->node.copy(
             semanticAction=UniversalIntentFamilies.trustProviderAction(node.semanticAction)
         )}
-        return candidate.copy(nodes=trustedNodes,references=resolved,provenance=candidate.provenance.copy(source=IntentInterpretationSource.TRUSTED_REFERENCE_RESOLUTION,sourceUid="RPGOS-CORE-REFERENCE-RESOLVER"))
+        val current=capturedScope!=null && repository.infrastructureWorldResolutionCurrent(capturedScope)
+        return candidate.copy(nodes=trustedNodes,references=if(current)resolved else resolved.map { it.copy(state=IntentReferenceState.UNRESOLVED,
+            resolvedProjectedRef=null,candidateProjectedRefs=emptyList(),resolutionEvidenceUid=null,
+            descriptorHints=it.descriptorHints+("world_resolution_reason" to "P63:STALE_RESOLUTION_SCOPE")) },
+            provenance=candidate.provenance.copy(source=IntentInterpretationSource.TRUSTED_REFERENCE_RESOLUTION,sourceUid="RPGOS-CORE-REFERENCE-RESOLVER"))
     }
     private fun nameMatch(name:String,phrase:String)=worldNamesEquivalent(name,phrase)||name.lowercase().contains(phrase.lowercase()).takeIf{phrase.length>=3}==true
 }
@@ -462,15 +517,25 @@ private class ProductionIntentResolver(
 internal fun resolveExistingDescriptorCandidates(
     reference:IntentReference,
     consumerNodes:List<IntentNode>,
-    candidates:List<DomainRef>
+    candidates:List<DomainRef>,
+    nearestWorld:((List<DomainRef>)->DomainRef?)?=null
 ):IntentReference?{
     val ordered=candidates.distinct().sortedWith(compareBy<DomainRef>{it.kindUid}.thenBy{it.uid})
     if(ordered.isEmpty())return null
+    val shape=WorldReferenceShapeClassifier.classify(reference,consumerNodes)
+    if((shape.quantity?:1)>1)return null // A set must be expanded before selecting any identity.
+    if(nearestWorld!=null && shape.kind in setOf(WorldReferenceShapeKind.CATEGORY,WorldReferenceShapeKind.AFFORDANCE) &&
+        ordered.all { it.kindUid in setOf("PLACE","LOCATION","NPC","ACTOR","GROUP","UNIT","OBJECT","ORGANIZATION","EVENT","PROCESS","CONCEPT") }) {
+        if(shape.ordinal!=null)return null // The world slot owner, not lexicographic UID order, owns numbered instances.
+        val selected=nearestWorld(ordered)
+        require(selected==null || selected in ordered) { "P63:CATEGORY_SELECTION_INTEGRITY" }
+        return if(selected==null)reference.copy(descriptorHints=reference.descriptorHints+("world_resolution_reason" to "P63:KNOWN_ROUTE_REQUIRED")) else reference.copy(
+            state=IntentReferenceState.RESOLVED_PROJECTED,resolvedProjectedRef=selected,candidateProjectedRefs=emptyList(),resolutionEvidenceUid="PHASE38:LEGAL_CATEGORY_ROUTE")
+    }
     if(ordered.size==1)return reference.copy(
         state=IntentReferenceState.RESOLVED_PROJECTED,resolvedProjectedRef=ordered.single(),candidateProjectedRefs=emptyList(),
         resolutionEvidenceUid="PHASE38:EXACT-DESCRIPTOR"
     )
-    val shape=WorldReferenceShapeClassifier.classify(reference,consumerNodes)
     if(shape.kind in setOf(WorldReferenceShapeKind.CATEGORY,WorldReferenceShapeKind.AFFORDANCE)){
         val selected=shape.ordinal?.let{ordered.getOrNull(it-1)}?:ordered.first()
         return reference.copy(
@@ -506,7 +571,7 @@ private class ProductionCommittedNarrationReadPort(private val repository:Unifie
         val replay=requireNotNull(repository.infrastructureReplayPayload(identity.transactionUid,order)){"RPGOS-P54:COMMITTED_REPLAY_MISSING"}
         val playerUid=repository.activePlayerRef()?.playerUid
         val visibleChanges=replay.changeSet.changes.filter { change->
-            change.payload !is NpcBrainChange && change.payload !is KnowledgeAcquisitionChange && change.payload !is MechanicalActorGenesisChange &&
+            change.payload !is WorldSimulationChange && change.payload !is NpcBrainChange && change.payload !is KnowledgeAcquisitionChange && change.payload !is MechanicalActorGenesisChange &&
                 (!change.sourceRuleUid.orEmpty().startsWith("P60:PROCESS:") || subjectOf(change)?.let{it.kindUid=="PLAYER"&&it.uid==playerUid}==true)
         }
         val snapshot=mapOf("committed_order" to order.toString(),"committed_change_count" to visibleChanges.size.toString())
@@ -541,7 +606,7 @@ private class ProductionCommittedNarrationReadPort(private val repository:Unifie
                 is RuntimeChange->"Skutek działania został zastosowany."
                 is InventoryChange->if(payload.quantityDelta.units>0L)"Przedmiot trafia do twojego ekwipunku." else "Przedmiot opuszcza twój ekwipunek."
                 is WoundChange->if(payload.severityDelta.units>0)"Cel otrzymał ranę o nasileniu ${payload.severityDelta.units}." else "Nasilenie rany zmniejszyło się o ${Math.negateExact(payload.severityDelta.units)}."
-                is SpatialChange->"Postać zmieniła swoje położenie."
+                is SpatialChange->if(payload.destinationLocation!=null)"Postać dotarła do celu podróży." else "Postać zmieniła swoje położenie."
                 is EquipmentIntegrityChange->"Wyposażenie celu zostało uszkodzone."
                 is StructureIntegrityChange->"Struktura została uszkodzona."
                 is MechanicalTrackChange->playerVisibleTrackConsequence(payload)
@@ -574,7 +639,9 @@ private class ProductionCommittedNarrationReadPort(private val repository:Unifie
         is KnowledgeAcquisitionChange->error("P37:KNOWLEDGE_REQUIRES_HOLDER_PROJECTION")
         is ResourceChange->payload.delta.units.toString();is ConditionChange->payload.operation.name;is RuntimeChange->payload.delta.units.toString()
         is InventoryChange->payload.itemInstanceUid
-        is WoundChange->payload.severityDelta.units.toString();is SpatialChange->"${payload.deltaXMillimetres},${payload.deltaYMillimetres}"
+        is WoundChange->payload.severityDelta.units.toString();is SpatialChange->payload.destinationLocation?.let {
+            "LOCATION_REACHED:${it.kindUid}:${it.uid}"
+        }?:"${payload.deltaXMillimetres},${payload.deltaYMillimetres}"
         is EquipmentIntegrityChange->payload.damageDelta.units.toString();is StructureIntegrityChange->payload.damageDelta.units.toString()
         is MechanicalTrackChange->playerVisibleTrackValue(payload);is AggregatePopulationChange->"${payload.eliminatedDelta}/${payload.woundedDelta}/${payload.conditionAffectedDelta}"
         is AssetChange->payload.proposedLifecycleStateUid;else->"APPLIED"
@@ -735,6 +802,13 @@ class ProductionGameEngineCompositionRoot(
         DynamicProductionModelRoute(providerCenter,configuration,additionalProviders),
         {repository.infrastructureNpcDecisionScope(actor,at,observationOrdinal)},progress=npcProgress
     )
+    fun prepareNativeWorld(spec:NativeWorldCreationSpec):NativeWorldCreationSpec {
+        val snapshot=repository.infrastructureTemporalRead()
+        val scope=WorldResolutionScope(snapshot.scope.campaignUid,HistoryGenerationUid(snapshot.scope.historyGenerationUid),
+            snapshot.scope.baseCommitOrder,"WORLD_CREATOR","WORLD_BOOTSTRAP",emptyMap())
+        return NativeWorldBootstrapInterpretation(DynamicProductionModelRoute(providerCenter,configuration,additionalProviders))
+            .prepare(spec,scope) { repository.infrastructureTemporalRead().scope==snapshot.scope }
+    }
     internal fun npcDecisionContext(scope:NpcDecisionScope,trigger:NpcTrigger,
                                     affordances:(NpcBrainState,List<NpcKnownRecord>)->List<NpcActionOption>)=
         repository.projectNpcDecision(scope,trigger,NpcContextProfiles.MOBILE,
@@ -750,17 +824,17 @@ class ProductionGameEngineCompositionRoot(
     )
     fun chatApplication():CanonicalChatApplication{
         val campaignUid=repository.activeCampaignRef().campaignId
-        val authority=runCatching{repository.infrastructureWorldPackAuthority()}.getOrNull()
-        val worldRules=authority?.let{WorldRuleProviderRegistry.of(listOf(UniversalMechanicsWorldRuleProvider(it.binding)))}?:WorldRuleProviderRegistry.empty()
-        val worldAuthority=authority?.let{WorldPackAuthoritySnapshot.single(it.campaignUid,it.binding)}?:WorldPackAuthoritySnapshot.empty()
-        val worldRuleMode:WorldRuleMode=authority?.let{WorldRuleMode.Bound(it.binding)}?:UnboundGenericWorldRuleMode
+        val authority=productionWorldAuthority(campaignUid,repository::infrastructureWorldPackAuthority)
+        val worldRules=WorldRuleProviderRegistry.of(listOf(UniversalMechanicsWorldRuleProvider(authority.binding)))
+        val worldAuthority=WorldPackAuthoritySnapshot.single(authority.campaignUid,authority.binding)
+        val worldRuleMode:WorldRuleMode=WorldRuleMode.Bound(authority.binding)
         val playerEngine=productionMechanicsPlayerDomainEngine(worldRules,worldAuthority)
         val npcLearningState=repository.infrastructureNpcLearningStatePort()
         val npcReadingAccess=repository.infrastructureNpcReadingAccessPort()
         val npcRequirements=repository.infrastructureNpcActivityRequirementPort()
         val npcTreatments=repository.infrastructureNpcTreatmentReadPort()
         val npcDuties=repository.infrastructureNpcDutyAssignmentPort()
-        val mechanics=ProductionUniversalMechanicsRuleResolver(ProductionCombatSnapshotAuthority(repository,aggregateCombatState,combatAbilityContracts),npcActivities,npcLearningState,npcReadingAccess,npcRequirements,npcTreatments,npcDuties)
+        val mechanics=ProductionUniversalMechanicsRuleResolver(ProductionCombatSnapshotAuthority(repository,aggregateCombatState,combatAbilityContracts),npcActivities,npcLearningState,npcReadingAccess,npcRequirements,npcTreatments,npcDuties,WorldTravelMechanicsPort(repository::infrastructureWorldTravel))
         val mechanicsRegistry=MechanicsResolverRegistry.fromCompositionRoot(mapOf(
             "UNIVERSAL_COMBAT" to mechanics,"UNIVERSAL_ACTION" to mechanics,"UNIVERSAL_MOVEMENT" to mechanics
         ))
@@ -768,6 +842,7 @@ class ProductionGameEngineCompositionRoot(
             add(CapabilityRequirementTemplate(
             "PLAYER_STATE",CORE_PLAYER_CONTEXT_PROVIDER,CORE_PLAYER_CONTEXT_OPERATION,RequirementImportance.SAFETY,maximumLimit=1
             ))
+            add(CapabilityRequirementTemplate("WORLD_FRAME",CORE_WORLD_FRAME_PROVIDER,CORE_WORLD_FRAME_OPERATION,RequirementImportance.REQUIRED,maximumLimit=1))
             if(semanticApplication!=null){
                 add(CapabilityRequirementTemplate(
                     "SEMANTIC_MEMORY",BEKKO_STRUCTURED_PROVIDER_UID,BEKKO_OPERATION_MEMORY,RequirementImportance.QUALITY,
@@ -781,7 +856,7 @@ class ProductionGameEngineCompositionRoot(
         }
         val capabilities=productionUniversalCapabilities(requirements)
         val binding=StructuredProviderBinding(CORE_PLAYER_CONTEXT_PROVIDER,setOf(CORE_PLAYER_CONTEXT_OPERATION),ProductionPlayerContextProvider(repository,campaignUid))
-        val bindings=buildList{add(binding);semanticApplication?.let{add(it.structuredBinding())}}
+        val bindings=buildList{add(binding);add(StructuredProviderBinding(CORE_WORLD_FRAME_PROVIDER,setOf(CORE_WORLD_FRAME_OPERATION),ProductionWorldFrameProvider(repository,campaignUid)));semanticApplication?.let{add(it.structuredBinding())}}
         val contextPipeline=CanonicalIterativeRetrievalPipeline(StructuredSqlRetriever(bindings),SemanticContextBudgetManager(),TypedContextCompletionStrategy{_,_,_->emptyList()})
         val evaluator=GmProposalEvaluator(StructuredGmProposalValidator.withHolderScopedDialogue(),MechanicsResolutionEngine(mechanicsRegistry))
         val mechanicsAssembler=ProductionCanonicalMutationAssembler(playerEngine,PlayerResolutionContextFactory{command->
@@ -789,6 +864,14 @@ class ProductionGameEngineCompositionRoot(
             fun add(ref:DomainRef){refs+=CampaignScopedDomainRef(command.campaignUid,ref)}
             add(DomainRef(command.actor.actorKindUid,command.actor.actorUid))
             command.payload.temporalState?.let { add(DomainRef("CAMPAIGN",it.campaignUid)) }
+            command.payload.worldChanges.forEach { world->
+                add(DomainRef("CAMPAIGN",world.campaignUid))
+                world.edges.forEach { edge->add(edge.origin);add(edge.destination);add(DomainRef("WORLD_ROUTE",edge.uid)) }
+                world.actorExpansions.forEach { add(it.actor) }
+                world.populationManifests.forEach { add(it.aggregate) }
+                world.populationExtractions.forEach { add(it.member) }
+                if(world.edges.isNotEmpty())add(DomainRef(KnowledgeHolderKinds.CHARACTER,command.actor.actorUid))
+            }
             command.payload.npcBrains.forEach { brain->
                 add(brain.actor)
                 val holder=NpcBrainCodec.decode(brain.stateCanonical).knowledgeHolder
@@ -825,7 +908,8 @@ class ProductionGameEngineCompositionRoot(
                 }
             }
             PlayerResolutionContext.create(command.campaignUid,command.actor,refs,dependencyVersions=mapOf("PHASE50" to "3"),worldRuleMode=worldRuleMode)
-        },holderDialogueDelegated=true)
+        },holderDialogueDelegated=true,worldInitialization=repository::infrastructureWorldInitialization,worldExpansion=repository::infrastructureWorldExpansion,
+            worldActorSeed=repository::infrastructureWorldActorSeed,worldPopulationPayload=repository::infrastructureWorldPopulationPayload)
         val route=DynamicProductionModelRoute(providerCenter,configuration,additionalProviders)
         val assembler=ProductionTemporalMutationAssembler(mechanicsAssembler,repository::infrastructureTemporalRead,
             FileTemporalCheckpointStore(File(app.noBackupFilesDir,"temporal-checkpoints")),processOwners={state,effects->
@@ -835,9 +919,10 @@ class ProductionGameEngineCompositionRoot(
                     effects.map{it.target}.toSet()+listOfNotNull(repository.activePlayerRef()?.let{DomainRef("PLAYER",it.playerUid)}))) else emptyList()
             },npcBrainPreparation={scope,effects,plan->repository.prepareNpcBrainInitializations(scope,effects,
                 plan.intent.references.mapNotNull{it.resolvedProjectedRef},plan.intent.references.mapNotNull{LatentWorldReferenceCodec.decode(plan.campaignUid,it)})},additionalProcesses={snapshot,turnPlan,prepared,timing,turnRequest->
-                // Only actors already participating through projected references, not a population sweep.
-                val stimuli=turnPlan.intent.references.mapNotNull{it.resolvedProjectedRef}.distinct()
-                    .filter{it.uid!=turnPlan.intent.actor.actorUid}.take(32)
+                // Phase63 selects the work frontier; Phase62 still owns knowledge and decisions.
+                // Pending named actors keep their deadlines when processing becomes coarser.
+                val lod=repository.infrastructureWorldWorkPlan(snapshot,turnPlan.intent.references.mapNotNull{it.resolvedProjectedRef}.distinct())
+                val stimuli=lod.individualDecisionActors
                     .mapNotNull{repository.npcCognitionStimulus(snapshot.scope,it)}
                 val cognition=if(stimuli.isEmpty() && snapshot.state.processStates.none{it.ownerUid==NpcCognitionProcess.OWNER})TemporalProcessExtension.NONE
                 else NpcCognitionProcess(snapshot.scope,snapshot.state.time,stimuli) { stimulus,cancelled ->
@@ -899,7 +984,7 @@ class ProductionGameEngineCompositionRoot(
                                 input.through>=interval.start+ActionDuration(Phase60DomainTiming.effectOffset(effect,interval.action.timing.duration))
                             }==true }},interruptsForeground={effects->npcRequiresForegroundDecision(effects,foregroundSubjects)},progress=npcProgress,
                             initiatedSpeech=NpcInitiatedSpeechApplication(route,{repository.infrastructureTemporalRead().scope},npcProgress))).extension()
-                cognition.plus(actions).plus(NpcDutyDeadlineProcess.extension()).plus(
+                repository.infrastructureWorldProcesses(snapshot,prepared).plus(cognition).plus(actions).plus(NpcDutyDeadlineProcess.extension()).plus(
                     NpcResultReconciliationProcess(snapshot.scope,snapshot.state.time) { input->
                         repository.prepareNpcResultConfirmations(input,participants)
                     }.extension())
@@ -910,8 +995,9 @@ class ProductionGameEngineCompositionRoot(
             route,Phase43IntentValidator(),ProductionIntentResolver(repository,
                 {VisibilityAudienceFactory.player(repository.activeCampaignRef().campaignId)},
                 {PurposeContext(repository.activeCampaignRef().campaignId,VisibilityPurposeKinds.GAMEPLAY_NARRATION)},
-                if(configuration().privacy.cloudAllowedForDirector)MediaWikiWorldEvidenceProvider() else WorldEvidenceProviderPort.NONE,
-                semanticApplication?.gameplayReferenceCandidates()?:SemanticWorldPackReferenceCandidatePort.NONE),
+                TurnBudgetedWorldScout({configuration().privacy.worldScoutAllowed},MediaWikiWorldEvidenceProvider()::candidates),
+                semanticApplication?.gameplayReferenceCandidates()?:SemanticWorldPackReferenceCandidatePort.NONE,
+                RoutedWorldDraftInterpretation(repository,route)),
             // Production must not silently reinterpret a provider/decode failure as another
             // action. In particular, a legacy TALK target must not become a fabricated PLACE.
             IntentInterpretationFallback.NONE,GraphTurnPlanner(capabilities),contextPipeline,
@@ -971,10 +1057,16 @@ class ProductionGameEngineCompositionRoot(
 
 /** Rebuilds the root at each turn/recovery so campaign and provider selection never go stale. */
 class DynamicCanonicalChatApplication(private val factory:()->CanonicalChatApplication):ChatApplicationPort{
-    override suspend fun play(input:String,cancellation:AiCancellationSignal)=factory().play(input,cancellation)
-    override suspend fun recover(token:ChatNarrationRecoveryToken,cancellation:AiCancellationSignal)=factory().recover(token,cancellation)
-    override fun pendingRecovery():ChatNarrationRecoveryToken?=factory().pendingRecovery()
-    override fun pendingUncommittedInput():String?=factory().pendingUncommittedInput()
+    private fun available():CanonicalChatApplication?=try { factory() }
+        catch(_:ProductionWorldAuthorityUnavailable) { null }
+    override suspend fun play(input:String,cancellation:AiCancellationSignal):ChatApplicationOutcome {
+        if(cancellation.isCancelled())return ChatApplicationOutcome.Cancelled(AiTurnStage.CONTEXT,TurnMutationState.NOT_STARTED)
+        return available()?.play(input,cancellation)?:ChatApplicationOutcome.Rejected(AiTurnStage.CONTEXT,listOf(ProductionWorldAuthorityUnavailable.REASON))
+    }
+    override suspend fun recover(token:ChatNarrationRecoveryToken,cancellation:AiCancellationSignal):NarrativeRecoveryResult =
+        available()?.recover(token,cancellation)?:NarrativeRecoveryResult.Unavailable(ProductionWorldAuthorityUnavailable.REASON)
+    override fun pendingRecovery():ChatNarrationRecoveryToken?=available()?.pendingRecovery()
+    override fun pendingUncommittedInput():String?=available()?.pendingUncommittedInput()
 }
 
 private fun mechanicsHash(value:String)=MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString(""){"%02x".format(it)}

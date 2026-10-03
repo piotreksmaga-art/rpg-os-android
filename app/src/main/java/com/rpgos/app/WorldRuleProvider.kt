@@ -4,7 +4,11 @@ import java.lang.reflect.Modifier
 import java.util.Collections
 import java.util.IdentityHashMap
 
-data class WorldPackRuleBinding(val worldPackUid: String, val worldPackVersion: String) {
+/** Historical field names are retained for v1 consumers. v2 identifies an explicit rule source;
+ * CAMPAIGN_NATIVE is not a World Pack and must never be resolved as a pack directory. */
+data class WorldPackRuleBinding(val worldPackUid: String, val worldPackVersion: String,
+    val sourceKind:CampaignRuleSourceKind=CampaignRuleSourceKind.WORLD_PACK) {
+    val ruleSource:CampaignRuleSource get()=CampaignRuleSource(sourceKind,worldPackUid,worldPackVersion)
     init {
         require(worldPackUid.isNotBlank()) { "worldPackUid must not be blank" }
         require(worldPackVersion.isNotBlank()) { "worldPackVersion must not be blank" }
@@ -90,7 +94,9 @@ internal class WorldRuleRequest private constructor(
 ) {
     val requestFingerprint: String = WorldRuleCanonicalWriter.fingerprint("WORLD_RULE_REQUEST") {
         field("STAGE", stage.name)
-        section("WORLD_PACK") {
+        if(worldPack.sourceKind!=CampaignRuleSourceKind.WORLD_PACK)field("CONTRACT_VERSION","2")
+        section(if(worldPack.sourceKind==CampaignRuleSourceKind.WORLD_PACK)"WORLD_PACK" else "RULE_SOURCE") {
+            if(worldPack.sourceKind!=CampaignRuleSourceKind.WORLD_PACK)field("KIND",worldPack.sourceKind.name)
             field("UID", worldPack.worldPackUid)
             field("VERSION", worldPack.worldPackVersion)
         }
@@ -218,6 +224,7 @@ class WorldRuleDecisionRecord private constructor(
         internal fun create(provider: WorldRuleProvider, request: WorldRuleRequest, decision: WorldRuleDecision): WorldRuleDecisionRecord {
             require(provider.worldPackUid == request.worldPack.worldPackUid)
             require(provider.worldPackVersion == request.worldPack.worldPackVersion)
+            require(provider.sourceKind == request.worldPack.sourceKind)
             val reason = (decision as? WorldRuleDecision.Rejected)?.reasonUid
             validateDecision(decision.ruleUid, reason, decision.evidenceUids)
             val sortedEvidence = decision.evidenceUids.sorted()
@@ -230,7 +237,9 @@ class WorldRuleDecisionRecord private constructor(
                     field("UID", provider.providerUid)
                     field("VERSION", provider.providerVersion)
                 }
-                section("WORLD_PACK") {
+                if(provider.sourceKind!=CampaignRuleSourceKind.WORLD_PACK)field("CONTRACT_VERSION","2")
+                section(if(provider.sourceKind==CampaignRuleSourceKind.WORLD_PACK)"WORLD_PACK" else "RULE_SOURCE") {
+                    if(provider.sourceKind!=CampaignRuleSourceKind.WORLD_PACK)field("KIND",provider.sourceKind.name)
                     field("UID", provider.worldPackUid)
                     field("VERSION", provider.worldPackVersion)
                 }
@@ -256,7 +265,8 @@ internal abstract class WorldRuleProvider(
     val providerUid: String,
     val providerVersion: String,
     val worldPackUid: String,
-    val worldPackVersion: String
+    val worldPackVersion: String,
+    val sourceKind:CampaignRuleSourceKind=CampaignRuleSourceKind.WORLD_PACK
 ) {
     init {
         require(providerUid.isNotBlank() && providerVersion.isNotBlank())
@@ -266,21 +276,21 @@ internal abstract class WorldRuleProvider(
 }
 
 internal class WorldRuleProviderRegistry private constructor(providers: List<WorldRuleProvider>) {
-    private val byWorldPackUid: Map<String, WorldRuleProvider>
+    private val byWorldPackUid: Map<Pair<CampaignRuleSourceKind,String>, WorldRuleProvider>
     val worldPackUids: Set<String>
 
     init {
-        val collected = LinkedHashMap<String, WorldRuleProvider>()
+        val collected = LinkedHashMap<Pair<CampaignRuleSourceKind,String>, WorldRuleProvider>()
         providers.forEach { provider ->
             validateProviderState(provider)
-            if (collected.put(provider.worldPackUid, provider) != null) failRule("DUPLICATE_WORLD_RULE_PROVIDER")
+            if (collected.put(provider.sourceKind to provider.worldPackUid, provider) != null) failRule("DUPLICATE_WORLD_RULE_PROVIDER")
         }
         byWorldPackUid = Collections.unmodifiableMap(LinkedHashMap(collected))
-        worldPackUids = Collections.unmodifiableSet(LinkedHashSet(collected.keys))
+        worldPackUids = Collections.unmodifiableSet(collected.keys.filter { it.first==CampaignRuleSourceKind.WORLD_PACK }.mapTo(linkedSetOf()) { it.second })
     }
 
     fun providerFor(binding: WorldPackRuleBinding): WorldRuleProvider? {
-        val provider = byWorldPackUid[binding.worldPackUid] ?: return null
+        val provider = byWorldPackUid[binding.sourceKind to binding.worldPackUid] ?: return null
         if (provider.worldPackUid != binding.worldPackUid) failRule("WORLD_RULE_PROVIDER_WORLDPACK_MISMATCH")
         if (provider.worldPackVersion != binding.worldPackVersion) failRule("WORLD_RULE_PROVIDER_VERSION_MISMATCH")
         return provider
@@ -378,6 +388,7 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
         is TemporalStateChange -> "TEMPORAL_STATE_CHANGE"
         is NpcBrainChange -> "NPC_BRAIN_CHANGE"
         is MechanicalActorGenesisChange -> "MECHANICAL_ACTOR_GENESIS"
+        is WorldSimulationChange -> "WORLD_SIMULATION"
         is AccessAuthorityChange -> "ACCESS_AUTHORITY_CHANGE"
     }
     record(payloadType) {
@@ -509,6 +520,7 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
             }
             is NpcBrainChange -> field("NPC_BRAIN_CANONICAL_CHANGE", npcBrainChangeCodec().encode(payload).toString())
             is MechanicalActorGenesisChange -> field("MECHANICAL_ACTOR_GENESIS",mechanicalActorGenesisCodec().encode(payload).toString())
+            is WorldSimulationChange -> field("WORLD_SIMULATION",phase63WorldChangeCodec().encode(payload).toString())
             is KnowledgeAcquisitionChange -> {
                 section("CLAIM") {
                     field("UID", payload.claim.claimUid); field("SUBJECT_KIND", payload.claim.subjectKindUid)

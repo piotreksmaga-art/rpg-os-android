@@ -12,8 +12,8 @@ android {
         applicationId = "com.rpgos.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 161
-        versionName = "1.3.0-alpha21-npc61-62"
+        versionCode = 162
+        versionName = "1.3.0-alpha22-world63"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "RPGOS_BACKEND_URL", "\"https://YOUR-BACKEND.example\"")
         buildConfigField(
@@ -112,6 +112,13 @@ android {
     testOptions {
         unitTests.isIncludeAndroidResources = true
         unitTests.all {
+            // Native SQLite on Windows still has path-length limits. A short opt-in host
+            // temp root keeps acceptance package names out of long Robolectric paths.
+            providers.gradleProperty("rpgosJvmTestTempDir").orNull?.let { root ->
+                val directory = file(root)
+                directory.mkdirs()
+                it.systemProperty("java.io.tmpdir", directory.absolutePath)
+            }
             it.testLogging {
                 events("failed")
                 exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL

@@ -204,6 +204,7 @@ class AggregateDirectImpactResolver{
         representativeDefenderPower:Long,
         impactBasisPoints:Long
     ):AggregateDirectImpactResolution{
+        if(population.activeCount==0L)return AggregateDirectImpactResolution.Rejected("AGGREGATE_HAS_NO_ACTIVE_MEMBERS")
         val ratio=safeProductDivision(attackerPower.coerceAtLeast(0),10_000,representativeDefenderPower.coerceAtLeast(1))
         if(ratio<profile.minimumPowerRatioBasisPoints)return AggregateDirectImpactResolution.Rejected("AGGREGATE_POWER_ADVANTAGE_INSUFFICIENT")
         val exposed=scaledByBasisPoints(population.activeCount,profile.engagementExposureBasisPoints).coerceIn(1,population.activeCount)
@@ -248,6 +249,10 @@ class AggregateGroupEngagementResolver{
         representativeDefencePower:Long,
         contestMagnitude:Long
     ):AggregateGroupEngagementResolution{
+        // A fully partitioned/inactive aggregate is not a fictitious last fighter. This pure
+        // resolver also serves coarse world processing outside the foreground eligibility gate.
+        if(attackers.activeCount==0L || defenders.activeCount==0L)return AggregateGroupEngagementResolution(
+            AggregateAreaEffectDistribution(0,0,0,defenders.activeCount),0)
         val attackForce=BigInteger.valueOf(attackers.activeCount).multiply(BigInteger.valueOf(representativeAttackPower.coerceAtLeast(1)))
         val defenceForce=BigInteger.valueOf(defenders.activeCount).multiply(BigInteger.valueOf(representativeDefencePower.coerceAtLeast(1)))
         val ratio=attackForce.multiply(BigInteger.valueOf(10_000)).divide(defenceForce.max(BigInteger.ONE)).coerceToLong()
@@ -316,6 +321,7 @@ class CombatEligibilityGate{
         }
         if(ability.requiredEquipmentKinds.isNotEmpty()&&actor.equipmentRefs.none{it.kindUid in ability.requiredEquipmentKinds})return CombatEligibilityResult.Rejected("REQUIRED_EQUIPMENT_MISSING")
         if(actor.conditions.any{it.conditionUid=="INCAPACITATED"&&it.intensity>0})return CombatEligibilityResult.Rejected("ACTOR_INCAPACITATED")
+        if(actor.aggregatePopulation?.activeCount==0L)return CombatEligibilityResult.Rejected("AGGREGATE_HAS_NO_ACTIVE_MEMBERS")
         val cooldown=snapshot.timingFacts["${intent.actor.kindUid}:${intent.actor.uid}:cooldown:${intent.abilityUid}"]?:0
         if(cooldown>snapshot.atOrder)return CombatEligibilityResult.Rejected("ABILITY_IN_RECOVERY")
         if(snapshot.timingFacts["world_rule:${intent.intentUid}:allowed"]==0L)return CombatEligibilityResult.Rejected("WORLD_RULE_REJECTED")
@@ -437,7 +443,10 @@ class UniversalCombatEngine(
         val intent=request.intent;val snapshot=request.snapshot
         if(intent.campaignUid!=snapshot.campaignUid)return CombatResolution.Rejected("CROSS_CAMPAIGN_COMBAT")
         val attacker=snapshot.actors.singleOrNull{it.actor==intent.actor}?:return CombatResolution.Rejected("ACTOR_NOT_MATERIALIZED")
-        snapshot.actors.singleOrNull{it.actor==intent.target}?:return CombatResolution.Rejected("TARGET_NOT_MATERIALIZED")
+        val primary=snapshot.actors.singleOrNull{it.actor==intent.target}?:return CombatResolution.Rejected("TARGET_NOT_MATERIALIZED")
+        if(primary.aggregatePopulation?.activeCount==0L && request.ability.areaRadiusMillimetres==null &&
+            request.ability.effectKinds.any { it!=UniversalMechanicalEffectKind.INTERACTION })
+            return CombatResolution.Rejected("AGGREGATE_HAS_NO_ACTIVE_MEMBERS")
         when(val eligibility=CombatEligibilityGate().evaluate(intent,request.ability,snapshot)){
             is CombatEligibilityResult.Rejected->return CombatResolution.Rejected(eligibility.reasonUid)
             is CombatEligibilityResult.Eligible->Unit
@@ -470,6 +479,9 @@ class UniversalCombatEngine(
         val draws=mutableListOf<Long>();val effects=mutableListOf<UniversalMechanicalEffect>();var totalMagnitude=0L
         targets.forEach{targetRef->
             val defender=snapshot.actors.single{it.actor==targetRef}
+            // The aggregate remains a legal spatial centre for AOE against its named members,
+            // but its empty anonymous remainder cannot take damage or satisfy an objective.
+            if(defender.aggregatePopulation?.totalCount==0L)return@forEach
             val defenceBase=defender.attributes[request.ability.defenceAttributeUid].orZero()+defender.attributes[request.ability.defenceSkillUid].orZero()+interaction.defenceModifier+
                 if(reactionEligibility is CombatReactionEligibility.Eligible&&request.reaction?.reactor==targetRef)20 else 0
             val targetIntent=intent.copy(target=targetRef)
@@ -480,18 +492,18 @@ class UniversalCombatEngine(
             val interactionOnly=request.ability.effectKinds.distinct()==listOf(UniversalMechanicalEffectKind.INTERACTION)
             val mechanicalMagnitude=if(interactionOnly)abs(contest.margin).coerceAtLeast(1) else protection.finalMagnitude
             val objectiveMagnitude=if(interactionOnly&&contest.margin<=0)0 else protection.finalMagnitude
-            val groupAggregate=attacker.aggregatePopulation?.let{attackers->defender.aggregatePopulation?.takeIf{request.ability.areaRadiusMillimetres==null}?.let{defenders->
+            val groupAggregate=attacker.aggregatePopulation?.takeUnless { interactionOnly }?.let{attackers->defender.aggregatePopulation?.takeIf{request.ability.areaRadiusMillimetres==null}?.let{defenders->
                 val profile=request.ability.aggregateGroupProfile?:return CombatResolution.Rejected("AGGREGATE_GROUP_PROFILE_REQUIRED")
                 AggregateGroupEngagementResolver().resolve(attackers,defenders,profile,attackBase,defenceBase,protection.finalMagnitude)
             }}
-            val directAggregate=defender.aggregatePopulation?.takeIf{request.ability.areaRadiusMillimetres==null&&groupAggregate==null}?.let{population->
+            val directAggregate=defender.aggregatePopulation?.takeIf{!interactionOnly&&request.ability.areaRadiusMillimetres==null&&groupAggregate==null}?.let{population->
                 val profile=request.ability.aggregateDirectProfile?:return CombatResolution.Rejected("AGGREGATE_DIRECT_PROFILE_REQUIRED")
                 when(val resolution=AggregateDirectImpactResolver().resolve(population,profile,attackBase,defenceBase,protection.finalMagnitude.coerceIn(0,10_000))){
                     is AggregateDirectImpactResolution.Rejected->return CombatResolution.Rejected(resolution.reasonUid)
                     is AggregateDirectImpactResolution.Resolved->resolution
                 }
             }
-            if(defender.aggregatePopulation!=null&&request.ability.areaRadiusMillimetres!=null&&request.ability.aggregateAreaProfile==null){
+            if(!interactionOnly&&defender.aggregatePopulation!=null&&request.ability.areaRadiusMillimetres!=null&&request.ability.aggregateAreaProfile==null){
                 return CombatResolution.Rejected("AGGREGATE_AREA_PROFILE_REQUIRED")
             }
             totalMagnitude=Math.addExact(totalMagnitude,objectiveMagnitude)
@@ -517,7 +529,9 @@ class UniversalCombatEngine(
     ):List<UniversalMechanicalEffect>{
         if(magnitude<=0)return emptyList()
         val population=request.snapshot.actors.single{it.actor==intent.target}.aggregatePopulation
-        val aggregateProfile=request.ability.aggregateAreaProfile
+        val aggregateProfile=request.ability.aggregateAreaProfile.takeUnless {
+            request.ability.effectKinds.distinct()==listOf(UniversalMechanicalEffectKind.INTERACTION)
+        }
         if(population!=null&&aggregateProfile!=null){
             val distribution=AggregateAreaEffectResolver().resolve(population,aggregateProfile,magnitude.coerceIn(0,10_000))
             val common=mapOf("aggregation_level" to "PHASE63_LOD1","population_total" to population.totalCount.toString(),"impact_mode" to "AREA")

@@ -47,6 +47,7 @@ class Phase32WriterBypassInventoryTest {
         "setActiveCampaign" to WriterReachability.ADMINISTRATIVE,
         "setActiveWorldPack" to WriterReachability.ADMINISTRATIVE,
         "createCampaign" to WriterReachability.ADMINISTRATIVE,
+        "createNativeCampaign" to WriterReachability.ADMINISTRATIVE,
         "commitTurn" to WriterReachability.CANONICAL_TURN,
         "buildContext" to WriterReachability.PROTECTED_PROJECTED_READ,
         "fullCharacterPanel" to WriterReachability.PROTECTED_PROJECTED_READ,

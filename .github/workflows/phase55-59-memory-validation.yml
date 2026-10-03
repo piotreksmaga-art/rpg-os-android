@@ -12,6 +12,8 @@ permissions:
 
 jobs:
   memory-and-undo:
+    # Phase63 runs the complete shared memory/NPC/world gates once in its own workflow.
+    if: github.event_name != 'pull_request' || github.head_ref != 'codex/phase63-complete'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -55,6 +57,7 @@ jobs:
         run: gradle --no-daemon :app:compileDebugAndroidTestKotlin --stacktrace
 
   full-jvm:
+    if: github.event_name != 'pull_request' || github.head_ref != 'codex/phase63-complete'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -79,6 +82,7 @@ jobs:
         run: gradle --no-daemon :app:testDebugUnitTest :app:testLabDebugUnitTest --stacktrace
 
   android-acceptance:
+    if: github.event_name != 'pull_request' || github.head_ref != 'codex/phase63-complete'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     strategy:
@@ -122,6 +126,7 @@ jobs:
           script: gradle --no-daemon :app:connectedDebugAndroidTest -PrpgosEmulatorX86=true -Pandroid.testInstrumentationRunnerArguments.class=com.rpgos.app.Phase55To59DeviceAcceptanceTest,com.rpgos.app.Phase55To59HundredTurnAcceptanceTest --stacktrace
 
   release-isolation:
+    if: github.event_name != 'pull_request' || github.head_ref != 'codex/phase63-complete'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

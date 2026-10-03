@@ -46,6 +46,9 @@ object RuntimePersistentWriterRegistry {
 
     val canonicalTurnTargetFamilies: Set<String> = setOf(
         "ACTION_TIME_AUTHORITY",
+        "WORLD_SIMULATION_AUTHORITY",
+        "MECHANICAL_ACTOR_AND_AGGREGATE_STATE",
+        "MODIFIER_INPUTS",
         "NPC_BRAIN_AUTHORITY",
         "BASE_STATS_RESOURCES",
         "SKILLS_TECHNIQUES",
@@ -82,6 +85,7 @@ object RuntimePersistentWriterRegistry {
         c("setActiveCampaign",PersistentWriterCapability.ADMINISTRATIVE,"SCHEMA_MIGRATION_REPAIR","GAMEPLAY_READINESS_METADATA"),
         c("setActiveWorldPack",PersistentWriterCapability.ADMINISTRATIVE),
         c("createCampaign",PersistentWriterCapability.ADMINISTRATIVE,"SCHEMA_MIGRATION_REPAIR","GAMEPLAY_READINESS_METADATA"),
+        c("createNativeCampaign",PersistentWriterCapability.ADMINISTRATIVE,"SCHEMA_MIGRATION_REPAIR","GAMEPLAY_READINESS_METADATA","WORLD_SIMULATION_AUTHORITY","CURRENT_WORLD_AUTHORITY","CAMPAIGN_TRUTH","STAT_RESOURCE_DEFINITIONS","PROGRESSION_DOMAIN_DEFINITIONS","SKILL_DEFINITIONS","TECHNIQUE_DEFINITIONS","ITEM_DEFINITIONS"),
         c("openWorldDb",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE),
         c("openCoreDb",PersistentWriterCapability.READ_ONLY_NON_AUTHORITATIVE),
         PersistentWriterContract("commitTurn", Collections.unmodifiableSet(canonicalTurnTargetFamilies), PersistentWriterCapability.CANONICAL_TURN),

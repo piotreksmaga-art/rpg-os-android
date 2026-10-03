@@ -31,6 +31,7 @@ internal object NpcTravelMechanics {
         actor.materialization==MechanicalStateMaterialization.FULL &&
         actor.kind in setOf(MechanicalActorKind.NPC,MechanicalActorKind.MONSTER,MechanicalActorKind.SUMMON,MechanicalActorKind.FORMER_PLAYER) &&
         route.mechanicsOwnerUid==OWNER &&
+        actor.executableAbilityUids.containsAll(route.requiredCapabilities) &&
         (route.eligibility==NpcActivityEligibility.CONSCIOUS_SELF || route.capabilityUid in actor.executableAbilityUids) &&
         actor.conditions.none{it.intensity>0 && it.conditionUid.uppercase() in setOf("DEAD","UNCONSCIOUS","INCAPACITATED")} &&
         actor.resources.none{it.resourceUid=="HEALTH" && it.current==0L} &&

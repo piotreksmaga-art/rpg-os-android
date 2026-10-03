@@ -194,6 +194,39 @@ class Phase43To54VerticalSliceTest{
         }
     }
 
+    @Test fun repairedFailureKeepsOwnerRouteReasonWhenThereIsNothingToCommit(){
+        SQLiteDatabase.create(null).use{db->
+            GroupATransactionTestFixtures.setupFinance(db,campaign)
+            val provider=DeterministicAiProvider(
+                capabilities("P"),intentFunction={intentFor(it.rawInput)},
+                proposalFunction={validProposal(it,"P")},
+                repairFunction={repair->repair.rejectedCandidate.copy(
+                    mechanicsEffects=emptyList(),nodeProposals=repair.rejectedCandidate.nodeProposals.map{
+                        it.copy(outcomeState=GmNodeOutcomeState.PROPOSED_FAILURE)
+                    }
+                )},
+                narrativeFunction={error("A blocked attempt must not narrate a successful turn")}
+            )
+            val evaluator=GmProposalEvaluator(StructuredGmProposalValidator(),MechanicsResolutionEngine(
+                MechanicsResolverRegistry.fromCompositionRoot(mapOf("FINANCE" to MechanicsRuleResolver{_,_->
+                    MechanicsEffectResolution.Rejected("P63:KNOWN_ROUTE_REQUIRED")
+                }))
+            ))
+            val assembler=object:CanonicalMutationAssembler,CanonicalMutationAssemblyDiagnostics{
+                override fun assemble(request:ChatTurnRequest,plan:CanonicalTurnPlan,proposal:ResolvedGmProposal):CanonicalCampaignMutationProposal?=null
+                override fun lastAssemblyReasonUids()=listOf("P60:DURATION_UNRESOLVED")
+            }
+            val result=facade(db,provider,assembler,AuthoritativeTurnCommitPort{_,_->error("Must not commit")},evaluator)
+                .play(chatRequest("ROUTE","CMD-ROUTE","TX-ROUTE")) as ChatTurnResult.Rejected
+            assertEquals(AiTurnStage.ASSEMBLY,result.stage)
+            assertTrue(result.reasonUids.toString(),result.reasonUids.any { it.endsWith("P63:KNOWN_ROUTE_REQUIRED") })
+            assertTrue(result.reasonUids.contains("P60:DURATION_UNRESOLVED"))
+            assertTrue(requireNotNull(Phase63WorldMessages.explanation(result.reasonUids)).startsWith("Nie znasz jeszcze drogi"))
+            assertEquals(100L,FinancialStore(db,campaign).balance("A"))
+            assertNull(TurnTransactionReceiptStore(db).committedTransaction("TX-ROUTE"))
+        }
+    }
+
     private fun aiDocument(raw:String,nodes:List<IntentNode>)=IntentDocument(
         campaignUid=campaign,actor=actor,rawInput=raw,meaningState=MeaningState.UNDERSTOOD,nodes=nodes,
         provenance=IntentInterpretationProvenance(IntentInterpretationSource.AI_PROVIDER,"AI","1","HASH")
@@ -246,11 +279,11 @@ class Phase43To54VerticalSliceTest{
             MechanicsEffectResolution.Verified(VerifiedMechanicsEffect(effect.effectUid,effect.nodeUid,effect.mechanicsOwnerUid,effect.effectKindUid,effect.parameters,"FINANCE_RULE_V1"))
         })))
     )
-    private fun facade(db:SQLiteDatabase,provider:AiProvider,assembler:CanonicalMutationAssembler,commit:AuthoritativeTurnCommitPort)=AiChatEngineFacade(
+    private fun facade(db:SQLiteDatabase,provider:AiProvider,assembler:CanonicalMutationAssembler,commit:AuthoritativeTurnCommitPort,proposalEvaluator:GmProposalEvaluator=evaluator())=AiChatEngineFacade(
         FixedAiModelRoute(provider),Phase43IntentValidator(),TrustedIntentResolutionPort.NONE,IntentInterpretationFallback.NONE,
         GraphTurnPlanner(listOf(capability(false))),
         CanonicalIterativeRetrievalPipeline(StructuredSqlRetriever(emptyList()),SemanticContextBudgetManager(),TypedContextCompletionStrategy{_,_,_->emptyList()}),
-        ContextRuntimeProfile("E2E",16_000,200,200,1_000,200),BoundedProposalRepair(evaluator()),assembler,commit,
+        ContextRuntimeProfile("E2E",16_000,200,200,1_000,200),BoundedProposalRepair(proposalEvaluator),assembler,commit,
         PersistedCommitReceiptAuthority(CommittedReceiptLookup{TurnTransactionReceiptStore(db).committedTransaction(it)}),
         CommittedNarrationContextBuilder(CommittedNarrationReadPort{identity,receipt,_,_->PostCommitPlayerVisibleReadback(
             identity.campaignUid,identity.turnUid,identity.commandUid,identity.transactionUid,receipt.commitOrder!!,"P38:TEST",

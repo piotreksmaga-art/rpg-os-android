@@ -58,6 +58,8 @@ class NpcWorldDashboardReader(
             canonCharacters.profileFields(uid)
         }
         fun privateRows(kind:String,sql:String):VisibilityProjection<List<String>> = protectedProjection(audience,purpose,kind,uid) {
+            val table=requireNotNull(Regex("FROM ([a-z0-9_]+)").find(sql)).groupValues[1]
+            if(!optionalWorldPresentationPresent(saveDb,table))return@protectedProjection emptyList()
             val out=mutableListOf<String>()
             saveDb.rawQuery(sql,arrayOf(uid)).use { c -> while(c.moveToNext()) out += c.getString(0) }
             out
@@ -83,6 +85,7 @@ class NpcWorldDashboardReader(
     fun relationEdgesProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<RelationEdge>> {
         val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(audience.campaignUid, VisibilitySubjectKinds.RELATIONSHIP_DATA, "RELATION_EDGES"))
         return protectedReads(audience.campaignUid).policyRows(audience,purpose,VisibilitySubjectKinds.RELATIONSHIP_DATA,"RELATION_EDGES") {
+            if(!optionalWorldPresentationPresent(saveDb,"relationships_v2"))return@policyRows emptyList()
             val out = mutableListOf<RelationEdge>()
             saveDb.rawQuery("""SELECT entity_a_uid,entity_b_uid,relationship_type,relationship_score
                                FROM relationships_v2 ORDER BY ABS(relationship_score) DESC LIMIT 300""", null).use { c ->
@@ -99,6 +102,7 @@ class NpcWorldDashboardReader(
     fun economiesProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<EconomySummary>> {
         val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(audience.campaignUid, VisibilitySubjectKinds.ECONOMY_DATA, "ECONOMIES"))
         return protectedReads(audience.campaignUid).policyRows(audience,purpose,VisibilitySubjectKinds.ECONOMY_DATA,"ECONOMIES") {
+            if(!optionalWorldPresentationPresent(saveDb,"country_economies"))return@policyRows emptyList()
             val out = mutableListOf<EconomySummary>()
             saveDb.rawQuery("SELECT country_uid,treasury,prosperity,stability FROM country_economies ORDER BY treasury DESC", null).use { c ->
                 while (c.moveToNext()) out += EconomySummary(c.getString(0), c.getString(1), c.getString(2), c.getString(3))
@@ -113,6 +117,7 @@ class NpcWorldDashboardReader(
 
     fun warsProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<WarSummary>> =
         protectedProjection(audience,purpose,VisibilitySubjectKinds.PUBLIC_WAR_SUMMARY,"WARS") {
+            if(!optionalWorldPresentationPresent(saveDb,"active_world_events") || !optionalWorldPresentationPresent(saveDb,"timeline_events"))return@protectedProjection emptyList()
             val out = mutableListOf<WarSummary>()
             saveDb.rawQuery("""SELECT COALESCE(t.name,a.event_type),a.status,COALESCE(a.public_summary,'')
                                FROM active_world_events a LEFT JOIN timeline_events t ON t.timeline_uid=a.timeline_uid

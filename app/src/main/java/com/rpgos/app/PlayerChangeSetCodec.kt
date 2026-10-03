@@ -92,7 +92,8 @@ class TypedPlayerChangeRegistry private constructor(
     companion object {
         fun core(): TypedPlayerChangeRegistry = TypedPlayerChangeRegistry(
             coreChangeCodecs() + mapOf(PHASE37_KNOWLEDGE_CHANGE_KIND to phase37KnowledgeChangeCodec(), PHASE60_TIME_CHANGE_KIND to phase60TimeChangeCodec(),
-                NPC_BRAIN_CHANGE_KIND to npcBrainChangeCodec(),MECHANICAL_ACTOR_GENESIS_KIND to mechanicalActorGenesisCodec())
+                NPC_BRAIN_CHANGE_KIND to npcBrainChangeCodec(),MECHANICAL_ACTOR_GENESIS_KIND to mechanicalActorGenesisCodec(),
+                PHASE63_WORLD_CHANGE_KIND to phase63WorldChangeCodec())
         )
     }
 }

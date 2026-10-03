@@ -201,7 +201,7 @@ private fun GlowPanel(
 }
 
 private enum class AppRoute {
-    HOME, NEW_GAME, NARUTO_SETUP, CHARACTER_CREATOR, CONTINUE, SAVES, GALLERY, SETTINGS, ABOUT, CAMPAIGN
+    HOME, NEW_GAME, NARUTO_SETUP, NATIVE_SETUP, CHARACTER_CREATOR, CONTINUE, SAVES, GALLERY, SETTINGS, ABOUT, CAMPAIGN
 }
 
 private enum class CampaignTab(val label: String, val glyph: String) {
@@ -250,11 +250,13 @@ fun RpgOsApp(vm: RpgOsViewModel) {
 
         AppRoute.NEW_GAME -> WorldSelectionScreen(
             onBack = { route = AppRoute.HOME },
-            onNaruto = { route = AppRoute.NARUTO_SETUP }
+            onNaruto = { route = AppRoute.NARUTO_SETUP },
+            onNative = { route = AppRoute.NATIVE_SETUP }
         )
 
-        AppRoute.NARUTO_SETUP -> NarutoSetupScreen(
+        AppRoute.NARUTO_SETUP, AppRoute.NATIVE_SETUP -> CampaignSetupScreen(
             vm = vm,
+            initialNativeWorld = route == AppRoute.NATIVE_SETUP,
             onBack = { route = AppRoute.NEW_GAME },
             onEnterCampaign = { requiresCharacterCreation ->
                 route = if(requiresCharacterCreation) AppRoute.CHARACTER_CREATOR else AppRoute.CAMPAIGN
@@ -774,7 +776,8 @@ private fun CompactHomeCard(
 @Composable
 private fun WorldSelectionScreen(
     onBack: () -> Unit,
-    onNaruto: () -> Unit
+    onNaruto: () -> Unit,
+    onNative: () -> Unit
 ) {
     StandardPage(title = "Nowa gra", onBack = onBack) {
         LazyColumn(
@@ -788,7 +791,7 @@ private fun WorldSelectionScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    "Każdy świat jest osobnym modułem zasad, wiedzy i kampanii.",
+                    "Wybierz gotowy pakiet albo stwórz własny świat na neutralnych zasadach Core.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -835,22 +838,27 @@ private fun WorldSelectionScreen(
             }
 
             item {
-                Surface(
+                Card(
+                    onClick = onNative,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(22.dp),
-                    color = MaterialTheme.colorScheme.surface
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(
                         Modifier.padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text("Więcej światów w przyszłości", fontWeight = FontWeight.Bold)
+                        Text("Własny świat", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                         Text(
-                            "Architektura RPG OS jest już przygotowana na kolejne moduły.",
+                            "Opisz świat, epokę i miejsce startowe. World Pack nie jest wymagany.",
                             textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Spacer(Modifier.height(18.dp))
+                        Button(onClick = onNative, modifier = Modifier.fillMaxWidth()) {
+                            Text("Stwórz własny świat")
+                        }
                     }
                 }
             }
@@ -859,12 +867,17 @@ private fun WorldSelectionScreen(
 }
 
 @Composable
-private fun NarutoSetupScreen(
+private fun CampaignSetupScreen(
     vm: RpgOsViewModel,
+    initialNativeWorld: Boolean,
     onBack: () -> Unit,
     onEnterCampaign: (Boolean) -> Unit
 ) {
     var campaignName by remember { mutableStateOf("") }
+    var nativeWorld by remember(initialNativeWorld) { mutableStateOf(initialNativeWorld) }
+    var worldDescription by remember { mutableStateOf("") }
+    var worldEra by remember { mutableStateOf("") }
+    var startingPlace by remember { mutableStateOf("") }
     val creationUi by vm.campaignCreationUi.collectAsState()
 
     LaunchedEffect(creationUi.completedCampaignDir){
@@ -875,7 +888,7 @@ private fun NarutoSetupScreen(
         }
     }
 
-    StandardPage(title = "Naruto • Nowa kampania", onBack = onBack) {
+    StandardPage(title = "Nowa kampania", onBack = onBack) {
         LazyColumn(
             Modifier.fillMaxSize().padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -887,7 +900,7 @@ private fun NarutoSetupScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    "Na tym etapie RPG OS używa domyślnego pakietu świata Naruto. Rozbudowany kreator kampanii pojawi się w kolejnych wersjach.",
+                    "Wybierz pakiet Naruto albo własny świat. Opis świata nie przyznaje postaci specjalnych zdolności.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -897,6 +910,14 @@ private fun NarutoSetupScreen(
                     shape = RoundedCornerShape(22.dp)
                 ) {
                     Column(Modifier.padding(18.dp)) {
+                        Row(verticalAlignment=Alignment.CenterVertically) {
+                            RadioButton(selected=!nativeWorld,onClick={nativeWorld=false},enabled=!creationUi.inProgress)
+                            Text("Naruto / World Pack")
+                        }
+                        Row(verticalAlignment=Alignment.CenterVertically) {
+                            RadioButton(selected=nativeWorld,onClick={nativeWorld=true},enabled=!creationUi.inProgress)
+                            Text("Własny świat")
+                        }
                         OutlinedTextField(
                             value = campaignName,
                             onValueChange = { campaignName = it },
@@ -906,12 +927,26 @@ private fun NarutoSetupScreen(
                             singleLine = true
                         )
                         Spacer(Modifier.height(12.dp))
+                        if(nativeWorld) {
+                            OutlinedTextField(value=worldDescription,onValueChange={worldDescription=it.take(4096)},
+                                modifier=Modifier.fillMaxWidth(),label={Text("Opis świata")},enabled=!creationUi.inProgress)
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedTextField(value=worldEra,onValueChange={worldEra=it.take(120)},
+                                modifier=Modifier.fillMaxWidth(),label={Text("Epoka")},singleLine=true,enabled=!creationUi.inProgress)
+                            Spacer(Modifier.height(10.dp))
+                            OutlinedTextField(value=startingPlace,onValueChange={startingPlace=it.take(240)},
+                                modifier=Modifier.fillMaxWidth(),label={Text("Miejsce startowe")},enabled=!creationUi.inProgress)
+                            Spacer(Modifier.height(12.dp))
+                        }
                         Button(
                             onClick = {
-                                vm.createAndActivateCampaign(campaignName)
+                                vm.createAndActivateCampaign(campaignName,if(nativeWorld)NativeWorldCreationSpec(
+                                    campaignName.trim(),worldDescription.trim(),worldEra.trim(),startingPlace.trim()) else null)
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            enabled = !creationUi.inProgress
+                            enabled = !creationUi.inProgress && (!nativeWorld ||
+                                (campaignName.isNotBlank() && campaignName.trim().length<=120 && worldDescription.isNotBlank() &&
+                                    worldEra.isNotBlank() && startingPlace.isNotBlank()))
                         ) {
                             if(creationUi.inProgress){
                                 CircularProgressIndicator(
@@ -1067,7 +1102,7 @@ private fun CharacterDraftLockPanel(
         "${label(choice.definitionUid,choice.dimensionUid)}: ${number(choice.value)}"
     }
     fun values(section:CharacterCreationDraftSection)=when(section){
-        CharacterCreationDraftSection.IDENTITY->listOf(draft.displayName,draft.genderUid)+draft.identityChoices.toSortedMap().map{"${it.key}: ${if(it.value=="ACADEMY_STUDENT")"uczeń Akademii" else it.value}"}
+        CharacterCreationDraftSection.IDENTITY->listOf(draft.displayName,draft.genderUid)+draft.identityChoices.filterKeys { it!="RANDOM_SEED" }.toSortedMap().map{"${it.key}: ${if(it.value=="ACADEMY_STUDENT")"uczeń Akademii" else it.value}"}
         CharacterCreationDraftSection.ORIGIN->draft.originUids.map{label(it)}
         CharacterCreationDraftSection.INNATE_FEATURES->draft.innateFeatureUids.map{label(it)}
         CharacterCreationDraftSection.PROGRESSION->choices(draft.stats)+choices(draft.resources)+choices(draft.talents)+choices(draft.potentials)
@@ -2934,6 +2969,9 @@ private fun AiProviderCenterScreen(vm:RpgOsViewModel){
                 AiPrivacySwitch("Zezwól na chmurę",state.privacy.cloudAllowed){vm.updateAiPrivacy(state.privacy.copy(cloudAllowed=it))}
                 AiPrivacySwitch("Tekst gracza może trafić do chmury",state.privacy.cloudAllowedForPlayerText){vm.updateAiPrivacy(state.privacy.copy(cloudAllowedForPlayerText=it))}
                 AiPrivacySwitch("Director może używać chmury",state.privacy.cloudAllowedForDirector){vm.updateAiPrivacy(state.privacy.copy(cloudAllowedForDirector=it))}
+                AiPrivacySwitch("Sprawdzaj odniesienia świata w Internecie",state.privacy.worldScoutAllowed){vm.updateAiPrivacy(state.privacy.copy(worldScoutAllowed=it))}
+                Text("Osobna zgoda: do wyszukiwarki trafia tylko krótkie odniesienie i potrzebny kontekst, nie historia kampanii.",
+                    color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         item{

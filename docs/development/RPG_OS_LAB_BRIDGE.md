@@ -401,6 +401,34 @@ Wywołania `NPC_DECISION` oraz `NPC_DIALOGUE` widać przez `GET_LAST_AI_EXCHANGE
 
 Panel LAB pokazuje też podsumowania `npc_decision`/`npc_dialogue` (model, korelacja, użycie i błędy), bez promptów. `GET_NPC_STATE` raportuje limit czterech kroków sekwencji i obowiązek ponownej kontroli każdego kroku. `next_actions` w Brain oznacza zamiar, nie wykonany efekt; `previous_plan` łączy rzeczywiście rozpoczęte kroki. Brak kontynuacji po utracie możliwości lub granicy decyzji gracza jest zamierzony.
 
+### 10.4 Diagnostyka świata Phase63
+
+`GET_WORLD_STATE {}` jest odczytem: raportuje źródło i wersję szkieletu, generation,
+aktualną kotwicę, autoryzowane połączenia/populacje oraz stan procesu świata.
+Nie inicjalizuje starych kampanii ani nie zapisuje canonical SQL.
+`PREVIEW_WORLD_REFERENCE` przyjmuje `phrase`, opcjonalnie `base_kind`, `category`
+i `affordances`; zwraca EXISTING, CANDIDATE, UNKNOWN lub REJECTED. CANDIDATE nie
+oznacza materializacji, przejścia ani zdobycia wiedzy o trasie. Preview nie wykonuje commitu.
+
+`CREATE_CAMPAIGN` obsługuje jawne `source_kind=CAMPAIGN_NATIVE` z `name`,
+`description`, `era`, `starting_place`. Korzysta z tego samego bootstrapu co UI;
+nie tworzy fikcyjnego World Packa. Domyślny WORLD_PACK pozostaje zgodny.
+Opcjonalny `WORLD_DRAFT` używa istniejących schematów i routingu. Nie ma własnego
+runtime ani permission do nadania statystyk, UID lub wyniku działania.
+
+Przy ręcznym odbiorze aktywnym czatem: zarejestrować sesję, przypiąć MG i Directora do LAB,
+utrzymywać heartbeat i przejmować tylko żądania, na które tester jest gotowy
+odpowiedzieć w terminie. Odpowiedzi przekazywać przez `COMPLETE_AI_REQUEST` ze
+schematem i korelacją danego workloadu. Nie uruchamiać automatycznego hosta AI.
+`CLAIM_AI_REQUEST` wybiera kolejkę przez `lane=GAME_MASTER` lub `lane=DIRECTOR`
+(nie `queue_uid`). Kolejka MG obejmuje również `NPC_DIALOGUE` i `NPC_DECISION`;
+po odpowiedzi MG należy obsłużyć te żądania przed narracją. Sprawdzić diagnostykę
+procesu poznawczego NPC: udana narracja nie ukrywa ani nie zalicza timeoutu decyzji.
+Po awarii najpierw sprawdzić receipt/recovery; po commicie odzyskiwać samą narrację.
+Samo utrzymywanie połączenia nie generuje odpowiedzi. Prywatnych traces/bundles
+nie dołączać do publicznego wydania. Stan implementacji i niezamknięte bramki:
+`docs/architecture/PHASE63_WORLD_SIMULATION_IMPLEMENTATION.md`.
+
 ## 11. Relacja do pozostałych dokumentów
 
 ### Oddzielna instalacja odbiorowa 61–62

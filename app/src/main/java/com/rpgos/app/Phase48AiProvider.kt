@@ -10,7 +10,8 @@ enum class AiWorkload {
     DIRECTOR_STRATEGY,
     MEMORY_ENRICHMENT,
     NPC_DECISION,
-    NPC_DIALOGUE
+    NPC_DIALOGUE,
+    WORLD_DRAFT
 }
 enum class AiProviderKind { LOCAL, CLOUD, CONTROLLED_TEST }
 enum class AiProviderFailureKind { CANCELLED, UNAVAILABLE, TIMEOUT, INVALID_STRUCTURED_OUTPUT, CAPABILITY_MISMATCH, INTERNAL_FAILURE }
@@ -124,6 +125,8 @@ data class RenderedNarrative(
 
 interface AiProvider{
     val capabilities:AiCapabilityContract
+    fun draftWorld(request:AiWorldDraftRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<WorldDraftCandidate> =
+        AiProviderResult.Failure(AiProviderFailureKind.CAPABILITY_MISMATCH,"WORLD_DRAFT_UNSUPPORTED")
     fun interpret(request:AiIntentRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<IntentDocument>
     fun propose(request:AiGmProposalRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<GmProposalCandidate>
     fun repair(request:AiRepairRequest,cancellation:AiCancellationSignal=AiCancellationSignal.NONE):AiProviderResult<GmProposalCandidate>
@@ -180,6 +183,8 @@ fun interface AiStructuredTransport{
 class AiTransportException(val reasonUid:String,val retryable:Boolean=false,cause:Throwable?=null):RuntimeException(reasonUid,cause){init{require(reasonUid.isNotBlank())}}
 
 interface AiStructuredCodec{
+    fun encodeWorldDraft(request:AiWorldDraftRequest):String=WorldDraftCodec.encode(request)
+    fun decodeWorldDraft(payload:String,request:AiWorldDraftRequest):WorldDraftCandidate=WorldDraftCodec.decode(payload,request)
     fun encodeIntent(request:AiIntentRequest):String
     fun decodeIntent(payload:String):IntentDocument
     fun decodeIntent(payload:String,request:AiIntentRequest):IntentDocument=decodeIntent(payload)
@@ -220,6 +225,10 @@ class TransportAiProviderAdapter(
     override fun interpret(request:AiIntentRequest,cancellation:AiCancellationSignal)=call(
         request.requestUid,AiWorkload.INTENT_INTERPRETATION,request.schemaVersion,codec.encodeIntent(request),cancellation,
         {payload->codec.decodeIntent(payload,request)}
+    )
+    override fun draftWorld(request:AiWorldDraftRequest,cancellation:AiCancellationSignal)=call(
+        request.requestUid,AiWorkload.WORLD_DRAFT,1,codec.encodeWorldDraft(request),cancellation,
+        { payload->codec.decodeWorldDraft(payload,request) }
     )
     override fun propose(request:AiGmProposalRequest,cancellation:AiCancellationSignal)=call(
         request.requestUid,AiWorkload.GM_PROPOSAL,request.proposalSchemaVersion,codec.encodeProposal(request),cancellation,

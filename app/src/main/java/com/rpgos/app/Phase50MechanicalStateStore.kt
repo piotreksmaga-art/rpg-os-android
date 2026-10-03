@@ -21,7 +21,8 @@ internal object Phase50MechanicalSchema {
         "mechanical_actor_components",
         "mechanical_actor_tracks",
         "aggregate_combat_populations",
-        "aggregate_combat_conditions"
+        "aggregate_combat_conditions",
+        Phase63PopulationSchema.PARTITIONS
     )
 
     fun ensureReady(db: SQLiteDatabase) {
@@ -106,7 +107,8 @@ internal data class MechanicalActorSeed(
     val traits:Set<String> = emptySet(),
     val resistances:Map<String,Long> = emptyMap(),
     val aggregateName:String? = null,
-    val aggregateCount:Long? = null
+    val aggregateCount:Long? = null,
+    val materialization:MechanicalStateMaterialization=MechanicalStateMaterialization.FULL
 )
 
 /** Canonical Phase50 owner. It assumes its caller already owns ADMIN or TURN authority. */
@@ -114,10 +116,11 @@ internal class MechanicalActorStateStore(private val db:SQLiteDatabase,private v
     init{require(campaignUid.isNotBlank())}
 
     fun materializeIfMissing(seed:MechanicalActorSeed){
-        require(seed.ref.kindUid.isNotBlank()&&seed.ref.uid.isNotBlank()&&seed.attributes.isNotEmpty()&&seed.abilities.isNotEmpty())
+        require(seed.ref.kindUid.isNotBlank()&&seed.ref.uid.isNotBlank()&&
+            (seed.materialization!=MechanicalStateMaterialization.FULL || (seed.attributes.isNotEmpty()&&seed.abilities.isNotEmpty())))
         val inserted=db.compileStatement("INSERT OR IGNORE INTO mechanical_actor_states(campaign_id,entity_kind_uid,entity_uid,actor_kind_uid,materialization_uid,template_uid,generation_seed_uid,generation_provenance_uid,state_version,updated_order) VALUES(?,?,?,?,?,?,?,?,1,0)").use{
             it.bindString(1,campaignUid);it.bindString(2,seed.ref.kindUid);it.bindString(3,seed.ref.uid);it.bindString(4,seed.kind.name)
-            it.bindString(5,MechanicalStateMaterialization.FULL.name);it.bindString(6,seed.templateUid);it.bindString(7,seed.seedUid);it.bindString(8,seed.provenanceUid)
+            it.bindString(5,seed.materialization.name);it.bindString(6,seed.templateUid);it.bindString(7,seed.seedUid);it.bindString(8,seed.provenanceUid)
             it.executeInsert()!=-1L
         }
         if(!inserted)return
@@ -183,13 +186,13 @@ internal class MechanicalActorStateStore(private val db:SQLiteDatabase,private v
             if(!c.moveToFirst())null else longArrayOf(c.getLong(0),c.getLong(1),c.getLong(2),c.getLong(3))
         }?:return null
         val conditions=longMap("aggregate_combat_conditions","condition_uid","affected_count",ref)
-        return AggregateMechanicalPopulation(base[0],base[1],base[2],base[3],conditions)
+        return AggregateMechanicalPopulation(Math.subtractExact(base[0],Phase50PopulationPartition.namedCount(db,campaignUid,ref)),base[1],base[2],base[3],conditions)
     }
 
     fun aggregateTargets(phrase:String):List<Pair<String,DomainRef>>{
         if(phrase.isBlank())return emptyList()
         val out=mutableListOf<Pair<String,DomainRef>>()
-        db.rawQuery("SELECT display_name,entity_kind_uid,entity_uid FROM aggregate_combat_populations WHERE campaign_id=? AND lower(display_name) LIKE lower(?) ORDER BY display_name,entity_uid LIMIT 100",arrayOf(campaignUid,"%$phrase%")).use{c->while(c.moveToNext())out+=c.getString(0) to DomainRef(c.getString(1),c.getString(2))}
+        db.rawQuery("SELECT display_name,entity_kind_uid,entity_uid FROM aggregate_combat_populations WHERE campaign_id=? AND active_count+wounded_count>0 AND lower(display_name) LIKE lower(?) ORDER BY display_name,entity_uid LIMIT 100",arrayOf(campaignUid,"%$phrase%")).use{c->while(c.moveToNext())out+=c.getString(0) to DomainRef(c.getString(1),c.getString(2))}
         return out
     }
 
@@ -354,19 +357,7 @@ internal object WorldActorMechanicalBootstrap{
         try{
         Phase50MechanicalSchema.ensureReady(saveDb)
         val store=MechanicalActorStateStore(saveDb,campaignUid)
-        ActivePlayerStore(saveDb,campaignUid).active()?.let{active->
-            val statStore=StatResourceStore(saveDb,campaignUid)
-            val keys=statStore.statDefinitions().associate{it.statUid to it.key.uppercase()}
-            val raw=statStore.playerStats(active.playerUid).associate{(keys[it.statUid]?:it.statUid.uppercase()) to it.baseValue.toLong()}
-            val fallback=raw.values.sorted().let{values->if(values.isEmpty())50L else values[values.size/2]}
-            fun canonical(vararg hints:String)=raw.entries.firstOrNull{entry->hints.any{it in entry.key}}?.value?:fallback
-            val attributes=raw+mapOf("POWER" to canonical("POWER","STRENGTH","ATTACK"),"SKILL" to canonical("SKILL","DEXTERITY","ACCURACY"),
-                "DEFENCE" to canonical("DEFENCE","DEFENSE","ARMOR"),"AGILITY" to canonical("AGILITY","SPEED","REFLEX"),"ARMOR" to canonical("ARMOR","DEFENCE","DEFENSE"))
-            val resources=statStore.playerResources(active.playerUid).map{MechanicalResource(it.resourceUid,it.currentValue.toLong().coerceAtLeast(0),it.currentValue.toLong().coerceAtLeast(1))}
-            val abilities=(SkillStore(saveDb,campaignUid).playerSkills(active.playerUid).map{it.skillUid}+TechniqueStore(saveDb,campaignUid).playerTechniques(active.playerUid).map{it.techniqueUid}+"ATTACK").toSet()
-            store.materializeIfMissing(MechanicalActorSeed(DomainRef("PLAYER",active.playerUid),MechanicalActorKind.ACTIVE_PLAYER,"PLAYER-DOMAIN",active.playerUid,
-                "PLAYER-DOMAIN:${active.playerUid}",attributes,resources,abilities))
-        }
+        materializeActivePlayer(saveDb,campaignUid)
         CanonCharacterProjectionReader(worldDb).list("").forEach{npc->store.completeLegacyActor(seed(DomainRef("NPC",npc.uid),MechanicalActorKind.NPC,npc.name,null))}
         WorldReader(worldDb,saveDb).locations().forEach{location->store.materializeIfMissing(seed(DomainRef("LOCATION",location.uid),MechanicalActorKind.WORLD_ACTOR,location.name,null))}
         materializeCampaignProjectionActors(saveDb,campaignUid,store)
@@ -381,6 +372,25 @@ internal object WorldActorMechanicalBootstrap{
         }}
         if(ownsTransaction)saveDb.setTransactionSuccessful()
         }finally{if(ownsTransaction&&saveDb.inTransaction())saveDb.endTransaction()}
+    }
+
+    /** The confirmed player's domain data is sufficient; this never imports a World Pack or
+     * materializes NPCs during a read. Called only by the administrative creation owner. */
+    fun materializeActivePlayer(saveDb:SQLiteDatabase,campaignUid:String) {
+        val store=MechanicalActorStateStore(saveDb,campaignUid)
+        ActivePlayerStore(saveDb,campaignUid).active()?.let{active->
+            val statStore=StatResourceStore(saveDb,campaignUid)
+            val keys=statStore.statDefinitions().associate{it.statUid to it.key.uppercase()}
+            val raw=statStore.playerStats(active.playerUid).associate{(keys[it.statUid]?:it.statUid.uppercase()) to it.baseValue.toLong()}
+            val fallback=raw.values.sorted().let{values->if(values.isEmpty())50L else values[values.size/2]}
+            fun canonical(vararg hints:String)=raw.entries.firstOrNull{entry->hints.any{it in entry.key}}?.value?:fallback
+            val attributes=raw+mapOf("POWER" to canonical("POWER","STRENGTH","ATTACK"),"SKILL" to canonical("SKILL","DEXTERITY","ACCURACY"),
+                "DEFENCE" to canonical("DEFENCE","DEFENSE","ARMOR"),"AGILITY" to canonical("AGILITY","SPEED","REFLEX"),"ARMOR" to canonical("ARMOR","DEFENCE","DEFENSE"))
+            val resources=statStore.playerResources(active.playerUid).map{MechanicalResource(it.resourceUid,it.currentValue.toLong().coerceAtLeast(0),it.currentValue.toLong().coerceAtLeast(1))}
+            val abilities=(SkillStore(saveDb,campaignUid).playerSkills(active.playerUid).map{it.skillUid}+TechniqueStore(saveDb,campaignUid).playerTechniques(active.playerUid).map{it.techniqueUid}+"ATTACK").toSet()
+            store.materializeIfMissing(MechanicalActorSeed(DomainRef("PLAYER",active.playerUid),MechanicalActorKind.ACTIVE_PLAYER,"PLAYER-DOMAIN",active.playerUid,
+                "PLAYER-DOMAIN:${active.playerUid}",attributes,resources,abilities))
+        }
     }
 
     /**

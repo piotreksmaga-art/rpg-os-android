@@ -6,7 +6,8 @@ internal data class RegisteredTemporalOwner(val versionUid:String,val owner:Worl
 
 internal sealed interface ProductionTemporalExecutionResult {
     data class Completed(val work:TemporalExecutionResult,val change:TemporalStateChange,
-                         val effects:List<VerifiedMechanicsCommandEffect>,val npcBrains:List<NpcBrainChange> = emptyList()):ProductionTemporalExecutionResult
+                         val effects:List<VerifiedMechanicsCommandEffect>,val npcBrains:List<NpcBrainChange> = emptyList(),
+                         val worldChanges:List<WorldSimulationChange> = emptyList()):ProductionTemporalExecutionResult
     data class Rejected(val reasonUid:String):ProductionTemporalExecutionResult
 }
 
@@ -46,7 +47,7 @@ internal class Phase60ProductionExecution(
         // CACHE is not authority. On restart deterministically replay the speculative prefix
         // from canonical input/rules; never turn cached deltas or cached owner text into truth.
         val answers=linkedMapOf<String,TemporalOwnerResult.Evaluated>()
-        var result=processor.advance(initial,currentScope(),cancelled)
+        var result=processor.advance(initial,currentScope(),cancelled,maxBoundaries=32,maxWallMillis=50)
         while(result.reason in setOf(TemporalStopReason.YIELDED,TemporalStopReason.OWNER_EVALUATION_REQUIRED)) {
             if(result.reason==TemporalStopReason.OWNER_EVALUATION_REQUIRED) {
                 if(answers.size>=32)return reject("P62:EVALUATION_BUDGET")
@@ -66,7 +67,7 @@ internal class Phase60ProductionExecution(
             }
             checkpoints.save(result.checkpoint)
             Thread.yield()
-            result=processor.advance(result.checkpoint,currentScope(),cancelled,evaluations=answers)
+            result=processor.advance(result.checkpoint,currentScope(),cancelled,maxBoundaries=32,maxWallMillis=50,evaluations=answers)
         }
         if(!result.readyForAdmission) return reject("P60:${result.reason.name}")
         if(cancelled()) return reject("P60:CANCELLED")
@@ -79,9 +80,10 @@ internal class Phase60ProductionExecution(
         val selected=try { Phase60SegmentEffects.select(effects,work,policies) }
             catch(_:IllegalArgumentException){return reject("P60:EFFECT_TIMING_RULE_REJECTED")}
         val npcBrains=work.candidateChanges.filterIsInstance<NpcBrainChange>()
-        val background=try { Phase60SegmentEffects.background(phase60CoalesceChanges(work.candidateChanges.filterNot{it is NpcBrainChange}),work) }
+        val worldChanges=work.candidateChanges.filterIsInstance<WorldSimulationChange>()
+        val background=try { Phase60SegmentEffects.background(phase60CoalesceChanges(work.candidateChanges.filterNot{it is NpcBrainChange || it is WorldSimulationChange}),work) }
             catch(_:IllegalStateException){return reject("P60:PROCESS_EFFECT_ADAPTER_REQUIRED")}
-        return ProductionTemporalExecutionResult.Completed(result,change,selected+background+work.candidateEffects,npcBrains)
+        return ProductionTemporalExecutionResult.Completed(result,change,selected+background+work.candidateEffects,npcBrains,worldChanges)
     }
 }
 
