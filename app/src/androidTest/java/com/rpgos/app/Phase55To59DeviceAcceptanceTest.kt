@@ -28,7 +28,10 @@ class Phase55To59DeviceAcceptanceTest {
             val active=createPlayer(repository)
             val campaign=active.campaignId
             assertDerivedMemoryDoesNotChangeCanonicalDigest(campaign)
-            val location=repository.worldLocations().first()
+            // This memory/Undo scenario moves inside the player's actual starting place;
+            // an arbitrary first map entry may now correctly require an unknown route.
+            val anchor=requireNotNull(repository.infrastructureEntityLocationUid(active.playerUid))
+            val location=repository.worldLocations().single { it.uid==anchor }
             val selection=AiModelSelection("DEVICE-CONTROLLED","MODEL-1")
             val provider=movementProvider(campaign,location,selection)
             val configuration=AiSystemConfiguration(

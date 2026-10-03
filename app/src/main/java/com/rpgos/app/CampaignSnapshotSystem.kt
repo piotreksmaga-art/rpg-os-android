@@ -22,6 +22,7 @@ object CampaignReplayAuthorityMatrix {
     /** Authority families directly mutated by the currently accepted CanonicalPlayerChangeApplier payloads. */
     val replayableFamilyUids:Set<String> = setOf(
         "ACTION_TIME_AUTHORITY",
+        "WORLD_SIMULATION_AUTHORITY",
         "NPC_BRAIN_AUTHORITY",
         "CAMPAIGN_TRUTH","CANON_DIVERGENCE","BASE_STATS_RESOURCES","SKILLS_TECHNIQUES","INVENTORY","EQUIPMENT_LOADOUT",
         "OWNERSHIP_REFERENCE_STATE","OWNERSHIP_HISTORY","FINANCE_AUTHORITY","ASSET_LIABILITY_AUTHORITY",
@@ -760,7 +761,7 @@ internal object AuthoritativeStateDigest {
     fun compute(db:SQLiteDatabase):String { val md=MessageDigest.getInstance("SHA-256");RuntimeTruthLayerRegistry.authoritativePersistentTables().filter{tableExists(db,it)}.filter { table ->
         // An absent or empty additive Phase60 family is the same pre-Phase60 state. This
         // preserves historical receipt digests across migration; populated rows are ALWAYS hashed.
-        (table != Phase60TemporalSchema.TABLE && table !in Phase61NpcSchema.authoritativeTables) ||
+        (table != Phase60TemporalSchema.TABLE && table !in Phase61NpcSchema.authoritativeTables && table !in Phase63WorldSchema.authoritativeTables && table!=Phase63PopulationSchema.PARTITIONS) ||
             db.rawQuery("SELECT 1 FROM `$table` LIMIT 1",null).use { it.moveToFirst() }
     }.sorted().forEach{t->
         val columns=db.rawQuery("PRAGMA table_info(`$t`)",null).use{c->buildList{while(c.moveToNext())add(c.getString(1))}}

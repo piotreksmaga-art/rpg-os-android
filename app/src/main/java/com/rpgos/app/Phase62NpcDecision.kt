@@ -14,11 +14,15 @@ data class NpcTrigger(val uid:String,val kind:NpcTriggerKind,val atTime:WorldTim
     init { npcUid(uid) }
 }
 enum class NpcMemoryRecordKind { CURRENT_KNOWLEDGE, HISTORICAL_ACQUISITION, SEMANTIC_ASSERTION }
+/** Phase37 state identities compose holder + claim + scope and legitimately exceed the
+ * 160-character NPC decision/goal UID bound. Preserve the canonical identity, not an alias.
+ * Cardinality and Phase45 context budgets remain unchanged. */
+internal fun npcKnowledgeRecordUid(value:String) { require(value.isNotBlank() && value.length<=512) { "P62:INVALID_KNOWLEDGE_RECORD_UID" } }
 data class NpcKnownRecord(val uid:String,val epistemicState:KnowledgeEpistemicState,val projectedText:String,
                           val acquisitionUid:String,val sourceVersion:Long,val subjectRefs:Set<DomainRef> = emptySet(),val sourceCommittedOrder:Long=0,
                           val memoryKind:NpcMemoryRecordKind=NpcMemoryRecordKind.CURRENT_KNOWLEDGE,
                           val sourceEventUid:String?=null) {
-    init { npcUid(uid);npcText(projectedText);npcUid(acquisitionUid);require(sourceVersion>=0 && sourceCommittedOrder>=0 && subjectRefs.size<=2) }
+    init { npcKnowledgeRecordUid(uid);npcText(projectedText);npcUid(acquisitionUid);require(sourceVersion>=0 && sourceCommittedOrder>=0 && subjectRefs.size<=2) }
 }
 data class NpcTraitPreference(val traitUid:String,val preferred:NpcWeight,val weight:NpcWeight) {
     init { npcUid(traitUid) }
@@ -48,7 +52,8 @@ data class NpcActionOption(
         require(valueAlignment.size<=16 && emotionalAffinity.size<=16 && roleAlignment.size<=16)
         require(motivationAlignment.size<=16);motivationAlignment.keys.forEach(::npcUid)
         (valueAlignment.keys+emotionalAffinity.keys+roleAlignment.keys).forEach(::npcUid)
-        (supportingRecordUids+resourceCosts.keys+parameters.keys).forEach(::npcUid)
+        supportingRecordUids.forEach(::npcKnowledgeRecordUid)
+        (resourceCosts.keys+parameters.keys).forEach(::npcUid)
     }
 }
 

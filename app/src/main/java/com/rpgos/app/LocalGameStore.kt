@@ -127,7 +127,12 @@ internal class LocalGameStore(private val context: Context) {
         withAdministrativeMutationAuthority(db, campaignUid) { block(db, campaignUid) }
     }
 
-    fun openWorldDb(): SQLiteDatabase = SQLiteDatabase.openDatabase(File(worldDir, "world.db").absolutePath, null, SQLiteDatabase.OPEN_READONLY)
+    fun openWorldDb(): SQLiteDatabase {
+        val authority=selection.currentWorldPackAuthority()
+        if(authority.binding.sourceKind==CampaignRuleSourceKind.CAMPAIGN_NATIVE)
+            return openGameplaySaveDb().use { NativeWorldReadDatabase.open(it,authority.campaignUid) }
+        return SQLiteDatabase.openDatabase(File(worldDir,"world.db").absolutePath,null,SQLiteDatabase.OPEN_READONLY)
+    }
     fun openCoreDb(): SQLiteDatabase = SQLiteDatabase.openDatabase(File(coreDir, "rpg_core.db").absolutePath, null, SQLiteDatabase.OPEN_READONLY)
 
     fun buildContext(playerInput: String, chapter: Int, audience: AudienceContext, purpose: PurposeContext): ContextBundle {
@@ -199,8 +204,13 @@ internal class LocalGameStore(private val context: Context) {
         openGameplaySaveDb().use{db->
             val catalog=characterCreationCatalog(db)
             val campaignUid=selection.activeCampaignRef().campaignId
-            val receipt=PlayerCharacterBootstrapService(db,campaignUid,selection.currentWorldPackAuthority().binding.worldPackUid,catalog).commit(draft,confirmation)
-            materializeWorldActorsWithAuthority(db,campaignUid)
+            val receipt=withAdministrativeMutationAuthority(db,campaignUid) {
+                PlayerCharacterBootstrapService(db,campaignUid,selection.currentWorldPackAuthority().binding.worldPackUid,catalog).commit(draft,confirmation)
+                    .also { materializeWorldActorsWithAuthority(db,campaignUid) }
+            }
+            // A pre-character baseline cannot reproduce the first gameplay prefix. Refresh it
+            // at order zero only; never rewrite a committed receipt or historical digest.
+            ensureUndoBaseline(db,campaignUid,CampaignSnapshotManager(db,campaignUid,File(saveDir,"snapshots")))
             receipt
         }
     fun playerState(): PlayerStateSnapshot? { openGameplaySaveDb().use { db -> return PlayerStateStore(db, selection.activeCampaignRef().campaignId).load() } }
@@ -328,6 +338,15 @@ internal class LocalGameStore(private val context: Context) {
         invalidateSemanticSidecar(campaignUid)
         active.absolutePath
     }
+    fun createNativeCampaign(spec:NativeWorldCreationSpec):File=SemanticCampaignTransitionRegistry.withCampaignStorageTransition {
+        selection.createNativeCampaign(spec,beforeActivation={created,uid->
+            SQLiteDatabase.openDatabase(File(created,"campaign.db").absolutePath,null,SQLiteDatabase.OPEN_READWRITE).use { db ->
+                CampaignSnapshotManager(db,uid,File(created,"snapshots")).create(SnapshotKind.UNDO_BASELINE,pinned=true)
+            }
+        }) { db,uid,binding ->
+            prepareCampaignRuntime(db,uid,nativeBinding=binding)
+        }
+    }
     fun previewUndoLastTurn():UndoPreview=openGameplaySaveDb().use{db->
         val campaignUid=selection.activeCampaignRef().campaignId
         val preview=DestructiveTurnUndoCoordinator(db,campaignUid,File(saveDir,"snapshots"),File(saveDir,"campaign.db")).previewLastTurn()
@@ -383,19 +402,25 @@ internal class LocalGameStore(private val context: Context) {
      * A template can already contain Phase 32 guards, so even additive schema/default-definition
      * writes must carry ADMIN authority before the normal gameplay-ready verification is restored.
      */
-    private fun prepareCampaignRuntime(saveDb:SQLiteDatabase,campaignUid:String,repairLegacyRows:Boolean=false){
+    private fun prepareCampaignRuntime(saveDb:SQLiteDatabase,campaignUid:String,repairLegacyRows:Boolean=false,
+                                       nativeBinding:WorldPackRuleBinding?=null){
         CampaignRuntimeLifecycleLock.withRecovery(campaignUid){
             val prepare={
-                ensureCurrentSchema(saveDb)
+                CurrentSchema.ensure(saveDb,campaignUid)
                 Phase62ActivitySchema.ensureReady(saveDb)
                 // Repair may introduce classified historical families. Complete it before the
                 // final guard installation; no ordinary read is allowed to repair missing guards.
                 if(repairLegacyRows)runCatching{AutoRepairEngine().repair(saveDb)}
                     .onFailure{DiagnosticLogger.log(context,"AUTO_REPAIR_BOOT_FAILED",it)}
                 UniversalInventoryDefinitionBootstrap.ensure(saveDb,campaignUid)
-                ensureCharacterCreationDefinitions(saveDb,campaignUid)
-                materializeWorldActors(saveDb,campaignUid)
-                if(File(worldDir,"world.db").isFile)openWorldDb().use{world->
+                val native=nativeBinding?:selection.activeNativeRuleBinding()
+                if(native!=null) {
+                    SQLiteDatabase.create(null).use { neutral->CharacterCreationDefinitionBootstrap(saveDb,neutral,native).ensure() }
+                } else {
+                    ensureCharacterCreationDefinitions(saveDb,campaignUid)
+                    materializeWorldActors(saveDb,campaignUid)
+                }
+                if(native==null && File(worldDir,"world.db").isFile)openWorldDb().use{world->
                     NpcActivityActorImport.importPack(saveDb,world,campaignUid)
                     NpcDutyAssignmentImport.importPack(saveDb,world,campaignUid,selection.currentWorldPackAuthority().binding)
                 }
@@ -409,11 +434,13 @@ internal class LocalGameStore(private val context: Context) {
     }
 
     private fun materializeWorldActors(saveDb:SQLiteDatabase,campaignUid:String){
+        if(selection.activeNativeRuleBinding()!=null)return
         if(!File(worldDir,"world.db").isFile)return
         openWorldDb().use{world->WorldActorMechanicalBootstrap.materialize(world,saveDb,campaignUid)}
     }
     private fun materializeWorldActorsWithAuthority(saveDb:SQLiteDatabase,campaignUid:String){
-        val action={materializeWorldActors(saveDb,campaignUid)}
+        val action={if(selection.activeNativeRuleBinding()!=null)WorldActorMechanicalBootstrap.materializeActivePlayer(saveDb,campaignUid)
+            else materializeWorldActors(saveDb,campaignUid)}
         if(!GameplayMutationDatabaseGuards.isInstalled(saveDb))GameplayRuntimeBootstrap.initialize(saveDb,campaignUid)
         withAdministrativeMutationAuthority(saveDb,campaignUid,action)
     }
@@ -422,6 +449,12 @@ internal class LocalGameStore(private val context: Context) {
         // Historical migration/restore fixtures can legitimately omit the World Pack package.
         // They still migrate, but no character definitions may be invented for a missing or
         // invalid authority. Normal bootstrap installs and validates the pack before this point.
+        val native=selection.activeNativeRuleBinding()
+        if(native!=null) {
+            val install={SQLiteDatabase.create(null).use { neutral->CharacterCreationDefinitionBootstrap(saveDb,neutral,native).ensure() }}
+            if(GameplayMutationDatabaseGuards.isInstalled(saveDb))withAdministrativeMutationAuthority(saveDb,campaignUid,install) else install()
+            return
+        }
         if(!File(worldDir,"world.db").isFile)return
         val worldPack=selection.currentWorldPackAuthority().binding
         val install={
@@ -448,6 +481,12 @@ internal class LocalGameStore(private val context: Context) {
             val playerUid = ActivePlayerStore(db, selection.activeCampaignRef().campaignId).active()?.playerUid
             var location = "—"
             try { if (playerUid != null) db.rawQuery("SELECT location_uid FROM entity_positions WHERE entity_uid=? LIMIT 1", arrayOf(playerUid)).use { if (it.moveToFirst()) location = it.getString(0) ?: "—" } } catch (_: Exception) {}
+            if(selection.currentWorldPackAuthority().binding.sourceKind==CampaignRuleSourceKind.CAMPAIGN_NATIVE && location!="—") {
+                // The player's own anchor is not a technical label. Only a public canonical
+                // projection may supply its name; hidden records never become UI evidence.
+                location=CampaignWorldProjectionStore(db,selection.activeCampaignRef().campaignId)
+                    .canonicalElement(location)?.displayName?:"Nieznane miejsce"
+            }
             StatusSnapshot(location = location)
         }
     }
@@ -480,7 +519,8 @@ internal class LocalGameStore(private val context: Context) {
             "SELECT COALESCE(SUM(LENGTH(player_change_set_json)+LENGTH(causal_plan_json)),0) FROM ${CampaignSnapshotSchema.REPLAY} WHERE campaign_uid=? AND commit_order>?",
             arrayOf(campaignUid,(latest?.anchorCommitOrder?:0L).toString())
         ).use{c->c.moveToFirst();c.getLong(0)}
-        if(latest==null||currentOrder-latest.anchorCommitOrder>=25L||replayBytes>=32L*1024L*1024L){
+        val pristineChanged=currentOrder==0L && latest?.anchorAuthoritativeDigest!=AuthoritativeStateDigest.compute(db)
+        if(latest==null||pristineChanged||currentOrder-latest.anchorCommitOrder>=25L||replayBytes>=32L*1024L*1024L){
             manager.create(SnapshotKind.UNDO_BASELINE,pinned=true)
             manager.pruneUndoBaselines()
         }

@@ -20,12 +20,20 @@ class WorldReader(
 
     fun locations(search: String = ""): List<WorldLocationItem> {
         val out = mutableListOf<WorldLocationItem>()
+        // Only the disposable native-world view has this column. Canonical World Pack
+        // schemas and facts are unchanged; exact current/start anchors survive UI paging.
+        val hasPresentationPriority=worldDb.rawQuery("PRAGMA table_info(map_locations_v2)",null).use { c->
+            var found=false
+            while(c.moveToNext())if(c.getString(1)=="presentation_priority")found=true
+            found
+        }
+        val ordering=if(hasPresentationPriority)"presentation_priority DESC,name,location_uid" else "name,location_uid"
         val sql = if (search.isBlank())
             """SELECT location_uid,name,location_type,COALESCE(region_uid,''),COALESCE(description,'')
-               FROM map_locations_v2 ORDER BY name LIMIT 500"""
+               FROM map_locations_v2 ORDER BY $ordering LIMIT 500"""
         else
             """SELECT location_uid,name,location_type,COALESCE(region_uid,''),COALESCE(description,'')
-               FROM map_locations_v2 WHERE lower(name) LIKE lower(?) ORDER BY name LIMIT 500"""
+               FROM map_locations_v2 WHERE lower(name) LIKE lower(?) ORDER BY $ordering LIMIT 500"""
         val args = if (search.isBlank()) null else arrayOf("%$search%")
         worldDb.rawQuery(sql, args).use { c -> while (c.moveToNext()) out += WorldLocationItem(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4)) }
         return out
@@ -41,6 +49,7 @@ class WorldReader(
         val request = VisibilityRequest(audience, purpose, VisibilitySubjectRef(audience.campaignUid, subjectKind, subjectUid))
         return protectedReads(audience.campaignUid).protectedRows(audience,purpose,subjectKind,subjectUid) {
             val out = mutableListOf<WorldEventItem>()
+            if(!saveDb.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name='active_world_events'",null).use { it.moveToFirst() })return@protectedRows out
             saveDb.rawQuery(
                 """SELECT COALESCE(t.name,a.event_type),a.status,COALESCE(a.public_summary,'')
                    FROM active_world_events a

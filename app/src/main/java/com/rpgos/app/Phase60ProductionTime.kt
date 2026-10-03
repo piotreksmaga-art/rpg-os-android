@@ -131,7 +131,8 @@ internal class ProductionTemporalMutationAssembler(
                     is ProductionTemporalExecutionResult.Completed-> {
                         val brains=npcBrainPreparation(snapshot.scope,execution.effects,plan)+execution.npcBrains
                         val observed=observations(snapshot.scope,execution.effects)
-                        val canonical=delegate.admitEffects(request,plan.planUid,proposal.candidate.proposalUid,observed,execution.change,brains)
+                        val worldChanges=phase63PreparedWorldChain(delegate.prepareWorldChanges(request,observed),execution.worldChanges)
+                        val canonical=delegate.admitEffects(request,plan.planUid,proposal.candidate.proposalUid,observed,execution.change,brains,worldChanges)
                         if(canonical==null){reasons=delegate.lastAssemblyReasonUids();return null}
                         val foregroundPayloads=execution.effects.flatMap { (MechanicalEffectMaterializer.materialize(it) as MechanicalEffectMaterializationResult.Materialized).changes.map{change->change.payload} }
                         // Includes only elapsed foreground effects plus evaluated process deltas.
@@ -141,9 +142,10 @@ internal class ProductionTemporalMutationAssembler(
                         val witnessed=NpcWitnessObservation.materialize(request.campaignUid,request.commandUid,request.atOrder?:1L,observed)
                         val reading=NpcReadingApplication.materialize(request.campaignUid,request.commandUid,request.atOrder?:1L,observed)
                         val learning=NpcLearningApplication.intervalPayloads(request.campaignUid,request.commandUid,observed)
-                        val settled=execution.work.copy(checkpoint=execution.work.checkpoint.copy(candidateChanges=phase60CoalesceChanges(foregroundPayloads)+brains+
+                        val routeKnowledge=WorldRouteKnowledge.materialize(request.campaignUid,request.commandUid,request.atOrder?:1L,request.actor,worldChanges)
+                        val settled=execution.work.copy(checkpoint=execution.work.checkpoint.copy(candidateChanges=phase60CoalesceChanges(foregroundPayloads)+brains+worldChanges+
                             memory.changes.map{it.payload}+communication.changes.map{it.payload}+sensations.changes.map{it.payload}+
-                            witnessed.changes.map{it.payload}+reading.changes.map{it.payload}+learning,candidateEffects=emptyList()))
+                            witnessed.changes.map{it.payload}+reading.changes.map{it.payload}+learning+routeKnowledge.changes.map{it.payload},candidateEffects=emptyList()))
                         val failure=Phase60EffectSettlement.validate(settled,phase60CoalesceChanges(canonical.playerChangeSet.changes.map{it.payload}))
                         if(failure!=null){reasons=listOf(failure);return null}
                         scopes[canonical]=snapshot.scope

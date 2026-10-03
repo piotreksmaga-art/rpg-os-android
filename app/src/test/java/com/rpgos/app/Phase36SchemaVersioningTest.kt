@@ -128,7 +128,7 @@ class Phase36SchemaVersioningTest {
 
     @Test fun productionMigrationManifestHasStableImplementationIdentity() {
         assertEquals(
-            "3bdde55f529cd8cbe4f5d8c7dab5973e625e216d48ad9762f512bd3bbf38f24f",
+            "3489964c0fdb0411a902297e6a6b826673acf800e753245026cabc2e96e00771",
             Phase36SchemaVersioning.migrationManifestFingerprint()
         )
     }

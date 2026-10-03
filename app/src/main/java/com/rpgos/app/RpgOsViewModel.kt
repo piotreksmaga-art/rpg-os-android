@@ -1066,14 +1066,14 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun createAndActivateCampaign(name: String) {
+    fun createAndActivateCampaign(name: String,nativeWorld:NativeWorldCreationSpec?=null) {
         if(_campaignCreationUi.value.inProgress)return
         val clean = name.trim().ifBlank { "Nowa kampania" }
         _campaignCreationUi.value=CampaignCreationUiState(inProgress=true)
         viewModelScope.launch {
             try {
                 val dir=withContext(Dispatchers.IO){
-                    val created=store.createCampaign(clean)
+                    val created=if(nativeWorld==null)store.createCampaign(clean) else store.createNativeCampaign(productionEngine.prepareNativeWorld(nativeWorld))
                     // createCampaign() atomically activates the clone and prepares its runtime.
                     // Re-selecting it here repeated the full schema/definition bootstrap and made
                     // campaign creation take minutes on slower devices and emulators.
@@ -1320,12 +1320,13 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                     is ChatApplicationOutcome.Clarification->{
                         _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.CLARIFICATION,requestUid,"Potrzebuję doprecyzowania decyzji.",reasonUid=outcome.reasonUids.joinToString("|"))
                         val timeQuestion=outcome.reasonUids.any{it=="P60:DURATION_UNRESOLVED"||it=="P60:CONSEQUENTIAL_ESTIMATE"}
-                        _messages.value+=ChatMessage("system",if(timeQuestion)
+                        _messages.value+=ChatMessage("system",Phase63WorldMessages.explanation(outcome.reasonUids)?:if(timeQuestion)
                             "Napisz czynność razem z czasem jej trwania, np. „ćwiczę przez 20 minut”. Nie upłynął jeszcze czas i nie zapisano skutków tej próby."
                             else "Doprecyzuj proszę, co dokładnie chcesz zrobić.")
                     }
                     is ChatApplicationOutcome.Rejected->{
                         _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.FAILED,requestUid,"Ta decyzja wymaga bezpiecznego rozstrzygnięcia.",reasonUid=outcome.reasonUids.joinToString("|"))
+                        Phase63WorldMessages.explanation(outcome.reasonUids)?.let { _messages.value+=ChatMessage("system",it) }
                     }
                     is ChatApplicationOutcome.Failed->{
                         _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.FAILED,requestUid,"Nie udało się ukończyć tury.",reasonUid=outcome.reasonUid)

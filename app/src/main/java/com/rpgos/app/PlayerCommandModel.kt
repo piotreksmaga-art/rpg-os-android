@@ -114,13 +114,15 @@ data class ApplyVerifiedMechanicsCommandPayload(
     val planUid:String,
     val effects:List<VerifiedMechanicsCommandEffect>,
     val temporalState:TemporalStateChange?=null,
-    val npcBrains:List<NpcBrainChange> = emptyList()
+    val npcBrains:List<NpcBrainChange> = emptyList(),
+    val worldChanges:List<WorldSimulationChange> = emptyList()
 ):PlayerCommandPayload {
     init {
-        require(planUid.isNotBlank()&&(effects.isNotEmpty()||temporalState!=null||npcBrains.isNotEmpty()))
+        require(planUid.isNotBlank()&&(effects.isNotEmpty()||temporalState!=null||npcBrains.isNotEmpty()||worldChanges.isNotEmpty()))
         require(effects.map{it.effectUid}.distinct().size==effects.size)
         require(npcBrains.size<=128 && npcBrains.map{it.actor to it.expectedVersion}.distinct().size==npcBrains.size)
         require(validNpcBrainChains(npcBrains)) { "P61:NON_SEQUENTIAL_BRAIN_CHAIN" }
+        requireWorldSimulationChain(worldChanges)
     }
 }
 

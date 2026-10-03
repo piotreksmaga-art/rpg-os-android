@@ -25,6 +25,15 @@ object OpenRouterStructuredOutputSchema {
         AiWorkload.CHARACTER_CREATION->characterCreation()
         AiWorkload.DIRECTOR_STRATEGY->director()
         AiWorkload.MEMORY_ENRICHMENT->memoryEnrichment()
+        AiWorkload.WORLD_DRAFT->obj(linkedMapOf(
+            "request_uid" to text(),"request_fingerprint" to text(),"state" to enumText(*WorldDraftState.entries.map { it.name }.toTypedArray()),
+            "display_name" to nullable(text().put("maxLength",160)),
+            "base_kind" to nullable(enumText(*WorldElementBaseKind.entries.map { it.name }.toTypedArray())),
+            "category_uid" to nullable(text().put("pattern","^[A-Z0-9:_-]{1,96}$")),
+            "affordance_uids" to array(text()).put("maxItems",16),
+            "topology_class_uid" to nullable(enumText(*WorldDraftCodec.topologies.sorted().toTypedArray())),
+            "description" to nullable(text().put("maxLength",1024)),"question" to nullable(text().put("maxLength",256))
+        ))
         AiWorkload.NPC_DIALOGUE->obj(linkedMapOf("request_uid" to text(),"context_fingerprint" to text(),
             "text" to text().put("minLength",1).put("maxLength",512),"supporting_record_uids" to array(text()).put("maxItems",8)))
         AiWorkload.NPC_DECISION->obj(linkedMapOf("request_uid" to text(),"context_fingerprint" to text(),
@@ -81,7 +90,7 @@ object OpenRouterStructuredOutputSchema {
         "references" to array(obj(linkedMapOf(
             "reference_uid" to text(),"kind" to enumText(*IntentReferenceKind.entries.map{it.name}.toTypedArray()),"raw_phrase" to nullableText(),"role_uid" to text(),
             "semantic_type_hints" to stringArray(),"descriptor_hints" to fixedStringMap(
-                "surface","world_base_kind","kind","spatial_scope","category","topology","shape","affordances","quantity","ordinal"
+                "surface","world_base_kind","kind","spatial_scope","category","topology","shape","affordances","quantity","ordinal","member_of","population_category"
             ),"confidence_uid" to nullableText()
         ))),
         "global_constraints" to array(directive()),

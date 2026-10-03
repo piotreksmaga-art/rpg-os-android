@@ -14,6 +14,7 @@ class SocialReader(
 
     fun relationshipsProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<RelationshipItem>> =
         projected(audience, purpose, VisibilitySubjectKinds.RELATIONSHIP_DATA, "RELATIONSHIPS") {
+            if(!optionalWorldPresentationPresent(saveDb,"relationships_v2"))return@projected emptyList()
             val out = mutableListOf<RelationshipItem>()
             saveDb.rawQuery("""SELECT other_entity_uid,relationship_type,relationship_score
                    FROM relationships_v2 ORDER BY ABS(relationship_score) DESC LIMIT 100""", null).use { c ->
@@ -27,6 +28,7 @@ class SocialReader(
 
     fun organizationsProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<OrganizationItem>> =
         projected(audience, purpose, VisibilitySubjectKinds.ORGANIZATION_DATA, "ORGANIZATIONS") {
+            if(!optionalWorldPresentationPresent(worldDb,"organization_definitions_v3"))return@projected emptyList()
             val out = mutableListOf<OrganizationItem>()
             worldDb.rawQuery("""SELECT organization_uid,name,organization_type,active_status
                    FROM organization_definitions_v3 ORDER BY name""", null).use { c ->
@@ -40,6 +42,7 @@ class SocialReader(
 
     fun politicsProjection(audience: AudienceContext, purpose: PurposeContext): VisibilityProjection<List<PoliticalItem>> =
         projected(audience, purpose, VisibilitySubjectKinds.POLITICS_DATA, "POLITICS") {
+            if(!optionalWorldPresentationPresent(saveDb,"political_entities"))return@projected emptyList()
             val out = mutableListOf<PoliticalItem>()
             saveDb.rawQuery("""SELECT political_uid,display_name,legitimacy,influence,stability
                    FROM political_entities ORDER BY influence DESC""", null).use { c ->

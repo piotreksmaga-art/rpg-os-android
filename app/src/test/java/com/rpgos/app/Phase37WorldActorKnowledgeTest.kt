@@ -73,6 +73,22 @@ class Phase37WorldActorKnowledgeTest {
         }
     }
 
+    @Test fun generatedHolderConversationRetainsLongCanonicalMemoryIdentity() = withDb { db ->
+        init(db)
+        val listener=holder("P63-MEMBER-${"1".repeat(32)}")
+        commit(db,"LONG-COMM",change("LONG-COMM",listener,claim("P62:COMM-CLAIM:${"2".repeat(64)}","Witam mieszkańca")))
+        val record=KnowledgeContextProjection(db,"C1").boundedForNpc(listener,Long.MAX_VALUE,64,emptySet()).single()
+        assertTrue(record.uid.length>160)
+        val canonical=KnowledgeStore(db,"C1").states(listener).single().stateUid
+        assertEquals(canonical,record.uid)
+        assertTrue(KnowledgeContextProjection(db,"C1").boundedForNpc(holder("OTHER"),Long.MAX_VALUE,64,emptySet()).isEmpty())
+        assertEquals(setOf(record.uid),NpcDialogueCandidate("REQUEST","3".repeat(64),"Dzień dobry",setOf(record.uid)).supportingRecordUids)
+        assertEquals(record.uid,NpcAppraisalCandidate(NpcAppraisalMeaning.GOODWILL,record.uid).supportingRecordUid)
+        assertEquals(setOf(record.uid),NpcGoalCandidate("GOAL","MOTIVE","Podtrzymać rozmowę",setOf(record.uid)).supportingRecordUids)
+        assertTrue(runCatching { npcKnowledgeRecordUid("x".repeat(513)) }.isFailure)
+        assertTrue(runCatching { npcUid(record.uid) }.isFailure) // unrelated NPC identifiers stay bounded
+    }
+
     @Test fun npcProjectionUsesRecordedHolderScopeRoleAndAsOfBeforeReturningText() = withDb { db ->
         init(db)
         commit(db,"NPC-PRIVATE",change("NPC-PRIVATE",holder("N1"),claim("NPC-CLAIM","Osobista informacja"),state=KnowledgeEpistemicState.BELIEVED))

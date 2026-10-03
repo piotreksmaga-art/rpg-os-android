@@ -178,6 +178,14 @@ class ContextBuilder internal constructor(
     } catch (_: android.database.sqlite.SQLiteException) { emptyMap() }
     private fun queryOne(db:SQLiteDatabase,sql:String,args:Array<String>?=null):Map<String,Any?> = queryMany(db,sql,args).firstOrNull()?:emptyMap()
     private fun queryMany(db:SQLiteDatabase,sql:String,args:Array<String>?=null):List<Map<String,Any?>> {
+        // These presentation-era sources are optional in a campaign-native world. Missing
+        // storage means no projection, not proof that a mission, wound or organization cannot
+        // exist. Existing schemas/queries still fail loudly on corruption; typed Core tables
+        // are never optional and no missing owner is repaired during this read.
+        val legacy=Regex("(?i)FROM\\s+([a-z0-9_]+)").find(sql)?.groupValues?.get(1)
+        if(legacy in setOf("injuries_v2","missions_v3","future_world_pressure","chapter_manifests_v2",
+                "npc_memories_v2","organization_memberships_v3","story_threads") &&
+            !db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",arrayOf(legacy)).use { it.moveToFirst() })return emptyList()
         val out=mutableListOf<Map<String,Any?>>()
         try {
             db.rawQuery(sql,args).use{c->val names=c.columnNames;while(c.moveToNext()){val row=LinkedHashMap<String,Any?>();for(i in names.indices)row[names[i]]=when(c.getType(i)){android.database.Cursor.FIELD_TYPE_NULL->null;android.database.Cursor.FIELD_TYPE_INTEGER->c.getLong(i);android.database.Cursor.FIELD_TYPE_FLOAT->c.getDouble(i);android.database.Cursor.FIELD_TYPE_BLOB->"[BLOB ${c.getBlob(i).size} bytes]";else->c.getString(i)};out+=row}}

@@ -694,8 +694,11 @@ class Phase48NativePackageAndProductionWiringTest{
     @Test fun controlledRootE2ECommitsOneHundredTurns()=runBlocking{
         cleanup()
         val repository=UnifiedGameRepository(context);repository.bootstrap()
-        val active=repository.activePlayerRef()?:activateFixturePlayer(repository);val campaign=active.campaignId
-        val location=repository.worldLocations().first()
+        val active=repository.activePlayerRef()?:createControlledPlayer(repository);val campaign=active.campaignId
+        // This suite verifies repeated mechanical movement inside the current place, not
+        // travel to an arbitrary first map row without knowledge of a connecting route.
+        val anchor=requireNotNull(repository.infrastructureEntityLocationUid(active.playerUid))
+        val location=repository.worldLocations().single { it.uid==anchor }
         val selection=AiModelSelection("CONTROLLED-PRODUCTION","MODEL-1")
         val provider=DeterministicAiProvider(
             AiCapabilityContract("CONTROLLED-CONTRACT",selection.providerUid,selection.modelUid,AiWorkload.entries.toSet(),maximumContextUnits=16_000),
@@ -766,6 +769,10 @@ class Phase48NativePackageAndProductionWiringTest{
                 arrayOf<Any?>(group.second.uid,location.uid,2_000.0,0.0)
             )
         }}
+        // Administrative fixture edits are not turn replay. Capture their actual starting
+        // authority before the first gameplay transaction, rather than using the earlier
+        // character-creation baseline (which has different stats and NPC/group positions).
+        repository.createSnapshot(SnapshotKind.UNDO_BASELINE,pinned=true)
         val selection=AiModelSelection("CONTROLLED-MULTI-COMBAT","MODEL-1")
         val provider=DeterministicAiProvider(
             AiCapabilityContract("CONTROLLED-MULTI-COMBAT-CONTRACT",selection.providerUid,selection.modelUid,AiWorkload.entries.toSet(),maximumContextUnits=32_000),
@@ -846,7 +853,8 @@ class Phase48NativePackageAndProductionWiringTest{
         }
         val undoPreview=reopened.previewUndoLastTurn()
         assertTrue("preview=$undoPreview; snapshots=$recoveryChecks",undoPreview.canConfirm)
-        assertTrue(reopened.confirmUndoLastTurn(undoPreview.previewToken) is DestructiveUndoResult.Completed)
+        val undo=reopened.confirmUndoLastTurn(undoPreview.previewToken)
+        assertTrue("undo=$undo",undo is DestructiveUndoResult.Completed)
         assertEquals(populationBefore,reopened.infrastructureAggregatePopulation(group.second))
     }
 

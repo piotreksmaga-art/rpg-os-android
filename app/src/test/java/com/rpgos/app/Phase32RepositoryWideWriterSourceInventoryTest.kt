@@ -33,7 +33,10 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "OwnershipStore.kt",
             "Phase50MechanicalStateStore.kt",
             "Phase50ActorGenesis.kt",
+            "Phase50ActorExpansion.kt",
             "Phase60TemporalState.kt",
+            "Phase63WorldStore.kt",
+            "Phase63Population.kt",
             "Phase61NpcBrainStore.kt",
             "Phase35CanonDivergence.kt",
             "Phase37WorldActorKnowledge.kt",
@@ -74,6 +77,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "MigrationManager.kt",
             "PackageManager.kt",
             "PristineCampaignStartupProfile.kt",
+            "Phase63NativeCampaign.kt",
             "Phase36EventSchemaScaffold.kt",
             "Phase36SchemaVersioning.kt",
             "Phase62NpcTravelAuthority.kt",
@@ -210,7 +214,7 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
         val bootstrap = functionSource(source, "bootstrap")
         assertTrue("administrative bootstrap lost explicit schema setup owner", bootstrap.contains("prepareCampaignRuntime(save,campaignUid,repairLegacyRows=true)"))
         val prepare = functionSource(source, "prepareCampaignRuntime")
-        assertTrue("administrative runtime preparation lost schema setup", prepare.contains("ensureCurrentSchema"))
+        assertTrue("administrative runtime preparation lost explicit campaign schema setup", prepare.contains("CurrentSchema.ensure(saveDb,campaignUid)"))
         assertTrue("administrative runtime preparation lost mutation guards", prepare.contains("GameplayRuntimeBootstrap.initialize"))
         assertTrue("administrative repair must use the guarded preparation owner", !bootstrap.contains("AutoRepairEngine"))
         assertTrue("administrative preparation lost explicit repair ownership", prepare.contains("if(repairLegacyRows)runCatching{AutoRepairEngine().repair(saveDb)}"))

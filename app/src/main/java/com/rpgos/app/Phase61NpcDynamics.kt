@@ -3,12 +3,12 @@ package com.rpgos.app
 /** Interpretations may be wrong beliefs; none of these labels is a world FACT or a relation. */
 enum class NpcAppraisalMeaning { THREAT, SAFETY, GOODWILL, HOSTILITY, LOSS, ACHIEVEMENT, UNCERTAINTY }
 data class NpcAppraisalCandidate(val meaning:NpcAppraisalMeaning,val supportingRecordUid:String,val subject:DomainRef?=null) {
-    init { npcUid(supportingRecordUid) }
+    init { npcKnowledgeRecordUid(supportingRecordUid) }
 }
 enum class NpcGoalOperation { CREATE, SUSPEND, RESUME, ABANDON }
 data class NpcGoalCandidate(val uid:String,val motivationUid:String,val objective:String,val supportingRecordUids:Set<String>,
                             val operation:NpcGoalOperation=NpcGoalOperation.CREATE,val executionOptionUid:String?=null) {
-    init { npcUid(uid);npcUid(motivationUid);npcText(objective);require(supportingRecordUids.size<=8);supportingRecordUids.forEach(::npcUid)
+    init { npcUid(uid);npcUid(motivationUid);npcText(objective);require(supportingRecordUids.size<=8);supportingRecordUids.forEach(::npcKnowledgeRecordUid)
         executionOptionUid?.let{npcUid(it);require(operation==NpcGoalOperation.CREATE)} }
 }
 

@@ -357,7 +357,7 @@ internal class CommittedReplaySemanticProjector(
         }
         val records=mutableListOf<ProjectedRecord>()
         val privateChanges=replay.changeSet.changes.filter{
-            it.payload is NpcBrainChange || it.payload is MechanicalActorGenesisChange || it.payload is KnowledgeAcquisitionChange || it.payload is AccessAuthorityChange
+            it.payload is WorldSimulationChange || it.payload is NpcBrainChange || it.payload is MechanicalActorGenesisChange || it.payload is KnowledgeAcquisitionChange || it.payload is AccessAuthorityChange
         }.mapTo(hashSetOf()){it.changeUid}
         replay.changeSet.eventIntents.forEach{event->
             // These are private cognition/authority events, not publicly observed world facts.
@@ -381,7 +381,7 @@ internal class CommittedReplaySemanticProjector(
             val payload=change.payload
             // Phase38 access/binding records are authority metadata. They must never be
             // re-labelled as player state or serialized into semantic gameplay documents.
-            if(payload is AccessAuthorityChange || payload is NpcBrainChange || payload is MechanicalActorGenesisChange || payload is KnowledgeAcquisitionChange)return@forEach
+            if(payload is WorldSimulationChange || payload is AccessAuthorityChange || payload is NpcBrainChange || payload is MechanicalActorGenesisChange || payload is KnowledgeAcquisitionChange)return@forEach
             if(payload is CampaignTruthChange&&payload.subjectUid!=null&&payload.predicate in CampaignWorldFacts.ALL)return@forEach
             val subject=subject(payload)
             val owned=controlledPlayer!=null&&subject?.uid==controlledPlayer&&subject.kindUid in PLAYER_OWNED_DOMAIN_KINDS
@@ -436,7 +436,7 @@ internal class CommittedReplaySemanticProjector(
         is KnowledgeAcquisitionChange->DomainRef(
             payload.acquisition.holder.holderKindUid,payload.acquisition.holder.holderUid
         )
-        is AccessAuthorityChange,is TemporalStateChange,is NpcBrainChange,is MechanicalActorGenesisChange->null
+        is WorldSimulationChange,is AccessAuthorityChange,is TemporalStateChange,is NpcBrainChange,is MechanicalActorGenesisChange->null
         is AssetChange,is CampaignTruthChange,is DevelopmentProjectChange,is FinancialChange,is OwnershipChange->null
     }
 

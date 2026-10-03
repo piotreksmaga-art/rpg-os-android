@@ -97,6 +97,7 @@ data class WorldEvidenceCandidate(
 
 fun interface WorldEvidenceProviderPort{
     fun candidates(request:WorldEvidenceRequest):List<WorldEvidenceCandidate>
+    fun forTurn():WorldEvidenceProviderPort=this
     companion object{val NONE=WorldEvidenceProviderPort{emptyList()}}
 }
 
@@ -109,6 +110,7 @@ fun interface SemanticWorldPackReferenceCandidatePort{
 }
 
 class CompositeWorldEvidenceProvider(private val providers:List<WorldEvidenceProviderPort>):WorldEvidenceProviderPort{
+    override fun forTurn()=CompositeWorldEvidenceProvider(providers.map { it.forTurn() })
     override fun candidates(request:WorldEvidenceRequest)=providers.flatMap{provider->
         runCatching{provider.candidates(request)}.getOrDefault(emptyList())
     }.filter{it.baseKind==request.shape.baseKind}
@@ -138,20 +140,24 @@ data class WorldElementDraft(
     val sourceUri:String?,
     val sourceRevision:String?,
     val sourceHash:String?,
-    val materializationLevelUid:String="PARTIAL"
+    val materializationLevelUid:String="PARTIAL",
+    val slotOrdinal:Long=0,
+    val slotCategoryUid:String?=null
 ){
     init{
         require(campaignUid.isNotBlank()&&displayName.isNotBlank()&&categoryUid.isNotBlank()&&topologyClassUid.isNotBlank())
         require(element.kindUid==baseKind.name&&affordanceUids.none{it.isBlank()}&&sourceEvidenceUids.none{it.isBlank()})
         require(sourceUri?.isBlank()!=true&&sourceRevision?.isBlank()!=true&&sourceHash?.isBlank()!=true)
         require(materializationLevelUid in setOf("SEED_ONLY","PARTIAL","FULL"))
+        require(slotOrdinal>=0)
+        require(slotCategoryUid==null || slotCategoryUid.startsWith("$categoryUid@") && slotCategoryUid.length<=512)
     }
 
     fun fingerprint():String=worldSha256(listOf(
         campaignUid,element.kindUid,element.uid,displayName,baseKind.name,categoryUid,parentAnchorUid.orEmpty(),
         affordanceUids.sorted().joinToString(","),topologyClassUid,sourceClassification.name,
         sourceEvidenceUids.sorted().joinToString(","),sourceUri.orEmpty(),sourceRevision.orEmpty(),sourceHash.orEmpty(),materializationLevelUid
-    ).joinToString("|"))
+    ).joinToString("|")+(if(slotOrdinal==0L)"" else "|SLOT:$slotOrdinal")+(slotCategoryUid?.let { "|SLOT_CATEGORY:$it" }?:""))
 }
 
 data class CampaignWorldElement(
@@ -173,6 +179,9 @@ internal fun WorldElementDraft.materializationPayload():Map<String,String> = bui
     put("topology_class_uid",topologyClassUid);put("source_classification",sourceClassification.name)
     sourceUri?.let{put("source_uri",it)};sourceRevision?.let{put("source_revision",it)};sourceHash?.let{put("source_hash",it)}
     put("materialization_level_uid",materializationLevelUid);put("draft_fingerprint",fingerprint())
+    if(slotOrdinal!=0L)put("slot_ordinal",slotOrdinal.toString())
+    slotCategoryUid?.let { put("slot_category_uid",it) }
+    if(sourceEvidenceUids.isNotEmpty())put("source_evidence_uids",sourceEvidenceUids.sorted().joinToString(","))
     put("target_kind_uid",element.kindUid);put("target_uid",element.uid);put("magnitude","1")
 }
 
@@ -191,7 +200,9 @@ object CampaignWorldFacts{
     const val SOURCE_HASH="RPGOS-WORLD:SOURCE_HASH"
     const val MATERIALIZATION_LEVEL="RPGOS-WORLD:MATERIALIZATION_LEVEL"
     const val AUDIENCE_SCOPE="RPGOS-WORLD:AUDIENCE_SCOPE"
-    val ALL=setOf(KIND,NAME,CATEGORY,PARENT,AFFORDANCE,TOPOLOGY,SOURCE_CLASSIFICATION,SOURCE_URI,SOURCE_REVISION,SOURCE_HASH,MATERIALIZATION_LEVEL,AUDIENCE_SCOPE)
+    const val SLOT_ORDINAL="RPGOS-WORLD:SLOT_ORDINAL"
+    const val SLOT_CATEGORY="RPGOS-WORLD:SLOT_CATEGORY"
+    val ALL=setOf(KIND,NAME,CATEGORY,PARENT,AFFORDANCE,TOPOLOGY,SOURCE_CLASSIFICATION,SOURCE_URI,SOURCE_REVISION,SOURCE_HASH,MATERIALIZATION_LEVEL,AUDIENCE_SCOPE,SLOT_ORDINAL,SLOT_CATEGORY)
 
     fun project(records:List<CampaignTruthRecord>):List<CampaignWorldElement> = records.asSequence()
         .filter{it.active&&it.kind==TruthKind.FACT&&it.subjectUid!=null&&it.predicate in ALL}
@@ -250,7 +261,8 @@ object WorldReferenceShapeClassifier{
     )
     private val naturalTopologies=mapOf(
         "SEA" to "SEA","OCEAN" to "OCEAN","CONTINENT" to "CONTINENT","REGION" to "REGION",
-        "RIVER" to "NATURAL_FEATURE","MOUNTAIN" to "NATURAL_FEATURE","FOREST" to "NATURAL_FEATURE","LAKE" to "NATURAL_FEATURE"
+        "RIVER" to "NATURAL_FEATURE","MOUNTAIN" to "NATURAL_FEATURE","FOREST" to "NATURAL_FEATURE","LAKE" to "NATURAL_FEATURE",
+        "DESERT" to "NATURAL_FEATURE","COAST" to "NATURAL_FEATURE"
     )
 
     fun classify(reference:IntentReference,consumerNodes:List<IntentNode>):WorldReferenceShape{
@@ -274,9 +286,10 @@ object WorldReferenceShapeClassifier{
         val scope=hint("spatial_scope")
         val phrase=reference.rawPhrase.orEmpty().trim()
         val rawKind=hint("kind")?.takeUnless{runCatching{WorldElementBaseKind.valueOf(it)}.isSuccess}
-        val category=hint("category")?:semanticHints.firstOrNull()?:rawKind?:"GENERIC_${base.name}"
+        val category=WorldCategoryVocabulary.canonical(phrase).takeIf { it in naturalTopologies }?:
+            WorldCategoryVocabulary.canonical(hint("category")?:semanticHints.firstOrNull()?:rawKind?:"GENERIC_${base.name}")
         val affordances=(reference.descriptorHints["affordances"].orEmpty().split(',').map(::normalizedWorldToken).filter{it.matches(token)}+actions).toSortedSet()
-        val topology=hint("topology")?:naturalTopologies[category]?:semanticHints.firstNotNullOfOrNull{naturalTopologies[it]}?:when{
+        val topology=naturalTopologies[category]?:semanticHints.firstNotNullOfOrNull{naturalTopologies[WorldCategoryVocabulary.canonical(it)]}?:hint("topology")?:when{
             scope=="REMOTE"->"REMOTE_LANDMARK"
             category in setOf("SETTLEMENT","VILLAGE","CITY")->"REGION"
             category in setOf("ACTIVITY_LOCATION","SCHOOL","ACADEMY","WORKPLACE","SERVICE_VENUE")->"SETTLEMENT_FACILITY"
@@ -354,11 +367,17 @@ class UniversalWorldMaterializationResolver(
         currentAnchorUid:String?,
         existing:List<CampaignWorldElement>,
         worldContextHint:String?,
-        recentDiscourseRefs:Set<DomainRef> = emptySet()
+        recentDiscourseRefs:Set<DomainRef> = emptySet(),
+        skeleton:CampaignWorldSkeleton?=null,
+        nearestExisting:((List<CampaignWorldElement>)->CampaignWorldElement?)?=null,
+        scope:WorldResolutionScope?=null,
+        scopeCurrent:(WorldResolutionScope)->Boolean={true},
+        establishedSlot:((DomainRef)->CampaignWorldElement?)?=null
     ):UniversalWorldReferenceResolution{
         val phrase=(reference.rawPhrase?:reference.descriptorHints["surface"]).orEmpty().trim()
         if(phrase.isBlank())return UniversalWorldReferenceResolution.Unresolved("EMPTY_WORLD_REFERENCE")
         val shape=WorldReferenceShapeClassifier.classify(reference,consumerNodes)
+        if((shape.quantity?:1)>1)return UniversalWorldReferenceResolution.Unresolved("P63:SET_SELECTION_REQUIRES_CLARIFICATION")
         val discourse=reference.kind==IntentReferenceKind.DISCOURSE
         val definite=discourse || reference.kind==IntentReferenceKind.DEICTIC
         val visible=existing.filter{it.audienceScopeUid==CampaignWorldAudience.PLAYER_VISIBLE}
@@ -373,17 +392,40 @@ class UniversalWorldMaterializationResolver(
             worldNamesEquivalent(element.displayName,phrase)||
                 (!discourse && (shape.kind==WorldReferenceShapeKind.ROLE || definite) &&
                     currentAnchorUid!=null && element.parentAnchorUid==currentAnchorUid &&
-                    shape.categoryUid!=null && !shape.categoryUid.startsWith("GENERIC_") && element.categoryUid==shape.categoryUid)||
-                (shape.kind==WorldReferenceShapeKind.CATEGORY&&shape.categoryUid!=null&&!shape.categoryUid.startsWith("GENERIC_")&&element.categoryUid==shape.categoryUid&&
+                    shape.categoryUid!=null && !shape.categoryUid.startsWith("GENERIC_") && WorldCategoryVocabulary.canonical(element.categoryUid)==shape.categoryUid)||
+                (shape.kind==WorldReferenceShapeKind.CATEGORY&&shape.categoryUid!=null&&!shape.categoryUid.startsWith("GENERIC_")&&WorldCategoryVocabulary.canonical(element.categoryUid)==shape.categoryUid&&
                     !definite && element.affordanceUids.containsAll(shape.affordanceUids))
         }.distinctBy{it.element}.sortedWith(compareByDescending<CampaignWorldElement>{it.parentAnchorUid==currentAnchorUid}.thenBy{it.element.uid})
         if((definite || shape.kind in setOf(WorldReferenceShapeKind.NAMED_INSTANCE,WorldReferenceShapeKind.ROLE))&&exact.size>1)
             return UniversalWorldReferenceResolution.Rejected("REFERENCE_AMBIGUOUS")
-        val selectedExisting=if(shape.ordinal!=null)exact.getOrNull(shape.ordinal-1) else exact.firstOrNull()
+        val ordered=if(shape.kind==WorldReferenceShapeKind.CATEGORY && nearestExisting!=null && shape.ordinal==null && exact.isNotEmpty())
+            listOfNotNull(nearestExisting(exact).also { require(it==null || it in exact) { "P63:CANDIDATE_SELECTION_INTEGRITY" } }) else exact
+        if(shape.kind==WorldReferenceShapeKind.CATEGORY && exact.isNotEmpty() && ordered.isEmpty())
+            return UniversalWorldReferenceResolution.Unresolved("P63:KNOWN_ROUTE_REQUIRED")
+        val selectedExisting=if(shape.ordinal!=null && skeleton!=null && currentAnchorUid!=null && shape.categoryUid!=null) {
+            val requested=LatentWorldSlot(currentAnchorUid,shape.categoryUid,shape.baseKind,(shape.ordinal-1).toLong()).ref(skeleton)
+            exact.singleOrNull { it.element==requested }
+        } else if(shape.ordinal!=null)exact.getOrNull(shape.ordinal-1) else ordered.firstOrNull()
         if(selectedExisting!=null)return UniversalWorldReferenceResolution.Existing(selectedExisting,"CAMPAIGN-WORLD-MODEL:${selectedExisting.element.uid}")
         // "The same one" and "this one" cannot be satisfied by inventing a new instance,
         // including via external evidence. Unknown identity requires clarification.
         if(definite)return UniversalWorldReferenceResolution.Unresolved("EXISTING_DISCOURSE_REFERENT_REQUIRED")
+        if(skeleton!=null)LatentWorldGeography.candidate(skeleton,reference,shape)?.let { candidate->
+            establishedSlot?.invoke(candidate.draft.element)?.let { established->
+                require(established.element==candidate.draft.element && established.audienceScopeUid==CampaignWorldAudience.PLAYER_VISIBLE) { "P63:ESTABLISHED_SLOT_READ_INTEGRITY" }
+                return UniversalWorldReferenceResolution.Existing(established,"P63:ESTABLISHED_SLOT:${established.element.uid}")
+            }
+            if(scope!=null) {
+                val slot=LatentWorldSlot(requireNotNull(candidate.draft.parentAnchorUid),candidate.draft.categoryUid,candidate.draft.baseKind,candidate.draft.slotOrdinal)
+                when(val result=RegisteredLatentWorldResolver(candidate.draft,visible,scopeCurrent).resolve(scope,skeleton,slot)) {
+                    is WorldResolutionResult.Candidate -> Unit
+                    is WorldResolutionResult.Existing -> return UniversalWorldReferenceResolution.Existing(result.element,"P63:ESTABLISHED_SLOT:${result.element.element.uid}")
+                    is WorldResolutionResult.Unavailable -> return UniversalWorldReferenceResolution.Unresolved(result.reasonUid)
+                    else -> return UniversalWorldReferenceResolution.Rejected("P63:SLOT_IDENTITY_MISMATCH")
+                }
+            }
+            return candidate
+        }
         val evidence=if(shape.topologyClassUid in setOf("SETTLEMENT_FACILITY","SERVICE_VENUE","INTERIOR","LOCAL_SITE")&&shape.kind==WorldReferenceShapeKind.CATEGORY)emptyList()
             else runCatching{evidenceProvider.candidates(WorldEvidenceRequest(campaignUid,phrase,shape,worldContextHint))}.getOrDefault(emptyList())
         val feasibility=WorldFeasibilityAndTopologyGate.evaluate(shape,currentAnchorUid,evidence)
@@ -404,13 +446,42 @@ class UniversalWorldMaterializationResolver(
         val slot=shape.ordinal?:0
         val identityToken=if(shape.kind==WorldReferenceShapeKind.CATEGORY&&shape.ordinal!=null)
             "$normalizedCategory|ORDINAL:$slot" else normalizedPhrase
-        val uid="DYN-${shape.baseKind.name}-${worldSha256("$campaignUid|${parent.orEmpty()}|${shape.baseKind.name}|$identityToken|$slot").take(24).uppercase()}"
+        val namedSlotCategory=if(skeleton!=null && shape.kind==WorldReferenceShapeKind.NAMED_INSTANCE)
+            "$normalizedCategory@${selectedEvidence?.evidenceUid?:return UniversalWorldReferenceResolution.Unresolved("NAMED_SLOT_EVIDENCE_REQUIRED")}" else null
+        val uid=if(skeleton!=null) {
+            require(skeleton.campaignUid==campaignUid) { "P63:CROSS_CAMPAIGN_SLOT" }
+            val slotCategory=namedSlotCategory?:normalizedCategory
+            if(shape.kind!=WorldReferenceShapeKind.NAMED_INSTANCE && skeleton.latentRules.isNotEmpty() &&
+                CoreLatentWorldRules.select(skeleton,LatentWorldSlot(parent?:skeleton.initialAnchor.uid,slotCategory,shape.baseKind,
+                    ((shape.ordinal?:1)-1).coerceAtLeast(0).toLong()),shape.topologyClassUid.orEmpty())==null)
+                return UniversalWorldReferenceResolution.Unresolved("P63:LATENT_RULE_OR_SLOT_UNAVAILABLE")
+            LatentWorldSlot(parent?:skeleton.initialAnchor.uid,slotCategory,shape.baseKind,
+                ((shape.ordinal?:1)-1).coerceAtLeast(0).toLong()).ref(skeleton).uid
+        } else "DYN-${shape.baseKind.name}-${worldSha256("$campaignUid|${parent.orEmpty()}|${shape.baseKind.name}|$identityToken|$slot").take(24).uppercase()}"
         val topology=shape.topologyClassUid?:selectedEvidence?.topologyClassUid?:return UniversalWorldReferenceResolution.Unresolved("TOPOLOGY_CLASS_REQUIRED")
+        // A changed requested affordance must not hide an established slot and rematerialize
+        // its actor/body. The domain owner, not this lookup, decides whether that action works.
+        val requestedRef=DomainRef(shape.baseKind.name,uid)
+        establishedSlot?.invoke(requestedRef)?.let { established->
+            require(established.element==requestedRef && established.audienceScopeUid==CampaignWorldAudience.PLAYER_VISIBLE) { "P63:ESTABLISHED_SLOT_READ_INTEGRITY" }
+            return UniversalWorldReferenceResolution.Existing(established,"P63:ESTABLISHED_SLOT:$uid")
+        }
         val draft=WorldElementDraft(
             campaignUid,DomainRef(shape.baseKind.name,uid),selectedEvidence?.displayName?:phrase,
             shape.baseKind,normalizedCategory,parent,(shape.affordanceUids+selectedEvidence?.affordanceUids.orEmpty()).toSortedSet(),topology,
-            classification,feasibility.evidenceUids,selectedEvidence?.sourceUri,selectedEvidence?.sourceRevision,selectedEvidence?.sourceHash
+            classification,feasibility.evidenceUids,selectedEvidence?.sourceUri,selectedEvidence?.sourceRevision,selectedEvidence?.sourceHash,
+            slotOrdinal=((shape.ordinal?:1)-1).coerceAtLeast(0).toLong(),slotCategoryUid=namedSlotCategory
         )
+        if(skeleton!=null && scope!=null) {
+            val slotKey=LatentWorldSlot(requireNotNull(parent),namedSlotCategory?:normalizedCategory,shape.baseKind,draft.slotOrdinal)
+            when(val result=RegisteredLatentWorldResolver(draft,visible,scopeCurrent).resolve(scope,skeleton,slotKey)) {
+                is WorldResolutionResult.Candidate -> Unit
+                is WorldResolutionResult.Existing -> return UniversalWorldReferenceResolution.Existing(result.element,"P63:ESTABLISHED_SLOT:${result.element.element.uid}")
+                is WorldResolutionResult.Contradicted -> return UniversalWorldReferenceResolution.Rejected(result.reasonUid)
+                is WorldResolutionResult.Unavailable -> return UniversalWorldReferenceResolution.Unresolved(result.reasonUid)
+                else -> return UniversalWorldReferenceResolution.Unresolved("P63:LATENT_OWNER_RESULT_UNSUPPORTED")
+            }
+        }
         return UniversalWorldReferenceResolution.Latent(draft,feasibility)
     }
 }
@@ -428,7 +499,8 @@ object LatentWorldReferenceCodec{
             PREFIX+"source_classification" to draft.sourceClassification.name,PREFIX+"source_evidence" to draft.sourceEvidenceUids.sorted().joinToString(","),
             PREFIX+"source_uri" to draft.sourceUri.orEmpty(),PREFIX+"source_revision" to draft.sourceRevision.orEmpty(),
             PREFIX+"source_hash" to draft.sourceHash.orEmpty(),PREFIX+"level" to draft.materializationLevelUid,
-            PREFIX+"fingerprint" to draft.fingerprint(),PREFIX+"feasibility" to feasibility.state.name
+            PREFIX+"fingerprint" to draft.fingerprint(),PREFIX+"feasibility" to feasibility.state.name,PREFIX+"slot" to draft.slotOrdinal.toString(),
+            PREFIX+"slot_category" to draft.slotCategoryUid.orEmpty()
         ),
         state=IntentReferenceState.RESOLVED_LATENT,resolvedProjectedRef=draft.element,candidateProjectedRefs=emptyList(),
         resolutionEvidenceUid="RPGOS-CORE:LATENT-WORLD:${draft.fingerprint()}"
@@ -443,7 +515,8 @@ object LatentWorldReferenceCodec{
             campaignUid,ref,field("display_name")?:return null,base,field("category")?:return null,field("parent")?.takeIf{it.isNotBlank()},
             field("affordances").orEmpty().split(',').filter{it.isNotBlank()}.toSet(),field("topology")?:return null,
             WorldEvidenceClassification.valueOf(field("source_classification")?:return null),field("source_evidence").orEmpty().split(',').filter{it.isNotBlank()},
-            field("source_uri")?.takeIf{it.isNotBlank()},field("source_revision")?.takeIf{it.isNotBlank()},field("source_hash")?.takeIf{it.isNotBlank()},field("level")?:"PARTIAL"
+            field("source_uri")?.takeIf{it.isNotBlank()},field("source_revision")?.takeIf{it.isNotBlank()},field("source_hash")?.takeIf{it.isNotBlank()},field("level")?:"PARTIAL",
+            field("slot")?.toLongOrNull()?:0L,field("slot_category")?.takeIf(String::isNotBlank)
         )}.getOrNull()?:return null
         return draft.takeIf{it.fingerprint()==field("fingerprint")&&reference.resolutionEvidenceUid=="RPGOS-CORE:LATENT-WORLD:${it.fingerprint()}"}
     }

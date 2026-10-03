@@ -239,14 +239,14 @@ class AiChatEngineFacade(
         if(executableOutcomes.isNotEmpty()&&executableOutcomes.all{
                 it.outcomeState in setOf(GmNodeOutcomeState.NEEDS_CLARIFICATION,GmNodeOutcomeState.REQUIRES_ADJUDICATION)
             })return ChatTurnResult.Rejected(AiTurnStage.VALIDATION_REPAIR,
-            (listOf("NEEDS_PLAYER_CLARIFICATION")+executableOutcomes.flatMap{it.uncertaintyUids}).distinct().sorted())
+            (listOf("NEEDS_PLAYER_CLARIFICATION")+repaired.priorRejectionReasonUids+executableOutcomes.flatMap{it.uncertaintyUids}).distinct().sorted())
         if(cancellation.isCancelled())return ChatTurnResult.Cancelled(AiTurnStage.ASSEMBLY,TurnMutationState.NOT_STARTED)
         val assembled=if(assembler is CancellableCanonicalMutationAssembler)assembler.assemble(request,plan,verified){cancellation.isCancelled()}
             else assembler.assemble(request,plan,verified)
         if(cancellation.isCancelled())return ChatTurnResult.Cancelled(AiTurnStage.ASSEMBLY,TurnMutationState.NOT_STARTED)
         val canonical=assembled?:return ChatTurnResult.Rejected(
             AiTurnStage.ASSEMBLY,
-            ((assembler as? CanonicalMutationAssemblyDiagnostics)?.lastAssemblyReasonUids().orEmpty()+"NO_CANONICAL_MUTATION_PROPOSAL").distinct().sorted()
+            ((assembler as? CanonicalMutationAssemblyDiagnostics)?.lastAssemblyReasonUids().orEmpty()+repaired.priorRejectionReasonUids+"NO_CANONICAL_MUTATION_PROPOSAL").distinct().sorted()
         )
         if(canonical.campaignUid!=request.campaignUid||canonical.playerChangeSet.sourceCommandUid!=request.commandUid)return ChatTurnResult.Rejected(
             AiTurnStage.ASSEMBLY,listOf("CANONICAL_PROPOSAL_IDENTITY_MISMATCH")

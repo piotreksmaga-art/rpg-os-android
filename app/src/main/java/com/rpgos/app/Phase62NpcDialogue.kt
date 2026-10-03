@@ -13,7 +13,7 @@ data class NpcDialogueRequest(val requestUid:String,val context:NpcDecisionConte
         if(mode==NpcDialogueMode.REPLY)"" else "|INITIATE|$recipient|$goalUid")
 }
 data class NpcDialogueCandidate(val requestUid:String,val contextFingerprint:String,val text:String,val supportingRecordUids:Set<String>) {
-    init { npcUid(requestUid);npcText(text);require(contextFingerprint.matches(Regex("[0-9a-f]{64}")) && supportingRecordUids.size<=8);supportingRecordUids.forEach(::npcUid) }
+    init { npcUid(requestUid);npcText(text);require(contextFingerprint.matches(Regex("[0-9a-f]{64}")) && supportingRecordUids.size<=8);supportingRecordUids.forEach(::npcKnowledgeRecordUid) }
 }
 internal object NpcDialogueCodec {
     fun encode(request:NpcDialogueRequest):String = buildJsonObject {
@@ -55,6 +55,18 @@ internal sealed interface NpcConversationPreparation {
 internal fun interface NpcConversationPreparationPort {
     fun prepare(request:ChatTurnRequest,plan:CanonicalTurnPlan,snapshot:TemporalReadSnapshot,effects:List<VerifiedMechanicsCommandEffect>,cancelled:()->Boolean):NpcConversationPreparation
     companion object { val NONE=NpcConversationPreparationPort{_,_,_,effects,_->NpcConversationPreparation.Ready(effects)} }
+}
+
+/** A short delivered exchange has a registered speech rate, not the model's time estimate.
+ * Phase60 still settles deadlines and interruptions during this duration. */
+internal object NpcConversationTiming {
+    const val RULE="P62:DELIVERED_DIALOGUE_MS_V1"
+    fun metadata(received:String,reply:String):Map<String,String> {
+        fun words(text:String)=text.split(Regex("\\s+")).count { it.isNotBlank() }.toLong()
+        val duration=Math.multiplyExact(words(received)+words(reply),500L).coerceAtLeast(30_000L)
+        return mapOf("p60_core_timing_rule" to RULE,"p60_core_timing_version" to "1",
+            "p60_core_duration_ms" to duration.toString(),"p60_core_effect_at_ms" to duration.toString())
+    }
 }
 
 /** The GM's candidate utterance is never used for an NPC in production. A separate model call
@@ -99,7 +111,8 @@ internal class NpcConversationApplication(private val route:AiModelRoutePort,
             if(answer is AiProviderResult.Failure)return fail("DIALOGUE_AI:${answer.reasonUid}")
             val candidate=(answer as AiProviderResult.Success).value
             if(runCatching{NpcDialogueCodec.validate(candidate,dialogue)}.isFailure)return fail("DIALOGUE_RESPONSE_REJECTED")
-            val changed=effect.copy(canonicalPayload=effect.canonicalPayload.filterKeys{!it.startsWith("communication_")}+("narrative_text" to candidate.text),
+            val changed=effect.copy(canonicalPayload=effect.canonicalPayload.filterKeys{!it.startsWith("communication_")}+
+                ("narrative_text" to candidate.text)+NpcConversationTiming.metadata(received,candidate.text),
                 proofUid="RPGOS-CORE:NPC-DIALOGUE:${dialogue.fingerprint}",deterministicInputFingerprint=dialogue.fingerprint,
                 deterministicOutputFingerprint=phase60Hash(candidate.text))
             // Preserve the exact accepted input list, not all possibly failed/conditional nodes.

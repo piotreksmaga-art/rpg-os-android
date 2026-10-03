@@ -18,6 +18,8 @@ concurrency:
 jobs:
 
   full-jvm:
+    # Complete shared coverage lives in the Phase63 workflow for this one implementation PR.
+    if: github.event_name != 'pull_request' || github.head_ref != 'codex/phase63-complete'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -52,6 +54,7 @@ jobs:
           retention-days: 14
 
   android-contract:
+    if: github.event_name != 'pull_request' || github.head_ref != 'codex/phase63-complete'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     strategy:
@@ -105,6 +108,7 @@ jobs:
           retention-days: 14
 
   release-isolation:
+    if: github.event_name != 'pull_request' || github.head_ref != 'codex/phase63-complete'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

@@ -21,6 +21,7 @@ interface CampaignRepository {
     fun setActiveCampaign(dirName: String)
     fun setActiveWorldPack(dirName: String)
     fun createCampaign(name: String): File
+    fun createNativeCampaign(spec:NativeWorldCreationSpec):File = error("P63:NATIVE_CAMPAIGN_UNSUPPORTED")
 
     fun commitTurn(
         identity: TurnTransactionIdentity,

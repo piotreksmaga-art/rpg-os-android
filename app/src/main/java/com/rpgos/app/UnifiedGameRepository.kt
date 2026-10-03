@@ -97,6 +97,7 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     override fun setActiveCampaign(dirName: String) = store.setActiveCampaign(dirName)
     override fun setActiveWorldPack(dirName: String) = store.setActiveWorldPack(dirName)
     override fun createCampaign(name: String): File = store.createCampaign(name)
+    override fun createNativeCampaign(spec:NativeWorldCreationSpec):File = store.createNativeCampaign(spec)
 
     private fun openGameplaySaveDb(): SQLiteDatabase = store.openGameplaySaveDb()
     internal fun infrastructureOpenWorldDb(): SQLiteDatabase = store.openWorldDb()
@@ -104,8 +105,40 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     internal fun infrastructureNpcTravelRoutePort():NpcTravelRoutePort = NpcTravelRoutePort { campaignUid,actor,origin ->
         val active=activeCampaignRef().campaignId
         if(campaignUid!=active)emptyList() else openGameplaySaveDb().use{db->
-            SqliteNpcTravelRoutePort(db).routes(campaignUid,actor,origin)
+            val snapshot=infrastructureTemporalRead()
+            val canonical=MechanicalActorStateStore(db,campaignUid).actor(actor)
+            val runtime=Phase63WorldStore(db,campaignUid).edgesFrom(origin).filter { edge->
+                edge.validFrom<=snapshot.state.time && (edge.validThrough==null || snapshot.state.time+edge.duration<edge.validThrough) &&
+                    edge.version<=Int.MAX_VALUE && edge.resourceCosts.size<=16 && canonical?.executableAbilityUids?.containsAll(edge.requiredCapabilities)==true &&
+                    infrastructureWorldRouteKnown(db,campaignUid,actor,edge,snapshot.scope.baseCommitOrder)
+            }.map { edge->NpcTravelRouteContract(campaignUid,edge.uid,edge.version.toInt(),edge.origin,edge.destination,edge.duration,
+                "P63:ROUTE_MS_V1",resourceCosts=edge.resourceCosts,requiredCapabilities=edge.requiredCapabilities) }
+            (SqliteNpcTravelRoutePort(db).routes(campaignUid,actor,origin)+runtime).also { require(it.size<=1024) }
         }
+    }
+    private fun infrastructureWorldRouteKnown(db:SQLiteDatabase,campaign:String,actor:DomainRef,edge:WorldTopologyEdge,order:Long):Boolean {
+        val holder=KnowledgeHolderRef(KnowledgeHolderKinds.CHARACTER,actor.uid,campaign)
+        val player=activePlayerRef()
+        val isPlayer=actor.kindUid=="PLAYER" && player?.playerUid==actor.uid
+        if(actor.kindUid=="PLAYER" && !isPlayer)return false
+        // This is the actor's route prerequisite reasoning, not a disclosure of private
+        // holder knowledge to the human-facing narration audience. Phase38 already permits
+        // only the explicitly mapped holder with WORLD_ACTOR_REASONING.
+        val audience=AudienceContext(campaign,AudienceKinds.WORLD_ACTOR,VisibilityPrincipalRef(actor.kindUid,actor.uid))
+        val authority=UniversalAccessAuthority(AccessAuthorityStore(db,campaign))
+        val trusted=authority.trustedContext(audience,order)?.copy(cognitionHolders=setOf(holder))?:return false
+        val purpose=PurposeContext(campaign,VisibilityPurposeKinds.WORLD_ACTOR_REASONING)
+        val reads=ProtectedCampaignReadRepository.borrowedTrusted(db,campaign,::activePlayerRef,trusted)
+        val claim=WorldRouteKnowledge.claimUid(edge)
+        val known=reads.npcRequiredClaims(audience,purpose,holder,order,setOf(claim))
+        if(claim in ((known as? ProtectedReadResult.Allow)?.value?:emptySet()))return true
+        if(!edge.provenanceUid.startsWith("P62:ROUTE:"))return false
+        // Preserve the existing Phase62 contract for imported routes: the actor-scoped
+        // route catalog enforces access, and the holder must legally know its destination.
+        val records=reads.npcKnowledge(audience,purpose,holder,order,64)
+        return (records as? ProtectedReadResult.Allow)?.value.orEmpty().any { record->record.subjectRefs.any {
+            (it.kindUid=="WORLD_ROUTE" && it.uid==edge.uid) || WorldTopologyAnchor.same(it,edge.destination)
+        } }
     }
     internal fun infrastructureNpcActivityContractPort():NpcActivityContractPort = object:NpcActivityContractPort {
         override fun contract(campaignUid:String,capabilityUid:String)=forCapability(campaignUid,capabilityUid).singleOrNull()
@@ -318,7 +351,7 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         }
     }
     /** Infrastructure selects a participant's legal stimulus; it does not grant another holder's knowledge. */
-    internal fun npcCognitionStimulus(expected:TemporalScope,actor:DomainRef):NpcCognitionStimulus? {
+    internal fun npcCognitionStimulus(expected:TemporalScope,actor:DomainRef,diagnostic:(String)->Unit={}):NpcCognitionStimulus? {
         val campaign=activeCampaignRef().campaignId
         return CampaignRuntimeLifecycleLock.withTurn(campaign) {
             if(expected!=infrastructureTemporalRead().scope || actor.uid==activePlayerRef()?.playerUid)return@withTurn null
@@ -331,7 +364,21 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
                     cognitionHolders=setOf(brain.knowledgeHolder))
                 val reads=ProtectedCampaignReadRepository.borrowedTrusted(db,campaign,::activePlayerRef,trusted)
                 val projected=reads.npcKnowledge(audience,PurposeContext(campaign,VisibilityPurposeKinds.WORLD_ACTOR_REASONING),brain.knowledgeHolder,expected.baseCommitOrder,64)
-                val allowed=(projected as? ProtectedReadResult.Allow)?.value?:return@use null
+                val allowed=when(projected) {
+                    is ProtectedReadResult.Allow->projected.value
+                    ProtectedReadResult.NoData->emptyList()
+                    else->{
+                        val reason=when(projected) {
+                            is ProtectedReadResult.Deny->projected.reasonCode
+                            is ProtectedReadResult.NotDisclosed->projected.reasonCode
+                            is ProtectedReadResult.Unknown->projected.reasonCode
+                            is ProtectedReadResult.Corruption->projected.reasonCode
+                            else->projected.stateUid
+                        }
+                        diagnostic("P62:KNOWLEDGE_${projected.stateUid}:$reason")
+                        return@use null // denied/corrupt holder data is never an empty authorized record set
+                    }
+                }
                 val record=allowed.maxWithOrNull(compareBy<NpcKnownRecord>{it.sourceCommittedOrder}.thenBy{it.uid})
                 if(record==null) {
                     val motivation=brain.motivations.sortedWith(compareByDescending<NpcMotivation>{it.strength.basisPoints}.thenBy{it.uid}).firstOrNull()?:return@use null
@@ -544,6 +591,372 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
     internal fun infrastructureHistoryGenerationUid():HistoryGenerationUid = openGameplaySaveDb().use{db->
         HistoryGenerationStore(db,activeCampaignRef().campaignId).current()
     }
+    /** Preparation only. Legacy roots are first written together with the next accepted action. */
+    internal fun infrastructureWorldSkeletonCandidate():CampaignWorldSkeleton? {
+        val campaign=activeCampaignRef().campaignId
+        return CampaignRuntimeLifecycleLock.withTurn(campaign) {
+            openGameplaySaveDb().use { db ->
+                Phase63WorldStore(db,campaign).root()?.let { return@use it.skeleton }
+                val player=activePlayerRef()?.playerUid?:return@use null
+                val anchor=infrastructureEntityLocationUid(player)?:return@use null
+                val binding=infrastructureWorldPackAuthority().binding
+                val rules=if(binding.sourceKind==CampaignRuleSourceKind.WORLD_PACK)store.openWorldDb().use { Phase63RuleSourceImport.read(it,binding) }
+                    else Phase63RuleSourceData(CoreLatentWorldRules.initial(),emptyList())
+                CampaignWorldSkeleton.legacy(campaign,binding.ruleSource,"EXISTING_CAMPAIGN",DomainRef("PLACE",anchor))
+                    .copy(latentRules=rules.localRules,macroRegionRules=rules.macroRules)
+            }
+        }
+    }
+    internal fun infrastructureWorldFrame(audience:AudienceContext,purpose:PurposeContext):ProtectedReadResult<Map<String,String>> {
+        val campaign=activeCampaignRef().campaignId
+        if(audience.campaignUid!=campaign || purpose.campaignUid!=campaign)return ProtectedReadResult.Deny("CROSS_CAMPAIGN_CONTEXT")
+        val player=activePlayerRef()?:return ProtectedReadResult.NoData
+        // The registered player-state read establishes the same principal/purpose authority.
+        // No latent region, seed, private constraint or NPC knowledge is included in this frame.
+        when(val access=protectedReads().playerState(audience,purpose,player.playerUid)) {
+            is ProtectedReadResult.Allow -> Unit
+            is ProtectedReadResult.Deny -> return access
+            is ProtectedReadResult.NoData -> return access
+            is ProtectedReadResult.NotDisclosed -> return access
+            is ProtectedReadResult.Unknown -> return access
+            is ProtectedReadResult.Corruption -> return access
+        }
+        val skeleton=infrastructureWorldSkeletonCandidate()?:return ProtectedReadResult.NoData
+        return ProtectedReadResult.Allow(buildMap {
+            put("source_kind",skeleton.ruleSource.kind.name);put("era",skeleton.era)
+            if(skeleton.ruleSource.kind==CampaignRuleSourceKind.CAMPAIGN_NATIVE)skeleton.constraints["WORLD_PREMISE"]?.let { put("declared_world_premise",it.take(2048)) }
+            put("classification","DECLARED_CAMPAIGN_CONFIGURATION");put("source_version",skeleton.ruleSource.version)
+        },DisclosureLevel.DISCLOSE_FULL,"P63:PUBLIC_WORLD_FRAME")
+    }
+    internal fun infrastructureWorldInitialization(request:ChatTurnRequest):WorldSimulationChange? {
+        val campaign=activeCampaignRef().campaignId
+        require(request.campaignUid==campaign) { "P63:CROSS_CAMPAIGN_INITIALIZATION" }
+        return CampaignRuntimeLifecycleLock.withTurn(campaign) {
+            openGameplaySaveDb().use { db ->
+                if(Phase63WorldStore(db,campaign).root()!=null)return@use null
+                val candidate=infrastructureWorldSkeletonCandidate()?:return@use null
+                WorldSimulationChange(campaign,HistoryGenerationStore(db,campaign).current(),0,candidate)
+            }
+        }
+    }
+    internal fun infrastructureWorldExpansion(request:ChatTurnRequest,effects:List<VerifiedMechanicsCommandEffect>):List<WorldSimulationChange> {
+        val scope=infrastructureWorldResolutionScope()?:return listOfNotNull(infrastructureWorldInitialization(request))
+        val drafts=effects.mapNotNull { CoreLatentWorldRules.draft(scope.campaignUid,it) }
+        val owner=CapturedWorldMaterializationPort(scope,drafts,::infrastructureWorldResolutionCurrent) { prepareWorldExpansion(request,effects) }
+        val registry=WorldComponentOwnerRegistry(mapOf("WORLD_SIMULATION" to owner))
+        return registry.requireOwner("WORLD_SIMULATION").prepare(scope,drafts).map { it as WorldSimulationChange }
+    }
+    private fun prepareWorldExpansion(request:ChatTurnRequest,effects:List<VerifiedMechanicsCommandEffect>):List<WorldSimulationChange> {
+        val campaign=activeCampaignRef().campaignId
+        require(request.campaignUid==campaign) { "P63:CROSS_CAMPAIGN_EXPANSION" }
+        return CampaignRuntimeLifecycleLock.withTurn(campaign) { openGameplaySaveDb().use { db->
+            val root=Phase63WorldStore(db,campaign).root()
+            val skeleton=root?.skeleton?:infrastructureWorldSkeletonCandidate()?:return@use emptyList()
+            val time=infrastructureTemporalRead().state.time
+            val edges=effects.mapNotNull { CoreLatentWorldRules.draft(campaign,it) }
+                .flatMap { CoreLatentWorldRules.localEdges(skeleton,it,time) }.distinctBy { it.uid }
+            require(edges.size<=32) { "P63:LOCAL_CONNECTION_BUDGET" }
+            val createdManifests=effects.mapNotNull { CoreLatentWorldRules.draft(campaign,it) }.filter { it.baseKind==WorldElementBaseKind.GROUP }.mapNotNull { draft->
+                val seed=Phase63ActorGeneration.forDraft(skeleton,draft,MechanicalStateMaterialization.FULL)?:return@mapNotNull null
+                WorldPopulationManifest(draft.element,requireNotNull(seed.aggregateCount),skeleton.domainSeed("POPULATION",draft.element.toString()))
+            }.distinctBy { it.uid }
+            val populations=WorldPopulationStore(db,campaign)
+            val selectedAggregates=effects.mapNotNull { effect->effect.canonicalPayload["p63_population_aggregate_kind"]?.let { kind->
+                DomainRef(kind,requireNotNull(effect.canonicalPayload["p63_population_aggregate_uid"])) } }
+            val adoptedManifests=(effects.map { it.target }+selectedAggregates).distinct().filter { it.kindUid in setOf("GROUP","UNIT") && populations.forAggregate(it)==null }
+                .mapNotNull { aggregate->MechanicalActorStateStore(db,campaign).population(aggregate)?.totalCount?.takeIf { it>0 }?.let { count->
+                    WorldPopulationManifest(aggregate,count,skeleton.domainSeed("POPULATION",aggregate.toString())) } }
+            val manifests=(createdManifests+adoptedManifests).distinctBy { it.uid }
+            val baseVersions=mutableMapOf<String,Long>()
+            val extractedCounts=mutableMapOf<String,Long>()
+            val extractions=effects.filter { "p63_population_manifest" in it.canonicalPayload }.distinctBy { it.target }.map { effect->
+                val manifestUid=requireNotNull(effect.canonicalPayload["p63_population_manifest"])
+                val baseVersion=requireNotNull(effect.canonicalPayload["p63_population_version"]).toLong()
+                require(baseVersions.getOrPut(manifestUid) { baseVersion }==baseVersion) { "P63:POPULATION_PREPARATION_VERSION_CONFLICT" }
+                val offset=extractedCounts[manifestUid]?:0L
+                extractedCounts[manifestUid]=offset+1
+                WorldPopulationExtraction(requireNotNull(effect.canonicalPayload["p63_population_manifest"]),requireNotNull(effect.canonicalPayload["p63_population_ordinal"]).toLong(),
+                    effect.target,requireNotNull(effect.canonicalPayload["display_name"]),Math.addExact(baseVersion,offset),effect.proofUid)
+            }.distinctBy { it.member }
+            if(root!=null && edges.isEmpty() && manifests.isEmpty() && extractions.isEmpty())emptyList() else listOf(WorldSimulationChange(campaign,HistoryGenerationStore(db,campaign).current(),
+                root?.version?:0,if(root==null)skeleton else null,edges,populationManifests=manifests,populationExtractions=extractions))
+        } }
+    }
+    internal fun infrastructureWorldWorkPlan(snapshot:TemporalReadSnapshot,direct:List<DomainRef>):WorldLodWorkPlan = openGameplaySaveDb().use { db->
+        require(direct.size<=128 && snapshot.scope.campaignUid==activeCampaignRef().campaignId && infrastructureTemporalRead().scope==snapshot.scope) { "P63:STALE_LOD_SCOPE" }
+        val campaign=snapshot.scope.campaignUid
+        val player=activePlayerRef()?.let { DomainRef("PLAYER",it.playerUid) }
+        val pending=NpcActionProcess.decode(snapshot.state.processStates.singleOrNull { it.ownerUid==NpcActionProcess.OWNER }).map { it.actor }.toSet()
+        val populations=WorldPopulationStore(db,campaign)
+        val subjects=(direct+pending+listOfNotNull(player)).distinct().map { ref->
+            val aggregate=populations.aggregateForMember(ref)
+            val body=if(ref.kindUid in setOf("GROUP","UNIT"))MechanicalActorStateStore(db,campaign).actor(ref) else null
+            WorldLodSubject(ref,aggregate,body?.aggregatePopulation?.totalCount?:0,ref==player,ref in direct,
+                ref in pending,ref.kindUid=="UNIT")
+        }
+        WorldLodWorkPlan(snapshot.scope,subjects)
+    }
+    /** Anonymous bodies and named members are disjoint. An area attack is resolved by the
+     * existing Phase50 selector, not by adding the named people back into anonymous counts. */
+    internal fun infrastructureWorldCombatMembers(plan:CanonicalTurnPlan,targets:List<DomainRef>):List<DomainRef> = openGameplaySaveDb().use { db->
+        require(targets.size<=256 && plan.campaignUid==activeCampaignRef().campaignId) { "P63:FORMATION_SCOPE" }
+        val scope=infrastructureWorldResolutionScope()?:error("P63:FORMATION_SCOPE")
+        require(plan.atOrder==null || plan.atOrder in scope.asOfCommittedOrder..Math.addExact(scope.asOfCommittedOrder,1L)) { "P63:STALE_FORMATION_SCOPE" }
+        val populations=WorldPopulationStore(db,plan.campaignUid)
+        val members=targets.filter { it.kindUid in setOf("GROUP","UNIT") }.flatMap { populations.namedMembers(it) }.distinct()
+        val projection=CampaignWorldProjectionStore(db,plan.campaignUid)
+        val canonical=members.map { projection.canonicalElement(it.uid)?:error("P63:FORMATION_MEMBER_NOT_DISCLOSED") }
+        val admitted=WorldResolutionReadAuthority(scope,{infrastructureWorldResolutionCurrent(scope)}).project(scope,canonical)
+        require(admitted.map { it.element }.toSet()==members.toSet()) { "P63:FORMATION_MEMBER_NOT_DISCLOSED" }
+        val result=(targets+members).distinct().sortedWith(compareBy<DomainRef>{it.kindUid}.thenBy{it.uid})
+        require(result.size<=256) { "P63:FORMATION_READ_BUDGET" }
+        result
+    }
+    internal fun infrastructureWorldProcesses(snapshot:TemporalReadSnapshot,effects:List<VerifiedMechanicsCommandEffect>):TemporalProcessExtension = openGameplaySaveDb().use { db->
+        require(snapshot.scope.campaignUid==activeCampaignRef().campaignId && infrastructureTemporalRead().scope==snapshot.scope) { "P63:STALE_PROCESS_PREPARATION" }
+        val campaign=snapshot.scope.campaignUid
+        val targets=effects.map { it.target }.distinct()
+        require(targets.size<=256) { "P63:REFINEMENT_FRONTIER_BUDGET" }
+        var sliceStart=System.nanoTime()
+        var sliceReads=0
+        val jobs=targets.mapNotNull { ref->
+            if(sliceReads>=32 || System.nanoTime()-sliceStart>=50_000_000L) {
+                Thread.yield();sliceReads=0;sliceStart=System.nanoTime()
+                require(infrastructureTemporalRead().scope==snapshot.scope) { "P63:STALE_PROCESS_PREPARATION" }
+            }
+            sliceReads++
+            val actor=MechanicalActorStateStore(db,campaign).actor(ref)?:return@mapNotNull null
+            if(actor.materialization==MechanicalStateMaterialization.FULL || Phase50ActorExpansion.preview(db,campaign,actor)==null)return@mapNotNull null
+            MechanicalActorExpansion(ref,actor.stateVersion,MechanicalStateMaterialization.FULL)
+        }
+        require(infrastructureTemporalRead().scope==snapshot.scope) { "P63:STALE_PROCESS_PREPARATION" }
+        Phase63WorldProcessOwner(snapshot.scope,Phase63WorldStore(db,campaign).root()?.version?:0,jobs,
+            currentScope={infrastructureTemporalRead().scope}).extension()
+    }
+    /** Explicit selection from a known population is a refinement, not a second NPC roll. */
+    internal fun infrastructurePopulationReference(reference:IntentReference,consumers:List<IntentNode>):IntentReference? {
+        val shape=WorldReferenceShapeClassifier.classify(reference,consumers)
+        if(shape.baseKind!=WorldElementBaseKind.ACTOR)return null
+        if(shape.kind==WorldReferenceShapeKind.NAMED_INSTANCE || (shape.quantity?:1)>1 ||
+            reference.kind in setOf(IntentReferenceKind.DISCOURSE,IntentReferenceKind.DEICTIC))return null
+        val aggregateUid=reference.descriptorHints["aggregate_uid"]
+        val populationName=reference.descriptorHints["member_of"]?.trim()?.takeIf { it.isNotBlank() }
+        if(aggregateUid==null && populationName==null)return null
+        val campaign=activeCampaignRef().campaignId
+        val player=activePlayerRef()?:return null
+        val anchor=infrastructureEntityLocationUid(player.playerUid)?:return null
+        return openGameplaySaveDb().use { db->
+            val projection=CampaignWorldProjectionStore(db,campaign)
+            val scope=infrastructureWorldResolutionScope()?:return@use null
+            val possible=if(aggregateUid!=null)listOfNotNull(projection.canonicalElement(aggregateUid)) else
+                projection.searchPlayerVisible(requireNotNull(populationName),WorldReferenceShape(WorldReferenceShapeKind.CATEGORY,
+                    WorldElementBaseKind.GROUP,reference.descriptorHints["population_category"]?.let(WorldCategoryVocabulary::canonical),emptySet(),"LOCAL_SITE"),requireAffordances=false)
+            val allowed=WorldResolutionReadAuthority(scope,{infrastructureWorldResolutionCurrent(scope)}).project(scope,possible)
+                .filter { it.element.kindUid in setOf("GROUP","UNIT") && it.parentAnchorUid==anchor }
+            if(allowed.size>1)return@use reference.copy(descriptorHints=reference.descriptorHints+("world_resolution_reason" to "REFERENCE_AMBIGUOUS"))
+            val group=allowed.singleOrNull()?:return@use reference.copy(descriptorHints=reference.descriptorHints+("world_resolution_reason" to "P63:KNOWN_POPULATION_REQUIRED"))
+            val skeleton=infrastructureWorldSkeletonCandidate()?:return@use null
+            val manifest=WorldPopulationStore(db,campaign).candidate(group.element,skeleton)?:return@use null
+            val ordinal=((shape.ordinal?:1)-1).toLong()
+            if(ordinal !in 0 until manifest.originalCount)return@use null
+            val member=manifest.member(ordinal)
+            CampaignWorldProjectionStore(db,campaign).canonicalElement(member.uid)?.let { existing->
+                if(WorldResolutionReadAuthority(scope,{infrastructureWorldResolutionCurrent(scope)}).project(scope,listOf(existing)).singleOrNull()==null)
+                    return@use reference.copy(descriptorHints=reference.descriptorHints+("world_resolution_reason" to "P63:MEMBER_NOT_DISCLOSED"))
+                return@use reference.copy(state=IntentReferenceState.RESOLVED_PROJECTED,resolvedProjectedRef=existing.element,
+                    candidateProjectedRefs=emptyList(),resolutionEvidenceUid="P63:POPULATION-MEMBER:${manifest.uid}:$ordinal")
+            }
+            val draft=WorldElementDraft(campaign,member,"${reference.rawPhrase?.take(120)?:group.displayName} ${ordinal+1}",WorldElementBaseKind.ACTOR,
+                shape.categoryUid?:group.categoryUid,anchor,shape.affordanceUids,"LOCAL_SITE",WorldEvidenceClassification.GENERATED_PLAUSIBLE,
+                listOf(manifest.uid,Phase63PopulationCodec.aggregateEvidence(group.element)),null,null,null,"FULL",ordinal)
+            LatentWorldReferenceCodec.attach(reference,draft,WorldFeasibilityDecision(WorldFeasibilityState.FEASIBLE_NEARBY,"P63:EXISTING_POPULATION",anchor,listOf(manifest.uid)))
+        }
+    }
+    internal fun infrastructureWorldPopulationPayload(draft:WorldElementDraft):Map<String,String> {
+        val campaign=activeCampaignRef().campaignId
+        if(draft.campaignUid!=campaign || draft.baseKind!=WorldElementBaseKind.ACTOR)return emptyMap()
+        return openGameplaySaveDb().use { db->
+            val skeleton=infrastructureWorldSkeletonCandidate()?:return@use emptyMap()
+            val manifest=WorldPopulationStore(db,campaign).candidateForDraft(draft,skeleton)?:return@use emptyMap()
+            require(manifest.member(draft.slotOrdinal)==draft.element) { "P63:POPULATION_FOREIGN_MEMBER" }
+            val aggregate=requireNotNull(MechanicalActorStateStore(db,campaign).actor(manifest.aggregate))
+            require(aggregate.locationRef?.uid==draft.parentAnchorUid ||
+                CampaignWorldProjectionStore(db,campaign).canonicalElement(manifest.aggregate.uid)?.parentAnchorUid==draft.parentAnchorUid) { "P63:POPULATION_LOCATION_CHANGED" }
+            mapOf("p63_population_manifest" to manifest.uid,"p63_population_ordinal" to draft.slotOrdinal.toString(),"p63_population_version" to aggregate.stateVersion.toString(),
+                "p63_population_aggregate_kind" to manifest.aggregate.kindUid,"p63_population_aggregate_uid" to manifest.aggregate.uid)
+        }
+    }
+    internal fun infrastructureWorldActorSeed(draft:WorldElementDraft):String?=infrastructureWorldSkeletonCandidate()?.let { skeleton->
+        Phase63ActorGeneration.forDraft(skeleton,draft,MechanicalStateMaterialization.FULL)?.seedUid
+    }
+    private fun infrastructureWorldContainment(scope:WorldResolutionScope,element:DomainRef):DomainRef? {
+        if(!infrastructureWorldResolutionCurrent(scope))return null
+        return openGameplaySaveDb().use { db->
+            val skeleton=Phase63WorldStore(db,scope.campaignUid).root()?.skeleton?:return@use null
+            val projected=CampaignWorldProjectionStore(db,scope.campaignUid).canonicalElement(element.uid)?:return@use null
+            if(WorldResolutionReadAuthority(scope,{infrastructureWorldResolutionCurrent(scope)}).project(scope,listOf(projected)).isEmpty())return@use null
+            val parent=projected.parentAnchorUid?:return@use null
+            val canonical=CampaignWorldProjectionStore(db,scope.campaignUid).canonicalElement(parent)
+            if(canonical!=null) {
+                if(WorldResolutionReadAuthority(scope,{infrastructureWorldResolutionCurrent(scope)}).project(scope,listOf(canonical)).isEmpty())null
+                else WorldTopologyAnchor.canonical(canonical.element)
+            } else if(LatentWorldGeography.regions(skeleton).any { it.ref.uid==parent })DomainRef("LOCATION",parent) else null
+        }
+    }
+    internal fun infrastructureNearestWorldElement(candidates:List<CampaignWorldElement>):CampaignWorldElement? {
+        require(candidates.size<=512)
+        val campaign=activeCampaignRef().campaignId
+        val player=activePlayerRef()?:return null
+        val actor=DomainRef("PLAYER",player.playerUid)
+        val anchor=infrastructureEntityLocationUid(player.playerUid)?:return null
+        fun target(element:CampaignWorldElement)=if(element.element.kindUid in setOf("PLACE","LOCATION"))element.element.uid else element.parentAnchorUid
+        candidates.filter { target(it)==anchor }.minByOrNull { it.element.uid }?.let { return it }
+        val destinations=candidates.mapNotNull { target(it)?.let { uid->DomainRef("LOCATION",uid) } }.toSet()
+        if(destinations.isEmpty())return null
+        return openGameplaySaveDb().use { db->
+            val snapshot=infrastructureTemporalRead()
+            val skeleton=infrastructureWorldSkeletonCandidate()?:return@use null
+            val scope=WorldResolutionScope(campaign,HistoryGenerationUid(snapshot.scope.historyGenerationUid),snapshot.scope.baseCommitOrder,player.playerUid,
+                VisibilityPurposeKinds.GAMEPLAY_NARRATION,mapOf(skeleton.ruleSource.uid to skeleton.ruleSource.version))
+            val body=MechanicalActorStateStore(db,campaign).actor(actor)?:return@use null
+            val topology=AuthorizedWorldTopology(WorldTopologyEdgeReadPort { c,origin->Phase63WorldStore(db,c).edgesFrom(origin)+
+                SqliteNpcTravelRoutePort(db).routes(c,actor,origin).map { route->WorldTopologyEdge(route.routeUid,route.version.toLong(),
+                    route.origin,route.destination,route.duration,route.resourceCosts.filterValues { it>0 },route.requiredCapabilities,WorldTimeTick(Long.MIN_VALUE),null,
+                    "P62:ROUTE:${route.fingerprint}") } },
+                object:WorldTopologyAuthorizationPort {
+                    override fun current(scope:WorldResolutionScope)=infrastructureWorldResolutionCurrent(scope)
+                    override fun permitted(scope:WorldResolutionScope,edge:WorldTopologyEdge,at:WorldTimeTick)=
+                        infrastructureWorldRouteKnown(db,campaign,actor,edge,scope.asOfCommittedOrder)
+                },pathPermitted={ plan->plan.edges.all { body.executableAbilityUids.containsAll(it.requiredCapabilities) } &&
+                    plan.resourceCosts.all { (uid,cost)->body.resources.singleOrNull { it.resourceUid==uid }?.current?.let { it>=cost }==true } },
+                containmentRead=WorldTopologyContainmentPort(::infrastructureWorldContainment))
+            val route=topology.closest(scope,DomainRef("LOCATION",anchor),destinations,snapshot.state.time) as? WorldResolutionResult.Journey?:return@use null
+            candidates.filter { target(it)==route.element.uid }.minByOrNull { it.element.uid }
+        }
+    }
+    internal fun infrastructureNearestProjectedWorldRef(candidates:List<DomainRef>):DomainRef? {
+        require(candidates.size<=512)
+        val campaign=activeCampaignRef().campaignId
+        val elements=openGameplaySaveDb().use { db->candidates.mapNotNull { ref->
+            CampaignWorldProjectionStore(db,campaign).canonicalElement(ref.uid)?.takeIf { it.element.kindUid==ref.kindUid ||
+                WorldTopologyAnchor.same(it.element,ref) }?:when(ref.kindUid) {
+                "PLACE","LOCATION"->CampaignWorldElement(ref,ref.uid,"WORLD_PACK_LOCATION",null,emptySet(),"WORLD_PACK",WorldEvidenceClassification.SOURCE_CANON)
+                "NPC","ACTOR","GROUP","UNIT"->infrastructureEntityLocationUid(ref.uid)?.let { anchor->CampaignWorldElement(ref,ref.uid,"EXISTING_ACTOR",anchor,
+                    emptySet(),"LOCAL_SITE",WorldEvidenceClassification.CAMPAIGN_FACT) }
+                else->null
+            }
+        } }
+        val selected=infrastructureNearestWorldElement(elements)?.element?:return null
+        return candidates.singleOrNull { it==selected || WorldTopologyAnchor.same(it,selected) }
+    }
+    internal fun infrastructureWorldDiagnostics():Map<String,Any?> = openGameplaySaveDb().use { db->
+        val campaign=activeCampaignRef().campaignId
+        val player=activePlayerRef()
+        val root=Phase63WorldStore(db,campaign).root()
+        val anchor=player?.let { infrastructureEntityLocationUid(it.playerUid) }
+        val order=TurnTransactionReceiptStore(db).lastValidCommit(campaign)?.commitOrder?:0L
+        val actor=player?.let { DomainRef("PLAYER",it.playerUid) }
+        val edges=if(anchor==null || actor==null)emptyList() else Phase63WorldStore(db,campaign).edgesFrom(DomainRef("LOCATION",anchor))
+            .filter { infrastructureWorldRouteKnown(db,campaign,actor,it,order) }
+        val public=CampaignWorldProjectionStore(db,campaign).canonicalPublicElements(128)
+        val populations=WorldPopulationStore(db,campaign)
+        val knownPopulations=public.filter { it.element.kindUid in setOf("GROUP","UNIT") }.mapNotNull { element->
+            val manifest=populations.forAggregate(element.element)?:return@mapNotNull null
+            val body=MechanicalActorStateStore(db,campaign).actor(element.element)?:return@mapNotNull null
+            mapOf("aggregate_uid" to element.element.uid,"manifest_uid" to manifest.uid,"original_count" to manifest.originalCount,
+                "anonymous_count" to body.aggregatePopulation?.totalCount,"named_count" to Phase50PopulationPartition.namedCount(db,campaign,element.element),
+                "named_members" to populations.namedOrdinals(manifest.uid).map { manifest.member(it).uid },
+                "processing_lod" to WorldLodPolicy.level(WorldLodInterest(element.element,formation=element.element.kindUid=="UNIT")).name)
+        }
+        val temporal=Phase60TemporalStateStore(db,campaign).read()
+        mapOf("campaign_uid" to campaign,"initialized" to (root!=null),"world_version" to root?.version,
+            "source_kind" to root?.skeleton?.ruleSource?.kind?.name,"source_version" to root?.skeleton?.ruleSource?.version,
+            "skeleton_fingerprint" to root?.skeleton?.fingerprint,"history_generation" to HistoryGenerationStore(db,campaign).current().value,
+            "as_of_order" to order,"current_anchor_uid" to anchor,"generator_version" to root?.skeleton?.generatorVersion,
+            "known_connections" to edges.map { edge->mapOf("uid" to edge.uid,"version" to edge.version,
+                "origin_uid" to edge.origin.uid,"destination_uid" to edge.destination.uid,"duration_ms" to edge.duration.milliseconds) },
+            "active_player_lod" to player?.let { WorldLodPolicy.level(WorldLodInterest(DomainRef("PLAYER",it.playerUid),activePlayer=true)).name },
+            "known_populations" to knownPopulations,"diagnostic_element_limit" to 128,
+            "world_process_deadlines" to temporal.deadlines.count { it.ownerUid==Phase63WorldProcessOwner.OWNER },
+            "world_process_state" to temporal.processStates.singleOrNull { it.ownerUid==Phase63WorldProcessOwner.OWNER }?.canonicalValue)
+    }
+    internal fun infrastructureWorldPreview(phrase:String,kind:WorldElementBaseKind,category:String?,affordances:Set<String>):UniversalWorldReferenceResolution {
+        require(phrase.isNotBlank() && phrase.length<=256 && affordances.size<=16)
+        val campaign=activeCampaignRef().campaignId
+        val reference=IntentReference("P63:PREVIEW",IntentReferenceKind.DESCRIPTIVE,phrase,"TARGET",
+            setOf(kind.name),buildMap { category?.let { put("category",it) };if(affordances.isNotEmpty())put("affordances",affordances.sorted().joinToString(",")) })
+        val player=activePlayerRef()?:return UniversalWorldReferenceResolution.Unresolved("P63:ACTIVE_PLAYER_REQUIRED")
+        // No Scout, model or write is involved in a laboratory preview.
+        return UniversalWorldMaterializationResolver().resolve(campaign,reference,emptyList(),infrastructureEntityLocationUid(player.playerUid),
+            infrastructureWorldElements(reference,emptyList()),null,skeleton=infrastructureWorldSkeletonCandidate())
+    }
+    internal fun infrastructureWorldActorReference(uid:String):DomainRef {
+        if(infrastructureWorldPackAuthority().binding.sourceKind==CampaignRuleSourceKind.CAMPAIGN_NATIVE)return DomainRef("ACTOR",uid)
+        return DomainRef("NPC",uid)
+    }
+    internal fun infrastructureMechanicalActorCandidate(plan:CanonicalTurnPlan,ref:DomainRef):MechanicalActorView? {
+        infrastructureMechanicalActor(ref)?.let { actor->
+            if(actor.materialization==MechanicalStateMaterialization.FULL)return actor
+            return openGameplaySaveDb().use { Phase50ActorExpansion.preview(it,plan.campaignUid,actor) }
+        }
+        if(plan.campaignUid!=activeCampaignRef().campaignId || ref.kindUid !in setOf("ACTOR","GROUP"))return null
+        val draft=plan.intent.references.mapNotNull { LatentWorldReferenceCodec.decode(plan.campaignUid,it) }.singleOrNull { it.element==ref }?:return null
+        openGameplaySaveDb().use { db->
+            val skeleton=infrastructureWorldSkeletonCandidate()?:return null
+            val manifest=WorldPopulationStore(db,plan.campaignUid).candidateForDraft(draft,skeleton)
+            if(manifest!=null && manifest.member(draft.slotOrdinal)==ref)
+                return Phase50PopulationPartition.preview(db,plan.campaignUid,manifest,draft.slotOrdinal)
+        }
+        val skeleton=infrastructureWorldSkeletonCandidate()?:return null
+        val seed=Phase63ActorGeneration.forDraft(skeleton,draft,MechanicalStateMaterialization.FULL)?:return null
+        return MechanicalActorView(plan.campaignUid,ref,seed.kind,0,seed.materialization,seed.attributes,seed.resources,seed.abilities,
+            locationRef=draft.parentAnchorUid?.let { DomainRef("LOCATION",it) },generationProvenanceUid=seed.provenanceUid,
+            aggregatePopulation=seed.aggregateCount?.let { AggregateMechanicalPopulation(it,it) })
+    }
+    internal fun infrastructureWorldTravel(request:MechanicsEffectRequest,context:MechanicsResolutionContext):MechanicsEffectResolution {
+        fun reject(reason:String)=MechanicsEffectResolution.Rejected("P63:$reason")
+        val campaign=activeCampaignRef().campaignId
+        if(context.campaignUid!=campaign || context.npcAuthorization!=null)return reject("TRAVEL_SCOPE")
+        val player=activePlayerRef()?:return reject("PLAYER_REQUIRED")
+        if(context.plan.intent.actor!=CommandActorRef("PLAYER",player.playerUid))return reject("PLAYER_VOLITION_REQUIRED")
+        val destination=request.targetProjectedRef?.takeIf { it.kindUid in setOf("PLACE","LOCATION") }?:return reject("DESTINATION_REQUIRED")
+        return CampaignRuntimeLifecycleLock.withTurn(campaign) { openGameplaySaveDb().use { db->
+            val snapshot=infrastructureTemporalRead()
+            val skeleton=infrastructureWorldSkeletonCandidate()?:return@use reject("WORLD_ROOT_REQUIRED")
+            val anchor=infrastructureEntityLocationUid(player.playerUid)?:return@use reject("TRAVEL_ORIGIN_UNKNOWN")
+            val actorRef=DomainRef("PLAYER",player.playerUid)
+            val canonical=MechanicalActorStateStore(db,campaign).actor(actorRef)?:MechanicalActorView(campaign,actorRef,
+                MechanicalActorKind.ACTIVE_PLAYER,0,MechanicalStateMaterialization.FULL,emptyMap(),
+                infrastructurePlayerResources().map { MechanicalResource(it.resourceUid,it.currentValue.roundToLong().coerceAtLeast(0),it.currentValue.roundToLong().coerceAtLeast(0)) },
+                emptySet(),locationRef=DomainRef("LOCATION",anchor),generationProvenanceUid="PLAYER-DOMAIN:${player.playerUid}")
+            val actor=StagedMechanicalProjection.actor(canonical,context.stagedEffects)
+            val scope=WorldResolutionScope(campaign,HistoryGenerationUid(snapshot.scope.historyGenerationUid),snapshot.scope.baseCommitOrder,
+                player.playerUid,VisibilityPurposeKinds.GAMEPLAY_NARRATION,mapOf(skeleton.ruleSource.uid to skeleton.ruleSource.version))
+            val drafts=context.plan.intent.references.mapNotNull { LatentWorldReferenceCodec.decode(campaign,it) }
+                .filter { it.element==destination && it.parentAnchorUid==anchor }
+            val proposed=drafts.flatMap { CoreLatentWorldRules.localEdges(skeleton,it,snapshot.state.time) }
+            val topology=AuthorizedWorldTopology(WorldTopologyEdgeReadPort { _,origin->
+                (Phase63WorldStore(db,campaign).edgesFrom(origin)+proposed.filter { it.origin==origin }+
+                    SqliteNpcTravelRoutePort(db).routes(campaign,actorRef,origin).map { route->WorldTopologyEdge(route.routeUid,route.version.toLong(),
+                        route.origin,route.destination,route.duration,route.resourceCosts.filterValues { it>0 },route.requiredCapabilities,WorldTimeTick(Long.MIN_VALUE),null,
+                        "P62:ROUTE:${route.fingerprint}") }).distinctBy { it.uid }
+            },object:WorldTopologyAuthorizationPort {
+                override fun current(s:WorldResolutionScope)=s==scope && infrastructureWorldResolutionCurrent(s)
+                override fun permitted(s:WorldResolutionScope,edge:WorldTopologyEdge,at:WorldTimeTick):Boolean {
+                    if(edge in proposed)return true // Registered visible local path; acquired in the same eventual commit.
+                    return infrastructureWorldRouteKnown(db,campaign,actorRef,edge,scope.asOfCommittedOrder)
+                }
+            },pathPermitted={ plan->plan.edges.all { actor.executableAbilityUids.containsAll(it.requiredCapabilities) } &&
+                plan.resourceCosts.all { (uid,cost)->actor.resources.singleOrNull { it.resourceUid==uid }?.current?.let { it>=cost }==true } },
+                containmentRead=WorldTopologyContainmentPort(::infrastructureWorldContainment))
+            when(val result=topology.travel(scope,DomainRef("LOCATION",anchor),DomainRef("LOCATION",destination.uid),snapshot.state.time)) {
+                is WorldResolutionResult.Journey->WorldTravelMechanics.verified(request,context,actor,result.plan)
+                is WorldResolutionResult.Unavailable->MechanicsEffectResolution.Rejected(result.reasonUid)
+                is WorldResolutionResult.Clarification->MechanicsEffectResolution.Rejected(result.reasonUid)
+                else->reject("TRAVEL_ROUTE_REQUIRED")
+            }
+        } }
+    }
     internal fun infrastructureActiveMemoryArtifacts(
         asOfOrder:Long=Long.MAX_VALUE,
         revisionUids:Set<String> = emptySet()
@@ -632,13 +1045,9 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
             if(cursor.moveToFirst()&&!cursor.isNull(0))cursor.getString(0)?.takeIf(String::isNotBlank) else null
         }
         canonicalCampaignSceneAnchor(direct){uid->
-            if(!CampaignWorldProjectionSchema.isReady(db))return@canonicalCampaignSceneAnchor null
-            db.rawQuery("""SELECT element_kind_uid,parent_anchor_uid FROM ${CampaignWorldProjectionSchema.TABLE}
-                WHERE campaign_id=? AND audience_scope_uid=? AND element_uid=? LIMIT 1""",
-                arrayOf(activeCampaignRef().campaignId,CampaignWorldAudience.PLAYER_VISIBLE,uid)
-            ).use{cursor->if(!cursor.moveToFirst())null else CampaignSceneParent(
-                cursor.getString(0),if(cursor.isNull(1))null else cursor.getString(1)
-            )}
+            CampaignWorldProjectionStore(db,activeCampaignRef().campaignId).canonicalElement(uid)?.let {
+                CampaignSceneParent(it.element.kindUid,it.parentAnchorUid)
+            }
         }
     }
     internal fun infrastructureEntityScenePathUids(entityUid:String):List<String> = openGameplaySaveDb().use{db->
@@ -646,21 +1055,44 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
             if(cursor.moveToFirst()&&!cursor.isNull(0))cursor.getString(0)?.takeIf(String::isNotBlank) else null
         }
         canonicalCampaignScenePath(direct){uid->
-            if(!CampaignWorldProjectionSchema.isReady(db))return@canonicalCampaignScenePath null
-            db.rawQuery("""SELECT element_kind_uid,parent_anchor_uid FROM ${CampaignWorldProjectionSchema.TABLE}
-                WHERE campaign_id=? AND audience_scope_uid=? AND element_uid=? LIMIT 1""",
-                arrayOf(activeCampaignRef().campaignId,CampaignWorldAudience.PLAYER_VISIBLE,uid)
-            ).use{cursor->if(!cursor.moveToFirst())null else CampaignSceneParent(
-                cursor.getString(0),if(cursor.isNull(1))null else cursor.getString(1)
-            )}
+            CampaignWorldProjectionStore(db,activeCampaignRef().campaignId).canonicalElement(uid)?.let {
+                CampaignSceneParent(it.element.kindUid,it.parentAnchorUid)
+            }
         }
     }
-    internal fun infrastructureWorldElements(reference:IntentReference,consumers:List<IntentNode>):List<CampaignWorldElement> =
+    internal fun infrastructureWorldResolutionScope():WorldResolutionScope? {
+        val player=activePlayerRef()?:return null
+        val snapshot=infrastructureTemporalRead()
+        val source=infrastructureWorldSkeletonCandidate()?.ruleSource?:infrastructureWorldPackAuthority().binding.ruleSource
+        return WorldResolutionScope(snapshot.scope.campaignUid,HistoryGenerationUid(snapshot.scope.historyGenerationUid),snapshot.scope.baseCommitOrder,
+            player.playerUid,VisibilityPurposeKinds.GAMEPLAY_NARRATION,mapOf(source.uid to source.version))
+    }
+    /** A route traversal checks the commit/generation/source fences, not a full canonical hash
+     * for every edge. Gameplay mutations can only change them together in one transaction. */
+    internal fun infrastructureWorldResolutionCurrent(scope:WorldResolutionScope):Boolean {
+        if(activeCampaignRef().campaignId!=scope.campaignUid || activePlayerRef()?.playerUid!=scope.principalUid ||
+            scope.purposeUid!=VisibilityPurposeKinds.GAMEPLAY_NARRATION)return false
+        return openGameplaySaveDb().use { db->
+            if(HistoryGenerationStore(db,scope.campaignUid).current()!=scope.historyGenerationUid ||
+                (TurnTransactionReceiptStore(db).lastValidCommit(scope.campaignUid)?.commitOrder?:0L)!=scope.asOfCommittedOrder)return@use false
+            val source=Phase63WorldStore(db,scope.campaignUid).root()?.skeleton?.ruleSource?:infrastructureWorldPackAuthority().binding.ruleSource
+            scope.sourceVersions==mapOf(source.uid to source.version)
+        }
+    }
+    internal fun infrastructureEstablishedWorldSlot(scope:WorldResolutionScope,ref:DomainRef):CampaignWorldElement? = openGameplaySaveDb().use { db->
+        if(!infrastructureWorldResolutionCurrent(scope))return@use null
+        val canonical=CampaignWorldProjectionStore(db,scope.campaignUid).canonicalElement(ref.uid)?:return@use null
+        if(canonical.element!=ref)return@use null
+        WorldResolutionReadAuthority(scope,{infrastructureWorldResolutionCurrent(scope)}).project(scope,listOf(canonical)).singleOrNull()
+    }
+    internal fun infrastructureWorldElements(reference:IntentReference,consumers:List<IntentNode>,scope:WorldResolutionScope?=infrastructureWorldResolutionScope()):List<CampaignWorldElement> =
         openGameplaySaveDb().use{db->
+            if(scope==null || !infrastructureWorldResolutionCurrent(scope))return@use emptyList()
             val phrase=(reference.rawPhrase?:reference.descriptorHints["surface"]).orEmpty().trim()
             val shape=WorldReferenceShapeClassifier.classify(reference,consumers)
-            if(phrase.isBlank())emptyList() else CampaignWorldProjectionStore(db,activeCampaignRef().campaignId)
+            val found=if(phrase.isBlank())emptyList() else CampaignWorldProjectionStore(db,scope.campaignUid)
                 .searchPlayerVisible(phrase,shape,requireAffordances=reference.kind !in setOf(IntentReferenceKind.DISCOURSE,IntentReferenceKind.DEICTIC) && shape.kind!=WorldReferenceShapeKind.ROLE)
+            WorldResolutionReadAuthority(scope,{infrastructureWorldResolutionCurrent(scope)}).project(scope,found)
         }
 
     /** Only the latest committed exchange heard by the current PC supplies this identity anchor.

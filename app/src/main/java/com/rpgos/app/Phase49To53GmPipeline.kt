@@ -380,16 +380,22 @@ internal fun normalizeExecutableMechanicsAdjudication(
 }
 
 data class ProposalRepairPolicy(val maxAttempts:Int=2){init{require(maxAttempts in 0..3)}}
-data class ProposalRepairResult(val evaluation:GmProposalEvaluation,val attempts:Int,val terminalReasonUid:String)
+data class ProposalRepairResult(
+    val evaluation:GmProposalEvaluation,val attempts:Int,val terminalReasonUid:String,
+    /** Diagnostic only: a repaired failure must not hide the owner's original rejection. */
+    val priorRejectionReasonUids:List<String> = emptyList()
+)
 
 class BoundedProposalRepair(private val evaluator:GmProposalEvaluator,private val policy:ProposalRepairPolicy=ProposalRepairPolicy()){
     fun evaluateAndRepair(provider:AiProvider,request:AiGmProposalRequest,candidate:GmProposalCandidate,cancellation:AiCancellationSignal):ProposalRepairResult{
         var current=candidate;var evaluation=evaluator.evaluate(current,request);var attempts=0
+        val rejectedReasons=linkedSetOf<String>()
         val originalMechanicsRequests=candidate.mechanicsEffects.associateBy{it.effectUid}
         var mechanicsAnchor=(evaluation as? GmProposalEvaluation.Rejected)?.mechanicsAnchor.orEmpty()
         while(evaluation is GmProposalEvaluation.Rejected&&attempts<policy.maxAttempts&&!cancellation.isCancelled()){
+            rejectedReasons.addAll(evaluation.reasonUids.take(64-rejectedReasons.size))
             val repair=provider.repair(AiRepairRequest("${request.requestUid}:REPAIR:${attempts+1}",request,current,evaluation.reasonUids,attempts+1),cancellation)
-            if(repair is AiProviderResult.Failure)return ProposalRepairResult(evaluation,attempts,"REPAIR_PROVIDER_FAILURE:${repair.reasonUid}")
+            if(repair is AiProviderResult.Failure)return ProposalRepairResult(evaluation,attempts,"REPAIR_PROVIDER_FAILURE:${repair.reasonUid}",rejectedReasons.sorted())
             current=(repair as AiProviderResult.Success).value;attempts++
             val changedMechanics=current.mechanicsEffects.associateBy{it.effectUid}!=originalMechanicsRequests
             evaluation=when{
@@ -402,6 +408,6 @@ class BoundedProposalRepair(private val evaluator:GmProposalEvaluator,private va
             if(mechanicsAnchor.isEmpty())mechanicsAnchor=(evaluation as? GmProposalEvaluation.Rejected)?.mechanicsAnchor.orEmpty()
         }
         val terminal=when{evaluation is GmProposalEvaluation.Accepted->"PROPOSAL_ACCEPTED";cancellation.isCancelled()->"CANCELLED";else->"REPAIR_LIMIT"}
-        return ProposalRepairResult(evaluation,attempts,terminal)
+        return ProposalRepairResult(evaluation,attempts,terminal,rejectedReasons.sorted())
     }
 }

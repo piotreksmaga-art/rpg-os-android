@@ -65,4 +65,27 @@ class Phase62NpcMobileBudgetTest {
         assertTrue(records.all{it.epistemicState==KnowledgeEpistemicState.BELIEVED})
         assertEquals(4096,records.sumOf{it.projectedText.length})
     }
+    @Test fun mobileChoiceTrimmingKeepsRegisteredRestInsteadOfOnlyAlphabeticalAttacks() {
+        val player=DomainRef("PLAYER","PLAYER:SMAGI")
+        fun uid(n:Int)="RPGOS-KNOWLEDGE-STATE:CHARACTER:${actor.uid}:P62:COMM-CLAIM:${n.toString().padStart(64,'0')}:PERSONAL:"
+        val self=NpcKnownRecord(uid(1),KnowledgeEpistemicState.KNOWN,"Chętnie odpocznę przez chwilę.","ACQ:SELF",5,setOf(actor))
+        val heard=NpcKnownRecord(uid(2),KnowledgeEpistemicState.KNOWN,"Dziękuję za rozmowę, możesz odpocząć.","ACQ:PLAYER",5,setOf(player))
+        val goalCause=NpcCauseRef(NpcCauseKind.KNOWLEDGE_ACQUISITION,self.acquisitionUid)
+        val state=base.copy(goals=listOf(goal.copy(cause=goalCause)))
+        val reads=object:NpcProjectionReadPort {
+            override fun brain(a:AudienceContext,p:PurposeContext,actor:DomainRef,h:KnowledgeHolderRef)=ProtectedReadResult.Allow(state,DisclosureLevel.DISCLOSE_FULL,"SELF")
+            override fun knowledge(a:AudienceContext,p:PurposeContext,h:KnowledgeHolderRef,order:Long,limit:Int)=ProtectedReadResult.Allow(listOf(self,heard),DisclosureLevel.DISCLOSE_FULL,"HOLDER")
+        }
+        val result=NpcDecisionContextProjector(reads).project(scope,trigger.copy(kind=NpcTriggerKind.KNOWLEDGE_CHANGED,cause=goalCause),state.knowledgeHolder,NpcContextProfiles.MOBILE){b,_->
+            val rest=NpcActivityMechanics.option(b,b.goals.single(),self,requireNotNull(NpcActivityContractPort.STANDARD.contract(b.campaignUid,"REST")))
+            val wait=NpcActivityMechanics.option(b,b.goals.single(),self,requireNotNull(NpcActivityContractPort.STANDARD.contract(b.campaignUid,"WAIT")))
+            listOf("ATTACK","DEFEND","STRIKE").map { capability->rest.copy(uid="OPTION:$capability",capabilityUid=capability,target=player,
+                supportingRecordUids=setOf(self.uid,heard.uid),mechanicsOwnerUid="UNIVERSAL_COMBAT",mechanicalEffectKindUid="WOUND") }+listOf(rest,wait)
+        }
+        assertTrue(result.toString(),result is NpcContextResult.Ready)
+        val context=(result as NpcContextResult.Ready).context
+        assertTrue(context.options.any { it.capabilityUid=="REST" })
+        assertTrue((NpcDecisionCodec.encodeRequest("R".repeat(160),context).length+3)/4<=NpcContextProfiles.MOBILE.payloadUnits)
+        assertEquals(state,context.brain)
+    }
 }

@@ -73,6 +73,12 @@ class TurnTransaction internal constructor(
                 val generation=HistoryGenerationStore(db,identity.campaignUid).current().value
                 require(npcChanges.all{it.historyGenerationUid==generation}) { "P61:STALE_HISTORY" }
             }
+            val worldChanges=proposal.playerChangeSet.changes.mapNotNull { it.payload as? WorldSimulationChange }
+            if(worldChanges.isNotEmpty()) {
+                requireWorldSimulationChain(worldChanges)
+                val generation=HistoryGenerationStore(db,identity.campaignUid).current()
+                require(worldChanges.all { it.historyGenerationUid==generation }) { "P63:STALE_HISTORY" }
+            }
             val commitOrder=receiptStore.reserveNextCommitOrder(identity.campaignUid)
             val applied=withCanonicalGameplayMutationForTurn(db,identity.campaignUid,seal){
                 val result=CanonicalPlayerChangeApplier.applyAll(db,identity,proposal.playerChangeSet,failureInjector)
@@ -214,7 +220,7 @@ internal object CanonicalPlayerChangeApplier{
                 is AssetChange,is ConditionChange,is RuntimeChange,
                 is WoundChange,is SpatialChange,is EquipmentIntegrityChange,is StructureIntegrityChange,
                 is MechanicalTrackChange,is AggregatePopulationChange,
-                is DevelopmentProjectChange,is KnowledgeAcquisitionChange,is TemporalStateChange,is NpcBrainChange -> Unit
+                is DevelopmentProjectChange,is KnowledgeAcquisitionChange,is TemporalStateChange,is NpcBrainChange,is WorldSimulationChange -> Unit
                 is AccessAuthorityChange -> AccessAuthorityChangeValidator.requireValid(change.payload)
                 is MechanicalActorGenesisChange -> MechanicalActorGenesis.validate(change.payload,changeSet)
                 else -> throw UnsupportedCanonicalChangeException(change.changeKindUid)
@@ -253,6 +259,7 @@ internal object CanonicalPlayerChangeApplier{
                 is KnowledgeAcquisitionChange->applyKnowledge(db,identity,changeSet,change.changeUid,payload)
                 is DevelopmentProjectChange->applyProject(db,identity,changeSet,change.changeUid,payload)
                 is TemporalStateChange->Phase60TemporalStateStore(db,identity.campaignUid).apply(identity,payload)
+                is WorldSimulationChange->Phase63WorldStore(db,identity.campaignUid).apply(identity,payload,effectiveOrder(changeSet),changeSet)
                 is NpcBrainChange->NpcBrainStore(db,identity.campaignUid).apply(identity,change.changeUid,payload)
                 is MechanicalActorGenesisChange->MechanicalActorGenesis.apply(db,identity,changeSet,payload,effectiveOrder(changeSet))
                 is AccessAuthorityChange->applyAccessAuthority(db,identity,changeSet,change.changeUid,payload)

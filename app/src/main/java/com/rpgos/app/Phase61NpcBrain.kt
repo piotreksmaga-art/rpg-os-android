@@ -88,7 +88,8 @@ internal object NpcBrainOwner {
             .filter{draft->effects.any{effect->effect.target==draft.element && effect.magnitude==1L &&
                 effect.mechanicsOwnerUid=="RPGOS-CORE:WORLD-MATERIALIZER" && effect.effectKindUid=="WORLD_ELEMENT_MATERIALIZE" &&
                 effect.proofUid=="RPGOS-CORE:WORLD-MATERIALIZATION:${draft.fingerprint()}" &&
-                effect.canonicalPayload==draft.materializationPayload()}}
+                effect.canonicalPayload.minus(setOf("p63_actor_seed","p63_population_manifest","p63_population_ordinal","p63_population_version",
+                    "p63_population_aggregate_kind","p63_population_aggregate_uid"))==draft.materializationPayload()}}
             .mapTo(linkedSetOf()){it.element}
 
     /** Per-field hashing: materializing another NPC or adding a trait never rerolls existing traits. */
