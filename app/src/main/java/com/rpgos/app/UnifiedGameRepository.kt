@@ -626,6 +626,19 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
             put("source_kind",skeleton.ruleSource.kind.name);put("era",skeleton.era)
             if(skeleton.ruleSource.kind==CampaignRuleSourceKind.CAMPAIGN_NATIVE)skeleton.constraints["WORLD_PREMISE"]?.let { put("declared_world_premise",it.take(2048)) }
             put("classification","DECLARED_CAMPAIGN_CONFIGURATION");put("source_version",skeleton.ruleSource.version)
+            // Only deliberately public activations and the controlled player's pending
+            // process metadata are shown. No recipe inputs or private agendas enter context.
+            openGameplaySaveDb().use { db->Phase64BackgroundStore(db,campaign).publicActivations().forEachIndexed { index,rule->
+                put("registered_process_action_$index",requireNotNull(rule.parameters[Phase64ProcessActivation.ACTION_KEY]))
+            } }
+            val trusted=protectedReads().trustedPrincipal(audience)
+            if(trusted?.campaignUid==campaign && trusted.controls(player.playerUid) && audience.audienceKindUid==AudienceKinds.PLAYER) {
+                infrastructurePlayerProcessProjection(audience,purpose)?.let { own->
+                    if(own.rows.isNotEmpty())put("registered_process_cancel_action",Phase64ProcessActivation.CANCEL_ACTION)
+                    put("own_process_projection_complete",(own.complete && own.rows.size<=4).toString())
+                    own.rows.take(4).forEachIndexed { index,row->row.contextValues().forEach { (key,value)->put("own_process_${index}_$key",value) } }
+                }
+            }
         },DisclosureLevel.DISCLOSE_FULL,"P63:PUBLIC_WORLD_FRAME")
     }
     internal fun infrastructureWorldInitialization(request:ChatTurnRequest):WorldSimulationChange? {
@@ -732,6 +745,248 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         require(infrastructureTemporalRead().scope==snapshot.scope) { "P63:STALE_PROCESS_PREPARATION" }
         Phase63WorldProcessOwner(snapshot.scope,Phase63WorldStore(db,campaign).root()?.version?:0,jobs,
             currentScope={infrastructureTemporalRead().scope}).extension()
+    }
+    internal fun infrastructureBackgroundActivation(request:MechanicsEffectRequest,context:MechanicsResolutionContext,node:IntentNode):MechanicsEffectResolution? = openGameplaySaveDb().use { db->
+        val action=node.semanticAction.canonicalActionUid?:return@use null
+        val store=Phase64BackgroundStore(db,context.campaignUid)
+        if(store.policy()==null)return@use null
+        if(action==Phase64ProcessActivation.CANCEL_ACTION) {
+            val process=request.targetProjectedRef?.takeIf { it.kindUid=="WORLD_PROCESS" }?.uid?.let(store::process)
+                ?:return@use MechanicsEffectResolution.Rejected("P64:CANCELLATION_PROCESS_REQUIRED")
+            val requirement=context.plan.steps.firstOrNull()?.requirements?.firstOrNull()
+                ?:return@use MechanicsEffectResolution.Rejected("P64:CANCELLATION_NOT_AUTHORIZED")
+            val own=infrastructurePlayerProcessProjection(requirement.request.audience,requirement.request.purpose)
+                ?:return@use MechanicsEffectResolution.Rejected("P64:CANCELLATION_NOT_AUTHORIZED")
+            val reference=context.plan.intent.references.singleOrNull { it.resolvedProjectedRef==request.targetProjectedRef && it.roleUid=="TARGET" }
+                ?:return@use MechanicsEffectResolution.Rejected("P64:CANCELLATION_PROCESS_UNRESOLVED")
+            if(!Phase64PlayerProcessProjection.isCurrentBinding(own,reference))return@use MechanicsEffectResolution.Rejected("P64:CANCELLATION_STALE_PROJECTION")
+            if(own.rows.single { it.processRef==request.targetProjectedRef }.canCancelAt(infrastructureTemporalRead().state.time).not())
+                return@use MechanicsEffectResolution.Rejected("P64:CANCELLATION_DEADLINE_REACHED")
+            return@use Phase64ProcessActivation.resolveCancellation(process,request,context,node,DomainRef(context.plan.intent.actor.actorKindUid,context.plan.intent.actor.actorUid))
+        }
+        val rule=store.activation(action)?:return@use null
+        val player=activePlayerRef()?:return@use MechanicsEffectResolution.Rejected("P64:ACTIVE_PLAYER_REQUIRED")
+        val actor=DomainRef(context.plan.intent.actor.actorKindUid,context.plan.intent.actor.actorUid)
+        if(player.campaignId!=context.campaignUid)return@use MechanicsEffectResolution.Rejected("P64:PLAYER_AUTHORITY_REQUIRED")
+        if(context.npcAuthorization==null) {
+            if(actor!=DomainRef("PLAYER",player.playerUid))return@use MechanicsEffectResolution.Rejected("P64:PLAYER_AUTHORITY_REQUIRED")
+        } else {
+            val auth=context.npcAuthorization
+            val body=Phase64PopulationProductionReads.captureBody(db,context.campaignUid,actor,emptyList())
+            val policy=rule.parameters["activation_policy_uid"]
+            val order=AccessAuthorityStore(db,context.campaignUid).currentCanonicalOrder()
+            if(auth.scope.actor!=actor || actor.uid==player.playerUid || body?.executableAbilityUids?.contains(action)!=true ||
+                policy==null || AccessAuthorityStore(db,context.campaignUid).effective(VisibilityPrincipalRef(actor.kindUid,actor.uid),order).none {
+                    it.operation==AccessOperation.GRANT && it.valueUid==policy && it.subjectKindUid=="BACKGROUND_RULE" && it.subjectUid==rule.uid })
+                return@use MechanicsEffectResolution.Rejected("P64:NPC_INITIATION_AUTHORITY_REQUIRED")
+        }
+        Phase64ProcessActivation.resolve(rule,requireNotNull(store.policy()),request,context,node,actor)
+    }
+    internal fun infrastructureNpcBackgroundActivities():NpcBackgroundActivityPort = NpcBackgroundActivityPort { brain,records,actor,_->
+        openGameplaySaveDb().use { db->
+            val campaign=activeCampaignRef().campaignId
+            val store=Phase64BackgroundStore(db,campaign)
+            if(campaign!=brain.campaignUid || store.policy()==null)emptyList() else {
+                val order=AccessAuthorityStore(db,campaign).currentCanonicalOrder()
+                val grants=AccessAuthorityStore(db,campaign).effective(VisibilityPrincipalRef(actor.actor.kindUid,actor.actor.uid),order)
+                actor.executableAbilityUids.sorted().take(32).mapNotNull { action->store.activation(action)?.takeIf { definition->
+                    val policy=definition.parameters["activation_policy_uid"]
+                    policy!=null && grants.any { it.operation==AccessOperation.GRANT && it.valueUid==policy && it.subjectKindUid=="BACKGROUND_RULE" && it.subjectUid==definition.uid }
+                } }.flatMap { definition->
+                    if(!Phase64PopulationRuleCatalog.matches(definition))Phase64NpcInitiation.options(brain,records,actor,definition)
+                    else {
+                        val snapshot=infrastructureTemporalRead()
+                        val scope=BackgroundProcessEvaluationScope(snapshot.scope,infrastructureWorldSkeletonCandidate()?.seed?:return@flatMap emptyList(),requireNotNull(store.policy()))
+                        Phase64PopulationNpcOptions.options(brain,records,actor,definition) { _,target->
+                            val parameters=Phase64ProcessActivation.bind(definition,actor.actor,target)
+                            val subject=Phase64PopulationRuleCatalog.subject(definition,parameters,actor.actor)?:return@options null
+                            val destination=parameters["destination_uid"]?.let { DomainRef(parameters["destination_kind_uid"]?:"LOCATION",it) }
+                            val route=destination?.let { infrastructureBackgroundRoute(snapshot,subject,it,snapshot.state.time,actor.actor) }
+                            Phase64PopulationProductionReads.activitySnapshot(db,campaign,actor.actor,definition,parameters,scope,emptyList(),route)
+                        }
+                    }
+                }.take(4)
+            }
+        }
+    }
+    internal fun infrastructureBackgroundStarts(scope:TemporalScope,commandUid:String,effects:List<VerifiedMechanicsCommandEffect>,at:WorldTimeTick):List<BackgroundProcessChange> = openGameplaySaveDb().use { db->
+        val initiations=effects.filter { it.canonicalPayload.containsKey("p64_start_process") || it.canonicalPayload.containsKey("p64_cancel_process") }
+        if(initiations.isEmpty())return@use emptyList()
+        require(infrastructureTemporalRead().scope==scope){"P64:STALE_INITIATION"}
+        val store=Phase64BackgroundStore(db,scope.campaignUid)
+        requireNotNull(store.policy()) {"P64:CAMPAIGN_NOT_ENABLED"}
+        initiations.map { effect->
+            effect.canonicalPayload["p64_cancel_process"]?.let { uid->
+                return@map Phase64ProcessActivation.cancel(scope,requireNotNull(store.process(uid)){"P64:PROCESS_REQUIRED"},effect,at)
+            }
+            val rule=requireNotNull(store.definition(requireNotNull(effect.canonicalPayload["p64_start_rule"]),requireNotNull(effect.canonicalPayload["p64_start_version"]).toInt()))
+            val start=Phase64ProcessActivation.start(scope,commandUid,rule,effect,at)
+            require(store.process(start.process.uid)==null){"P64:PROCESS_ALREADY_STARTED"}
+            start
+        }.also { require(it.map { p->p.process.uid }.distinct().size==it.size) {"P64:DUPLICATE_INITIATION"} }
+    }
+    /** Receipt only: the actual Phase62 completion and Phase50 effects already belong to
+     * this turn. Do not create a second combat process or re-run its resolver. */
+    internal fun infrastructureBackgroundCompletions(scope:TemporalScope,commandUid:String,effects:List<VerifiedMechanicsCommandEffect>,
+        brains:List<NpcBrainChange>,clock:TemporalStateChange):List<BackgroundProcessChange> = openGameplaySaveDb().use { db->
+        val store=Phase64BackgroundStore(db,scope.campaignUid)
+        val fingerprint=store.policy()?:return@use emptyList()
+        val groups=effects.filter { it.mechanicsOwnerUid=="UNIVERSAL_COMBAT" && it.canonicalPayload["npc_plan_uid"]!=null }
+            .groupBy { requireNotNull(it.canonicalPayload["npc_plan_uid"]) }
+        if(groups.isEmpty())return@use emptyList()
+        require(infrastructureTemporalRead().scope==scope){"P64:STALE_COMPLETION"}
+        val rule=requireNotNull(store.definition(Phase64CombatReceiptFactory.RULE_UID,Phase64CombatReceiptFactory.RULE_VERSION)){"P64:COMBAT_COMPLETION_RULE_REQUIRED"}
+        val active=requireNotNull(ActivePlayerStore(db,scope.campaignUid).active())
+        val seed=requireNotNull(infrastructureWorldSkeletonCandidate()).seed
+        val payloads=effects.flatMap { effect->
+            (MechanicalEffectMaterializer.materialize(effect) as? MechanicalEffectMaterializationResult.Materialized)?.changes?.map { it.payload }
+                ?:error("P64:COMBAT_EFFECT_MATERIALIZATION")
+        }
+        val states=Phase60ProcessStateCodec.decode(clock.processStatesCanonical).associateBy { it.ownerUid }
+        groups.toSortedMap().map { (_,original)->
+            val marker=original.first().canonicalPayload
+            val actor=DomainRef(requireNotNull(marker["source_actor_kind_uid"]),requireNotNull(marker["source_actor_uid"]))
+            val genesis=brains.firstOrNull { it.actor==actor && it.expectedVersion==0L }
+            val canonical=NpcBrainStore(db,scope.campaignUid).read(actor) ?: genesis?.let { NpcBrainCodec.decode(it.stateCanonical) }
+                ?:error("P64:COMBAT_BRAIN_REQUIRED")
+            val changes=brains.filterNot { it===genesis }+payloads
+            val input=TemporalOwnerInput(scope,clock.expectedTime,clock.proposedTime,emptyList(),emptyList(),null,changes,effects,states)
+            when(val prepared=Phase64CombatReceiptFactory.prepare(BackgroundProcessEvaluationScope(scope,seed,fingerprint),commandUid,
+                active.playerUid,rule,canonical,input,original)) {
+                is Phase64CombatReceiptPreparation.Ready->{require(store.process(prepared.change.process.uid)==null){"P64:COMBAT_RECEIPT_ALREADY_EXISTS"};prepared.change}
+                is Phase64CombatReceiptPreparation.Unavailable->error(prepared.reasonUid)
+            }
+        }
+    }
+    internal fun infrastructureBackgroundEnabled():Boolean = openGameplaySaveDb().use { db->
+        Phase64BackgroundStore(db,activeCampaignRef().campaignId).policy()!=null
+    }
+    internal fun playerBackgroundNotices(committedOrder:Long):List<String> = openGameplaySaveDb().use { db->
+        val player=activePlayerRef()?:return@use emptyList()
+        val current=TurnTransactionReceiptStore(db).lastValidCommit(player.campaignId)?.commitOrder
+        require(current==committedOrder){"P64:STALE_NOTICE_SCOPE"}
+        Phase64BackgroundStore(db,player.campaignId).playerNotices(DomainRef("PLAYER",player.playerUid),committedOrder)
+    }
+    internal fun infrastructurePlayerProcessProjection(audience:AudienceContext,purpose:PurposeContext):Phase64PlayerProcessSnapshot? {
+        val player=activePlayerRef()?:return null
+        if(audience.campaignUid!=player.campaignId || purpose.campaignUid!=player.campaignId || audience.audienceKindUid!=AudienceKinds.PLAYER)return null
+        val reads=protectedReads()
+        val trusted=reads.trustedPrincipal(audience)?:return null
+        if(!trusted.controls(player.playerUid) || reads.playerState(audience,purpose,player.playerUid) !is ProtectedReadResult.Allow)return null
+        return CampaignRuntimeLifecycleLock.withTurn(player.campaignId) {
+            if(openGameplaySaveDb().use { db->Phase64BackgroundStore(db,player.campaignId).policy()==null })return@withTurn null
+            val temporal=infrastructureTemporalRead()
+            openGameplaySaveDb().use { db->
+                Phase64BackgroundStore(db,player.campaignId).playerProcessProjection(temporal.scope,DomainRef("PLAYER",player.playerUid))
+            }
+        }
+    }
+    /** Exact targets of registered player activities come from the protected character
+     * owner, not latent-world generation. A stack or unresolved legacy row is not a unique
+     * instance and another character's inventory/projects are never searched here. */
+    internal fun infrastructureBackgroundPlayerTargets(reference:IntentReference, consumers:List<IntentNode>,
+        audience:AudienceContext,purpose:PurposeContext):List<DomainRef> {
+        if(reference.roleUid!="TARGET")return emptyList()
+        if(reference.roleUid!="TARGET")return emptyList()
+        val actions=consumers.mapNotNull { it.semanticAction.canonicalActionUid }.toSet()
+        if(actions.none { it in setOf("CONSUME_OWN_ITEM","WORK_ON_BUILD","WORK_ON_REPAIR","WORK_ON_RESEARCH") })return emptyList()
+        val player=activePlayerRef()?:return emptyList()
+        if(audience.campaignUid!=player.campaignId || purpose.campaignUid!=player.campaignId || audience.audienceKindUid!=AudienceKinds.PLAYER)return emptyList()
+        val reads=protectedReads()
+        val trusted=reads.trustedPrincipal(audience)?:return emptyList()
+        if(!trusted.controls(player.playerUid))return emptyList()
+        val phrase=(reference.rawPhrase?:reference.descriptorHints["surface"]).orEmpty().trim()
+        if(phrase.isEmpty())return emptyList()
+        return CampaignRuntimeLifecycleLock.withTurn(player.campaignId) {
+            if(openGameplaySaveDb().use { db->Phase64BackgroundStore(db,player.campaignId).policy()==null })return@withTurn emptyList()
+            val before=infrastructureTemporalRead().scope
+            val panel=infrastructureCharacterPanelV2(audience,purpose)?:return@withTurn emptyList()
+            val held=if("CONSUME_OWN_ITEM" in actions)infrastructureHeldItemInstanceUids(player.playerUid) else emptySet()
+            val targets=buildList {
+                panel.inventory.filter { it.itemInstanceUid in held && it.quantity==1L &&
+                    (it.itemInstanceUid==phrase || it.displayName?.let { name->worldNamesEquivalent(name,phrase) }==true) }
+                    .forEach { add(DomainRef("ITEM_INSTANCE",it.itemInstanceUid)) }
+                if(actions.any { it in setOf("WORK_ON_BUILD","WORK_ON_REPAIR","WORK_ON_RESEARCH") })
+                    panel.projects.filter { it.projectUid==phrase }.forEach { add(DomainRef("PROJECT",it.projectUid)) }
+            }.distinct().sortedWith(compareBy<DomainRef> { it.kindUid }.thenBy { it.uid }).take(33)
+            if(before!=infrastructureTemporalRead().scope || targets.size>32)emptyList() else targets
+        }
+    }
+    /** A previously committed process is an explicit trigger, not newly invented NPC knowledge. */
+    internal fun infrastructureInstitutionalTrigger(actor:DomainRef,input:TemporalOwnerInput):NpcTrigger? = openGameplaySaveDb().use { db->
+        if(infrastructureTemporalRead().scope!=input.scope)return@use null
+        val store=Phase64BackgroundStore(db,input.scope.campaignUid)
+        if(store.policy()==null)return@use null
+        val process=input.deadlines.filter { it.ownerUid==Phase64BackgroundProcessOwner.OWNER }.take(256).mapNotNull { deadline->
+            val uid=deadline.uid.removePrefix("P64:DUE:").substringBeforeLast(':').substringBeforeLast(':')
+            store.process(uid)?.takeIf { p->p.actor==actor && p.status in setOf(BackgroundProcessStatus.ACTIVE,BackgroundProcessStatus.BLOCKED) &&
+                store.definition(p.definitionUid,p.definitionVersion)?.let { it.domain=="ORGANIZATION" && it.operation=="DECISION" }==true }
+        }.sortedBy { it.uid }.firstOrNull() ?: return@use null
+        // A due private agenda may wake its owner's existing motivation. It does not
+        // grant perception of an arbitrary event/proof or another member's memories.
+        if(process.parameters["p64_start_proof_uid"]==null)return@use null
+        val brain=NpcBrainStore(db,input.scope.campaignUid).read(actor)?:return@use null
+        val motivation=brain.motivations.sortedBy { it.uid }.firstOrNull()?:return@use null
+        NpcTrigger("P64:REACTION:${phase60Hash(process.uid).take(32)}",NpcTriggerKind.SELF_REFLECTION,input.through,
+            NpcCauseRef(NpcCauseKind.INTRINSIC_MOTIVATION,motivation.uid))
+    }
+    internal fun infrastructureBackgroundProcesses(snapshot:TemporalReadSnapshot,through:WorldTimeTick,
+        institution:(TemporalOwnerInput,()->Boolean)->Phase64InstitutionDecisionCallbacks? = {_,_->null}):TemporalProcessExtension = openGameplaySaveDb().use { db->
+        require(infrastructureTemporalRead().scope==snapshot.scope){"P64:STALE_PROCESS_PREPARATION"}
+        val campaign=snapshot.scope.campaignUid
+        val store=Phase64BackgroundStore(db,campaign)
+        val fingerprint=store.policy()?:return@use TemporalProcessExtension.NONE
+        // The indexed due frontier is bounded; neither the population nor completed process
+        // history is scanned. A larger frontier must be explicitly checkpointed, not skipped.
+        val processes=store.duePage(through,null).processes
+        if(processes.isEmpty() && snapshot.state.processStates.none { it.ownerUid==Phase64BackgroundProcessOwner.OWNER })
+            return@use TemporalProcessExtension.NONE
+        val definitions=processes.map { it.definitionUid to it.definitionVersion }.distinct().associateWith { (uid,version)->
+            requireNotNull(store.definition(uid,version)){"P64:PROCESS_RULE_MISSING"}
+        }
+        val seed=infrastructureWorldSkeletonCandidate()?.seed?:return@use TemporalProcessExtension.NONE
+        val scope=BackgroundProcessEvaluationScope(snapshot.scope,seed,fingerprint)
+        val frontier=object:BackgroundProcessFrontierPort {
+            override fun page(through:WorldTimeTick,after:BackgroundDueCursor?):BackgroundDuePage = openGameplaySaveDb().use { currentDb->
+                require(infrastructureTemporalRead().scope==snapshot.scope){"P64:STALE_HISTORY"}
+                Phase64BackgroundStore(currentDb,campaign).duePage(through,after)
+            }
+            override fun definition(uid:String,version:Int):BackgroundProcessDefinition? = openGameplaySaveDb().use { currentDb->
+                require(infrastructureTemporalRead().scope==snapshot.scope){"P64:STALE_HISTORY"}
+                Phase64BackgroundStore(currentDb,campaign).definition(uid,version)
+            }
+        }
+        Phase64BackgroundProcessOwner(scope,processes,definitions,{ uid->openGameplaySaveDb().use { currentDb->
+            require(infrastructureTemporalRead().scope==snapshot.scope){"P64:STALE_HISTORY"}
+            Phase64BackgroundStore(currentDb,campaign).process(uid)
+        } },
+            Phase64ProductionReads(scope,::openGameplaySaveDb,{infrastructureTemporalRead().scope},through,institution,
+                principalRouteRead={principal,subject,target,at->infrastructureBackgroundRoute(snapshot,subject,target,at,principal)}) { actor,target,at->
+                infrastructureBackgroundRoute(snapshot,actor,target,at)
+            },listOf(Phase64EconomyProjectsAdapter(),Phase64OrganizationsInformationAdapter(),Phase64PopulationConflictsAdapter()),
+            currentScope={infrastructureTemporalRead().scope},frontier=frontier).extension()
+    }
+    private fun infrastructureBackgroundRoute(snapshot:TemporalReadSnapshot,actor:DomainRef,target:DomainRef,at:WorldTimeTick,principal:DomainRef=actor):WorldTravelPlan? = openGameplaySaveDb().use { db->
+        if(infrastructureTemporalRead().scope!=snapshot.scope)return@use null
+        val campaign=snapshot.scope.campaignUid
+        val body=MechanicalActorStateStore(db,campaign).actor(actor)?:return@use null
+        val origin=body.locationRef?:return@use null
+        val root=infrastructureWorldSkeletonCandidate()?:return@use null
+        val scope=WorldResolutionScope(campaign,HistoryGenerationUid(snapshot.scope.historyGenerationUid),snapshot.scope.baseCommitOrder,
+            principal.uid,VisibilityPurposeKinds.WORLD_ACTOR_REASONING,mapOf(root.ruleSource.uid to root.ruleSource.version))
+        val topology=AuthorizedWorldTopology(WorldTopologyEdgeReadPort { _,anchor->
+            Phase63WorldStore(db,campaign).edgesFrom(anchor)+SqliteNpcTravelRoutePort(db).routes(campaign,principal,anchor).map { route->
+                WorldTopologyEdge(route.routeUid,route.version.toLong(),route.origin,route.destination,route.duration,route.resourceCosts,
+                    route.requiredCapabilities,WorldTimeTick(Long.MIN_VALUE),null,"P62:ROUTE:${route.fingerprint}")
+            }
+        },object:WorldTopologyAuthorizationPort {
+            override fun current(s:WorldResolutionScope)=s==scope && infrastructureTemporalRead().scope==snapshot.scope
+            override fun permitted(s:WorldResolutionScope,edge:WorldTopologyEdge,time:WorldTimeTick)=
+                infrastructureWorldRouteKnown(db,campaign,principal,edge,snapshot.scope.baseCommitOrder)
+        },pathPermitted={ plan->plan.edges.all { body.executableAbilityUids.containsAll(it.requiredCapabilities) } &&
+            plan.resourceCosts.all { (uid,cost)->body.resources.singleOrNull { it.resourceUid==uid }?.current?.let { it>=cost }==true } },
+            containmentRead=WorldTopologyContainmentPort(::infrastructureWorldContainment))
+        (topology.travel(scope,origin,target,at) as? WorldResolutionResult.Journey)?.plan
     }
     /** Explicit selection from a known population is a refinement, not a second NPC roll. */
     internal fun infrastructurePopulationReference(reference:IntentReference,consumers:List<IntentNode>):IntentReference? {
@@ -848,6 +1103,24 @@ class UnifiedGameRepository(context: Context) : CampaignRepository {
         } }
         val selected=infrastructureNearestWorldElement(elements)?.element?:return null
         return candidates.singleOrNull { it==selected || WorldTopologyAnchor.same(it,selected) }
+    }
+    internal fun infrastructureBackgroundDiagnostics():Map<String,Any?> = openGameplaySaveDb().use { db->
+        val campaign=activeCampaignRef().campaignId
+        val store=Phase64BackgroundStore(db,campaign)
+        val enabled=store.policy()!=null
+        val scope=infrastructureTemporalRead()
+        val counts=if(!enabled)emptyMap() else db.rawQuery("SELECT status,COUNT(*) FROM ${Phase64BackgroundSchema.PROCESSES} WHERE campaign_uid=? GROUP BY status",arrayOf(campaign)).use { c->buildMap<String,Long> { while(c.moveToNext())put(c.getString(0),c.getLong(1)) } }
+        val processes=if(!enabled)emptyList() else db.rawQuery("SELECT canonical FROM ${Phase64BackgroundSchema.PROCESSES} WHERE campaign_uid=? AND status IN ('ACTIVE','BLOCKED') ORDER BY due_ms,process_uid LIMIT 32",arrayOf(campaign)).use { c->buildList {
+            while(c.moveToNext())add(Phase64BackgroundCodec.readProcess(kotlinx.serialization.json.Json.parseToJsonElement(c.getString(0)) as kotlinx.serialization.json.JsonObject))
+        } }
+        val evidence=if(!enabled)0L else db.rawQuery("SELECT COUNT(*) FROM ${Phase64BackgroundSchema.EVIDENCE} WHERE campaign_uid=?",arrayOf(campaign)).use { it.moveToFirst();it.getLong(0) }
+        mapOf("campaign_uid" to campaign,"enabled" to enabled,"policy_uid" to if(enabled)"PHASE64_V1" else null,
+            "history_generation" to scope.scope.historyGenerationUid,"as_of_order" to scope.scope.baseCommitOrder,"time_ms" to scope.state.time.milliseconds,
+            "status_counts" to counts,"evidence_count" to evidence,"diagnostic_limit" to 32,
+            "processes" to processes.map { p->mapOf("uid" to p.uid,"definition_uid" to p.definitionUid,"definition_version" to p.definitionVersion,
+                "actor_kind" to p.actor.kindUid,"actor_uid" to p.actor.uid,"version" to p.version,"status" to p.status.name,"due_ms" to p.due.milliseconds,
+                "dependencies" to p.dependencyUids,"reason_uid" to p.reasonUid) },
+            "resource_claim_storage" to "SPECULATIVE_ONLY","last_commit" to db.rawQuery("SELECT MAX(created_order) FROM ${Phase64BackgroundSchema.EVIDENCE} WHERE campaign_uid=?",arrayOf(campaign)).use { if(it.moveToFirst() && !it.isNull(0))it.getLong(0) else null })
     }
     internal fun infrastructureWorldDiagnostics():Map<String,Any?> = openGameplaySaveDb().use { db->
         val campaign=activeCampaignRef().campaignId

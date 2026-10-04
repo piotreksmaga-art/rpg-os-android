@@ -80,6 +80,16 @@ class TurnTransaction internal constructor(
                 require(worldChanges.all { it.historyGenerationUid==generation }) { "P63:STALE_HISTORY" }
             }
             val commitOrder=receiptStore.reserveNextCommitOrder(identity.campaignUid)
+            val backgroundChanges=proposal.playerChangeSet.changes.mapNotNull { it.payload as? BackgroundProcessChange }
+            if(backgroundChanges.isNotEmpty()) {
+                val generation=HistoryGenerationStore(db,identity.campaignUid).current().value
+                require(backgroundChanges.all { it.historyGenerationUid==generation }) { "P64:STALE_HISTORY" }
+                proposal.playerChangeSet.changes.forEach { change->when(val payload=change.payload) {
+                    is PopulationCohortBirthChange->require(payload.historyGenerationUid==generation){"P64:STALE_HISTORY"}
+                    is FormationMobilizationChange->require(payload.historyGenerationUid==generation){"P64:STALE_HISTORY"}
+                    else->Unit
+                } }
+            }
             val applied=withCanonicalGameplayMutationForTurn(db,identity.campaignUid,seal){
                 val result=CanonicalPlayerChangeApplier.applyAll(db,identity,proposal.playerChangeSet,failureInjector)
                 require(result.appliedChangeUids==proposal.playerChangeSet.changes.map{it.changeUid}){
@@ -186,6 +196,12 @@ class TurnTransaction internal constructor(
 
 internal object CanonicalPlayerChangeApplier{
     fun preflight(changeSet:PlayerChangeSet){
+        val receipts=changeSet.changes.mapNotNull { it.payload as? BackgroundProcessChange }
+        changeSet.changes.filter { it.payload is BackgroundProjectWorkChange || it.payload is DevelopmentProjectCompletionChange ||
+            it.payload is PopulationCohortBirthChange || it.payload is FormationMobilizationChange }.forEach { change->
+            val hash=Phase64BackgroundCodec.fingerprint(change.payload)
+            require(receipts.any { hash in it.consequenceFingerprints && it.campaignUid==changeSet.campaignUid }) {"P64:UNBOUND_OWNER_CHANGE"}
+        }
         changeSet.ledgerIntents.forEach{intent->
             when(intent.ledgerKindUid){
                 PlayerLedgerIntentKinds.FINANCIAL_TRANSFER -> {
@@ -220,7 +236,8 @@ internal object CanonicalPlayerChangeApplier{
                 is AssetChange,is ConditionChange,is RuntimeChange,
                 is WoundChange,is SpatialChange,is EquipmentIntegrityChange,is StructureIntegrityChange,
                 is MechanicalTrackChange,is AggregatePopulationChange,
-                is DevelopmentProjectChange,is KnowledgeAcquisitionChange,is TemporalStateChange,is NpcBrainChange,is WorldSimulationChange -> Unit
+                is DevelopmentProjectChange,is KnowledgeAcquisitionChange,is TemporalStateChange,is NpcBrainChange,is WorldSimulationChange,is BackgroundProcessChange,
+                is BackgroundProjectWorkChange,is DevelopmentProjectCompletionChange,is PopulationCohortBirthChange,is FormationMobilizationChange -> Unit
                 is AccessAuthorityChange -> AccessAuthorityChangeValidator.requireValid(change.payload)
                 is MechanicalActorGenesisChange -> MechanicalActorGenesis.validate(change.payload,changeSet)
                 else -> throw UnsupportedCanonicalChangeException(change.changeKindUid)
@@ -235,6 +252,7 @@ internal object CanonicalPlayerChangeApplier{
         injector:TurnFailureInjector
     ):TurnCommitAppliedResult{
         preflight(changeSet)
+        Phase64BackgroundStore(db,identity.campaignUid).validateCompletionReceipts(identity,changeSet)
         val applied=mutableListOf<String>()
         changeSet.changes.forEach{change->
             when(val payload=change.payload){
@@ -260,6 +278,11 @@ internal object CanonicalPlayerChangeApplier{
                 is DevelopmentProjectChange->applyProject(db,identity,changeSet,change.changeUid,payload)
                 is TemporalStateChange->Phase60TemporalStateStore(db,identity.campaignUid).apply(identity,payload)
                 is WorldSimulationChange->Phase63WorldStore(db,identity.campaignUid).apply(identity,payload,effectiveOrder(changeSet),changeSet)
+                is BackgroundProcessChange->Phase64BackgroundStore(db,identity.campaignUid).apply(identity,payload,effectiveOrder(changeSet),changeSet)
+                is BackgroundProjectWorkChange->applyPhase64ProjectWork(db,identity,changeSet,change.changeUid,payload)
+                is DevelopmentProjectCompletionChange->applyPhase64ProjectCompletion(db,identity,changeSet,change.changeUid,payload)
+                is PopulationCohortBirthChange->Phase64PopulationOwnerStore(db,identity.campaignUid).applyBirth(identity,changeSet,payload,effectiveOrder(changeSet))
+                is FormationMobilizationChange->Phase64PopulationOwnerStore(db,identity.campaignUid).applyMobilization(identity,changeSet,payload,effectiveOrder(changeSet))
                 is NpcBrainChange->NpcBrainStore(db,identity.campaignUid).apply(identity,change.changeUid,payload)
                 is MechanicalActorGenesisChange->MechanicalActorGenesis.apply(db,identity,changeSet,payload,effectiveOrder(changeSet))
                 is AccessAuthorityChange->applyAccessAuthority(db,identity,changeSet,change.changeUid,payload)

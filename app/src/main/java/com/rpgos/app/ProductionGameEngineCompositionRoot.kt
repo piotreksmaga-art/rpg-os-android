@@ -61,6 +61,7 @@ internal class UniversalMechanicsWorldRuleProvider(binding:WorldPackRuleBinding)
                 change.payload !is InventoryChange&&change.payload !is TemporalStateChange&&change.payload !is WorldSimulationChange&&change.payload !is NpcBrainChange&&change.payload !is KnowledgeAcquisitionChange&&change.payload !is MechanicalActorGenesisChange&&
                     change.payload !is WoundChange&&change.payload !is SpatialChange&&change.payload !is EquipmentIntegrityChange&&
                     change.payload !is StructureIntegrityChange&&change.payload !is MechanicalTrackChange&&change.payload !is AggregatePopulationChange&&
+                    !phase64BoundPayload(change.payload,request.effects.changes.map { it.payload })&&
                     (change.payload !is CampaignTruthChange||when(change.payload.kind){
                         TruthKind.FACT->change.payload.predicate !in CampaignWorldFacts.ALL
                         TruthKind.NARRATIVE->change.payload.predicate !in GmNarrativePredicates.ALLOWED
@@ -277,7 +278,8 @@ internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapsh
     private val npcRequirements:NpcActivityRequirementPort=NpcActivityRequirementPort.NONE,
     private val npcTreatments:NpcTreatmentReadPort=NpcTreatmentReadPort.NONE,
     private val npcDuties:NpcDutyAssignmentPort=NpcDutyAssignmentPort.NONE,
-    private val worldTravel:WorldTravelMechanicsPort?=null):MechanicsRuleResolver{
+    private val worldTravel:WorldTravelMechanicsPort?=null,
+    private val backgroundActivation:((MechanicsEffectRequest,MechanicsResolutionContext,IntentNode)->MechanicsEffectResolution?)?=null):MechanicsRuleResolver{
     private sealed interface CanonicalEffectResolution{
         data class Applied(val payload:Map<String,String>):CanonicalEffectResolution
         data class Rejected(val reasonUid:String):CanonicalEffectResolution
@@ -291,6 +293,7 @@ internal class ProductionUniversalMechanicsRuleResolver(private val combatSnapsh
         val owner=context.plan.steps.singleOrNull{it.nodeUid==request.nodeUid}?.mechanicsOwnerUid
             ?:return MechanicsEffectResolution.Rejected("MECHANICS_OWNER_MISSING")
         if(owner!=request.mechanicsOwnerUid)return MechanicsEffectResolution.Rejected("MECHANICS_OWNER_MISMATCH")
+        if(owner=="UNIVERSAL_ACTION")backgroundActivation?.invoke(request,context,node)?.let { return it }
         if(owner=="UNIVERSAL_MOVEMENT" && request.effectKindUid.substringAfterLast(':').uppercase()=="LOCATION_TRANSITION" && worldTravel!=null)
             return worldTravel.resolve(request,context)
         if(owner==NpcActivityMechanics.OWNER) {
@@ -446,16 +449,30 @@ private class ProductionIntentResolver(
     override fun resolve(candidateInput:IntentDocument):IntentDocument{
         val candidate=WorldReferenceSetExpansion.expand(candidateInput.copy(references=candidateInput.references.map {
             it.copy(descriptorHints=it.descriptorHints-"world_resolution_reason")
-        }))
+        })).let { expanded->expanded.copy(nodes=expanded.nodes.map { node->node.copy(
+            semanticAction=UniversalIntentFamilies.trustProviderAction(node.semanticAction)) }) }
         val capturedScope=repository.infrastructureWorldResolutionScope()
         val universal=UniversalWorldMaterializationResolver(evidenceProvider.forTurn())
         val player=repository.activePlayerRef()
         val currentAnchor=player?.let{repository.infrastructureEntityLocationUid(it.playerUid)}
+        val ownProcesses=if(candidate.nodes.any { it.semanticAction.canonicalActionUid==Phase64ProcessActivation.CANCEL_ACTION })
+            repository.infrastructurePlayerProcessProjection(audience(),purpose()) else null
         val resolved=candidate.references.map{reference->
+            val cancellationTarget=candidate.nodes.any { node->node.semanticAction.canonicalActionUid==Phase64ProcessActivation.CANCEL_ACTION &&
+                node.participants.any { it.referenceUid==reference.referenceUid && it.roleUid=="TARGET" } }
+            if(cancellationTarget) return@map ownProcesses?.let { Phase64PlayerProcessProjection.resolve(it,reference) }
+                ?:reference.copy(state=IntentReferenceState.UNRESOLVED,resolvedProjectedRef=null,candidateProjectedRefs=emptyList(),resolutionEvidenceUid=null,
+                    descriptorHints=reference.descriptorHints+("world_resolution_reason" to "P64:CANCELLATION_NOT_AUTHORIZED"))
             if(reference.descriptorHints["world_resolution_reason"]=="P63:SET_SELECTION_REQUIRES_CLARIFICATION")return@map reference
             if(reference.state in setOf(IntentReferenceState.RESOLVED_PROJECTED,IntentReferenceState.RESOLVED_LATENT)||reference.kind in setOf(IntentReferenceKind.FUTURE_RESULT,IntentReferenceKind.RESOURCE_FROM_RESULT))return@map reference
             val phrase=(reference.rawPhrase?:reference.descriptorHints["surface"]).orEmpty().trim()
             val directConsumers=candidate.nodes.filter{node->node.participants.any{it.referenceUid==reference.referenceUid}}
+            val ownedActivityTargets=repository.infrastructureBackgroundPlayerTargets(reference,directConsumers,audience(),purpose())
+            if(ownedActivityTargets.isNotEmpty())return@map reference.copy(
+                state=if(ownedActivityTargets.size==1)IntentReferenceState.RESOLVED_PROJECTED else IntentReferenceState.AMBIGUOUS,
+                resolvedProjectedRef=ownedActivityTargets.singleOrNull(),
+                candidateProjectedRefs=if(ownedActivityTargets.size==1)emptyList() else ownedActivityTargets,
+                resolutionEvidenceUid="P64:PROTECTED_CHARACTER_OWNER_TARGET")
             val direct=when{
                 phrase.lowercase() in setOf("ja","mnie","mi","sobie","self","me")&&player!=null->DomainRef("PLAYER",player.playerUid)
                 else->resolveCommittedTurnResultReference(reference,repository.infrastructureLastReceipt())
@@ -496,11 +513,8 @@ private class ProductionIntentResolver(
                     }
             }
         }
-        val trustedNodes=candidate.nodes.map{node->node.copy(
-            semanticAction=UniversalIntentFamilies.trustProviderAction(node.semanticAction)
-        )}
         val current=capturedScope!=null && repository.infrastructureWorldResolutionCurrent(capturedScope)
-        return candidate.copy(nodes=trustedNodes,references=if(current)resolved else resolved.map { it.copy(state=IntentReferenceState.UNRESOLVED,
+        return candidate.copy(references=if(current)resolved else resolved.map { it.copy(state=IntentReferenceState.UNRESOLVED,
             resolvedProjectedRef=null,candidateProjectedRefs=emptyList(),resolutionEvidenceUid=null,
             descriptorHints=it.descriptorHints+("world_resolution_reason" to "P63:STALE_RESOLUTION_SCOPE")) },
             provenance=candidate.provenance.copy(source=IntentInterpretationSource.TRUSTED_REFERENCE_RESOLUTION,sourceUid="RPGOS-CORE-REFERENCE-RESOLVER"))
@@ -834,7 +848,7 @@ class ProductionGameEngineCompositionRoot(
         val npcRequirements=repository.infrastructureNpcActivityRequirementPort()
         val npcTreatments=repository.infrastructureNpcTreatmentReadPort()
         val npcDuties=repository.infrastructureNpcDutyAssignmentPort()
-        val mechanics=ProductionUniversalMechanicsRuleResolver(ProductionCombatSnapshotAuthority(repository,aggregateCombatState,combatAbilityContracts),npcActivities,npcLearningState,npcReadingAccess,npcRequirements,npcTreatments,npcDuties,WorldTravelMechanicsPort(repository::infrastructureWorldTravel))
+        val mechanics=ProductionUniversalMechanicsRuleResolver(ProductionCombatSnapshotAuthority(repository,aggregateCombatState,combatAbilityContracts),npcActivities,npcLearningState,npcReadingAccess,npcRequirements,npcTreatments,npcDuties,WorldTravelMechanicsPort(repository::infrastructureWorldTravel),repository::infrastructureBackgroundActivation)
         val mechanicsRegistry=MechanicsResolverRegistry.fromCompositionRoot(mapOf(
             "UNIVERSAL_COMBAT" to mechanics,"UNIVERSAL_ACTION" to mechanics,"UNIVERSAL_MOVEMENT" to mechanics
         ))
@@ -877,6 +891,7 @@ class ProductionGameEngineCompositionRoot(
                 val holder=NpcBrainCodec.decode(brain.stateCanonical).knowledgeHolder
                 add(DomainRef(holder.holderKindUid,holder.holderUid))
             }
+            command.payload.backgroundChanges.flatMap(::phase64References).forEach(::add)
             val heldItemInstanceUids=if(command.actor.actorKindUid=="PLAYER")
                 repository.infrastructureHeldItemInstanceUids(command.actor.actorUid)
             else emptySet()
@@ -945,7 +960,7 @@ class ProductionGameEngineCompositionRoot(
                         val brain=applyNpcBrainOverlay(canonical,input.scope,staged)
                         val trigger=if(pending==null)repository.npcCognitionStimulus(input.scope,actor)?.let{stimulus->
                             NpcTrigger("P62:ACTIVITY:${phase60Hash(stimulus.acquisitionUid).take(32)}",stimulus.triggerKind,input.through,stimulus.cause)
-                        } else brain.plans.singleOrNull{it.uid==pending.planUid}?.let{plan->
+                        } ?: repository.infrastructureInstitutionalTrigger(actor,input) else brain.plans.singleOrNull{it.uid==pending.planUid}?.let{plan->
                             NpcTrigger("P62:PLAN:${phase60Hash(plan.uid).take(32)}",NpcTriggerKind.PLAN_BOUNDARY,input.through,plan.cause)
                         }
                         if(trigger==null)NpcContextResult.Unavailable("P62:TRIGGER_NOT_PERCEIVED") else {
@@ -957,7 +972,7 @@ class ProductionGameEngineCompositionRoot(
                                 }?:body.copy(locationRef=null)
                             }
                             repository.projectNpcDecision(scope,trigger,NpcContextProfiles.MOBILE,
-                                {b,records->NpcMechanicalAffordances(combatAbilityContracts,npcActivities,npcTravelRoutes,npcLearningState,npcReadingAccess,npcRequirements,npcTreatments,npcDuties,input.through,pending==null)
+                                {b,records->NpcMechanicalAffordances(combatAbilityContracts,npcActivities,npcTravelRoutes,npcLearningState,npcReadingAccess,npcRequirements,npcTreatments,npcDuties,input.through,pending==null,repository.infrastructureNpcBackgroundActivities())
                                     .options(b,records,mechanical,DomainRef("PLAYER",active.playerUid)).filter { option->
                                         npcActivities.forCapability(input.scope.campaignUid,option.capabilityUid).none{contract->
                                             npcActivityPrerequisiteChanged(contract,actor,input.stagedChanges)}
@@ -967,9 +982,7 @@ class ProductionGameEngineCompositionRoot(
                     }
                 }
                 val foregroundSubjects=turnPlan.intent.references.mapNotNull{it.resolvedProjectedRef}.toSet()+DomainRef("PLAYER",active.playerUid)
-                val actions=if(participants.isEmpty() && snapshot.state.processStates.none{it.ownerUid==NpcActionProcess.OWNER})TemporalProcessExtension.NONE else
-                    NpcActionProcess(snapshot.scope,snapshot.state.time,active.playerUid,participants,
-                        NpcTimedActionApplication(turnRequest.commandUid,actionContexts,route,{repository.infrastructureTemporalRead().scope},
+                val timedActions=NpcTimedActionApplication(turnRequest.commandUid,actionContexts,route,{repository.infrastructureTemporalRead().scope},
                             NpcMechanicalActionApplication(mechanics,{repository.infrastructureTemporalRead().scope},npcTravelRoutes,
                                 NpcTravelActorReadPort { requestedScope,actor ->
                                     val current=repository.infrastructureTemporalRead().scope
@@ -979,18 +992,33 @@ class ProductionGameEngineCompositionRoot(
                                             body.copy(locationRef=DomainRef(kind,uid))
                                         }?:body.copy(locationRef=null)
                                     }
-                                }),
+                                },settleCombatResourceCosts=repository.infrastructureBackgroundEnabled()),
                             foregroundAt={input->prepared.filter { effect->timing.schedule.singleOrNull{it.action.uid==effect.nodeUid}?.let{interval->
                                 input.through>=interval.start+ActionDuration(Phase60DomainTiming.effectOffset(effect,interval.action.timing.duration))
                             }==true }},interruptsForeground={effects->npcRequiresForegroundDecision(effects,foregroundSubjects)},progress=npcProgress,
-                            initiatedSpeech=NpcInitiatedSpeechApplication(route,{repository.infrastructureTemporalRead().scope},npcProgress))).extension()
-                repository.infrastructureWorldProcesses(snapshot,prepared).plus(cognition).plus(actions).plus(NpcDutyDeadlineProcess.extension()).plus(
+                            initiatedSpeech=NpcInitiatedSpeechApplication(route,{repository.infrastructureTemporalRead().scope},npcProgress))
+                val actions=if(participants.isEmpty() && snapshot.state.processStates.none{it.ownerUid==NpcActionProcess.OWNER} && !repository.infrastructureBackgroundEnabled())TemporalProcessExtension.NONE else
+                    NpcActionProcess(snapshot.scope,snapshot.state.time,active.playerUid,participants,timedActions).extension()
+                repository.infrastructureWorldProcesses(snapshot,prepared)
+                    .plus(repository.infrastructureBackgroundProcesses(snapshot,timing.schedule.maxOf { it.end }) { input,cancelled->
+                        Phase64InstitutionDecisionCallbacks(input,actionContexts,{repository.infrastructureTemporalRead().scope},
+                            selectDecision={ projected->
+                                NpcDecisionApplication(route,{
+                                    projected.context.scope.copy(temporal=repository.infrastructureTemporalRead().scope)
+                                },progress=npcProgress).decide(NpcDecisionRequest(
+                                    "P64:DECISION:${projected.context.contextFingerprint}",projected.context),AiCancellationSignal(cancelled))
+                            },prepareAction={ projected,selected,captured->
+                                timedActions.prepareAuthorized(projected,selected,captured,cancelled)
+                            })
+                    })
+                    .plus(cognition).plus(actions).plus(NpcDutyDeadlineProcess.extension()).plus(
                     NpcResultReconciliationProcess(snapshot.scope,snapshot.state.time) { input->
                         repository.prepareNpcResultConfirmations(input,participants)
                     }.extension())
             },conversations=NpcConversationApplication(route,{repository.infrastructureTemporalRead().scope},npcProgress,{snapshot,actor,plan->
                 repository.npcConversationContext(snapshot,actor,plan,semanticApplication?.npcRecall()?:NpcRecallPort.NONE)
-            }),observations=repository::prepareNpcConsequenceObservations)
+            }),observations=repository::prepareNpcConsequenceObservations,backgroundStarts=repository::infrastructureBackgroundStarts,
+            backgroundCompletions=repository::infrastructureBackgroundCompletions)
         val facade=AiChatEngineFacade(
             route,Phase43IntentValidator(),ProductionIntentResolver(repository,
                 {VisibilityAudienceFactory.player(repository.activeCampaignRef().campaignId)},

@@ -28,6 +28,22 @@ internal class NpcTimedActionApplication(private val commandUid:String,private v
         },progress=progress).decide(NpcDecisionRequest("P62:ACT:${context.contextFingerprint}",context),AiCancellationSignal(cancelled))
         if(decision is NpcDecisionResult.Reflected)return NpcActionPreparation.Reflected(decision.brainChanges)
         if(decision !is NpcDecisionResult.Selected)return skip((decision as? NpcDecisionResult.Unavailable)?.reasonUid?:"P62:NO_ACTION_SELECTED")
+        return prepareAuthorized(projected,decision,input,cancelled)
+    }
+    /** Institutional reactions reuse a sealed Core choice, not a new model invocation. */
+    internal fun prepareAuthorized(projected:NpcContextResult.Ready,decision:NpcDecisionResult.Selected,
+        input:TemporalOwnerInput,cancelled:()->Boolean):NpcActionPreparation {
+        fun skip(reason:String)=NpcActionPreparation.Skipped(reason)
+        val context=projected.context
+        if(cancelled())return skip("P62:CANCELLED")
+        if(currentScope()!=input.scope || context.scope.temporal!=input.scope || context.scope.atTime!=input.through)
+            return skip("P62:STALE_SCOPE")
+        if(context.brain.plans.any { it.lifecycle in setOf(NpcPlanLifecycle.RUNNING,NpcPlanLifecycle.WAITING) })return skip("P62:ALREADY_BUSY")
+        if(!projected.budget.safeForAi || context.contextFingerprint!=context.computeFingerprint() ||
+            !decision.authorization.matches(context.scope,context.contextFingerprint,decision.option) || decision.option !in context.options)
+            return skip("P62:UNAUTHORIZED_OPTION")
+        if(decision.option.goalUid==null || context.brain.goals.none { it.uid==decision.option.goalUid && it.lifecycle==NpcGoalLifecycle.ACTIVE })
+            return skip("P62:ACTIVE_GOAL_REQUIRED")
         // A preflight proves executable timing/cost rules. Its effects are discarded, not saved.
         val preview=mechanics.resolve(projected,decision,(foregroundAt(input)+input.stagedEffects).map{it.asStagedMechanics()},AiCancellationSignal(cancelled))
         if(preview !is NpcMechanicalResult.Resolved) {
@@ -38,7 +54,7 @@ internal class NpcTimedActionApplication(private val commandUid:String,private v
         if(preview.timing.instantaneous)return skip("P62:TIMED_ACTION_REQUIRED")
         val started=NpcBrainDynamics.beginPlan(context,decision,commandUid,preview.timing)
         val plan=NpcBrainCodec.decode(started.stateCanonical).plans.single{it.uid==decision.authorization.decisionUid}
-        return NpcActionPreparation.Started(NpcPendingAction(actor,plan.uid,decision.option.uid,requireNotNull(plan.startedAt),
+        return NpcActionPreparation.Started(NpcPendingAction(context.scope.actor,plan.uid,decision.option.uid,requireNotNull(plan.startedAt),
             requireNotNull(plan.nextEvaluationAt),preview.timing.ruleUid,preview.timing.ruleVersion),decision.brainChanges+started)
     }
     override fun complete(action:NpcPendingAction,input:TemporalOwnerInput,cancelled:()->Boolean):NpcActionCompletion {
@@ -81,12 +97,17 @@ internal class NpcTimedActionApplication(private val commandUid:String,private v
         } else resolved.effects
         // Keep the domain owner's proof in the process chain. Receipt/replay consumers must
         // still be able to identify the exact route/activity whose effects were committed.
-        val effects=delivered.map { effect->effect.copy(proofUid="P60:PROCESS:${phase60Hash(effect.proofUid+"|"+context.contextFingerprint)}:${effect.proofUid}",
+        val effects=delivered.map { effect->effect.copy(proofUid=if(effect.canonicalPayload.containsKey("p64_start_process"))effect.proofUid else "P60:PROCESS:${phase60Hash(effect.proofUid+"|"+context.contextFingerprint)}:${effect.proofUid}",
             canonicalPayload=effect.canonicalPayload+mapOf(
-            "source_actor_kind_uid" to action.actor.kindUid,"source_actor_uid" to action.actor.uid)) }
+            "source_actor_kind_uid" to action.actor.kindUid,"source_actor_uid" to action.actor.uid,
+            "npc_plan_uid" to action.planUid,"npc_option_uid" to action.optionUid,
+            "npc_started_at_ms" to action.startedAt.milliseconds.toString(),"npc_due_at_ms" to action.due.milliseconds.toString(),
+            "npc_ability_uid" to option.capabilityUid,
+            "npc_target_kind_uid" to (option.target?:action.actor).kindUid,"npc_target_uid" to (option.target?:action.actor).uid,
+            "npc_ability_contract" to (option.parameters["npc_ability_contract"]?:""))) }
         val fulfillment=NpcExecutionGoals.fulfilled(context,plan,selected,resolved)
         val finished=NpcBrainDynamics.finishPlan(context,plan.uid,commandUid,true,fulfillment)
-        val interrupt=option.mechanicsOwnerUid==NpcSpeechMechanics.OWNER || interruptsForeground(effects)
+        val interrupt=option.mechanicsOwnerUid==NpcSpeechMechanics.OWNER || effects.any { it.canonicalPayload.containsKey("p64_start_process") } || interruptsForeground(effects)
         if(interrupt || fulfillment!=null || plan.nextActionUids.isEmpty())return NpcActionCompletion.Finished(finished,effects,playerDecisionRequired=interrupt)
         // Each continuation gets a new projection, fresh preflight and its own future boundary.
         // No effect computed here is committed early. Losing an option stops the chain, not the

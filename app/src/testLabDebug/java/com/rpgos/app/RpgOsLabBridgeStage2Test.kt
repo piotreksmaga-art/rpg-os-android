@@ -8,6 +8,12 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 class RpgOsLabBridgeStage2Test {
+    @Test fun `separate acceptance installations do not collide with the user's bridge socket`() {
+        assertEquals("rpgos_lab_bridge",RpgOsLabBridgeContract.socketForPackage("com.rpgos.app"))
+        assertEquals("rpgos_lab_bridge.com.rpgos.app.phase64acceptance",RpgOsLabBridgeContract.socketForPackage("com.rpgos.app.phase64acceptance"))
+        assertFalse(RpgOsLabBridgeContract.socketForPackage("com.rpgos.app.acceptance")==RpgOsLabBridgeContract.socketForPackage("com.rpgos.app.phase64acceptance"))
+        assertThrows(IllegalArgumentException::class.java) { RpgOsLabBridgeContract.socketForPackage("com.rpgos.app/../../") }
+    }
     @Test
     fun `stage three contract preserves stage two and exposes Codex plus Director controls`() {
         assertEquals(3, RpgOsLabBridgeContract.stage)
@@ -17,6 +23,7 @@ class RpgOsLabBridgeStage2Test {
         assertTrue("GET_RUNTIME_STATE" in RpgOsLabBridgeContract.readCommands)
         assertTrue("GET_MECHANICAL_STATE" in RpgOsLabBridgeContract.readCommands)
         assertTrue("GET_RECOVERY_STATE" in RpgOsLabBridgeContract.readCommands)
+        assertTrue("GET_BACKGROUND_PROCESSES" in RpgOsLabBridgeContract.readCommands)
         assertTrue("GET_DIRECTOR_STATE" in RpgOsLabBridgeContract.readCommands)
         assertTrue("GET_LAST_AI_EXCHANGE" in RpgOsLabBridgeContract.readCommands)
         assertTrue("EXPORT_LAB_FIXTURE" in RpgOsLabBridgeContract.readCommands)

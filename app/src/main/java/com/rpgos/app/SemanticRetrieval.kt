@@ -437,6 +437,10 @@ internal class CommittedReplaySemanticProjector(
             payload.acquisition.holder.holderKindUid,payload.acquisition.holder.holderUid
         )
         is WorldSimulationChange,is AccessAuthorityChange,is TemporalStateChange,is NpcBrainChange,is MechanicalActorGenesisChange->null
+        // These multi-owner receipts are not global facts or audience-safe text. Projection
+        // must rehydrate each actual affected owner, never expose the private process input.
+        is BackgroundProcessChange,is BackgroundProjectWorkChange,is DevelopmentProjectCompletionChange,
+        is PopulationCohortBirthChange,is FormationMobilizationChange->null
         is AssetChange,is CampaignTruthChange,is DevelopmentProjectChange,is FinancialChange,is OwnershipChange->null
     }
 

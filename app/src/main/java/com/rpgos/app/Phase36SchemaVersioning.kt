@@ -138,6 +138,8 @@ internal object Phase36SchemaVersioning {
 
     private fun productionGraph(eventFaultInjector: EventV1ToV2FaultInjector = EventV1ToV2FaultInjector.NONE) = VersionMigrationGraph(
         listOf(
+            VersionMigrationEdge(SchemaFamilyUid.WORLD_SIMULATION,2,3,"RPGOS-P64:BACKGROUND-ADDITIVE:1",
+                MigrationMateriality.STRUCTURAL_ADDITIVE,{db,_->Phase64BackgroundSchema.ensureReady(db)}),
             VersionMigrationEdge(SchemaFamilyUid.WORLD_SIMULATION,1,2,"RPGOS-P63:POPULATION-ADDITIVE:1",
                 MigrationMateriality.STRUCTURAL_ADDITIVE,{db,_->Phase63WorldSchema.ensureReady(db)}),
             VersionMigrationEdge(

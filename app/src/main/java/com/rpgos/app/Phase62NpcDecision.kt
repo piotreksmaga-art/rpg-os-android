@@ -120,6 +120,17 @@ class NpcActionAuthorization private constructor(
     val scope:NpcDecisionScope,val decisionUid:String,val contextFingerprint:String,val optionCanonical:String,
     private val continuation:List<String>,internal val onUnavailableOptionUid:String?
 ) {
+    /** JVM identity must never enter a deterministic mechanics fingerprint or random seed. */
+    override fun toString():String = buildJsonObject {
+        put("scope",buildJsonObject {
+            put("campaign",scope.temporal.campaignUid);put("generation",scope.temporal.historyGenerationUid)
+            put("order",scope.temporal.baseCommitOrder);put("canonical",scope.temporal.authoritativeFingerprint)
+            put("actor",NpcBrainCodec.ref(scope.actor));put("revision",scope.brainRevision)
+            put("at",scope.atTime.milliseconds);put("ordinal",scope.observationOrdinal);put("active_player",scope.activePlayerUid)
+        })
+        put("decision",decisionUid);put("context",contextFingerprint);put("option",Json.parseToJsonElement(optionCanonical))
+        put("continuation",JsonArray(continuation.map(::JsonPrimitive)));put("alternative",onUnavailableOptionUid?.let(::JsonPrimitive)?:JsonNull)
+    }.toString()
     internal val continuationOptionUids get()=continuation.toList()
     companion object {
         internal fun issue(context:NpcDecisionContextEnvelope,option:NpcActionOption,continuationOptionUids:List<String> = emptyList(),onUnavailableOptionUid:String?=null):NpcActionAuthorization {

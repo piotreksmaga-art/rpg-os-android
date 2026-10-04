@@ -2025,6 +2025,7 @@ private fun GameScreen(vm:RpgOsViewModel){
     val settings by vm.settings.collectAsState()
     val contextSummary by vm.lastContextSummary.collectAsState()
     val turnUi by vm.chatTurnUi.collectAsState()
+    val ownProcesses by vm.backgroundProcesses.collectAsState()
     var text by remember{mutableStateOf("")}
 
     Column(
@@ -2063,6 +2064,21 @@ private fun GameScreen(vm:RpgOsViewModel){
             verticalArrangement=Arrangement.spacedBy(10.dp),
             contentPadding=PaddingValues(bottom=12.dp)
         ){
+            if(!ownProcesses?.rows.isNullOrEmpty())item(key="OWN_BACKGROUND_PROCESSES") {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Twoje trwające zadania",fontWeight=FontWeight.Bold)
+                        ownProcesses?.rows?.take(4)?.forEach { process->
+                            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                                Text("${process.categoryLabel} • ${process.statusText}",Modifier.weight(1f))
+                                TextButton(onClick={vm.requestBackgroundCancellation(process)},enabled=!turnUi.canCancel) { Text("Przerwij") }
+                            }
+                        }
+                        if(ownProcesses?.complete==false || (ownProcesses?.rows?.size?:0)>4)
+                            Text("Lista pokazuje najbliższe zadania. Doprecyzuj w wiadomości, które chcesz przerwać.",style=MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
             items(messages){msg->
                 val isPlayer=msg.role=="player"
                 val isGm=msg.role=="gm"

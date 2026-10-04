@@ -79,7 +79,9 @@ internal class ProductionTemporalMutationAssembler(
     private val npcBrainPreparation:(TemporalScope,List<VerifiedMechanicsCommandEffect>,CanonicalTurnPlan)->List<NpcBrainChange> = {_,_,_->emptyList()},
     private val additionalProcesses:(TemporalReadSnapshot,CanonicalTurnPlan,List<VerifiedMechanicsCommandEffect>,ProductionTimeResult.Ready,ChatTurnRequest)->TemporalProcessExtension = {_,_,_,_,_->TemporalProcessExtension.NONE},
     private val conversations:NpcConversationPreparationPort=NpcConversationPreparationPort.NONE,
-    private val observations:(TemporalScope,List<VerifiedMechanicsCommandEffect>)->List<VerifiedMechanicsCommandEffect> = {_,effects->effects}
+    private val observations:(TemporalScope,List<VerifiedMechanicsCommandEffect>)->List<VerifiedMechanicsCommandEffect> = {_,effects->effects},
+    private val backgroundStarts:(TemporalScope,String,List<VerifiedMechanicsCommandEffect>,WorldTimeTick)->List<BackgroundProcessChange> = {_,_,_,_->emptyList()},
+    private val backgroundCompletions:(TemporalScope,String,List<VerifiedMechanicsCommandEffect>,List<NpcBrainChange>,TemporalStateChange)->List<BackgroundProcessChange> = {_,_,_,_,_->emptyList()}
 ) : CancellableCanonicalMutationAssembler, CanonicalMutationAssemblyDiagnostics {
     @Volatile private var reasons: List<String> = emptyList()
     private val scopes = java.util.Collections.synchronizedMap(java.util.WeakHashMap<CanonicalCampaignMutationProposal, TemporalScope>())
@@ -132,7 +134,16 @@ internal class ProductionTemporalMutationAssembler(
                         val brains=npcBrainPreparation(snapshot.scope,execution.effects,plan)+execution.npcBrains
                         val observed=observations(snapshot.scope,execution.effects)
                         val worldChanges=phase63PreparedWorldChain(delegate.prepareWorldChanges(request,observed),execution.worldChanges)
-                        val canonical=delegate.admitEffects(request,plan.planUid,proposal.candidate.proposalUid,observed,execution.change,brains,worldChanges)
+                        val starts=backgroundStarts(snapshot.scope,request.commandUid,execution.effects,execution.change.proposedTime)
+                        val completions=backgroundCompletions(snapshot.scope,request.commandUid,execution.effects,brains,execution.change)
+                        val background=execution.backgroundChanges+starts+completions
+                        val removed=starts.filter { it.expectedVersion>0L && it.process.status==BackgroundProcessStatus.INTERRUPTED }
+                            .map { Phase64BackgroundProcessOwner.deadline(it.process.copy(version=it.expectedVersion)) }.toSet()
+                        val existingDeadlines=Phase60DeadlineCodec.decode(execution.change.deadlinesCanonical).filterNot { it.uid in removed }
+                        val startDeadlines=starts.filter { it.expectedVersion==0L }.map { WorldProcessDeadline(Phase64BackgroundProcessOwner.deadline(it.process),Phase64BackgroundProcessOwner.OWNER,it.process.due) }
+                        require(startDeadlines.none { n->existingDeadlines.any { it.uid==n.uid } }) {"P64:DUPLICATE_START_DEADLINE"}
+                        val clock=if(starts.isEmpty())execution.change else execution.change.copy(deadlinesCanonical=Phase60DeadlineCodec.encode(existingDeadlines+startDeadlines))
+                        val canonical=delegate.admitEffects(request,plan.planUid,proposal.candidate.proposalUid,observed,clock,brains,worldChanges,background)
                         if(canonical==null){reasons=delegate.lastAssemblyReasonUids();return null}
                         val foregroundPayloads=execution.effects.flatMap { (MechanicalEffectMaterializer.materialize(it) as MechanicalEffectMaterializationResult.Materialized).changes.map{change->change.payload} }
                         // Includes only elapsed foreground effects plus evaluated process deltas.
@@ -143,7 +154,7 @@ internal class ProductionTemporalMutationAssembler(
                         val reading=NpcReadingApplication.materialize(request.campaignUid,request.commandUid,request.atOrder?:1L,observed)
                         val learning=NpcLearningApplication.intervalPayloads(request.campaignUid,request.commandUid,observed)
                         val routeKnowledge=WorldRouteKnowledge.materialize(request.campaignUid,request.commandUid,request.atOrder?:1L,request.actor,worldChanges)
-                        val settled=execution.work.copy(checkpoint=execution.work.checkpoint.copy(candidateChanges=phase60CoalesceChanges(foregroundPayloads)+brains+worldChanges+
+                        val settled=execution.work.copy(checkpoint=execution.work.checkpoint.copy(candidateChanges=phase60CoalesceChanges(foregroundPayloads)+brains+worldChanges+background+
                             memory.changes.map{it.payload}+communication.changes.map{it.payload}+sensations.changes.map{it.payload}+
                             witnessed.changes.map{it.payload}+reading.changes.map{it.payload}+learning+routeKnowledge.changes.map{it.payload},candidateEffects=emptyList()))
                         val failure=Phase60EffectSettlement.validate(settled,phase60CoalesceChanges(canonical.playerChangeSet.changes.map{it.payload}))

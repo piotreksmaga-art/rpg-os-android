@@ -171,7 +171,8 @@ internal fun coreCommandCodecs(): Map<String, TypedCommandCodec<out PlayerComman
             }
         ).let { base -> payload.temporalState?.let { JsonObject(base + ("temporalState" to phase60TimeChangeCodec().encode(it))) } ?: base }
             .let { base -> if(payload.npcBrains.isEmpty())base else JsonObject(base+("npcBrains" to JsonArray(payload.npcBrains.map{npcBrainChangeCodec().encode(it)}))) }
-            .let { base -> if(payload.worldChanges.isEmpty())base else JsonObject(base+("worldChanges" to JsonArray(payload.worldChanges.map{phase63WorldChangeCodec().encode(it)}))) } },
+            .let { base -> if(payload.worldChanges.isEmpty())base else JsonObject(base+("worldChanges" to JsonArray(payload.worldChanges.map{phase63WorldChangeCodec().encode(it)}))) }
+            .let { base -> if(payload.backgroundChanges.isEmpty())base else JsonObject(base+("backgroundChanges" to JsonArray(payload.backgroundChanges.map{TypedPlayerChangeRegistry.core().encodeWorkerPayload(it)}))) } },
         { obj->ApplyVerifiedMechanicsCommandPayload(obj.reqString("planUid"),obj.reqArray("effects").map{element->
             val effect=element.jsonObject.requireOnlyKeys(setOf("effectUid","nodeUid","mechanicsOwnerUid","effectKindUid","target","magnitude","canonicalPayload","proofUid","deterministicInputFingerprint","deterministicOutputFingerprint"))
             VerifiedMechanicsCommandEffect(
@@ -184,7 +185,8 @@ internal fun coreCommandCodecs(): Map<String, TypedCommandCodec<out PlayerComman
             )
         },obj["temporalState"]?.let { phase60TimeChangeCodec().decode(it.jsonObject) },
             obj["npcBrains"]?.jsonArray?.also{require(it.size<=128)}?.map{npcBrainChangeCodec().decode(it.jsonObject)}?:emptyList(),
-            obj["worldChanges"]?.jsonArray?.also{require(it.size<=256)}?.map{phase63WorldChangeCodec().decode(it.jsonObject)}?:emptyList()) },
+            obj["worldChanges"]?.jsonArray?.also{require(it.size<=256)}?.map{phase63WorldChangeCodec().decode(it.jsonObject)}?:emptyList(),
+            obj["backgroundChanges"]?.jsonArray?.also{require(it.size<=1024)}?.map{TypedPlayerChangeRegistry.core().decodeWorkerPayload(it.jsonObject)}?:emptyList()) },
         { payload->combine(
             nonblank(payload.planUid,"INVALID_PLAN_UID"),
             errorIf(payload.effects.isEmpty()&&payload.temporalState==null&&payload.npcBrains.isEmpty()&&payload.worldChanges.isEmpty(),"EMPTY_MECHANICS_EFFECTS"),

@@ -60,7 +60,7 @@ internal fun requireWorldSimulationChain(changes:List<WorldSimulationChange>) {
 }
 
 internal object Phase63WorldSchema {
-    const val VERSION=2
+    const val VERSION=3
     const val ROOTS="phase63_world_roots"
     const val EDGES="phase63_world_topology_edges"
     val authoritativeTables=setOf(ROOTS,EDGES)+Phase63PopulationSchema.worldTables
@@ -88,13 +88,14 @@ internal object Phase63WorldSchema {
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_p63_topology_origin ON $EDGES(campaign_uid,origin_kind_uid,origin_uid,edge_uid)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_p63_topology_destination ON $EDGES(campaign_uid,destination_kind_uid,destination_uid,edge_uid)")
         Phase63PopulationSchema.ensureReady(db)
+        Phase64BackgroundSchema.ensureReady(db)
     }
     fun isReady(db:SQLiteDatabase,version:Int=VERSION):Boolean {
         fun columns(table:String)=db.rawQuery("PRAGMA table_info($table)",null).use { c->buildSet { while(c.moveToNext())add(c.getString(1)) } }
         return columns(ROOTS)==setOf("campaign_uid","state_version","skeleton_canonical","skeleton_fingerprint","updated_order") &&
             columns(EDGES)==setOf("campaign_uid","edge_uid","edge_version","origin_kind_uid","origin_uid",
                 "destination_kind_uid","destination_uid","edge_canonical","edge_fingerprint","updated_order") &&
-            (version==1 || Phase63PopulationSchema.isReady(db))
+            (version==1 || Phase63PopulationSchema.isReady(db)) && (version<3 || Phase64BackgroundSchema.isReady(db))
     }
 }
 

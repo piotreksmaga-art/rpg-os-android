@@ -14,7 +14,7 @@ param(
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $androidUserHome = Join-Path $projectRoot ".android-codex"
-if ($PackageName -notmatch '^com\.rpgos\.app(?:\.acceptance)?$') { throw "Nieprawidłowy pakiet laboratoryjny." }
+if ($PackageName -notmatch '^com\.rpgos\.app(?:\.(?:acceptance|phase64acceptance))?$') { throw "Nieprawidłowy pakiet laboratoryjny." }
 $normalizedCommand = $Command.Trim().ToUpperInvariant()
 
 if ([string]::IsNullOrWhiteSpace($env:ANDROID_USER_HOME)) {
@@ -36,7 +36,8 @@ function Assert-AdbSuccess([string] $Message) {
 }
 
 function Initialize-LabForward {
-    $null = & $adb -s $Serial forward "tcp:$Port" "localabstract:rpgos_lab_bridge"
+    $socketName = if ($PackageName -eq 'com.rpgos.app') { 'rpgos_lab_bridge' } else { "rpgos_lab_bridge.$PackageName" }
+    $null = & $adb -s $Serial forward "tcp:$Port" "localabstract:$socketName"
     Assert-AdbSuccess "Nie udało się utworzyć połączenia ADB z bridge'em."
 }
 

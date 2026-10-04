@@ -93,7 +93,9 @@ class TypedPlayerChangeRegistry private constructor(
         fun core(): TypedPlayerChangeRegistry = TypedPlayerChangeRegistry(
             coreChangeCodecs() + mapOf(PHASE37_KNOWLEDGE_CHANGE_KIND to phase37KnowledgeChangeCodec(), PHASE60_TIME_CHANGE_KIND to phase60TimeChangeCodec(),
                 NPC_BRAIN_CHANGE_KIND to npcBrainChangeCodec(),MECHANICAL_ACTOR_GENESIS_KIND to mechanicalActorGenesisCodec(),
-                PHASE63_WORLD_CHANGE_KIND to phase63WorldChangeCodec())
+                PHASE63_WORLD_CHANGE_KIND to phase63WorldChangeCodec(),PHASE64_CHANGE_KIND to phase64ChangeCodec(),
+                PHASE64_PROJECT_WORK_KIND to phase64ProjectWorkCodec(),PHASE64_PROJECT_COMPLETION_KIND to phase64ProjectCompletionCodec(),
+                PHASE64_COHORT_BIRTH_KIND to phase64CohortBirthCodec(),PHASE64_FORMATION_MOBILIZATION_KIND to phase64FormationMobilizationCodec())
         )
     }
 }

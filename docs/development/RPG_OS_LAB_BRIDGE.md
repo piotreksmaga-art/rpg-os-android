@@ -431,6 +431,36 @@ nie dołączać do publicznego wydania. Stan implementacji, odbiór i bramki wyd
 
 ## 11. Relacja do pozostałych dokumentów
 
+### Robocza diagnostyka Phase64
+
+`GET_BACKGROUND_PROCESSES` jest komendą tylko do odczytu w `labDebug`. Pokazuje
+aktywację `PHASE64_V1`, generację historii, liczniki stanów, do 32 procesów z terminami
+i zależnościami oraz liczbę dowodów. Nie ujawnia parametrów wiadomości, prywatnych
+agend ani sposobu arbitralnego uruchamiania procesu. Rezerwacje istnieją tylko w
+stanie roboczym oceny — diagnostyka nie tworzy drugiego magazynu zasobów.
+Stan podłączeń i brakujące bramki: `docs/architecture/PHASE64_IMPLEMENTATION.md`.
+
+Odbiór fazy 64 używa osobnego pakietu `com.rpgos.app.phase64acceptance` oraz
+`-PrpgosDeviceAcceptance=true -PrpgosDeviceAcceptanceSuffix=.phase64acceptance`.
+Połączenie: `tools/rpgos-lab.ps1 HEALTH -PackageName com.rpgos.app.phase64acceptance`.
+Domyślny pakiet zachowuje `localabstract:rpgos_lab_bridge`; odizolowane instalacje
+używają `localabstract:rpgos_lab_bridge.<packageName>`, a skrypt wybiera właściwe
+gniazdo automatycznie. To zapobiega kolizji z równocześnie otwartą wcześniejszą
+instalacją LAB bez usuwania jej zapisów.
+
+`tools/run_phase64_android_acceptance.sh` wykonuje krótki odbiór właścicieli i
+transakcji oraz osobno `seedPendingProcess`, rzeczywiste zamknięcie procesu i
+`resumePendingProcessAfterProcessDeath`. Obie metody otrzymują ten sam nowy
+`phase64RunUid`; nie nadpisują wcześniejszej próby. Test nie zastępuje odbioru
+klikania zwykłego UI ani jakości modeli. Zestaw obejmuje też wspólny composition
+root aplikacji: rozpoczęcie, dokładny wyświetlany selektor przerywania, ukończenie
+po upływie czasu i cofnięcie. W tym scenariuszu kontrolowana jest wyłącznie granica
+AI; pozostałe porty aplikacji nie są zastępowane. Osobne testy właścicieli obejmują
+projekt, dostawę, konkurencję o materiał, obowiązek, opóźniony raport, migrację
+oraz rzeczywiste starcie Phase62/50. Próba ekspozycji po starciu potwierdza wyłącznie
+read-only kwalifikację rzeczywistego kontaktu, nie przebieg epidemii.
+Prywatne transkrypty i failure bundles nie trafiają do wydania.
+
 ### Oddzielna instalacja odbiorowa 61–62
 
 Przy niezgodnym podpisie istniejącej instalacji nie usuwać aplikacji ani zapisów. Właściwość `-PrpgosDeviceAcceptance=true` buduje `labDebug` jako `com.rpgos.app.acceptance` i test runner `com.rpgos.app.acceptance.test/androidx.test.runner.AndroidJUnitRunner`. Skrypt hosta przyjmuje `-PackageName com.rpgos.app.acceptance`; domyślny pakiet pozostaje bez zmian. Właściwość nie zmienia publicznego release.

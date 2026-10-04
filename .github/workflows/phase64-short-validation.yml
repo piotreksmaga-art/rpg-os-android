@@ -1,0 +1,149 @@
+name: Phase64 Short Validation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase64-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+
+env:
+  ACCEPTANCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  targeted-jvm:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'codex/phase64-complete'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [Debug, LabDebug]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.ACCEPTANCE_SHA }}
+          submodules: recursive
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - run: test "$(git rev-parse HEAD)" = "$ACCEPTANCE_SHA"
+      # One task per invocation: Gradle --tests only filters the immediately
+      # preceding test task. Do not accidentally start full historical suites.
+      - name: Phase64 and directly affected transaction/time/NPC regressions
+        run: >-
+          gradle --no-daemon :app:test${{ matrix.variant }}UnitTest
+          --tests '*Phase64*' --tests '*Phase60ActionTimeTest*'
+          --tests '*Phase60ProductionExecutionTest*' --tests '*Phase62NpcActionProcessTest*'
+          --tests '*Phase62NpcDecisionTest*' --tests '*TurnTransactionTest*'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase64-jvm-${{ matrix.variant }}-${{ env.ACCEPTANCE_SHA }}
+          path: |
+            app/build/test-results/**
+            app/build/reports/tests/**
+          retention-days: 14
+
+  android-contract:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'codex/phase64-complete'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [28, 36]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.ACCEPTANCE_SHA }}
+          submodules: recursive
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - run: test "$(git rev-parse HEAD)" = "$ACCEPTANCE_SHA"
+      - run: sudo apt-get update && sudo apt-get install -y glslc spirv-headers ninja-build
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash tools/run_phase64_android_acceptance.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase64-android-${{ matrix.api-level }}-${{ env.ACCEPTANCE_SHA }}
+          path: app/build/phase64-android-evidence/**
+          retention-days: 14
+
+  release-isolation:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'codex/phase64-complete'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.ACCEPTANCE_SHA }}
+          submodules: recursive
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - run: test "$(git rev-parse HEAD)" = "$ACCEPTANCE_SHA"
+      - run: python3 tools/validate_release_workflows.py
+      - run: sudo apt-get update && sudo apt-get install -y glslc spirv-headers ninja-build
+      - name: Inspection-only signing key, never the publication key
+        run: |
+          keytool -genkeypair -keystore "$RUNNER_TEMP/phase64-isolation.jks" -storepass rpgos-ci-only -keypass rpgos-ci-only -alias rpgos -keyalg RSA -keysize 2048 -validity 1 -dname 'CN=RPG OS Phase64 CI'
+          echo "RPGOS_KEYSTORE_PATH=$RUNNER_TEMP/phase64-isolation.jks" >> "$GITHUB_ENV"
+          echo 'RPGOS_KEYSTORE_PASSWORD=rpgos-ci-only' >> "$GITHUB_ENV"
+          echo 'RPGOS_KEY_PASSWORD=rpgos-ci-only' >> "$GITHUB_ENV"
+      - run: gradle --no-daemon :app:assembleRelease
+      - name: No laboratory transport or provider in release
+        run: |
+          apk="$(find app/build/outputs/apk/release -name '*.apk' -type f | head -n 1)"
+          test -n "$apk"
+          manifest="$(apkanalyzer manifest print "$apk")"
+          packaged_names="$(unzip -Z1 "$apk")"
+          dex_strings="$(unzip -p "$apk" 'classes*.dex' | strings)"
+          for forbidden in RpgOsLabBridgeInitializer LabDiagnosticsActivity LabCodexProvider LAB_CODEX RPGOS_LAB_V1; do
+            if grep -Fq "$forbidden" <<<"$manifest" || grep -Fq "$forbidden" <<<"$packaged_names" || grep -Fq "$forbidden" <<<"$dex_strings"; then
+              echo "Laboratory component found in release: $forbidden" >&2
+              exit 1
+            fi
+          done

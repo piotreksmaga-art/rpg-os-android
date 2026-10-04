@@ -193,6 +193,8 @@ internal class ProductionVerifiedMechanicsComponent:PlayerResolutionComponent<Ap
 ){
     override fun resolve(command:PlayerCommand<ApplyVerifiedMechanicsCommandPayload>,context:PlayerResolutionContext):PlayerResolutionComponentOutcome{
         val changes=mutableListOf<PlayerDomainChange>();val events=mutableListOf<PlayerEventIntent>()
+        val background=phase64MaterializeChanges(command.campaignUid,command.commandUid,command.payload.backgroundChanges)
+        changes+=background.changes;events+=background.events
         command.payload.effects.forEach{effect->
             when(val result=MechanicalEffectMaterializer.materialize(effect)){
                 is MechanicalEffectMaterializationResult.Rejected->return PlayerResolutionComponentOutcome.Rejected(
@@ -247,7 +249,7 @@ internal class ProductionVerifiedMechanicsComponent:PlayerResolutionComponent<Ap
         val ordered=changes.filter { it.payload is MechanicalActorGenesisChange }+
             changes.filter { it.payload is WorldSimulationChange }+
             changes.filterNot { it.payload is WorldSimulationChange || it.payload is MechanicalActorGenesisChange }
-        return PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(changes=ordered,eventIntents=events,
+        return PlayerResolutionComponentOutcome.Resolved(PlayerResolutionDraft.create(changes=ordered,eventIntents=events,ledgerIntents=background.ledgers,
             progressionStimuli=NpcLearningApplication.stimuli(command.campaignUid,command.payload.effects)))
     }
 }
@@ -357,7 +359,8 @@ class ProductionCanonicalMutationAssembler(
     internal fun admitEffects(request:ChatTurnRequest,planUid:String,proposalUid:String,
                              effects:List<VerifiedMechanicsCommandEffect>,time:TemporalStateChange?,
                              npcBrains:List<NpcBrainChange> = emptyList(),
-                             worldChanges:List<WorldSimulationChange> = emptyList()):CanonicalCampaignMutationProposal?{
+                             worldChanges:List<WorldSimulationChange> = emptyList(),
+                             backgroundChanges:List<PlayerDomainChangePayload> = emptyList()):CanonicalCampaignMutationProposal?{
         if(time!=null&&time.campaignUid!=request.campaignUid){lastReasons=listOf("P60:CROSS_CAMPAIGN_TIME");return null}
         if(effects.isEmpty()&&time==null&&npcBrains.isEmpty()&&worldChanges.isEmpty())return null
         val worldBatch=if(worldChanges.isEmpty())prepareWorldChanges(request,effects) else worldChanges
@@ -365,7 +368,7 @@ class ProductionCanonicalMutationAssembler(
             commandUid=request.commandUid,campaignUid=request.campaignUid,actor=request.actor,
             commandKindUid=PlayerCommandKinds.APPLY_VERIFIED_MECHANICS,
             payload=ApplyVerifiedMechanicsCommandPayload(planUid,
-                if(time==null)coalesceInteractionEffects(effects) else phase60CoalesceEffects(effects),time,npcBrains,worldBatch),
+                if(time==null)coalesceInteractionEffects(effects) else phase60CoalesceEffects(effects),time,npcBrains,worldBatch,backgroundChanges),
             provenance=CommandProvenance("RPGOS-PHASE54-CANONICAL-COMPOSER",proposalUid),
             causationUid=request.turnUid,correlationUid=request.requestUid,requestedEffectiveOrder=request.atOrder?:1L
         )

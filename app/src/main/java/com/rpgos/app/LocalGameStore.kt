@@ -302,6 +302,13 @@ internal class LocalGameStore(private val context: Context) {
                 PristineCampaignStartupProfile.fromJson(defaults,packUid)?.let { profile ->
                     withAdministrativeMutationAuthority(db,campaignUid){profile.apply(db,campaignUid)}
                 }
+                withAdministrativeMutationAuthority(db,campaignUid) {
+                    db.beginTransaction()
+                    try {
+                        openWorldDb().use { world->Phase64NewCampaignBootstrap.initialize(db,campaignUid,selection.currentWorldPackAuthority().binding,world) }
+                        db.setTransactionSuccessful()
+                    } finally { db.endTransaction() }
+                }
             }
             created
         }catch(t:Throwable){
@@ -345,6 +352,11 @@ internal class LocalGameStore(private val context: Context) {
             }
         }) { db,uid,binding ->
             prepareCampaignRuntime(db,uid,nativeBinding=binding)
+            withAdministrativeMutationAuthority(db,uid) {
+                db.beginTransaction()
+                try { Phase64NewCampaignBootstrap.initialize(db,uid,binding);db.setTransactionSuccessful() }
+                finally { db.endTransaction() }
+            }
         }
     }
     fun previewUndoLastTurn():UndoPreview=openGameplaySaveDb().use{db->

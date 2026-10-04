@@ -7,7 +7,8 @@ internal data class RegisteredTemporalOwner(val versionUid:String,val owner:Worl
 internal sealed interface ProductionTemporalExecutionResult {
     data class Completed(val work:TemporalExecutionResult,val change:TemporalStateChange,
                          val effects:List<VerifiedMechanicsCommandEffect>,val npcBrains:List<NpcBrainChange> = emptyList(),
-                         val worldChanges:List<WorldSimulationChange> = emptyList()):ProductionTemporalExecutionResult
+                         val worldChanges:List<WorldSimulationChange> = emptyList(),
+                         val backgroundChanges:List<PlayerDomainChangePayload> = emptyList()):ProductionTemporalExecutionResult
     data class Rejected(val reasonUid:String):ProductionTemporalExecutionResult
 }
 
@@ -59,6 +60,12 @@ internal class Phase60ProductionExecution(
                 if(currentScope()!=initial.scope)return reject("P60:STALE_HISTORY")
                 when(answer) {
                     is TemporalEvaluationResponse.Unavailable -> return reject(answer.reasonUid)
+                    is TemporalEvaluationResponse.Yielded -> {
+                        if(answer.requestFingerprint!=pending.fingerprint)return reject("P64:EVALUATION_CORRELATION")
+                        checkpoints.save(result.checkpoint)
+                        Thread.yield()
+                        continue
+                    }
                     is TemporalEvaluationResponse.Accepted -> {
                         if(answer.requestFingerprint!=pending.fingerprint)return reject("P62:EVALUATION_CORRELATION")
                         answers[pending.fingerprint]=answer.result
@@ -74,16 +81,45 @@ internal class Phase60ProductionExecution(
         checkpoints.save(result.checkpoint)
         val work=result.checkpoint
         val processStates=work.ownerStates.values.filter{it.ownerUid!=PHASE60_FOREGROUND_OWNER}
+        val finalDeadlines=work.deadlines.associateBy { it.uid }.toMutableMap()
+        work.candidateChanges.filterIsInstance<BackgroundProcessChange>().forEach { receipt->
+            receipt.deadlineRemovals.forEach { uid->
+                val old=finalDeadlines[uid]
+                if(old!=null && old.ownerUid!=NpcDutyDeadlineProcess.OWNER)return reject("P64:DEADLINE_OWNER_MISMATCH")
+                finalDeadlines.remove(uid)
+            }
+            receipt.deadlineAdds.forEach { deadline->
+                if(deadline.ownerUid!=NpcDutyDeadlineProcess.OWNER || deadline.due<=work.reached)return reject("P64:DEADLINE_NOT_FUTURE")
+                val old=finalDeadlines[deadline.uid]
+                if(old!=null && old!=deadline)return reject("P64:DEADLINE_IDENTITY_CONFLICT")
+                finalDeadlines[deadline.uid]=deadline
+            }
+        }
         val change=TemporalStateChange(request.campaignUid,snapshot.state.version,snapshot.state.time,work.reached,
-            Phase60ProcessStateCodec.encode(processStates),Phase60DeadlineCodec.encode(work.deadlines),result.reason.name,
+            Phase60ProcessStateCodec.encode(processStates),Phase60DeadlineCodec.encode(finalDeadlines.values.toList()),result.reason.name,
             Phase60ExecutionReport.encode(Phase60ExecutionReport.from(work)))
         val selected=try { Phase60SegmentEffects.select(effects,work,policies) }
             catch(_:IllegalArgumentException){return reject("P60:EFFECT_TIMING_RULE_REJECTED")}
         val npcBrains=work.candidateChanges.filterIsInstance<NpcBrainChange>()
         val worldChanges=work.candidateChanges.filterIsInstance<WorldSimulationChange>()
-        val background=try { Phase60SegmentEffects.background(phase60CoalesceChanges(work.candidateChanges.filterNot{it is NpcBrainChange || it is WorldSimulationChange}),work) }
+        // Preserve only payloads actually sealed by a Phase64 receipt. Other temporal
+        // owners still use their existing adapters, even in a mixed-domain boundary.
+        val receipts=work.candidateChanges.filterIsInstance<BackgroundProcessChange>()
+        val remaining=receipts.flatMap { it.consequenceFingerprints }.groupingBy { it }.eachCount().toMutableMap()
+        val backgroundChanges=mutableListOf<PlayerDomainChangePayload>()
+        val scalarChanges=mutableListOf<PlayerDomainChangePayload>()
+        work.candidateChanges.forEach { payload->
+            if(payload is BackgroundProcessChange)backgroundChanges+=payload
+            else if(payload !is NpcBrainChange && payload !is WorldSimulationChange) {
+                val fingerprint=Phase64BackgroundCodec.fingerprint(payload)
+                val count=remaining[fingerprint]?:0
+                if(count>0) { backgroundChanges+=payload;remaining[fingerprint]=count-1 }
+                else scalarChanges+=payload
+            }
+        }
+        val background=try { Phase60SegmentEffects.background(phase60CoalesceChanges(scalarChanges),work) }
             catch(_:IllegalStateException){return reject("P60:PROCESS_EFFECT_ADAPTER_REQUIRED")}
-        return ProductionTemporalExecutionResult.Completed(result,change,selected+background+work.candidateEffects,npcBrains,worldChanges)
+        return ProductionTemporalExecutionResult.Completed(result,change,selected+background+work.candidateEffects,npcBrains,worldChanges,backgroundChanges)
     }
 }
 
