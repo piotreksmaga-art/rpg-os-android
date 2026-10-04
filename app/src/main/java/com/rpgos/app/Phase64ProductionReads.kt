@@ -226,7 +226,7 @@ internal class Phase64ProductionReads(
     private fun resourceCapacity(db:SQLiteDatabase,holder:DomainRef,pool:String,staged:List<PlayerDomainChangePayload>):Long? {
         val campaign=scope.temporal.campaignUid
         val base=if(holder.kindUid=="PLAYER")StatResourceStore(db,campaign).playerResources(holder.uid)
-            .singleOrNull { it.resourceUid==pool }?.currentValue?.let { java.math.BigDecimal.valueOf(it).toBigInteger().longValueExact() }
+            .singleOrNull { it.resourceUid==pool }?.currentValue?.let(::phase64ExactResourceUnits)
         else MechanicalActorStateStore(db,campaign).actor(holder)?.resources?.singleOrNull { it.resourceUid==pool }?.current
         return base?.let { value->staged.filterIsInstance<ResourceChange>().filter { it.subject==holder && it.resourceUid==pool }
             .fold(value) { n,p->Math.addExact(n,p.delta.units) } }
@@ -236,6 +236,15 @@ internal class Phase64ProductionReads(
     private fun unscopedExists(db:SQLiteDatabase,table:String,column:String,uid:String)=
         tableExists(db,table) && db.rawQuery("SELECT 1 FROM $table WHERE $column=? LIMIT 1",arrayOf(uid)).use { it.moveToFirst() }
     private fun tableExists(db:SQLiteDatabase,table:String)=db.rawQuery("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",arrayOf(table)).use { it.moveToFirst() }
+}
+
+/** Integral owner pools only. Preserve range checking on API28 without truncating fractions. */
+internal fun phase64ExactResourceUnits(value:Double):Long? = try {
+    java.math.BigDecimal.valueOf(value).toBigIntegerExact().toExactLongCompat()
+} catch (_:ArithmeticException) {
+    null
+} catch (_:NumberFormatException) {
+    null
 }
 
 internal fun phase64StagedDeadlines(base:List<WorldProcessDeadline>,staged:List<PlayerDomainChangePayload>):List<WorldProcessDeadline> {

@@ -6,6 +6,13 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 class Phase64EconomyProjectsTest {
+    @Test fun resourceUnitsAreExactBoundedAndCompatibleWithOlderAndroidLibraries() {
+        assertEquals(2L,phase64ExactResourceUnits(2.0))
+        assertEquals(0L,phase64ExactResourceUnits(0.0))
+        listOf(1.5,Double.NaN,Double.POSITIVE_INFINITY,Double.NEGATIVE_INFINITY,
+            Long.MAX_VALUE.toDouble(),Long.MIN_VALUE.toDouble()).forEach { assertNull(phase64ExactResourceUnits(it)) }
+        assertEquals(2L,Phase64PricePolicy.quote(Phase64PricePolicy.ADJUSTED_V1,1,1,1))
+    }
     private val adapter = Phase64EconomyProjectsAdapter()
     private val actor = DomainRef("NPC", "seller")
     private val buyer = DomainRef("NPC", "buyer")

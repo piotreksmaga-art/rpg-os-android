@@ -75,7 +75,7 @@ object Phase64PricePolicy {
         require(policyUid != FIXED_V1 || adjustmentBasisPoints == 0L)
         val numerator = BigInteger.valueOf(unitPriceMinor).multiply(BigInteger.valueOf(units))
             .multiply(BigInteger.valueOf(10_000L + adjustmentBasisPoints))
-        return numerator.add(BigInteger.valueOf(9_999)).divide(BigInteger.valueOf(10_000)).longValueExact()
+        return numerator.add(BigInteger.valueOf(9_999)).divide(BigInteger.valueOf(10_000)).toExactLongCompat()
             .also { require(it > 0) }
     }
 }

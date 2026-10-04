@@ -18,6 +18,17 @@ import org.junit.runner.RunWith
 class Phase64BackgroundAcceptanceTest {
     @get:Rule val folder = TemporaryFolder()
 
+    @Test fun exactResourceAndPricePolicyUseApi28SafeCheckedConversions() {
+        assertEquals(2L,phase64ExactResourceUnits(2.0))
+        assertNull(phase64ExactResourceUnits(1.5))
+        assertNull(phase64ExactResourceUnits(Double.NaN))
+        assertNull(phase64ExactResourceUnits(Long.MAX_VALUE.toDouble()))
+        assertEquals(Long.MAX_VALUE,Phase64PricePolicy.quote(Phase64PricePolicy.FIXED_V1,Long.MAX_VALUE,1))
+        assertEquals(2L,Phase64PricePolicy.quote(Phase64PricePolicy.ADJUSTED_V1,1,1,1))
+        assertTrue(runCatching { Phase64PricePolicy.quote(Phase64PricePolicy.FIXED_V1,Long.MAX_VALUE,2) }
+            .exceptionOrNull() is ArithmeticException)
+    }
+
     private val campaign = "P64:DEVICE:CAMPAIGN"
     private val player = DomainRef("PLAYER", "P64:DEVICE:PLAYER")
     private val actor = CommandActorRef(player.kindUid, player.uid)

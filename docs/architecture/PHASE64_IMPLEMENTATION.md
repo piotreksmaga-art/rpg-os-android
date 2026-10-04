@@ -119,10 +119,20 @@ debug/lab JVM i izolację publicznego APK. Dwie dodatkowe kontrole ujawniły bra
 nowych plików w zamkniętym rejestrze writerów i stary oczekiwany fingerprint
 manifestu migracji; rejestr i fingerprint uzupełniono bez wyłączania kontroli.
 
+API36 zaliczyło pierwszy przebieg. API28 wykryło niedostępną na starszym Androidzie
+metodę `BigInteger.longValueExact()` w odczycie zasobu. Odczyt zasobów i polityka
+ceny używają teraz istniejącego, zakresowo sprawdzanego konwertera Core.
+Odczyt jednostek nie obcina części ułamkowej: brak dokładnej reprezentacji zwraca
+niedostępność. Dedykowany test JVM zaliczył 23/23 przypadki, w tym ułamki, wartości
+nieskończone i przekroczenie zakresu. Dodano też krótki test tych konwersji na
+Androidzie, bez osłabienia kontroli przepełnienia i zaokrąglania ceny.
+Na Motoroli ponowienie rozliczenia właścicieli z undo oraz nowy test konwersji
+zakończyły się wynikiem 2/2; istniejąca instalacja użytkownika nie była zmieniana.
+
 Exact-SHA CI API28/36 i wszystkie wymagane bramki końcowego commitu nadal
 warunkują scalenie oraz publikację. Planowany numer aktualizacji to
-`1.3.0-alpha23-world64`, kod 163. Testy i dokumentacja po odbiorze nie zmieniły
-źródeł APK sprawdzonych na telefonie.
+`1.3.0-alpha23-world64`, kod 163. Po poprawce zgodności ponawiane są wyłącznie
+dotknięte kroki lokalnego odbioru oraz końcowe kontrole CI.
 
 Nie uruchamiamy w tym odbiorze 100 tur AI, dużego Bielika, szerokiego A/B ani
 benchmarków miliona rekordów. Znana historyczna regresja 100 tur pozostaje jawna

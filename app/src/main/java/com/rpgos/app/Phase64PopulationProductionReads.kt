@@ -473,7 +473,7 @@ internal object Phase64PopulationProductionReads {
             playerCosts.map { it.resourceUid }.distinct().forEach { uid->
                 val definition=requireNotNull(definitions[uid])
                 val value=requireNotNull(values[uid])
-                fun exact(n:Double)=java.math.BigDecimal.valueOf(n).longValueExact()
+                fun exact(n:Double)=requireNotNull(phase64ExactResourceUnits(n)) { "P64:PLAYER_POOL_PRECISION_UNAVAILABLE" }
                 val maximum=definition.maxValue?.let(::exact)?:resources[uid]?.maximum?:error("P64:PLAYER_POOL_LIMIT_REQUIRED")
                 val current=exact(value.currentValue)
                 val minimum=definition.minValue?.let(::exact)?:0L
