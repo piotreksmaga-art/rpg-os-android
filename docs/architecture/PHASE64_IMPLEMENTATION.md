@@ -112,9 +112,17 @@ odzyskania narracji po commicie, cofnięcia, restartu i odmiennej decyzji. Odpow
 po odmiennej decyzji nie użyła naprawy ani narracji zastępczej. Mechanika została
 zatwierdzona tylko raz. Bielik i Bekko nie uczestniczyły w tym odbiorze.
 
-Końcowa paczka wymaga jeszcze zbiorczego krótkiego odbioru i exact-SHA CI
-API28/36 wraz z izolacją release. Scalenie i publikacja APK czekają na GREEN
-tych bramek; planowany numer aktualizacji to `1.3.0-alpha23-world64`, kod 163.
+Końcowy zbiorczy odbiór Motoroli zaliczył 12/12 scenariuszy. Osobna próba po
+rzeczywistym zamknięciu procesu zaliczyła seed i resume, po jednym teście każdy.
+Lokalny ukierunkowany zestaw JVM zaliczył 267 testów. CI pierwszego SHA potwierdziło
+debug/lab JVM i izolację publicznego APK. Dwie dodatkowe kontrole ujawniły brak
+nowych plików w zamkniętym rejestrze writerów i stary oczekiwany fingerprint
+manifestu migracji; rejestr i fingerprint uzupełniono bez wyłączania kontroli.
+
+Exact-SHA CI API28/36 i wszystkie wymagane bramki końcowego commitu nadal
+warunkują scalenie oraz publikację. Planowany numer aktualizacji to
+`1.3.0-alpha23-world64`, kod 163. Testy i dokumentacja po odbiorze nie zmieniły
+źródeł APK sprawdzonych na telefonie.
 
 Nie uruchamiamy w tym odbiorze 100 tur AI, dużego Bielika, szerokiego A/B ani
 benchmarków miliona rekordów. Znana historyczna regresja 100 tur pozostaje jawna
