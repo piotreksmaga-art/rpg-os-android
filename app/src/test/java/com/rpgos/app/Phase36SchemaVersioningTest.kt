@@ -128,7 +128,8 @@ class Phase36SchemaVersioningTest {
 
     @Test fun productionMigrationManifestHasStableImplementationIdentity() {
         assertEquals(
-            "3489964c0fdb0411a902297e6a6b826673acf800e753245026cabc2e96e00771",
+            // Adds the explicit WORLD_SIMULATION 2 -> 3 Phase64 additive edge.
+            "f6e8b7243caa89c2c88106dd5deda1baa9326d08bbd07e0e83433b2402e26696",
             Phase36SchemaVersioning.migrationManifestFingerprint()
         )
     }

@@ -99,6 +99,8 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _chatTurnUi=MutableStateFlow(ChatTurnUiState())
     val chatTurnUi:StateFlow<ChatTurnUiState> = _chatTurnUi
+    private val _backgroundProcesses=MutableStateFlow<Phase64PlayerProcessSnapshot?>(null)
+    internal val backgroundProcesses:StateFlow<Phase64PlayerProcessSnapshot?> = _backgroundProcesses
     @Volatile private var activeAiCancellation:MutableAiCancellationSignal?=null
     private var pendingNarrationRecovery:ChatNarrationRecoveryToken?=null
     private val productionEngine by lazy{
@@ -418,6 +420,9 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refresh() {
         refreshLaunchState()
+        _backgroundProcesses.value=runCatching {
+            repository.infrastructurePlayerProcessProjection(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
+        }.onFailure { DiagnosticLogger.log(getApplication<Application>(),"BACKGROUND_PROCESS_PROJECTION",it) }.getOrNull()
         _status.value = store.status()
         _characterPanel.value = runCatching{
             store.fullCharacterPanel(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI))
@@ -1250,6 +1255,28 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    internal fun requestBackgroundCancellation(row:Phase64PlayerProcessView) {
+        if(activeAiCancellation!=null)return
+        val shown=_backgroundProcesses.value?:return
+        viewModelScope.launch {
+            val current=withContext(Dispatchers.IO) { repository.infrastructurePlayerProcessProjection(playerAudience(),playerPurpose(VisibilityPurposeKinds.PLAYER_UI)) }
+            val selected=current?.rows?.singleOrNull { it.processRef==row.processRef && it.version==row.version && it.processFingerprint==row.processFingerprint }
+            if(current?.scope!=shown.scope || selected==null) {
+                _messages.value+=ChatMessage("system","Stan zadania zmienił się. Sprawdź aktualną listę przed przerwaniem.")
+                _backgroundProcesses.value=current
+                return@launch
+            }
+            val now=withContext(Dispatchers.IO) { repository.infrastructureTemporalRead().state.time }
+            if(!selected.canCancelAt(now)) {
+                _messages.value+=ChatMessage("system","To zadanie osiągnęło już termin zakończenia. Nie można go anulować wstecz.")
+                return@launch
+            }
+            // The button is only an explicit player intention. Normal intent, proposal,
+            // mechanics, elapsed time and commit validation still decide its legal result.
+            send("Przerywam ${selected.displayLabel}. Pozostałe zadania pozostawiam bez zmian.")
+        }
+    }
+
     fun send(text: String) {
         if (text.isBlank()) return
         if(activeAiCancellation!=null)return
@@ -1306,6 +1333,12 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                         _messages.value=_messages.value.map{message->
                             if(message.requestUid==requestUid)message.copy(committedOrder=committedOrder) else message
                         }+ChatMessage("gm",outcome.result.narrative.text,requestUid,committedOrder)
+                        val notices=withContext(Dispatchers.IO){
+                            committedOrder?.let { order ->
+                                runCatching{repository.playerBackgroundNotices(order)}.getOrDefault(emptyList())
+                            }?:emptyList()
+                        }
+                        _messages.value+=notices.map{ChatMessage("system",it,requestUid,committedOrder)}
                         _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.COMPLETED,requestUid,"Tura zapisana i zakończona",committedOrder=outcome.result.receipt.commitOrder)
                         runCatching{refresh()}.onFailure{DiagnosticLogger.log(app,"REFRESH_GUARDED",it)}
                     }
@@ -1320,16 +1353,17 @@ class RpgOsViewModel(app: Application) : AndroidViewModel(app) {
                     is ChatApplicationOutcome.Clarification->{
                         _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.CLARIFICATION,requestUid,"Potrzebuję doprecyzowania decyzji.",reasonUid=outcome.reasonUids.joinToString("|"))
                         val timeQuestion=outcome.reasonUids.any{it=="P60:DURATION_UNRESOLVED"||it=="P60:CONSEQUENTIAL_ESTIMATE"}
-                        _messages.value+=ChatMessage("system",Phase63WorldMessages.explanation(outcome.reasonUids)?:if(timeQuestion)
+                        _messages.value+=ChatMessage("system",Phase64WorldMessages.explanation(outcome.reasonUids)?:Phase63WorldMessages.explanation(outcome.reasonUids)?:if(timeQuestion)
                             "Napisz czynność razem z czasem jej trwania, np. „ćwiczę przez 20 minut”. Nie upłynął jeszcze czas i nie zapisano skutków tej próby."
                             else "Doprecyzuj proszę, co dokładnie chcesz zrobić.")
                     }
                     is ChatApplicationOutcome.Rejected->{
                         _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.FAILED,requestUid,"Ta decyzja wymaga bezpiecznego rozstrzygnięcia.",reasonUid=outcome.reasonUids.joinToString("|"))
-                        Phase63WorldMessages.explanation(outcome.reasonUids)?.let { _messages.value+=ChatMessage("system",it) }
+                        (Phase64WorldMessages.explanation(outcome.reasonUids)?:Phase63WorldMessages.explanation(outcome.reasonUids))?.let { _messages.value+=ChatMessage("system",it) }
                     }
                     is ChatApplicationOutcome.Failed->{
                         _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.FAILED,requestUid,"Nie udało się ukończyć tury.",reasonUid=outcome.reasonUid)
+                        Phase64WorldMessages.explanation(listOf(outcome.reasonUid))?.let{_messages.value+=ChatMessage("system",it)}
                     }
                     is ChatApplicationOutcome.Cancelled->{
                         _chatTurnUi.value=ChatTurnUiState(ChatTurnUiStage.CANCELLED,requestUid,if(outcome.mutationState==TurnMutationState.COMMITTED)"Tura została zapisana; narracja oczekuje na odzyskanie." else "Tura anulowana przed zapisem.",reasonUid="CANCELLED:${outcome.stage}")

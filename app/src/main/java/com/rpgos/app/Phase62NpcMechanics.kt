@@ -11,7 +11,8 @@ internal class NpcMechanicalActionApplication(
     private val resolver:MechanicsRuleResolver,
     private val currentScope:()->TemporalScope,
     private val travelRoutes:NpcTravelRoutePort,
-    private val travelActors:NpcTravelActorReadPort
+    private val travelActors:NpcTravelActorReadPort,
+    private val settleCombatResourceCosts:Boolean=false
 ) {
     // Preserve the two-argument/trailing-lambda construction used by existing callers.
     constructor(resolver:MechanicsRuleResolver,currentScope:()->TemporalScope):
@@ -67,7 +68,11 @@ internal class NpcMechanicalActionApplication(
         }
         if(verified.isEmpty() || verified.size>17 || verified.map{it.effectUid}.distinct().size!=verified.size ||
             verified.any{it.nodeUid!=node.nodeUid || it.mechanicsOwnerUid!=owner})return fail("MECHANICS_CORRELATION")
-        val effects=verified.flatMap{canonicalMechanicsCommandEffects(it,target)?:return fail("MECHANICS_MATERIALIZATION")}
+        val impacts=verified.flatMap{canonicalMechanicsCommandEffects(it,target)?:return fail("MECHANICS_MATERIALIZATION")}
+        // Only new Phase64-enabled campaigns opt in. Costs come from the protected option's
+        // registered ability contract, not the model or the background reconciliation owner.
+        val costs=if(settleCombatResourceCosts && owner=="UNIVERSAL_COMBAT")npcRegisteredCombatCosts(context.brain.actor,option,impacts) else emptyList()
+        val effects=impacts+costs
         val changes=effects.flatMap { effect -> when(val material=MechanicalEffectMaterializer.materialize(effect)) {
             is MechanicalEffectMaterializationResult.Rejected -> return fail("MATERIALIZATION:${material.reasonUid}")
             is MechanicalEffectMaterializationResult.Materialized -> material.changes.map{it.payload}
@@ -77,5 +82,20 @@ internal class NpcMechanicalActionApplication(
         val timings=Phase60DomainTiming.accepted(effects).values.distinct()
         if(timings.size>1)return fail("MECHANICAL_TIMING_CONFLICT")
         return NpcMechanicalResult.Resolved(effects,changes,timings.singleOrNull()?:option.timing,authorization)
+    }
+}
+
+internal fun npcRegisteredCombatCosts(actor:DomainRef,option:NpcActionOption,impacts:List<VerifiedMechanicsCommandEffect>):List<VerifiedMechanicsCommandEffect> {
+    require(option.mechanicsOwnerUid=="UNIVERSAL_COMBAT" && option.parameters["npc_ability_contract"]?.matches(Regex("[0-9a-f]{64}"))==true)
+    val original=impacts.first();require(impacts.all { it.mechanicsOwnerUid=="UNIVERSAL_COMBAT" })
+    return option.resourceCosts.toSortedMap().filterValues { it>0 }.map { (pool,amount)->
+        require(impacts.none { it.target==actor && it.effectKindUid=="RESOURCE_DELTA" && it.canonicalPayload["resource_uid"]==pool }) {"P62:DUPLICATE_COMBAT_COST"}
+        val payload=original.canonicalPayload.filterKeys { it.startsWith("p60_core_") }+mapOf(
+            "resource_uid" to pool,"target_kind_uid" to actor.kindUid,"target_uid" to actor.uid,"magnitude" to (-amount).toString(),
+            "npc_ability_contract" to option.parameters.getValue("npc_ability_contract"))
+        val input=phase60Hash(original.deterministicInputFingerprint+"|"+option.uid+"|"+pool+"|"+amount)
+        val output=phase60Hash(kotlinx.serialization.json.JsonObject(payload.toSortedMap().mapValues { kotlinx.serialization.json.JsonPrimitive(it.value) }).toString())
+        VerifiedMechanicsCommandEffect("${original.effectUid}:COST:${phase60Hash(pool).take(16)}",original.nodeUid,"UNIVERSAL_COMBAT","RESOURCE_DELTA",actor,-amount,payload,
+            "P62:REGISTERED_COMBAT_COST:${phase60Hash(input+output)}:${original.proofUid}",input,output)
     }
 }

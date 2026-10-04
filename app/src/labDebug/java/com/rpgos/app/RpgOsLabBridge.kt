@@ -32,6 +32,10 @@ private const val MAX_REQUEST_CHARS = 1_048_576
 internal object RpgOsLabBridgeContract {
     const val stage = 3
     const val protocol = LAB_PROTOCOL
+    fun socketForPackage(packageName:String):String {
+        require(packageName.matches(Regex("[A-Za-z0-9_.]+")) && packageName.length<=64){"LAB_PACKAGE_INVALID"}
+        return if(packageName=="com.rpgos.app")LAB_SOCKET else "$LAB_SOCKET.$packageName"
+    }
     val productionPathCommands = setOf(
         "SUBMIT_PLAYER_ACTION", "RUN_ACTION_SEQUENCE", "RUN_COMBAT_SCENARIO",
         "SUBMIT_CHARACTER_CREATION", "CONFIRM_CHARACTER_CREATION", "RECOVER_PENDING_NARRATION"
@@ -44,7 +48,7 @@ internal object RpgOsLabBridgeContract {
         "GET_LAST_AI_EXCHANGE", "GET_LAST_TURN", "GET_LAST_SCENARIO", "GET_LAST_FAILURE",
         "EXPORT_FAILURE_BUNDLE", "EXPORT_LAB_FIXTURE", "GET_PENDING_CHARACTER_DRAFT",
         "GET_CODEX_PROVIDER_STATE", "GET_DIRECTOR_JOBS", "GET_DIRECTOR_CANDIDATES", "GET_DIRECTOR_GUIDANCE",
-        "PREVIEW_UNDO_LAST_TURN", "GET_NPC_STATE", "GET_NPC_CONTEXT", "GET_WORLD_STATE", "PREVIEW_WORLD_REFERENCE"
+        "PREVIEW_UNDO_LAST_TURN", "GET_NPC_STATE", "GET_NPC_CONTEXT", "GET_WORLD_STATE", "PREVIEW_WORLD_REFERENCE", "GET_BACKGROUND_PROCESSES"
     )
     val labAdminCommands = setOf(
         "SET_ACTIVE_CAMPAIGN", "CREATE_CAMPAIGN", "LOAD_LAB_FIXTURE", "IMPORT_LOCAL_GGUF",
@@ -83,7 +87,7 @@ private object RpgOsLabBridgeServer {
         if (!started.compareAndSet(false, true)) return
         acceptor.execute {
             try {
-                val socket = LocalServerSocket(LAB_SOCKET).also { server = it }
+                val socket = LocalServerSocket(RpgOsLabBridgeContract.socketForPackage(context.packageName)).also { server = it }
                 val runtime = RpgOsLabRuntime(context)
                 while (!Thread.currentThread().isInterrupted) {
                     val client = socket.accept()
@@ -177,6 +181,7 @@ private class RpgOsLabRuntime(context: Context) {
                 "GET_NPC_STATE" -> npcState(arguments)
                 "GET_NPC_CONTEXT" -> npcContext(arguments)
                 "GET_WORLD_STATE" -> JSONObject(repository.infrastructureWorldDiagnostics())
+                "GET_BACKGROUND_PROCESSES" -> JSONObject(repository.infrastructureBackgroundDiagnostics())
                 "PREVIEW_WORLD_REFERENCE" -> worldReferencePreview(arguments)
                 "GET_PIPELINE_SNAPSHOT" -> pipelineSnapshot(arguments)
                 "GET_LAST_COMMIT" -> lastCommit()
@@ -238,7 +243,7 @@ private class RpgOsLabRuntime(context: Context) {
             .put("bridge", "RPG OS LAB BRIDGE")
             .put("protocol", LAB_PROTOCOL)
             .put("bridge_stage", RpgOsLabBridgeContract.stage)
-            .put("socket", LAB_SOCKET)
+            .put("socket", RpgOsLabBridgeContract.socketForPackage(app.packageName))
             .put("build_type", BuildConfig.BUILD_TYPE)
             .put("version_name", BuildConfig.VERSION_NAME)
             .put("process_id", Process.myPid())

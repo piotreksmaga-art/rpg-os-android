@@ -389,6 +389,11 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
         is NpcBrainChange -> "NPC_BRAIN_CHANGE"
         is MechanicalActorGenesisChange -> "MECHANICAL_ACTOR_GENESIS"
         is WorldSimulationChange -> "WORLD_SIMULATION"
+        is BackgroundProcessChange -> "BACKGROUND_PROCESS"
+        is BackgroundProjectWorkChange -> "BACKGROUND_PROJECT_WORK"
+        is DevelopmentProjectCompletionChange -> "PROJECT_COMPLETION"
+        is PopulationCohortBirthChange -> "POPULATION_COHORT_BIRTH"
+        is FormationMobilizationChange -> "FORMATION_MOBILIZATION"
         is AccessAuthorityChange -> "ACCESS_AUTHORITY_CHANGE"
     }
     record(payloadType) {
@@ -521,6 +526,9 @@ private fun WorldRuleCanonicalWriter.appendCanonicalChange(change: PlayerDomainC
             is NpcBrainChange -> field("NPC_BRAIN_CANONICAL_CHANGE", npcBrainChangeCodec().encode(payload).toString())
             is MechanicalActorGenesisChange -> field("MECHANICAL_ACTOR_GENESIS",mechanicalActorGenesisCodec().encode(payload).toString())
             is WorldSimulationChange -> field("WORLD_SIMULATION",phase63WorldChangeCodec().encode(payload).toString())
+            is BackgroundProcessChange,is BackgroundProjectWorkChange,is DevelopmentProjectCompletionChange,
+            is PopulationCohortBirthChange,is FormationMobilizationChange ->
+                field("PHASE64_TYPED_CHANGE",TypedPlayerChangeRegistry.core().encodeWorkerPayload(payload).toString())
             is KnowledgeAcquisitionChange -> {
                 section("CLAIM") {
                     field("UID", payload.claim.claimUid); field("SUBJECT_KIND", payload.claim.subjectKindUid)

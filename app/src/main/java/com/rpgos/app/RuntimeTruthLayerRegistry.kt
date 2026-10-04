@@ -52,6 +52,7 @@ object RuntimeTruthLayerRegistry {
         RuntimeStateFamily("CURRENT_WORLD_AUTHORITY",setOf(RuntimeTruthLayer.AUTHORITATIVE),BundledCampaignPersistentFamilies.CURRENT_WORLD_AUTHORITY),
         RuntimeStateFamily("ACTION_TIME_AUTHORITY",setOf(RuntimeTruthLayer.AUTHORITATIVE),setOf(Phase60TemporalSchema.TABLE)),
         RuntimeStateFamily("WORLD_SIMULATION_AUTHORITY",setOf(RuntimeTruthLayer.AUTHORITATIVE),Phase63WorldSchema.authoritativeTables),
+        RuntimeStateFamily("BACKGROUND_WORLD_AUTHORITY",setOf(RuntimeTruthLayer.AUTHORITATIVE),Phase64BackgroundSchema.tables),
         RuntimeStateFamily("NPC_BRAIN_AUTHORITY",setOf(RuntimeTruthLayer.AUTHORITATIVE,RuntimeTruthLayer.AUTHORITATIVE_DOMAIN_HISTORY),Phase61NpcSchema.authoritativeTables),
         RuntimeStateFamily("HISTORICAL_WORLD_EVIDENCE",setOf(RuntimeTruthLayer.APPEND_ONLY_HISTORICAL_EVIDENCE),BundledCampaignPersistentFamilies.HISTORICAL_WORLD_EVIDENCE),
         RuntimeStateFamily("BUNDLED_MECHANICS_DEFINITIONS",setOf(RuntimeTruthLayer.MECHANICS_DEFINITION_AUTHORITY),BundledCampaignPersistentFamilies.MECHANICS_DEFINITION_AUTHORITY),

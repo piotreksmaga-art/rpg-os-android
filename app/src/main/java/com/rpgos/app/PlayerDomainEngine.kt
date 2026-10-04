@@ -790,6 +790,7 @@ internal fun commandReferences(command: PlayerCommand<out PlayerCommandPayload>)
             addAll(payload.effects.map{it.target})
             addAll(payload.npcBrains.map{it.actor})
             payload.temporalState?.let { add(DomainRef("CAMPAIGN",it.campaignUid)) }
+            payload.backgroundChanges.flatMap(::phase64References).forEach(::add)
         }
         else -> Unit
     }
@@ -830,6 +831,8 @@ internal fun draftReferences(draft: PlayerResolutionDraft): List<DomainRef> = bu
             is TemporalStateChange -> add(DomainRef("CAMPAIGN", payload.campaignUid))
             is NpcBrainChange -> add(payload.actor)
             is MechanicalActorGenesisChange -> add(payload.actor)
+            is BackgroundProcessChange,is BackgroundProjectWorkChange,is DevelopmentProjectCompletionChange,
+            is PopulationCohortBirthChange,is FormationMobilizationChange -> addAll(phase64References(payload))
             is WorldSimulationChange -> {
                 add(DomainRef("CAMPAIGN",payload.campaignUid));payload.actorExpansions.forEach { add(it.actor) }
                 payload.populationManifests.forEach { add(it.aggregate) }

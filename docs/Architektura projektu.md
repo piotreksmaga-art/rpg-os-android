@@ -730,10 +730,11 @@ Konsekwencje propagują się przez istniejące relacje i zależności. Śmierć,
 Collective phenomena mogą emergować z wielu legalnych mikro/makro procesów zamiast być losowym eventem: inflacja, migracja, niedobór, boom gospodarczy, bunt, epidemia, przestępczość, urban growth, zmiany kulturowe lub wojna. Domena zachowuje właściwe conservation/invariants i causal provenance.
 
 ### 15.4 LOD i multi-rate simulation
-- `LOD0` — scena szczegółowa;
-- `LOD1` — lokalny region;
-- `LOD2` — organizacje/państwa strategicznie;
-- `LOD3` — odległy świat jako agregaty/trendy/pressures.
+
+- `LOD0` — agregaty;
+- `LOD1` — jednostki i formacje;
+- `LOD2` — grupy z wyróżnionymi aktorami;
+- `LOD3` — szczegółowe interakcje indywidualne.
 
 Scena może aktualizować się per action/turn, region per hour/day, strategic systems per day/week, wolne procesy per month/season/year. Nie symulujemy każdego bytu co turę.
 
@@ -1000,7 +1001,41 @@ API28/36, process-death, pamięć/undo/NPC i izolację release. Końcowy SHA PR
 nadal wymaga GREEN przed merge, a publikacja osobnej kontroli podpisu i aktualizacji.
 Kontrakty oraz zakres dowodów opisuje [Phase63 — implementacja](architecture/PHASE63_WORLD_SIMULATION_IMPLEMENTATION.md).
 Preset makroregionów nie jest pełnym generatorem dowolnej geografii z prozy.
-Phase64, 65–70 i 72 nie są przez to ukończone; private LAB traces nie trafiają do release.
+Sama akceptacja Phase63 nie zalicza Phase64, 65–70 ani 72; private LAB traces nie trafiają do release.
+
+### Phase64 i aktywacja nowych kampanii
+
+Implementacja na `codex/phase64-complete` dodaje wersjonowaną politykę
+`PHASE64_V1`, definicje i instancje procesów, zależności oraz dowody rozliczenia.
+Politykę zapisuje wyłącznie bootstrap nowej kampanii. Migracja, otwieranie zapisu
+i przywrócenie backupu nie aktywują jej w starszych kampaniach. Puste tabele
+rozszerzeń nie zmieniają dawnych digestów.
+
+Procesy korzystają z Phase60 i zwykłego `TurnTransaction`. Adaptery przekazują
+typowane zmiany dotychczasowym właścicielom pieniędzy, ekwipunku, projektów,
+wiedzy i mechaniki. Nie ustanawiają drugiego salda, zegara ani silnika decyzji.
+Powiązanie procesu z konsekwencjami zachowują fingerprinty i zdarzenia domenowe.
+Nowe kohorty mają osobny manifest; mobilizacja nie tworzy drugiej populacji.
+Praca przy projekcie obciąża zarejestrowaną pulę zasobu przez istniejącego właściciela.
+Odczyt kolejnego procesu widzi poprzednie legalne zmiany tej samej tury.
+Instytucjonalny wybór modelu odbywa się poza odczytem bazy i przechodzi normalny
+wybór oraz przygotowanie działania Phase62, z ponownym sprawdzeniem zakresu.
+
+Produkcyjny import przyjmuje kompletne wersjonowane receptury bez tworzenia
+brakujących uprawnień lub zasobów. Opcje NPC wymagają legalnej wiedzy o celu,
+zarejestrowanej zdolności i dokładnej polityki aktywacji. Publiczny widok trwających
+procesów ogranicza się do zadań kontrolowanej postaci; przerywanie jest normalnym
+zamiarem gracza, nie administracyjną zmianą bazy. Wskazanie zadania wiąże wersję,
+fingerprint oraz generację historii i nie materializuje nowego procesu w razie
+braku lub niejednoznacznego odniesienia.
+
+Phase64 ma zakończoną implementację produkcyjną i krótki odbiór silnika.
+CI runtime `46a7fddd` zaliczyło JVM debug/lab po 311 testów, API28/36,
+process-death oraz izolację publicznego APK. Pełne historyczne regresje końcowego
+SHA nadal warunkują scalenie; publikacja wymaga także stałego podpisu,
+checksum i zgodnego manifestu aktualizacji. Kontrakty, dowody i jawne ograniczenia
+opisuje [Phase64 i odbiór](architecture/PHASE64_IMPLEMENTATION.md).
+Fazy 65–70 i 72 oraz odbiór jakości i wydajności modeli pozostają odrębne.
 
 ## 25. Ostateczny cel
 RPG OS ma działać jak trwały system świata, nie chatbot z długim promptem.

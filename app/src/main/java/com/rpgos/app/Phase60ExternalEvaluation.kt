@@ -11,6 +11,8 @@ data class TemporalEvaluationRequest internal constructor(val ownerUid:String,va
         put("canonical",input.scope.authoritativeFingerprint);put("from",input.from.milliseconds);put("through",input.through.milliseconds)
         put("staged_changes",JsonArray(input.stagedChanges.map{TypedPlayerChangeRegistry.core().encodeWorkerPayload(it)}))
         put("staged_effects",TemporalMechanicsCodec.encode(input.stagedEffects))
+        put("peer_states", Json.parseToJsonElement(Phase60ProcessStateCodec.encode(input.peerStates.values.toList())))
+        put("deadline_view",Json.parseToJsonElement(Phase60DeadlineCodec.encode(input.deadlineView)))
         put("previous",input.previous?.let { state -> buildJsonObject {
             put("owner",state.ownerUid);put("version",state.version);put("state",state.canonicalValue)
         } }?:JsonNull)
@@ -28,6 +30,8 @@ data class TemporalEvaluationRequest internal constructor(val ownerUid:String,va
 }
 internal sealed interface TemporalEvaluationResponse {
     data class Accepted(val requestFingerprint:String,val result:TemporalOwnerResult.Evaluated):TemporalEvaluationResponse
+    /** Calculation checkpoint only. No owner state or effects are admitted before Accepted. */
+    data class Yielded(val requestFingerprint:String):TemporalEvaluationResponse
     data class Unavailable(val reasonUid:String):TemporalEvaluationResponse
 }
 /** Application orchestration only. Implementations may call AI without a canonical DB transaction. */

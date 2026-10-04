@@ -16,7 +16,13 @@ class Phase55To59HundredTurnAcceptanceTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
 
     @Test
-    fun hundredTurnSaveReopenUndoAndAlternateFuture() = runBlocking {
+    fun hundredTurnSaveReopenUndoAndAlternateFuture() = movementScenario(100, 50)
+
+    /** Quick local check of the same legal-route fixture, not a substitute for the 100-turn gate. */
+    @Test
+    fun knownRouteRoundTripReopenUndoAndDifferentDestination() = movementScenario(2, 1)
+
+    private fun movementScenario(turnCount: Int, reopenAfter: Int) = runBlocking {
         Os.chmod(context.applicationInfo.dataDir, 0x1C0)
 
         val repository = UnifiedGameRepository(context).also { it.bootstrap() }
@@ -28,8 +34,14 @@ class Phase55To59HundredTurnAcceptanceTest {
             app: CanonicalChatApplication,
             repository: UnifiedGameRepository,
             index: Int,
-            input: String
+            target: WorldLocationItem,
+            durationMillis: Long = 300_000
         ): Long {
+            val playerUid = requireNotNull(repository.activePlayerRef()).playerUid
+            assertNotEquals("Turn #$index must really change location", target.uid,
+                repository.infrastructureEntityLocationUid(playerUid))
+            val beforeTime = repository.infrastructureTemporalRead().state.time.milliseconds
+            val input = "Tura $index: przez ${durationMillis / 60_000} minut idę do ${target.name}."
             val outcome = app.play(input, AiCancellationSignal.NONE)
             assertTrue(
                 "Turn #$index expected narrated outcome, got $outcome",
@@ -45,14 +57,17 @@ class Phase55To59HundredTurnAcceptanceTest {
                 order,
                 lastKnownOrder
             )
+            assertEquals("Turn #$index must reach the requested place", target.uid,
+                repository.infrastructureEntityLocationUid(playerUid))
+            assertEquals("Travel must use the registered route duration", beforeTime + durationMillis,
+                repository.infrastructureTemporalRead().state.time.milliseconds)
             return order
         }
 
         try {
             val activePlayer = createPlayer(repository)
             val campaignUid = activePlayer.campaignId
-            val locations = repository.worldLocations()
-            assertTrue("World location catalog must be available", locations.isNotEmpty())
+            val (setupOrder, locations) = prepareKnownRoutes(repository, activePlayer)
 
             val selection = AiModelSelection("DEVICE-CONTROLLED-100", "MODEL-1")
             val provider = movementProvider(campaignUid, locations, selection)
@@ -68,12 +83,12 @@ class Phase55To59HundredTurnAcceptanceTest {
             ).chatApplication()
 
             val firstBatchOrders = mutableListOf<Long>()
-            repeat(50) { index ->
+            repeat(reopenAfter) { index ->
                 val order = runTurn(
                     app = rootApplication,
                     repository = repository,
                     index = index + 1,
-                    input = "Tura ${index + 1}: idę do ${locations[index % locations.size].name}"
+                    target = locations[index % 2]
                 )
                 firstBatchOrders += order
             }
@@ -103,10 +118,10 @@ class Phase55To59HundredTurnAcceptanceTest {
                 reopenRepository.activePlayerRef()?.campaignId
             )
 
-            val replayAfterReopen = reopenedCommitOrders(reopenRepository)
+            val replayAfterReopen = reopenedCommitOrders(reopenRepository, setupOrder)
             assertEquals(
                 "Unexpected commit count after first stage and reopen",
-                50,
+                reopenAfter,
                 replayAfterReopen.size
             )
             assertEquals(
@@ -126,21 +141,21 @@ class Phase55To59HundredTurnAcceptanceTest {
             )
 
             val secondBatchOrders = mutableListOf<Long>()
-            repeat(50) { index ->
-                val stepIndex = index + 51
+            repeat(turnCount - reopenAfter) { index ->
+                val stepIndex = index + reopenAfter + 1
                 val order = runTurn(
                     app = reopenedApplication,
                     repository = reopenRepository,
                     index = stepIndex,
-                    input = "Tura $stepIndex: idę do ${locations[index % locations.size].name}"
+                    target = locations[(stepIndex - 1) % 2]
                 )
                 secondBatchOrders += order
             }
 
-            val replayAfterSecondBatch = reopenedCommitOrders(reopenRepository)
+            val replayAfterSecondBatch = reopenedCommitOrders(reopenRepository, setupOrder)
             assertEquals(
                 "Expected full 100-turn history after second batch",
-                100,
+                turnCount,
                 replayAfterSecondBatch.size
             )
             assertEquals(
@@ -187,23 +202,19 @@ class Phase55To59HundredTurnAcceptanceTest {
                 preview.targetCommitOrder,
                 reopenRepository.infrastructureLastCommitOrder()
             )
-            val afterUndoOrders = reopenedCommitOrders(reopenRepository)
-            assertEquals(99, afterUndoOrders.size)
+            val afterUndoOrders = reopenedCommitOrders(reopenRepository, setupOrder)
+            assertEquals(turnCount - 1, afterUndoOrders.size)
             assertEquals(preview.targetCommitOrder, afterUndoOrders.last())
             assertTrue(
                 "Undo should remove the last commit from committed replay",
                 afterUndoOrders.last() < preview.currentCommitOrder
             )
 
-            val alternate = reopenedApplication.play(
-                "Tura 101: jadę inną drogą i wykonuję inną decyzję.",
-                AiCancellationSignal.NONE
-            )
-            assertTrue(
-                "Alternate future after undo expected narrated outcome, got $alternate",
-                alternate is ChatApplicationOutcome.Narrated
-            )
-            val alternateOrder = (alternate as ChatApplicationOutcome.Narrated).result.receipt.commitOrder
+            assertEquals("Undo must restore the previous actual location", locations[0].uid,
+                reopenRepository.infrastructureEntityLocationUid(activePlayer.playerUid))
+            // A genuinely different destination via two registered edges, not a hash-selected target.
+            val alternateOrder = runTurn(reopenedApplication, reopenRepository, turnCount + 1,
+                locations[2], durationMillis = 600_000)
             val observedStride = replayAfterSecondBatch
                 .sorted()
                 .zipWithNext()
@@ -223,8 +234,8 @@ class Phase55To59HundredTurnAcceptanceTest {
                 alternateOrder,
                 reopenRepository.infrastructureLastCommitOrder()
             )
-            val finalReplay = reopenedCommitOrders(reopenRepository)
-            assertEquals("After alternative branch, 100 committed turns should exist", 100, finalReplay.size)
+            val finalReplay = reopenedCommitOrders(reopenRepository, setupOrder)
+            assertEquals("The alternative must preserve the gameplay turn count", turnCount, finalReplay.size)
             assertEquals("After alternative branch, history should end exactly at latest alternate turn", alternateOrder, finalReplay.last())
         } finally {
             repository.closeBackgroundWorkForTest()
@@ -234,10 +245,76 @@ class Phase55To59HundredTurnAcceptanceTest {
         }
     }
 
-    private fun reopenedCommitOrders(repository: UnifiedGameRepository): List<Long> =
-        repository.infrastructureReplayPayloadsAfter(0L)
-            .filter { it.commitOrder > 0L }
+    private fun reopenedCommitOrders(repository: UnifiedGameRepository, setupOrder: Long): List<Long> =
+        repository.infrastructureReplayPayloadsAfter(setupOrder)
+            .filter { it.commitOrder > setupOrder }
             .map { it.commitOrder }
+
+    /** Materialize two visible local sites through the real owners. Phase63 derives the
+     * registered edges and Phase37 records route observations in the same normal transaction.
+     * No SQL grants, arbitrary map teleportation or replacement of the replay baseline. */
+    private fun prepareKnownRoutes(repository: UnifiedGameRepository, player: ActivePlayerRef): Pair<Long, List<WorldLocationItem>> {
+        val campaign = player.campaignId
+        val anchorUid = requireNotNull(repository.infrastructureEntityLocationUid(player.playerUid))
+        val anchor = repository.worldLocations().single { it.uid == anchorUid }
+        val skeleton = requireNotNull(repository.infrastructureWorldSkeletonCandidate())
+        val drafts = listOf("Plac próby pamięci", "Plac innej decyzji").mapIndexed { ordinal, name ->
+            val slot = LatentWorldSlot(anchorUid, "MEMORY_ACCEPTANCE", WorldElementBaseKind.PLACE, ordinal.toLong())
+            WorldElementDraft(campaign, slot.ref(skeleton), name, WorldElementBaseKind.PLACE,
+                slot.categoryUid, anchorUid, setOf("MOVE", "LOOK"), "LOCAL_SITE",
+                WorldEvidenceClassification.GENERATED_PLAUSIBLE, emptyList(), null, null, null,
+                slotOrdinal = slot.ordinal)
+        }
+        val effects = drafts.map { draft ->
+            VerifiedMechanicsCommandEffect("SETUP:${draft.element.uid}", "SETUP", "RPGOS-CORE:WORLD-MATERIALIZER",
+                "WORLD_ELEMENT_MATERIALIZE", draft.element, 1, draft.materializationPayload(),
+                "RPGOS-CORE:WORLD-MATERIALIZATION:${draft.fingerprint()}",
+                phase63Hash("INPUT:${draft.fingerprint()}"), phase63Hash("OUTPUT:${draft.fingerprint()}"))
+        }
+        val identity = TurnTransactionIdentity(campaign, "KNOWN-ROUTES", "KNOWN-ROUTES-CMD", "KNOWN-ROUTES-TX")
+        val order = repository.infrastructureLastCommitOrder() + 1
+        val actor = CommandActorRef("PLAYER", player.playerUid)
+        val request = ChatTurnRequest(requestUid = "KNOWN-ROUTES-REQUEST", campaignUid = campaign,
+            turnUid = identity.turnUid, commandUid = identity.commandUid, transactionUid = identity.transactionUid,
+            actor = actor, input = "Oglądam dwa dostępne place", localeUid = "pl-PL",
+            audience = VisibilityAudienceFactory.player(campaign),
+            purpose = PurposeContext(campaign, VisibilityPurposeKinds.GAMEPLAY_NARRATION), atOrder = order)
+        val worldChanges = repository.infrastructureWorldExpansion(request, effects)
+        val edges = worldChanges.flatMap { it.edges }
+        assertEquals("Both registered local connections must be bidirectional", 4, edges.size)
+        assertTrue(edges.all { it.duration.milliseconds == 300_000L && it.resourceCosts.isEmpty() })
+        val authority = repository.infrastructureWorldPackAuthority()
+        val engine = productionMechanicsPlayerDomainEngine(
+            WorldRuleProviderRegistry.of(listOf(UniversalMechanicsWorldRuleProvider(authority.binding))),
+            WorldPackAuthoritySnapshot.single(campaign, authority.binding))
+        val command = PlayerCommand(commandUid = identity.commandUid, campaignUid = campaign, actor = actor,
+            commandKindUid = PlayerCommandKinds.APPLY_VERIFIED_MECHANICS,
+            payload = ApplyVerifiedMechanicsCommandPayload("KNOWN-ROUTES-PLAN", effects, worldChanges = worldChanges),
+            provenance = CommandProvenance("P55-59:LEGAL_ROUTE_FIXTURE"), requestedEffectiveOrder = order)
+        val refs = (listOf(DomainRef("PLAYER", player.playerUid), DomainRef("CHARACTER", player.playerUid),
+            DomainRef("CAMPAIGN", campaign), DomainRef("PLACE", anchorUid), DomainRef("LOCATION", anchorUid)) +
+            drafts.flatMap { listOf(it.element, DomainRef("LOCATION", it.element.uid)) } +
+            edges.map { DomainRef("WORLD_ROUTE", it.uid) }).map { CampaignScopedDomainRef(campaign, it) }.toSet()
+        val admission = CampaignMutationBoundary.resolveAndAdmit(campaign, engine, command,
+            PlayerResolutionContext.create(campaign, actor, refs, worldRuleMode = WorldRuleMode.Bound(authority.binding)))
+        assertTrue(admission.toString(), admission is CampaignMutationAdmission.Accepted)
+        val result = repository.commitTurn(identity, (admission as CampaignMutationAdmission.Accepted).proposal,
+            TurnFailureInjector.NONE)
+        assertTrue(result.toString(), result is TurnExecutionResult.Committed)
+        val setupOrder = repository.infrastructureLastCommitOrder()
+        // Dynamic sites live in canonical campaign facts, not the immutable Pack map catalog.
+        val places = LocalGameStore(context).openGameplaySaveDb().use { db ->
+            val projection = CampaignWorldProjectionStore(db, campaign)
+            drafts.associate { draft ->
+                val place = requireNotNull(projection.canonicalElement(draft.element.uid))
+                assertEquals(CampaignWorldAudience.PLAYER_VISIBLE, place.audienceScopeUid)
+                place.element.uid to WorldLocationItem(place.element.uid, place.displayName, place.categoryUid,
+                    place.parentAnchorUid.orEmpty(), "")
+            }
+        }
+        return setupOrder to listOf(requireNotNull(places[drafts[0].element.uid]), anchor,
+            requireNotNull(places[drafts[1].element.uid]))
+    }
 
     private fun isStrictlyIncreasing(values: List<Long>): Boolean = values.zipWithNext().all { (previous, current) -> current > previous }
 
@@ -297,7 +374,8 @@ class Phase55To59HundredTurnAcceptanceTest {
             maximumContextUnits = 16_000
         ),
         intentFunction = { request ->
-            val selected = locations[(request.rawInput.hashCode() and 0x7fffffff) % locations.size]
+            val selected = locations.single { request.rawInput.endsWith("do ${it.name}.") }
+            val duration = if (request.rawInput.contains("przez 10 minut")) "600000" else "300000"
             val reference = IntentReference(
                 "TARGET",
                 IntentReferenceKind.DESCRIPTIVE,
@@ -315,7 +393,7 @@ class Phase55To59HundredTurnAcceptanceTest {
                         "MOVE",
                         IntentForm.DIRECT_ACTION,
                         SemanticAction(semanticFamilyUid = "MOVE", rawPhrase = request.rawInput,
-                            attributes = mapOf("time_min_ms" to "1000", "time_max_ms" to "1000")),
+                            attributes = mapOf("time_min_ms" to duration, "time_max_ms" to duration)),
                         participants = listOf(IntentParticipant("TARGET", referenceUid = "TARGET"))
                     )
                 ),
@@ -353,7 +431,7 @@ class Phase55To59HundredTurnAcceptanceTest {
                         "MOVE-EFFECT",
                         node.nodeUid,
                         "UNIVERSAL_MOVEMENT",
-                        "MOVEMENT",
+                        "LOCATION_TRANSITION",
                         target
                     )
                 ),

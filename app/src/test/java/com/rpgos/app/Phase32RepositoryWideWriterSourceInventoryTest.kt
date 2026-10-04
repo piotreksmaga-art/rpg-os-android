@@ -37,6 +37,8 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
             "Phase60TemporalState.kt",
             "Phase63WorldStore.kt",
             "Phase63Population.kt",
+            "Phase64BackgroundStore.kt",
+            "Phase64PopulationOwner.kt",
             "Phase61NpcBrainStore.kt",
             "Phase35CanonDivergence.kt",
             "Phase37WorldActorKnowledge.kt",
@@ -169,6 +171,8 @@ class Phase32RepositoryWideWriterSourceInventoryTest {
 
         assertTrue(canonical.isNotEmpty())
         assertEquals(WriterClass.CANONICAL_DOMAIN, classifiedWriterFiles["Phase60TemporalState.kt"])
+        assertEquals(WriterClass.CANONICAL_DOMAIN, classifiedWriterFiles["Phase64BackgroundStore.kt"])
+        assertEquals(WriterClass.CANONICAL_DOMAIN, classifiedWriterFiles["Phase64PopulationOwner.kt"])
         assertEquals(WriterClass.OPERATIONAL_GUARD, classifiedWriterFiles["Phase60PendingAction.kt"])
         assertEquals(WriterClass.CACHE_REBUILDABLE, classifiedWriterFiles["Phase60CheckpointStore.kt"])
         assertEquals(

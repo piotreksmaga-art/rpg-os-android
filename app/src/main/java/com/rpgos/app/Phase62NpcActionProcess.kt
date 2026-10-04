@@ -49,6 +49,18 @@ internal class NpcActionProcess(private val expected:TemporalScope,private val s
             require(encode(rows)==state.canonicalValue)
             return rows
         }
+        /** A late institutional reaction uses exactly the normal pending-plan owner state. */
+        internal fun prepareDelegation(input:TemporalOwnerInput,started:NpcActionPreparation.Started,
+            sourceProcessUid:String):TemporalOwnerDelegation {
+            val previous=input.peerStates[OWNER]
+            val pending=decode(previous)
+            val action=started.pending
+            require(pending.size<128 && pending.none { it.actor==action.actor || it.planUid==action.planUid })
+            require(action.startedAt==input.through && action.due>input.through && validNpcBrainChains(started.changes))
+            return TemporalOwnerDelegation(sourceProcessUid,TemporalOwnerDelegation.fingerprint(previous),
+                TemporalOwnerState(OWNER,1,encode(pending+action)),
+                listOf(WorldProcessDeadline(action.deadlineUid,OWNER,action.due)))
+        }
     }
     init { require(participants.size<=32 && participants.distinct().size==participants.size && participants.none{it.uid==activePlayerUid}) }
     private fun due(input:TemporalOwnerInput,pending:List<NpcPendingAction>):List<NpcPendingAction> {
@@ -57,8 +69,29 @@ internal class NpcActionProcess(private val expected:TemporalScope,private val s
         require(due.size==deadlineUids.size && due.all{it.due==input.through}) { "P62:ACTION_DEADLINE_MISMATCH" }
         return due.sortedBy{it.deadlineUid}
     }
-    fun extension():TemporalProcessExtension=TemporalProcessExtension(listOf(RegisteredTemporalOwner("1",object:WorldProcessOwnerPort {
+    fun extension():TemporalProcessExtension=TemporalProcessExtension(listOf(RegisteredTemporalOwner("1",object:TemporalDelegationOwnerPort {
         override val ownerUid=OWNER
+        override fun acceptsDelegation(sourceOwnerUid:String,input:TemporalOwnerInput,delegation:TemporalOwnerDelegation):Boolean = runCatching {
+            require(sourceOwnerUid==Phase64BackgroundProcessOwner.OWNER && input.scope==expected && delegation.proposed.ownerUid==OWNER)
+            require(delegation.expectedStateFingerprint==TemporalOwnerDelegation.fingerprint(input.previous))
+            val before=decode(input.previous);val after=decode(delegation.proposed)
+            require(after.containsAll(before) && after.size==before.size+1)
+            val action=after.single { it !in before }
+            require(action.actor.uid!=activePlayerUid && before.none { it.actor==action.actor } && action.startedAt==input.through && action.due>input.through)
+            require(delegation.deadlines==listOf(WorldProcessDeadline(action.deadlineUid,OWNER,action.due)))
+            val receipt=input.stagedChanges.filterIsInstance<BackgroundProcessChange>().lastOrNull { it.process.uid==delegation.sourceUid }
+            require(receipt!=null && receipt.process.status==BackgroundProcessStatus.COMPLETED && receipt.ownerDelegations.any {
+                it.sourceUid==delegation.sourceUid && it.proposed==delegation.proposed && it.expectedStateFingerprint==delegation.expectedStateFingerprint })
+            val updates=input.stagedChanges.filterIsInstance<NpcBrainChange>().filter { it.actor==action.actor }
+            require(updates.isNotEmpty() && validNpcBrainChains(updates))
+            require(updates.all { it.campaignUid==expected.campaignUid && it.historyGenerationUid==expected.historyGenerationUid })
+            val brain=NpcBrainCodec.decode(updates.last().stateCanonical)
+            val plan=brain.plans.single { it.uid==action.planUid }
+            require(plan.lifecycle==NpcPlanLifecycle.RUNNING && plan.actionUid==action.optionUid &&
+                plan.startedAt==action.startedAt && plan.nextEvaluationAt==action.due)
+            require(updates.any { Phase64BackgroundCodec.fingerprint(it) in receipt.consequenceFingerprints })
+            true
+        }.getOrDefault(false)
         override fun evaluate(input:TemporalOwnerInput):TemporalOwnerResult {
             if(input.scope!=expected || input.actions.isNotEmpty())return TemporalOwnerResult.Unsupported("P62:ACTION_SCOPE")
             val pending=decode(input.previous)

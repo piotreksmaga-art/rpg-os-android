@@ -12,8 +12,8 @@ android {
         applicationId = "com.rpgos.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 162
-        versionName = "1.3.0-alpha22-world63"
+        versionCode = 163
+        versionName = "1.3.0-alpha23-world64"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "RPGOS_BACKEND_URL", "\"https://YOUR-BACKEND.example\"")
         buildConfigField(
@@ -73,7 +73,9 @@ android {
             // installed on a developer phone. The suffix is opt-in and never affects
             // normal debug, labDebug, release, or the public update identity.
             if (providers.gradleProperty("rpgosDeviceAcceptance").orNull == "true") {
-                applicationIdSuffix = ".acceptance"
+                val acceptanceSuffix = providers.gradleProperty("rpgosDeviceAcceptanceSuffix").orNull ?: ".acceptance"
+                require(acceptanceSuffix.matches(Regex("\\.[a-z][a-z0-9]*")))
+                applicationIdSuffix = acceptanceSuffix
             }
         }
         getByName("release") {

@@ -17,7 +17,8 @@ internal class NpcMechanicalAffordances(private val contracts:CombatAbilityContr
                                       private val requirements:NpcActivityRequirementPort=NpcActivityRequirementPort.NONE,
                                       private val treatments:NpcTreatmentReadPort=NpcTreatmentReadPort.NONE,
                                       private val duties:NpcDutyAssignmentPort=NpcDutyAssignmentPort.NONE,
-                                      private val atTime:WorldTimeTick=WorldTimeTick(0),private val starting:Boolean=true) {
+                                      private val atTime:WorldTimeTick=WorldTimeTick(0),private val starting:Boolean=true,
+                                      private val background:NpcBackgroundActivityPort=NpcBackgroundActivityPort.NONE) {
     fun options(brain:NpcBrainState,records:List<NpcKnownRecord>,actor:MechanicalActorView?,communicationTarget:DomainRef?=null):List<NpcActionOption> {
         if(actor==null || actor.actor!=brain.actor || actor.campaignUid!=brain.campaignUid ||
             actor.kind !in setOf(MechanicalActorKind.NPC,MechanicalActorKind.MONSTER,MechanicalActorKind.SUMMON,MechanicalActorKind.FORMER_PLAYER))return emptyList()
@@ -31,6 +32,7 @@ internal class NpcMechanicalAffordances(private val contracts:CombatAbilityContr
         // changes no canonical capability list and offers no unregistered action or effect.
         val capabilities=(actor.executableAbilityUids+inherent).sortedWith(compareBy<String>{it !in inherent}.thenBy{it})
         return buildList {
+            addAll(background.options(brain,records,actor,atTime).take(2))
             // Travel is projected from canonical current location plus holder-authorized destination knowledge.
             // It does not mutate location and does not prove arrival.
             addAll(NpcTravelAffordances.options(brain,records,actor,travelRoutes).take(2))

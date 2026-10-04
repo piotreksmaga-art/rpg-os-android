@@ -431,6 +431,41 @@ nie dołączać do publicznego wydania. Stan implementacji, odbiór i bramki wyd
 
 ## 11. Relacja do pozostałych dokumentów
 
+### Diagnostyka i krótki odbiór Phase64
+
+`GET_BACKGROUND_PROCESSES` jest komendą tylko do odczytu w `labDebug`. Pokazuje
+aktywację `PHASE64_V1`, generację historii, liczniki stanów, do 32 procesów z terminami
+i zależnościami oraz liczbę dowodów. Nie ujawnia parametrów wiadomości, prywatnych
+agend ani sposobu arbitralnego uruchamiania procesu. Rezerwacje istnieją tylko w
+stanie roboczym oceny — diagnostyka nie tworzy drugiego magazynu zasobów.
+Stan podłączeń, dowody odbioru i bramki wydania: `docs/architecture/PHASE64_IMPLEMENTATION.md`.
+
+Odbiór fazy 64 używa osobnego pakietu `com.rpgos.app.phase64acceptance` oraz
+`-PrpgosDeviceAcceptance=true -PrpgosDeviceAcceptanceSuffix=.phase64acceptance`.
+Połączenie: `tools/rpgos-lab.ps1 HEALTH -PackageName com.rpgos.app.phase64acceptance`.
+Domyślny pakiet zachowuje `localabstract:rpgos_lab_bridge`; odizolowane instalacje
+używają `localabstract:rpgos_lab_bridge.<packageName>`, a skrypt wybiera właściwe
+gniazdo automatycznie. To zapobiega kolizji z równocześnie otwartą wcześniejszą
+instalacją LAB bez usuwania jej zapisów.
+
+`tools/run_phase64_android_acceptance.sh` wykonuje krótki odbiór właścicieli i
+transakcji oraz osobno `seedPendingProcess`, rzeczywiste zamknięcie procesu i
+`resumePendingProcessAfterProcessDeath`. Obie metody otrzymują ten sam nowy
+`phase64RunUid`; nie nadpisują wcześniejszej próby. Test nie zastępuje odbioru
+klikania zwykłego UI ani jakości modeli. Zestaw obejmuje też wspólny composition
+root aplikacji: rozpoczęcie, dokładny wyświetlany selektor przerywania, ukończenie
+po upływie czasu i cofnięcie. W tym scenariuszu kontrolowana jest wyłącznie granica
+AI; pozostałe porty aplikacji nie są zastępowane. Osobne testy właścicieli obejmują
+projekt, dostawę, konkurencję o materiał, obowiązek, opóźniony raport, migrację
+oraz rzeczywiste starcie Phase62/50. Próba ekspozycji po starciu potwierdza wyłącznie
+read-only kwalifikację rzeczywistego kontaktu, nie przebieg epidemii.
+Prywatne transkrypty i failure bundles nie trafiają do wydania.
+
+Krótki skrypt obejmuje również rzeczywisty dwuturowy ruch, reopen, undo i inny
+cel przez znane połączenia Phase63. Nie uruchamia 100 tur; pełny test pozostaje
+w istniejącej bramce pamięci. Odbiór nośnika sprawdza, że posiadanie dokumentu
+nie zastępuje dowodu przeczytania, dekodowania i zrozumienia przez Phase38.
+
 ### Oddzielna instalacja odbiorowa 61–62
 
 Przy niezgodnym podpisie istniejącej instalacji nie usuwać aplikacji ani zapisów. Właściwość `-PrpgosDeviceAcceptance=true` buduje `labDebug` jako `com.rpgos.app.acceptance` i test runner `com.rpgos.app.acceptance.test/androidx.test.runner.AndroidJUnitRunner`. Skrypt hosta przyjmuje `-PackageName com.rpgos.app.acceptance`; domyślny pakiet pozostaje bez zmian. Właściwość nie zmienia publicznego release.
@@ -443,7 +478,7 @@ W produkcyjnym composition root nie działa cichy legacy parser po błędzie pro
 
 Kontrakty nauki/czytania, leczenia i obowiązków korzystają z normalnej tury, Phase60 i właścicieli wyników. Definicje oraz przypisania musi jawnie dostarczyć World Pack; brak reguły nie nadaje NPC wymyślonej zdolności. Schemat importu opisuje `docs/architecture/PHASE61_62_NPC_IMPLEMENTATION.md`. Dokładny czas jednej czynności można podać w tekście, np. „Przez 1 minutę rozglądam się”; brak lub wieloznaczność czasu nadal wymaga doprecyzowania, bez commitu.
 
-Długie generatywne testy 100 tur, szerokie A/B, milion rekordów i duży Bielik pozostają osobnym odbiorem. Odbiór 61–62 nie kończył faz 63–64 ani 72; osobno ukończony zakres Phase63 opisuje sekcja 10.4 i dokument implementacji. Faza 64 i branching 72 pozostają nieukończone.
+Długie generatywne testy 100 tur, szerokie A/B, milion rekordów i duży Bielik pozostają osobnym odbiorem. Odbiór 61–62 nie kończył faz 63–64 ani 72; osobny zakres Phase63 opisuje sekcja 10.4, a implementację i krótki odbiór Phase64 sekcja diagnostyki powyżej oraz dokument implementacji. Publikacja Phase64 wymaga wszystkich końcowych bramek CI. Fazy 65–70 i branching 72 pozostają poza zakresem.
 
 Ten dokument jest nadrzędną instrukcją bieżącego Bridge'a Etapów 1–3. Raporty:
 

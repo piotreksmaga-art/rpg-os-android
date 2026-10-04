@@ -108,7 +108,10 @@ data class TemporalOwnerInput(
     val previous: TemporalOwnerState?,
     /** Core-only speculative prefix; never a model-readable knowledge projection. */
     val stagedChanges: List<PlayerDomainChangePayload> = emptyList(),
-    val stagedEffects: List<VerifiedMechanicsCommandEffect> = emptyList()
+    val stagedEffects: List<VerifiedMechanicsCommandEffect> = emptyList(),
+    /** Immutable peer state at this boundary. Only a receiving owner may admit a delegation. */
+    val peerStates: Map<String, TemporalOwnerState> = emptyMap(),
+    val deadlineView: List<WorldProcessDeadline> = emptyList()
 ) {
     /** A newly starting concurrent action must not receive work for an earlier interval. */
     fun elapsedFor(action: ScheduledActionInterval): ActionDuration {
@@ -126,7 +129,8 @@ sealed interface TemporalOwnerResult {
         val nextDeadlines: List<WorldProcessDeadline> = emptyList(),
         val playerDecisionRequired: Boolean = false,
         /** Original owner proofs are retained; do not reconstruct spatial/combat effects from text. */
-        val mechanicalEffects: List<VerifiedMechanicsCommandEffect> = emptyList()
+        val mechanicalEffects: List<VerifiedMechanicsCommandEffect> = emptyList(),
+        val ownerDelegations: List<TemporalOwnerDelegation> = emptyList()
     ) : TemporalOwnerResult
     data class Unsupported(val reasonUid: String) : TemporalOwnerResult
     /** Internal suspension, not a player choice and never permission to commit a partial turn. */
@@ -139,6 +143,29 @@ sealed interface TemporalOwnerResult {
 interface WorldProcessOwnerPort {
     val ownerUid: String
     fun evaluate(input: TemporalOwnerInput): TemporalOwnerResult
+}
+
+/** Core-only request, not permission to overwrite another owner's state. The target owner
+ * independently verifies the lifecycle against the complete speculative prefix. */
+@ConsistentCopyVisibility
+data class TemporalOwnerDelegation internal constructor(
+    val sourceUid: String,
+    val expectedStateFingerprint: String,
+    val proposed: TemporalOwnerState,
+    val deadlines: List<WorldProcessDeadline>
+) {
+    init {
+        require(sourceUid.isNotBlank() && expectedStateFingerprint.matches(Regex("[0-9a-f]{64}")))
+        require(deadlines.size in 1..32 && deadlines.all { it.ownerUid == proposed.ownerUid })
+    }
+    companion object {
+        internal fun fingerprint(state: TemporalOwnerState?): String = phase60Hash(
+            state?.let { "${it.ownerUid.length}:${it.ownerUid}|${it.version}|${it.canonicalValue}" } ?: "ABSENT")
+    }
+}
+
+interface TemporalDelegationOwnerPort : WorldProcessOwnerPort {
+    fun acceptsDelegation(sourceOwnerUid: String, input: TemporalOwnerInput, delegation: TemporalOwnerDelegation): Boolean
 }
 
 data class TemporalExecutionCheckpoint(
@@ -232,7 +259,7 @@ class Phase60TimeProcessor(
             for (uid in requiredOwners) {
                 val owner = ownersByUid[uid] ?: return TemporalExecutionResult(work, TemporalStopReason.UNSUPPORTED_OWNER, uid)
                 val input=TemporalOwnerInput(work.scope, work.reached, boundary, active.filter { it.action.ownerUid == uid }, due.filter { it.ownerUid == uid }, work.ownerStates[uid],
-                    work.candidateChanges+changes,work.candidateEffects+effects)
+                    work.candidateChanges+changes,work.candidateEffects+effects,states.toMap(),(work.deadlines+next).toList())
                 var output = try {
                     owner.evaluate(input)
                 } catch (cancel: java.util.concurrent.CancellationException) {
@@ -256,6 +283,19 @@ class Phase60TimeProcessor(
                         changes += output.changes
                         effects += output.mechanicalEffects
                         next += output.nextDeadlines
+                        for (delegation in output.ownerDelegations) {
+                            val receiving = ownersByUid[delegation.proposed.ownerUid] as? TemporalDelegationOwnerPort
+                                ?: return TemporalExecutionResult(work, TemporalStopReason.INVALID_OWNER_RESULT, "P60:DELEGATION_OWNER_REQUIRED")
+                            val previous = states[delegation.proposed.ownerUid]
+                            if (delegation.expectedStateFingerprint != TemporalOwnerDelegation.fingerprint(previous) ||
+                                delegation.deadlines.any { it.due <= boundary } ||
+                                !receiving.acceptsDelegation(uid, input.copy(previous = previous,
+                                    stagedChanges = work.candidateChanges + changes, stagedEffects = work.candidateEffects + effects,
+                                    peerStates = states.toMap()), delegation))
+                                return TemporalExecutionResult(work, TemporalStopReason.INVALID_OWNER_RESULT, "P60:DELEGATION_REJECTED")
+                            states[delegation.proposed.ownerUid] = delegation.proposed
+                            next += delegation.deadlines
+                        }
                         decision = decision || output.playerDecisionRequired
                     }
                 }

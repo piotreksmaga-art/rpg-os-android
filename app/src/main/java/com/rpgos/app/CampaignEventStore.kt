@@ -350,6 +350,11 @@ internal class CampaignEventStore(private val db: SQLiteDatabase, private val ca
             is NpcBrainChange -> NPC_BRAIN_CHANGE_KIND
             is MechanicalActorGenesisChange -> MECHANICAL_ACTOR_GENESIS_KIND
             is WorldSimulationChange -> PHASE63_WORLD_CHANGE_KIND
+            is BackgroundProcessChange -> PHASE64_CHANGE_KIND
+            is BackgroundProjectWorkChange -> PHASE64_PROJECT_WORK_KIND
+            is DevelopmentProjectCompletionChange -> PHASE64_PROJECT_COMPLETION_KIND
+            is PopulationCohortBirthChange -> PHASE64_COHORT_BIRTH_KIND
+            is FormationMobilizationChange -> PHASE64_FORMATION_MOBILIZATION_KIND
             is AccessAuthorityChange -> PlayerChangeKinds.ACCESS_AUTHORITY
         }
         if (change.changeKindUid != expectedKind) throw EventStoreIntegrityException("CHANGE_KIND_PAYLOAD_MISMATCH")
@@ -394,6 +399,11 @@ internal class CampaignEventStore(private val db: SQLiteDatabase, private val ca
         is NpcBrainChange -> payload.actor
         is MechanicalActorGenesisChange -> payload.actor
         is WorldSimulationChange -> DomainRef("CAMPAIGN",payload.campaignUid)
+        is BackgroundProcessChange -> DomainRef("WORLD_PROCESS",payload.process.uid)
+        is BackgroundProjectWorkChange -> DomainRef("PROJECT",payload.projectUid)
+        is DevelopmentProjectCompletionChange -> DomainRef("PROJECT",payload.projectUid)
+        is PopulationCohortBirthChange -> payload.cohort.aggregate
+        is FormationMobilizationChange -> payload.formation
         is AccessAuthorityChange -> DomainRef(payload.principalKindUid, payload.principalUid)
     }
 
