@@ -1001,7 +1001,7 @@ API28/36, process-death, pamięć/undo/NPC i izolację release. Końcowy SHA PR
 nadal wymaga GREEN przed merge, a publikacja osobnej kontroli podpisu i aktualizacji.
 Kontrakty oraz zakres dowodów opisuje [Phase63 — implementacja](architecture/PHASE63_WORLD_SIMULATION_IMPLEMENTATION.md).
 Preset makroregionów nie jest pełnym generatorem dowolnej geografii z prozy.
-Phase64, 65–70 i 72 nie są przez to ukończone; private LAB traces nie trafiają do release.
+Sama akceptacja Phase63 nie zalicza Phase64, 65–70 ani 72; private LAB traces nie trafiają do release.
 
 ### Phase64 i aktywacja nowych kampanii
 
@@ -1029,9 +1029,13 @@ zamiarem gracza, nie administracyjną zmianą bazy. Wskazanie zadania wiąże we
 fingerprint oraz generację historii i nie materializuje nowego procesu w razie
 braku lub niejednoznacznego odniesienia.
 
-Stan wdrożenia i brakujące bramki opisuje
-[Phase64 i odbiór](architecture/PHASE64_IMPLEMENTATION.md). Phase64 pozostaje
-nieukończona do czasu pełnego podłączenia, odbioru Androida i końcowego CI.
+Phase64 ma zakończoną implementację produkcyjną i krótki odbiór silnika.
+CI runtime `46a7fddd` zaliczyło JVM debug/lab po 311 testów, API28/36,
+process-death oraz izolację publicznego APK. Pełne historyczne regresje końcowego
+SHA nadal warunkują scalenie; publikacja wymaga także stałego podpisu,
+checksum i zgodnego manifestu aktualizacji. Kontrakty, dowody i jawne ograniczenia
+opisuje [Phase64 i odbiór](architecture/PHASE64_IMPLEMENTATION.md).
+Fazy 65–70 i 72 oraz odbiór jakości i wydajności modeli pozostają odrębne.
 
 ## 25. Ostateczny cel
 RPG OS ma działać jak trwały system świata, nie chatbot z długim promptem.

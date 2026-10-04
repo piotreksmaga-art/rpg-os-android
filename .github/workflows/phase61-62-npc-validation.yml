@@ -12,16 +12,21 @@ permissions:
   contents: read
 
 concurrency:
-  group: phase61-62-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+  group: phase61-62-${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
+  # A repair must not cancel an older SHA and erase its acceptance evidence.
+  cancel-in-progress: false
 
 jobs:
 
-  full-jvm:
+  full-jvm-variant:
     # Complete shared coverage lives in the Phase63 workflow for this one implementation PR.
     if: github.event_name != 'pull_request' || github.head_ref != 'codex/phase63-complete'
     runs-on: ubuntu-latest
     timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [Debug, LabDebug]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,17 +46,29 @@ jobs:
       - name: Verify exact source SHA
         run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
       - name: Run complete JVM regression
-        run: gradle --no-daemon :app:testDebugUnitTest :app:testLabDebugUnitTest --stacktrace
+        run: gradle --no-daemon :app:test${{ matrix.variant }}UnitTest --stacktrace
       - name: Upload complete JVM evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase61-62-r1-full-jvm-${{ github.sha }}
+          name: phase61-62-r1-full-jvm-${{ matrix.variant }}-${{ github.sha }}
           path: |
             app/build/test-results/**
             app/build/reports/tests/**
           if-no-files-found: warn
           retention-days: 14
+
+  # The old required check stays fail-closed over both unchanged full suites.
+  full-jvm:
+    if: always() && (github.event_name != 'pull_request' || github.head_ref != 'codex/phase63-complete')
+    needs: full-jvm-variant
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require both full JVM variants
+        env:
+          VARIANTS_RESULT: ${{ needs.full-jvm-variant.result }}
+        run: test "$VARIANTS_RESULT" = success
 
   android-contract:
     if: github.event_name != 'pull_request' || github.head_ref != 'codex/phase63-complete'

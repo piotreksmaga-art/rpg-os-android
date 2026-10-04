@@ -1,8 +1,9 @@
 # Phase64 i odbiór implementacji
 
-Dokument opisuje wdrożenie procesów świata po ALPHA22. Wersja robocza nie jest
-jeszcze ukończoną fazą ani opublikowaną aktualizacją. Starsze kampanie zachowują
-dotychczasowe zachowanie Phase60–63.
+Dokument opisuje produkcyjne wdrożenie procesów świata po ALPHA22 i zakończony
+krótki odbiór silnika. Scalenie i publikacja ALPHA23 wymagają zielonych pełnych
+bramek końcowego SHA oraz kontroli podpisu i plików aktualizacji. Starsze kampanie
+zachowują dotychczasowe zachowanie Phase60–63.
 
 ## Aktywacja i właściciele
 
@@ -79,7 +80,7 @@ na Motoroli potwierdziły obowiązek, opóźniony raport, migrację i starcie.
 Testy jednostkowe obejmują wybór instytucjonalny i przechwycenie legalnego nośnika.
 Nie jest to dowód jakości lub wydajności modelu generatywnego.
 
-Wersja robocza jawnie odrzuca częściową rekrutację GROUP do UNIT, częściową migrację
+Wdrożenie jawnie odrzuca częściową rekrutację GROUP do UNIT, częściową migrację
 oraz śmierć z puli rannych, dopóki właściwy właściciel nie zapewnia zachowania slotów.
 Brak zarejestrowanej reguły lub uprawnienia zwraca typed BLOCKED. Narracja nie może
 zastąpić brakującego skutku. Nie należy utożsamiać samego katalogu reguł bez
@@ -155,6 +156,22 @@ oraz krótki ruch z reopen, undo i innym celem. Ta druga próba sprawdza także
 efekt `LOCATION_TRANSITION`: dawny fixture używał `MOVEMENT`, czyli ruchu po
 współrzędnych bez zmiany lokacji. Końcowe CI pełnych 100 tur nadal musi potwierdzić
 całą historię; krótki wariant nie jest jego zamiennikiem.
+
+### Potwierdzona krótka bramka runtime
+
+Runtime `46a7fdddc604814ed86baed22724d369f0c35013` zaliczył
+[Phase64 Short Validation](https://github.com/piotreksmaga-art/rpg-os-android/actions/runs/37235091495).
+Raporty XML potwierdzają po 311 testów bez błędów w debug i labDebug.
+Na każdym z API28 i API36 zaliczono 14 testów domen, jeden test znanej trasy
+z reopen/undo/innym celem oraz po jednym seed i resume rozdzielonym rzeczywistym
+force-stop i potwierdzeniem braku PID. Izolacja manifestu, DEX i zasobów release
+także jest GREEN. Pełne historyczne bramki pozostają warunkiem publikacji.
+
+Pełne JVM debug i labDebug wykonują niezmienione zestawy równolegle, na oddzielnych
+runnerach. Dotychczasowa bramka `full-jvm` wymaga sukcesu obu wariantów; timeout,
+anulowanie, pominięcie lub błąd któregokolwiek nie dają GREEN. Nie dodano filtra
+`--tests` do pełnych regresji i nie usunięto testu 100 tur. Raporty obu wariantów
+są zachowywane jako artefakty. Jest to zmiana organizacji CI, nie zakresu odbioru.
 
 Nie uruchamiamy w tym odbiorze 100 tur AI, dużego Bielika, szerokiego A/B ani
 benchmarków miliona rekordów. Historyczna regresja jest naprawiana przez legalny
