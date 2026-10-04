@@ -25,6 +25,8 @@ run_test() {
 }
 
 run_test 'com.rpgos.app.Phase64BackgroundAcceptanceTest,com.rpgos.app.Phase64DeliveryAcceptanceTest,com.rpgos.app.Phase64InstitutionPopulationAcceptanceTest,com.rpgos.app.Phase64CombatDeviceAcceptanceTest,com.rpgos.app.Phase64ChatApplicationAcceptanceTest' "$evidence/domain-contracts.txt"
+# Same legal-route fixture as the unchanged 100-turn gate, only a short round trip here.
+run_test 'com.rpgos.app.Phase55To59HundredTurnAcceptanceTest#knownRouteRoundTripReopenUndoAndDifferentDestination' "$evidence/known-route-round-trip.txt"
 run_test 'com.rpgos.app.Phase64ProcessDeathDeviceTest#seedPendingProcess' "$evidence/process-death-seed.txt"
 adb shell am force-stop "$package"
 stopped=false

@@ -134,6 +134,30 @@ warunkują scalenie oraz publikację. Planowany numer aktualizacji to
 `1.3.0-alpha23-world64`, kod 163. Po poprawce zgodności ponawiane są wyłącznie
 dotknięte kroki lokalnego odbioru oraz końcowe kontrole CI.
 
+Dedykowane CI poprawki zgodności zaliczyło debug/lab, API28/36, rzeczywiste
+zatrzymanie procesu oraz izolację release. Istniejące pełne CI ujawniło dodatkowo
+niezarejestrowanych konsumentów chronionych danych i błędny fixture podróży
+w historycznej próbie 100 tur. Rejestr uzupełniono po audycie właścicieli, bez
+osłabienia kontroli. Ścieżka szpiegostwa nie może już zastępować brakującego
+przechwycenia Phase38 samym posiadaniem dokumentu. Wymagane są rzeczywiste,
+aktualne dowody etapów dostępu, w tym zrozumienia.
+
+Fixture 100 tur materializuje dwa widoczne miejsca przez zwykłą transakcję.
+Phase63 wyprowadza legalne dwukierunkowe połączenia, a Phase37 zapisuje ich
+obserwacje. Każda tura musi rzeczywiście zmienić lokację i naliczyć czas trasy.
+Setup jest osobnym commitem; wszystkie 100 tur rozgrywki pozostają w teście.
+Po cofnięciu próba wybiera inny cel. Krótka bramka sprawdza tylko dwuturowy
+wariant tego samego fixture; pełna próba pozostaje w dotychczasowym CI pamięci.
+
+Po poprawkach ukierunkowany JVM zaliczył 77/77 testów granic dostępu i informacji.
+Na Motoroli zaliczyły osobno test posiadanego dokumentu bez dowodu zrozumienia
+oraz krótki ruch z reopen, undo i innym celem. Ta druga próba sprawdza także
+efekt `LOCATION_TRANSITION`: dawny fixture używał `MOVEMENT`, czyli ruchu po
+współrzędnych bez zmiany lokacji. Końcowe CI pełnych 100 tur nadal musi potwierdzić
+całą historię; krótki wariant nie jest jego zamiennikiem.
+
 Nie uruchamiamy w tym odbiorze 100 tur AI, dużego Bielika, szerokiego A/B ani
-benchmarków miliona rekordów. Znana historyczna regresja 100 tur pozostaje jawna
-i nie została zamaskowana. Fazy 65–70 i branching 72 pozostają poza tym zakresem.
+benchmarków miliona rekordów. Historyczna regresja jest naprawiana przez legalny
+fixture, nie teleportację, pomijanie tur ani usunięcie testu. Wynik pełnego CI
+poprawki nadal jest wymagany przed wydaniem. Fazy 65–70 i branching 72 pozostają
+poza tym zakresem.

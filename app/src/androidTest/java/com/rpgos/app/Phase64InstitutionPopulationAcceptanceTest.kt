@@ -177,6 +177,77 @@ class Phase64InstitutionPopulationAcceptanceTest {
         return work.candidateChanges
     }
 
+    @Test fun possessedCarrierCannotBypassMissingOrRevokedComprehensionCapture() {
+        SQLiteDatabase.create(null).use { db ->
+            val carrier = DomainRef("REPORT", "P64:PRIVATE_REPORT")
+            val claim = KnowledgeClaim("P64:PRIVATE_CLAIM", "LOCATION", origin.uid, "OPEN", "false",
+                domainUid = KnowledgeDomains.MILITARY_INTELLIGENCE)
+            val reading = NpcActivityContract("READ", "P64:READ_REPORT", 1, ActionDuration(1000), "READ_EFFORT",
+                reading = NpcReadingRule(carrier, "P64:COVERT", claim))
+            val fields = mapOf("carrier_kind" to carrier.kindUid, "carrier_uid" to carrier.uid,
+                "carrier_rule_uid" to reading.ruleUid, "carrier_rule_version" to "1",
+                "espionage_policy_uid" to "P64:COVERT", "recipient_kind" to assignee.kindUid,
+                "recipient_uid" to assignee.uid)
+            val definition = BackgroundProcessDefinition("P64:READ_PRIVATE", 1, "INFORMATION", "ESPIONAGE", 1000,
+                parameters = fields)
+            setup(db) { initial ->
+                grant(initial, issuer, "COVERT_GRANT", "P64:COVERT", carrier)
+                SQLiteDatabase.create(null).use { world ->
+                    world.execSQL("CREATE TABLE npc_activity_definitions(rule_uid TEXT,rule_version INTEGER,contract_json TEXT)")
+                    world.execSQL("INSERT INTO npc_activity_definitions VALUES(?,?,?)",
+                        arrayOf<Any?>(reading.ruleUid, reading.version, NpcActivityContractCodec.encode(reading)))
+                    NpcActivityDefinitionImport.importPack(initial, world, campaign, binding)
+                }
+                // Real inventory custody deliberately proves possession, but no carrier stages.
+                val inventory = InventoryStore(initial, campaign)
+                inventory.registerDefinitions(binding.worldPackUid, listOf(ItemDefinition("P64:REPORT_DEF",
+                    binding.worldPackUid, "private_report", "Private report", "DOCUMENT",
+                    ItemStoragePolicy.UNIQUE_INSTANCE, provenance = "DEVICE-BOOTSTRAP")))
+                inventory.createInstance(ItemInstance(campaign, carrier.uid, "P64:REPORT_DEF", provenance = "DEVICE-BOOTSTRAP"))
+                inventory.addUnique(issuer.uid, carrier.uid, "DEVICE-BOOTSTRAP")
+                listOf(definition)
+            }
+            val evaluation = BackgroundProcessEvaluationScope(scope(db), "DEVICE", requireNotNull(Phase64BackgroundStore(db, campaign).policy()))
+            val process = BackgroundProcessInstance(processUid(definition), definition.uid, 1, issuer, 1,
+                WorldTimeTick(0), WorldTimeTick(1000))
+            val staged = listOf(BackgroundProcessChange(campaign, evaluation.temporal.historyGenerationUid,
+                0, process, WorldProcessEvidence("PRIVATE:START", process.uid, definition.uid, definition.version,
+                    listOf(carrier.uid), WorldTimeTick(0))))
+            val parameters = fields + mapOf("_p64_definition_uid" to definition.uid, "_p64_rule_version" to "1",
+                "_p64_process_uid" to process.uid, "_p64_rule_fingerprint" to evaluation.ruleFingerprint,
+                "_p64_logical_event_uid" to Phase64OrganizationsInformationAdapter.logicalEventUid(definition, process, evaluation))
+            fun capture(overlay: List<PlayerDomainChangePayload>): Phase64InstitutionEspionageCapture? {
+                val snapshot = Phase64InstitutionCarrierSnapshot(evaluation.temporal, evaluation.temporal.baseCommitOrder,
+                    setOf(issuer, assignee, carrier), reading,
+                    AccessAuthorityStore(db, campaign).effective(VisibilityPrincipalRef(issuer.kindUid, issuer.uid), 0))
+                return (Phase64InstitutionCarrierOwner.capture(issuer, parameters, evaluation, snapshot, overlay)
+                    as? Phase64InstitutionCarrierProjection.Ready)?.capture
+            }
+            fun prepare(overlay: List<PlayerDomainChangePayload>, withCapture: Boolean) = Phase64InstitutionProductionReads.prepare(
+                db, campaign, Phase64OrganizationsInformationAdapter.OWNER_ESPIONAGE, issuer, parameters, evaluation,
+                overlay, captureEspionage = if (withCapture) { _, _, _, changes -> capture(changes) } else null)
+            val before = AuthoritativeStateDigest.compute(db)
+            for (withCapture in listOf(false, true)) {
+                val blocked = prepare(staged, withCapture)
+                assertEquals("P64:ESPIONAGE_CARRIER_ACCESS_UNAVAILABLE", blocked.reasonUid)
+                assertTrue(blocked.changes.isEmpty())
+            }
+            val stages = CarrierAccessStage.entries.map { stage ->
+                AccessAuthorityChange(AccessOperation.SET_CARRIER_ACCESS, "PRIVATE:${stage.name}", issuer.kindUid,
+                    issuer.uid, AccessGrantKind.EXPLICIT.name, stage.name, carrier.kindUid, carrier.uid, validFromOrder = 0)
+            }
+            val ready = prepare(staged + stages, true)
+            assertEquals(BackgroundProcessStatus.COMPLETED, ready.status)
+            assertEquals(KnowledgeEpistemicState.BELIEVED, (ready.changes.single() as KnowledgeAcquisitionChange).acquisition.epistemicState)
+            val revoke = stages.single { it.valueUid == CarrierAccessStage.COMPREHENDED.name }
+                .copy(operation = AccessOperation.REVOKE_GRANT, recordUid = "PRIVATE:REVOKE")
+            val revoked = prepare(staged + stages + revoke, true)
+            assertEquals("P64:ESPIONAGE_CARRIER_ACCESS_UNAVAILABLE", revoked.reasonUid)
+            assertTrue(revoked.changes.isEmpty())
+            assertEquals("Evaluation cannot mutate canonical state", before, AuthoritativeStateDigest.compute(db))
+        }
+    }
+
     @Test fun realInstitutionAssignmentAdmitsDutyTimerAndDelayedReportCitesCommittedKnowledge() {
         val file = File(folder.root, "institution.db")
         SQLiteDatabase.openOrCreateDatabase(file, null).use { db ->

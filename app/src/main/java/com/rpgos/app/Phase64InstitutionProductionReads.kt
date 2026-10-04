@@ -818,7 +818,6 @@ internal object Phase64InstitutionProductionReads {
             }
             else -> {
                 val captured = captureEspionage?.invoke(actor, parameters, scope, staged)
-                    ?: possessedCarrier(db, campaign, actor, parameters, scope, actorAccess, staged)
                     ?: return backgroundBlocked("P64:ESPIONAGE_CARRIER_ACCESS_UNAVAILABLE")
                 Phase64OrganizationsInformationOwners.prepareEspionage(parameters, scope, actor, captured.access,
                     captured.carrierClaim, captured.recipientHolder, captured.sourceAcquisition)
@@ -918,29 +917,6 @@ internal object Phase64InstitutionProductionReads {
             require(it.quantityDelta.units in setOf(-1L, 1L)); held = it.quantityDelta.units == 1L
         }
         return held
-    }
-
-    private fun possessedCarrier(db: SQLiteDatabase, campaign: String, actor: DomainRef, parameters: Map<String, String>,
-        scope: BackgroundProcessEvaluationScope, accessRecords: List<AccessAuthorityRecord>, staged: List<PlayerDomainChangePayload>
-    ): Phase64InstitutionEspionageCapture? {
-        val uid = parameters["carrier_rule_uid"] ?: return null
-        val version = parameters["carrier_rule_version"]?.toIntOrNull() ?: return null
-        val reading = contract(db, campaign, uid, version)?.reading ?: return null
-        val carrier = DomainRef(backgroundRequired(parameters, "carrier_kind"), backgroundRequired(parameters, "carrier_uid"))
-        if (reading.carrier != carrier || reading.accessPolicyUid != parameters["espionage_policy_uid"] ||
-            !holds(db, campaign, actor, carrier.uid, staged)) return null
-        val authorized = ownsInstitutionalAuthority(actor, accessRecords, reading.accessPolicyUid, carrier, null, null)
-        if (!authorized) return null
-        val principal = VisibilityPrincipalRef(actor.kindUid, actor.uid)
-        val trusted = UniversalAccessAuthority(AccessAuthorityStore(db, campaign)).trustedContext(
-            AudienceContext(campaign, AudienceKinds.WORLD_ACTOR, principal), scope.temporal.baseCommitOrder) ?: return null
-        val exactCarrier = InformationCarrierRef(campaign, carrier.kindUid, carrier.uid)
-        val path = Phase38AccessRuntimeAuthority.issuePath(trusted, exactCarrier, "P64:POSSESSED_REGISTERED_CARRIER",
-            reading.fingerprint, false, CarrierAccessStage.entries.toSet())
-        val access = EffectiveAccessDecision.granted("P64:AUTHORIZED_REGISTERED_CARRIER", path, CarrierAccessStage.entries.toSet())
-        val recipient = DomainRef(backgroundRequired(parameters, "recipient_kind"), backgroundRequired(parameters, "recipient_uid"))
-        val holderKind = if (recipient.kindUid in setOf("NPC", "ACTOR", "PLAYER", "CHARACTER")) KnowledgeHolderKinds.CHARACTER else recipient.kindUid
-        return Phase64InstitutionEspionageCapture(access, reading.claim, KnowledgeHolderRef(holderKind, recipient.uid, campaign))
     }
 
     private fun expectedOwnerOperation(operation: String) = when (operation) {

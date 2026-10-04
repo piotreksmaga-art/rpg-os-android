@@ -54,6 +54,20 @@ object VisibilityConsumerInventory {
         ProtectedConsumerContract(uid, path, capability, purposes.toSet())
 
     val contracts: List<ProtectedConsumerContract> = listOf(
+        // Canonical completion owners never disclose raw captures to the model or UI.
+        // Carrier projection requires actual Phase38 stage evidence, not possession.
+        c("phase64-production-reads", "app/src/main/java/com/rpgos/app/Phase64ProductionReads.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION),
+        c("phase64-project-completion", "app/src/main/java/com/rpgos/app/Phase64ProjectCompletion.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION),
+        c("phase64-economy-production-reads", "app/src/main/java/com/rpgos/app/Phase64EconomyProductionReads.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING),
+        c("phase64-institution-production-reads", "app/src/main/java/com/rpgos/app/Phase64InstitutionProductionReads.kt", ProtectedConsumerCapability.PROJECTION_AUTHORITY,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING),
+        c("phase64-institution-rule-catalog", "app/src/main/java/com/rpgos/app/Phase64InstitutionRuleCatalog.kt", ProtectedConsumerCapability.PROJECTED_CONSUMER,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING),
+        c("phase64-organizations-information", "app/src/main/java/com/rpgos/app/Phase64OrganizationsInformation.kt", ProtectedConsumerCapability.AUTHORITY_INTERNAL,
+            VisibilityPurposeKinds.INTERNAL_SIMULATION, VisibilityPurposeKinds.WORLD_ACTOR_REASONING),
         c("phase63-native-world-projection", "app/src/main/java/com/rpgos/app/Phase63NativeCampaign.kt", ProtectedConsumerCapability.PROJECTION_DATA_SOURCE,
             VisibilityPurposeKinds.PLAYER_UI, VisibilityPurposeKinds.GAMEPLAY_NARRATION, VisibilityPurposeKinds.INTERNAL_SIMULATION),
         c("optional-world-presentation-schema", "app/src/main/java/com/rpgos/app/OptionalWorldPresentation.kt", ProtectedConsumerCapability.AUTHORITY_METADATA,

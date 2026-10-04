@@ -461,6 +461,11 @@ oraz rzeczywiste starcie Phase62/50. Próba ekspozycji po starciu potwierdza wy�
 read-only kwalifikację rzeczywistego kontaktu, nie przebieg epidemii.
 Prywatne transkrypty i failure bundles nie trafiają do wydania.
 
+Krótki skrypt obejmuje również rzeczywisty dwuturowy ruch, reopen, undo i inny
+cel przez znane połączenia Phase63. Nie uruchamia 100 tur; pełny test pozostaje
+w istniejącej bramce pamięci. Odbiór nośnika sprawdza, że posiadanie dokumentu
+nie zastępuje dowodu przeczytania, dekodowania i zrozumienia przez Phase38.
+
 ### Oddzielna instalacja odbiorowa 61–62
 
 Przy niezgodnym podpisie istniejącej instalacji nie usuwać aplikacji ani zapisów. Właściwość `-PrpgosDeviceAcceptance=true` buduje `labDebug` jako `com.rpgos.app.acceptance` i test runner `com.rpgos.app.acceptance.test/androidx.test.runner.AndroidJUnitRunner`. Skrypt hosta przyjmuje `-PackageName com.rpgos.app.acceptance`; domyślny pakiet pozostaje bez zmian. Właściwość nie zmienia publicznego release.

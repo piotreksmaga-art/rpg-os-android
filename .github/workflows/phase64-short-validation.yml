@@ -51,6 +51,7 @@ jobs:
           --tests '*Phase62NpcDecisionTest*' --tests '*TurnTransactionTest*'
           --tests '*Phase32RepositoryWideWriterSourceInventoryTest*'
           --tests '*Phase36SchemaVersioningTest*'
+          --tests '*Phase38VisibilityBoundaryTest*'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
