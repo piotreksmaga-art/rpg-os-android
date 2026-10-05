@@ -1,7 +1,9 @@
 package com.rpgos.app
 
 import android.content.Context
+import android.os.SystemClock
 import android.system.Os
+import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
@@ -23,6 +25,7 @@ class Phase55To59HundredTurnAcceptanceTest {
     fun knownRouteRoundTripReopenUndoAndDifferentDestination() = movementScenario(2, 1)
 
     private fun movementScenario(turnCount: Int, reopenAfter: Int) = runBlocking {
+        milestone("scenario-start turns=$turnCount reopen_after=$reopenAfter")
         Os.chmod(context.applicationInfo.dataDir, 0x1C0)
 
         val repository = UnifiedGameRepository(context).also { it.bootstrap() }
@@ -37,10 +40,11 @@ class Phase55To59HundredTurnAcceptanceTest {
             target: WorldLocationItem,
             durationMillis: Long = 300_000
         ): Long {
-            val playerUid = requireNotNull(repository.activePlayerRef()).playerUid
+            val started = SystemClock.elapsedRealtime()
+            milestone("turn-start=$index")
+            val before = observeTurn(repository)
             assertNotEquals("Turn #$index must really change location", target.uid,
-                repository.infrastructureEntityLocationUid(playerUid))
-            val beforeTime = repository.infrastructureTemporalRead().state.time.milliseconds
+                before.locationUid)
             val input = "Tura $index: przez ${durationMillis / 60_000} minut idę do ${target.name}."
             val outcome = app.play(input, AiCancellationSignal.NONE)
             assertTrue(
@@ -51,16 +55,18 @@ class Phase55To59HundredTurnAcceptanceTest {
             val order = requireNotNull(turn.result.receipt.commitOrder) {
                 "Turn #$index expected commit order, but commit receipt was missing (result=$turn)"
             }
-            val lastKnownOrder = repository.infrastructureLastCommitOrder()
+            val after = observeTurn(repository)
+            assertEquals("Turn #$index must preserve the active player", before.playerUid, after.playerUid)
             assertEquals(
                 "Turn #$index should be visible as repository last committed order",
                 order,
-                lastKnownOrder
+                after.commitOrder
             )
             assertEquals("Turn #$index must reach the requested place", target.uid,
-                repository.infrastructureEntityLocationUid(playerUid))
-            assertEquals("Travel must use the registered route duration", beforeTime + durationMillis,
-                repository.infrastructureTemporalRead().state.time.milliseconds)
+                after.locationUid)
+            assertEquals("Travel must use the registered route duration", before.milliseconds + durationMillis,
+                after.milliseconds)
+            milestone("turn=$index order=$order elapsed_ms=${SystemClock.elapsedRealtime() - started}")
             return order
         }
 
@@ -68,6 +74,7 @@ class Phase55To59HundredTurnAcceptanceTest {
             val activePlayer = createPlayer(repository)
             val campaignUid = activePlayer.campaignId
             val (setupOrder, locations) = prepareKnownRoutes(repository, activePlayer)
+            milestone("fixture-ready")
 
             val selection = AiModelSelection("DEVICE-CONTROLLED-100", "MODEL-1")
             val provider = movementProvider(campaignUid, locations, selection)
@@ -97,6 +104,7 @@ class Phase55To59HundredTurnAcceptanceTest {
             val reopenExpected = firstBatchOrders.takeLast(1).first()
 
             val reopenRepository = UnifiedGameRepository(context)
+            milestone("reopen-start")
             reopenRepository.setActiveCampaign(created.name)
             reopenedRepository = reopenRepository
             val reopenedApplication = ProductionGameEngineCompositionRoot(
@@ -139,6 +147,7 @@ class Phase55To59HundredTurnAcceptanceTest {
                 firstBatchOrders,
                 replayAfterReopen
             )
+            milestone("reopen-verified")
 
             val secondBatchOrders = mutableListOf<Long>()
             repeat(turnCount - reopenAfter) { index ->
@@ -174,11 +183,13 @@ class Phase55To59HundredTurnAcceptanceTest {
             )
 
             val beforeUndoGeneration = reopenRepository.infrastructureHistoryGenerationUid()
+            milestone("undo-preview-start")
             val preview = reopenRepository.previewUndoLastTurn()
             assertTrue("Undo preview must be confirmable at 100th turn, got $preview", preview.canConfirm)
             assertEquals(replayAfterSecondBatch.last(), preview.currentCommitOrder)
             assertEquals(replayAfterSecondBatch[replayAfterSecondBatch.size - 2], preview.targetCommitOrder)
 
+            milestone("undo-confirm-start")
             val undoResult = reopenRepository.confirmUndoLastTurn(preview.previewToken)
             assertTrue("Undo must complete, got $undoResult", undoResult is DestructiveUndoResult.Completed)
             val undone = undoResult as DestructiveUndoResult.Completed
@@ -209,6 +220,7 @@ class Phase55To59HundredTurnAcceptanceTest {
                 "Undo should remove the last commit from committed replay",
                 afterUndoOrders.last() < preview.currentCommitOrder
             )
+            milestone("undo-verified")
 
             assertEquals("Undo must restore the previous actual location", locations[0].uid,
                 reopenRepository.infrastructureEntityLocationUid(activePlayer.playerUid))
@@ -237,12 +249,53 @@ class Phase55To59HundredTurnAcceptanceTest {
             val finalReplay = reopenedCommitOrders(reopenRepository, setupOrder)
             assertEquals("The alternative must preserve the gameplay turn count", turnCount, finalReplay.size)
             assertEquals("After alternative branch, history should end exactly at latest alternate turn", alternateOrder, finalReplay.last())
+            milestone("alternative-verified")
         } finally {
+            milestone("cleanup-start")
             repository.closeBackgroundWorkForTest()
+            milestone("first-worker-close-returned")
             reopenedRepository?.closeBackgroundWorkForTest()
-            runCatching { LocalGameStore(context).setActiveCampaign(previousCampaign) }
-            runCatching { LocalGameStore(context).moveCampaignToTrash(created.name) }
+            milestone("reopened-worker-close-returned")
+            val restore = runCatching { LocalGameStore(context).setActiveCampaign(previousCampaign) }
+            milestone("selection-restore-returned success=${restore.isSuccess}")
+            val trash = runCatching { LocalGameStore(context).moveCampaignToTrash(created.name) }
+            milestone("cleanup-finished trash_success=${trash.isSuccess}")
         }
+    }
+
+    private data class TurnObservation(
+        val playerUid: String,
+        val locationUid: String?,
+        val milliseconds: Long,
+        val commitOrder: Long
+    )
+
+    /** Fresh, coherent observations from the same canonical owners used by the repository.
+     * Readiness is still verified; no handle or lock survives into app.play/Undo. The time
+     * assertion needs the owner clock, not an additional full-database scope digest. */
+    private fun observeTurn(repository: UnifiedGameRepository): TurnObservation {
+        val campaignUid = repository.activeCampaignRef().campaignId
+        return CampaignRuntimeLifecycleLock.withTurn(campaignUid) {
+            LocalGameStore(context).openGameplaySaveDb().use { db ->
+                check(repository.activeCampaignRef().campaignId == campaignUid)
+                val playerUid = requireNotNull(ActivePlayerStore(db, campaignUid).active()).playerUid
+                val locationUid = db.rawQuery(
+                    "SELECT location_uid FROM entity_positions WHERE entity_uid=? LIMIT 1",
+                    arrayOf(playerUid)
+                ).use { cursor ->
+                    if (cursor.moveToFirst() && !cursor.isNull(0))
+                        cursor.getString(0)?.takeIf(String::isNotBlank) else null
+                }
+                TurnObservation(playerUid, locationUid,
+                    Phase60TemporalStateStore(db, campaignUid).read().time.milliseconds,
+                    TurnTransactionReceiptStore(db).lastValidCommit(campaignUid)?.commitOrder ?: 0L)
+            }
+        }
+    }
+
+    /** Only counters/stage names, never inputs, narration or private campaign records. */
+    private fun milestone(stage: String) {
+        Log.i("RPGOS100Acceptance", "elapsed_ms=${SystemClock.elapsedRealtime()} $stage")
     }
 
     private fun reopenedCommitOrders(repository: UnifiedGameRepository, setupOrder: Long): List<Long> =
