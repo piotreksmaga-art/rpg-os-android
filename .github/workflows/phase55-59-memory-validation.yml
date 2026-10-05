@@ -139,6 +139,10 @@ jobs:
       - name: Run Phase55-59 device and 100-turn acceptance
         # The APK includes the native Vulkan backend even for controlled-provider tests.
         run: sudo apt-get update && sudo apt-get install -y glslc spirv-headers ninja-build
+      - name: Compile exact device APKs before booting the emulator
+        # Avoid native/Kotlin compilation competing with the running emulator. The
+        # connected task still owns installation, execution and all test assertions.
+        run: gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest -PrpgosEmulatorX86=true --stacktrace
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -152,7 +156,17 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: gradle --no-daemon :app:connectedDebugAndroidTest -PrpgosEmulatorX86=true -Pandroid.testInstrumentationRunnerArguments.class=com.rpgos.app.Phase55To59DeviceAcceptanceTest,com.rpgos.app.Phase55To59HundredTurnAcceptanceTest --stacktrace
+          script: bash tools/run-memory-device-acceptance.sh
+      - name: Upload device acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase55-59-device-${{ matrix.api-level }}-${{ github.sha }}
+          path: |
+            app/build/outputs/androidTest-results/**
+            app/build/reports/androidTests/**
+          if-no-files-found: warn
+          retention-days: 14
 
   release-isolation:
     if: github.event_name != 'pull_request' || github.head_ref != 'codex/phase63-complete'
