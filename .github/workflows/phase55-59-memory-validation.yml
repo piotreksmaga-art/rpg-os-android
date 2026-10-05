@@ -110,8 +110,49 @@ jobs:
           VARIANTS_RESULT: ${{ needs.full-jvm-variant.result }}
         run: test "$VARIANTS_RESULT" = success
 
+  device-apks:
+    if: github.event_name != 'pull_request' || github.head_ref != 'codex/phase63-complete'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Verify exact source SHA
+        run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - run: sudo apt-get update && sudo apt-get install -y glslc spirv-headers ninja-build
+      - name: Build device APKs once for both APIs and partitions
+        run: gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest -PrpgosEmulatorX86=true --stacktrace
+      - name: Bind APK artifacts to exact source and bytes
+        shell: bash
+        run: |
+          cd app/build/outputs/apk
+          printf '%s\n' '${{ github.sha }}' > acceptance-source-sha.txt
+          sha256sum debug/app-debug.apk androidTest/debug/app-debug-androidTest.apk > acceptance-apks.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase55-59-device-apks-${{ github.sha }}
+          path: app/build/outputs/apk/
+          if-no-files-found: error
+          retention-days: 14
+
   android-acceptance:
     if: github.event_name != 'pull_request' || github.head_ref != 'codex/phase63-complete'
+    # A failed/missing original short case must block the existing acceptance
+    # check, not leave a misleading green 100-turn-only required status.
+    needs: [device-apks, android-device-contract]
     runs-on: ubuntu-latest
     timeout-minutes: 75
     strategy:
@@ -136,19 +177,23 @@ jobs:
           gradle-version: '9.5.0'
       - name: Verify exact source SHA
         run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
-      - name: Run Phase55-59 device and 100-turn acceptance
-        # The APK includes the native Vulkan backend even for controlled-provider tests.
-        run: sudo apt-get update && sudo apt-get install -y glslc spirv-headers ninja-build
-      - name: Compile exact device APKs before booting the emulator
-        # Avoid native/Kotlin compilation competing with the running emulator. The
-        # connected task still owns installation, execution and all test assertions.
-        run: gradle --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest -PrpgosEmulatorX86=true --stacktrace
+      - uses: actions/download-artifact@v4
+        with:
+          name: phase55-59-device-apks-${{ github.sha }}
+          path: app/build/outputs/apk/
+      - name: Verify source and checksums before installation
+        shell: bash
+        run: |
+          read -r acceptance_source < app/build/outputs/apk/acceptance-source-sha.txt
+          test "$acceptance_source" = '${{ github.sha }}'
+          cd app/build/outputs/apk
+          sha256sum -c acceptance-apks.sha256
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Run Phase55-59 device and 100-turn acceptance
+      - name: Run the complete 100-turn acceptance
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
@@ -156,12 +201,75 @@ jobs:
           profile: pixel_2
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash tools/run-memory-device-acceptance.sh
+          script: bash tools/run-memory-device-acceptance.sh hundred
       - name: Upload device acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: phase55-59-device-${{ matrix.api-level }}-${{ github.sha }}
+          path: |
+            app/build/outputs/androidTest-results/**
+            app/build/reports/androidTests/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  android-device-contract:
+    if: github.event_name != 'pull_request' || github.head_ref != 'codex/phase63-complete'
+    needs: device-apks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [28, 36]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;29.0.14206865" "cmake;3.31.6"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+      - name: Verify exact source SHA
+        run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+      - uses: actions/download-artifact@v4
+        with:
+          name: phase55-59-device-apks-${{ github.sha }}
+          path: app/build/outputs/apk/
+      - name: Verify source and checksums before installation
+        shell: bash
+        run: |
+          read -r acceptance_source < app/build/outputs/apk/acceptance-source-sha.txt
+          test "$acceptance_source" = '${{ github.sha }}'
+          cd app/build/outputs/apk
+          sha256sum -c acceptance-apks.sha256
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run the other two original device cases
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash tools/run-memory-device-acceptance.sh contracts
+      - name: Upload device contract evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase55-59-device-contract-${{ matrix.api-level }}-${{ github.sha }}
           path: |
             app/build/outputs/androidTest-results/**
             app/build/reports/androidTests/**
